@@ -145,6 +145,49 @@ spec:
               value: {{ .Values.fleet.networkPolicy.dnsNamespace | quote }}
             {{- end }}
             {{- end }}
+            # Retention job (CLOACINA-T-1023).
+            - name: CLOACINA_RUN_HISTORY_RETENTION_DAYS
+              value: {{ .Values.retention.runHistoryDays | int64 | quote }}
+            - name: CLOACINA_OUTBOX_ACKED_RETENTION_S
+              value: {{ .Values.retention.outboxAckedSeconds | int64 | quote }}
+            - name: CLOACINA_RETENTION_INTERVAL_S
+              value: {{ .Values.retention.intervalSeconds | int64 | quote }}
+            # Time limits of fleet tasks and graph firings (CLOACINA-T-1014).
+            - name: CLOACINA_FLEET_TASK_TIMEOUT_S
+              value: {{ .Values.fleetTaskTimeLimits.defaultSeconds | int64 | quote }}
+            - name: CLOACINA_FLEET_TASK_TIMEOUT_MAX_S
+              value: {{ .Values.fleetTaskTimeLimits.maxSeconds | int64 | quote }}
+            {{- if or .Values.alertWebhook.url .Values.alertWebhook.urlSecretRef.name }}
+            # Alert webhook (CLOACINA-T-1024). Rendered only when a URL is set.
+            - name: CLOACINA_ALERT_WEBHOOK_URL
+              {{- if .Values.alertWebhook.urlSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.alertWebhook.urlSecretRef.name }}
+                  key: {{ .Values.alertWebhook.urlSecretRef.key }}
+              {{- else }}
+              value: {{ .Values.alertWebhook.url | quote }}
+              {{- end }}
+            {{- with .Values.alertWebhook.events }}
+            - name: CLOACINA_ALERT_WEBHOOK_EVENTS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            - name: CLOACINA_ALERT_WEBHOOK_TIMEOUT_S
+              value: {{ .Values.alertWebhook.timeoutSeconds | int64 | quote }}
+            - name: CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS
+              value: {{ .Values.alertWebhook.maxAttempts | int64 | quote }}
+            {{- if .Values.alertWebhook.publicBaseUrl }}
+            - name: CLOACINA_PUBLIC_BASE_URL
+              value: {{ .Values.alertWebhook.publicBaseUrl | quote }}
+            {{- end }}
+            {{- if .Values.alertWebhook.secretRef.name }}
+            - name: CLOACINA_ALERT_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.alertWebhook.secretRef.name }}
+                  key: {{ .Values.alertWebhook.secretRef.key }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -33,7 +33,6 @@
 //!   and double-running a firing is worse than reporting it failed.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use cloacina::cloacina_computation_graph::{GraphError, GraphResult};
 use cloacina::computation_graph::graph_executor::{GraphExecutor, GraphFireEvent};
@@ -51,9 +50,7 @@ use tracing::{debug, info, warn};
 use crate::agent_registry::{AgentRegistry, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
-/// Max wall-clock to wait for an agent's graph result before reporting the
-/// firing failed. Matches the task path's conservative cap.
-const GRAPH_RESULT_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
+use crate::fleet_executor::{FleetTaskTimeLimits, TaskTimeLimit};
 
 pub struct FleetGraphExecutor {
     dal: cloacina::dal::DAL,
@@ -66,6 +63,56 @@ pub struct FleetGraphExecutor {
     /// Registry handle for resolving a graph's owning package by surface
     /// name at fire time (`find_package_for_surface("reactor", …)`).
     registry: WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    /// The time limit of a firing (CLOACINA-T-1039): the server's default
+    /// fleet task time limit. A graph has no limit of its own, so every
+    /// firing gets the default. The packet carries it, and the server waits
+    /// for the result that long plus the grace of the task path.
+    time_limit: TaskTimeLimit,
+}
+
+/// The time limit of a graph firing under the server's fleet time limits: the
+/// default limit, the one a task with no limit of its own gets.
+fn graph_time_limit(limits: &FleetTaskTimeLimits) -> TaskTimeLimit {
+    limits.limit_for(None)
+}
+
+/// The packet of one firing. `time_limit` is what the agent is told and what
+/// the server's result wait is built from.
+#[allow(clippy::too_many_arguments)]
+fn graph_work_packet(
+    firing_id: UniversalUuid,
+    graph_name: &str,
+    tenant_id: Option<String>,
+    cache: std::collections::HashMap<String, String>,
+    digest: String,
+    build_target_triple: String,
+    language: String,
+    time_limit: TaskTimeLimit,
+) -> GraphWorkPacket {
+    GraphWorkPacket {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        firing_id: firing_id.0.to_string(),
+        graph_name: graph_name.to_string(),
+        cache,
+        artifact: ArtifactRef {
+            fetch_url: format!("/v1/agent/artifact/{}", digest),
+            digest,
+            build_target_triple,
+        },
+        timeout_seconds: time_limit.seconds,
+        tenant_id,
+        language: Some(language),
+        // CLOACI-T-0861 / D-5 — DOCUMENTED SEAM (graph-FFI path). Unlike the
+        // per-task path (fully wired in `fleet_executor.rs` step 3d), a
+        // whole-graph firing has no per-task `Context` seam on the agent
+        // (`process_graph_packet` executes via FFI `execute_graph(cache)` with
+        // no `Context::secret` accessor to attach a resolver to). The one-time
+        // key POOL, consume, and wrap mechanism are all in place — wiring this
+        // path needs an agent-side graph secrets accessor first. Until then a
+        // graph firing carries no secrets. AAD would use `firing_id`.
+        wrapped_secrets: Vec::new(),
+        secret_key_id: None,
+    }
 }
 
 impl FleetGraphExecutor {
@@ -84,7 +131,15 @@ impl FleetGraphExecutor {
             coordinator,
             delivery_wake,
             registry,
+            time_limit: graph_time_limit(&FleetTaskTimeLimits::default()),
         }
+    }
+
+    /// Set the fleet time limits (`--fleet-task-timeout-s`,
+    /// `--fleet-task-timeout-max-s`). A firing gets the default limit.
+    pub fn with_task_time_limits(mut self, time_limits: FleetTaskTimeLimits) -> Self {
+        self.time_limit = graph_time_limit(&time_limits);
+        self
     }
 
     /// Attempt fleet dispatch. `Err(reason)` = pre-dispatch failure — the
@@ -195,30 +250,16 @@ impl FleetGraphExecutor {
         let firing_id = UniversalUuid::new_v4();
         let rx = self.coordinator.register_pending(firing_id);
 
-        let packet = GraphWorkPacket {
-            protocol_version: AGENT_PROTOCOL_VERSION,
-            firing_id: firing_id.0.to_string(),
-            graph_name: fire.graph_name.clone(),
+        let packet = graph_work_packet(
+            firing_id,
+            &fire.graph_name,
+            fire.tenant_id.clone(),
             cache,
-            artifact: ArtifactRef {
-                fetch_url: format!("/v1/agent/artifact/{}", digest),
-                digest,
-                build_target_triple: agent.target_triple.clone(),
-            },
-            timeout_seconds: 300,
-            tenant_id: fire.tenant_id.clone(),
-            language: Some(language),
-            // CLOACI-T-0861 / D-5 — DOCUMENTED SEAM (graph-FFI path). Unlike the
-            // per-task path (fully wired in `fleet_executor.rs` step 3d), a
-            // whole-graph firing has no per-task `Context` seam on the agent
-            // (`process_graph_packet` executes via FFI `execute_graph(cache)` with
-            // no `Context::secret` accessor to attach a resolver to). The one-time
-            // key POOL, consume, and wrap mechanism are all in place — wiring this
-            // path needs an agent-side graph secrets accessor first. Until then a
-            // graph firing carries no secrets. AAD would use `firing_id`.
-            wrapped_secrets: Vec::new(),
-            secret_key_id: None,
-        };
+            digest,
+            agent.target_triple.clone(),
+            language,
+            self.time_limit,
+        );
         let payload = serde_json::to_vec(&packet).map_err(|e| {
             self.coordinator.cancel(firing_id);
             format!("serialize GraphWorkPacket: {e}")
@@ -244,7 +285,10 @@ impl FleetGraphExecutor {
 
         // 6. Await the agent's result. POST-dispatch failures do NOT fall
         //    back (the agent may have run — or still be running — the graph).
-        match tokio::time::timeout(GRAPH_RESULT_WAIT_TIMEOUT, rx).await {
+        //    The wait is the firing's time limit plus the grace of the task
+        //    path (CLOACINA-T-1039).
+        let result_wait = self.time_limit.result_wait();
+        match tokio::time::timeout(result_wait, rx).await {
             Ok(Ok(result)) => match result.outcome {
                 AgentOutcome::Success { context } => {
                     // The agent reports terminal outputs as a JSON array under
@@ -290,7 +334,7 @@ impl FleetGraphExecutor {
                 Ok(GraphResult::error(GraphError::NodeExecution(format!(
                     "fleet graph result wait exceeded {}s (agent {}) — NOT re-running \
                      in-process to avoid a double execution",
-                    GRAPH_RESULT_WAIT_TIMEOUT.as_secs(),
+                    result_wait.as_secs(),
                     agent_id
                 ))))
             }
@@ -312,5 +356,56 @@ impl GraphExecutor for FleetGraphExecutor {
                 (fire.in_process)(fire.snapshot).await
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fleet_executor::RESULT_WAIT_GRACE;
+    use std::time::Duration;
+
+    fn packet_with(limits: &FleetTaskTimeLimits) -> GraphWorkPacket {
+        graph_work_packet(
+            UniversalUuid::new_v4(),
+            "pricing",
+            Some("acme".to_string()),
+            std::collections::HashMap::new(),
+            "abc123".to_string(),
+            "x86_64-unknown-linux-gnu".to_string(),
+            "rust".to_string(),
+            graph_time_limit(limits),
+        )
+    }
+
+    #[test]
+    fn graph_packet_carries_the_configured_default_limit() {
+        let limits = FleetTaskTimeLimits::from_seconds(900, 3600).unwrap();
+        let packet = packet_with(&limits);
+        assert_eq!(packet.timeout_seconds, 900);
+        assert_eq!(packet.graph_name, "pricing");
+        assert_eq!(packet.artifact.fetch_url, "/v1/agent/artifact/abc123");
+        // The wire form the agent reads holds the same value.
+        let wire: serde_json::Value =
+            serde_json::from_slice(&serde_json::to_vec(&packet).unwrap()).unwrap();
+        assert_eq!(wire["timeout_seconds"], 900);
+    }
+
+    #[test]
+    fn graph_packet_with_no_setting_carries_the_server_default() {
+        let packet = packet_with(&FleetTaskTimeLimits::default());
+        assert_eq!(
+            u64::from(packet.timeout_seconds),
+            FleetTaskTimeLimits::DEFAULT_SECONDS
+        );
+    }
+
+    #[test]
+    fn the_result_wait_is_the_limit_plus_the_grace() {
+        let limits = FleetTaskTimeLimits::from_seconds(900, 3600).unwrap();
+        assert_eq!(
+            graph_time_limit(&limits).result_wait(),
+            Duration::from_secs(900) + RESULT_WAIT_GRACE
+        );
     }
 }

@@ -1291,7 +1291,10 @@ pub async fn run(
                     fleet_coordinator.clone(),
                     delivery_wake.clone(),
                     registry,
-                );
+                )
+                // CLOACINA-T-1039: a graph firing gets the server's default
+                // fleet time limit, like a task that sets none.
+                .with_task_time_limits(fleet_task_time_limits);
                 state
                     .graph_scheduler
                     .set_graph_executor(Arc::new(graph_fleet))

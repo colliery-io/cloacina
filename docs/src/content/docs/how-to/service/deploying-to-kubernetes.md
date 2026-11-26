@@ -109,6 +109,9 @@ cert-manager users can wire issuance via the standard
 | `server.requireSignatures` | `false` | Reject unsigned packages |
 | `server.verificationOrgId` | `""` | Trusted org UUID (required when signatures are required) |
 | `server.tenantRunnerCacheSize` | `256` | LRU cap on per-tenant `DefaultRunner` instances |
+| `retention.runHistoryDays` | `0` | Days to keep a finished run; `0` keeps run history for ever. See [Run history retention](../production-deployment/#run-history-retention) |
+| `fleetTaskTimeLimits.defaultSeconds` / `.maxSeconds` | `300` / `86400` | Time limits of fleet tasks |
+| `alertWebhook.url`, `alertWebhook.secretRef` | `""` | Alert webhook and its signing secret from a Secret. See [Alert on a Failed Run](../alert-on-a-failed-run/) |
 
 See `values.yaml` for the full reference.
 

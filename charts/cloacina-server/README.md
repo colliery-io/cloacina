@@ -57,6 +57,18 @@ The chart fails fast if you don't configure exactly one of:
 | `metrics.port` | `9090` | Port of the metrics listener |
 | `metrics.networkPolicy.enabled` | `false` | NetworkPolicy for the server pods: API port open, metrics port open only to `from` |
 | `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the metrics port |
+| `retention.runHistoryDays` | `0` | Days to keep a finished run; `0` keeps run history for ever (`CLOACINA_RUN_HISTORY_RETENTION_DAYS`) |
+| `retention.outboxAckedSeconds` | `3600` | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever (`CLOACINA_OUTBOX_ACKED_RETENTION_S`) |
+| `retention.intervalSeconds` | `300` | Seconds between passes of the retention job (`CLOACINA_RETENTION_INTERVAL_S`) |
+| `fleetTaskTimeLimits.defaultSeconds` | `300` | Time limit of a fleet task that sets none, and of a graph firing on the fleet (`CLOACINA_FLEET_TASK_TIMEOUT_S`) |
+| `fleetTaskTimeLimits.maxSeconds` | `86400` | Longest time limit a fleet task can get (`CLOACINA_FLEET_TASK_TIMEOUT_MAX_S`) |
+| `alertWebhook.url` | `""` | URL that gets a JSON `POST` when a run ends; empty = off (`CLOACINA_ALERT_WEBHOOK_URL`) |
+| `alertWebhook.urlSecretRef.name` / `.key` | `""` / `url` | Existing Secret that holds the URL; used in place of `alertWebhook.url` |
+| `alertWebhook.events` | `[failed]` | Run outcomes that send an alert: `failed`, `completed`, `cancelled`, `all` (`CLOACINA_ALERT_WEBHOOK_EVENTS`) |
+| `alertWebhook.timeoutSeconds` | `10` | Seconds allowed for one request (`CLOACINA_ALERT_WEBHOOK_TIMEOUT_S`) |
+| `alertWebhook.maxAttempts` | `8` | The most sends of one alert (`CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS`) |
+| `alertWebhook.publicBaseUrl` | `""` | Public URL of the server, for the links in an alert (`CLOACINA_PUBLIC_BASE_URL`) |
+| `alertWebhook.secretRef.name` / `.key` | `""` / `secret` | Existing Secret that holds the signing secret (`CLOACINA_ALERT_WEBHOOK_SECRET`) |
 | `livenessProbe`/`readinessProbe`/`startupProbe` | `/v1/health` HTTP probes | Override or disable per probe |
 
 See [`values.yaml`](./values.yaml) for the full reference.
@@ -105,6 +117,50 @@ and a ClusterIP Service `<fullname>-metrics`. The NetworkPolicy keeps the
 API port open to every source, opens the metrics port only to the peers
 in `from` (nobody when the list is empty), and refuses every other
 ingress to the server pods.
+
+## Retention, time limits and alerts
+
+The chart sets these server settings as environment variables on the
+server Deployment. Each default is the server's own, so an install with
+no values behaves as the binary does.
+
+```yaml
+retention:
+  runHistoryDays: 30        # 0 (the default) keeps run history for ever
+  outboxAckedSeconds: 3600
+  intervalSeconds: 300
+
+fleetTaskTimeLimits:
+  defaultSeconds: 300       # a task with no limit of its own; a graph firing
+  maxSeconds: 86400
+
+alertWebhook:
+  url: https://alerts.example.com/hook
+  events: [failed]
+  publicBaseUrl: https://cloacina.example.com
+  secretRef:                # the signing secret, from an existing Secret
+    name: cloacina-alerts
+    key: secret
+```
+
+The retention and time limit variables are always rendered. The alert
+variables are rendered only when a URL is set, by `alertWebhook.url` or
+by `alertWebhook.urlSecretRef`.
+
+The signing secret has no plain value in the chart. Create the Secret and
+name it in `alertWebhook.secretRef`:
+
+```sh
+kubectl create secret generic cloacina-alerts \
+  --from-literal=secret="$(openssl rand -hex 32)"
+```
+
+A webhook URL that holds a token belongs in a Secret too. Put it under a
+key of a Secret and set `alertWebhook.urlSecretRef.name` and `.key` in
+place of `alertWebhook.url`.
+
+`server.extraEnv` is rendered after these variables. An entry there with
+the same name takes the place of the chart's value.
 
 ## Upgrades
 

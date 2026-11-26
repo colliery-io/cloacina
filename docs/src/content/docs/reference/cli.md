@@ -182,6 +182,17 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
                         [--tenant-runner-cache-size <N>]
                         [--tenant-deletion-drain-timeout-s <N>]
                         [--log-retention-days <N>]
+                        [--default-executor <KEY>]
+                        [--run-history-retention-days <N>]
+                        [--outbox-acked-retention-s <N>]
+                        [--retention-interval-s <N>]
+                        [--fleet-task-timeout-s <N>]
+                        [--fleet-task-timeout-max-s <N>]
+                        [--alert-webhook-url <URL>]
+                        [--alert-webhook-events <LIST>]
+                        [--alert-webhook-timeout-s <N>]
+                        [--alert-webhook-max-attempts <N>]
+                        [--public-base-url <URL>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -199,23 +210,33 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 This subcommand was renamed from `serve` in an earlier release; older
 docs may still mention the old name.
 
-Retention of run history in the database is set on the `cloacina-server`
-binary, by flag or environment variable (the wrapper passes the environment
-through): `--run-history-retention-days` /
-`CLOACINA_RUN_HISTORY_RETENTION_DAYS` (default `0`, off),
-`--outbox-acked-retention-s` / `CLOACINA_OUTBOX_ACKED_RETENTION_S` (default
-`3600`) and `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S`
-(default `300`). See
+Retention of run history in the database has three settings:
+`--run-history-retention-days` / `CLOACINA_RUN_HISTORY_RETENTION_DAYS`
+(default `0`, off), `--outbox-acked-retention-s` /
+`CLOACINA_OUTBOX_ACKED_RETENTION_S` (default `3600`) and
+`--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S` (default `300`).
+See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
+
+`server start` takes the retention settings, the
+[fleet time limits](#fleet-agent-liveness-cloacina-server) and the
+[alert webhook settings](#alert-webhook-cloacina-server) in three ways: a
+flag, the env var of the setting, or a key of `[server]` in `config.toml`
+with the flag's name in snake case (for example
+`fleet_task_timeout_s = 600`). The order is flag, env var, `config.toml`.
+A setting that none of them gives is not forwarded, and the server uses its
+own default. The alert webhook URL goes to the server as the env var
+`CLOACINA_ALERT_WEBHOOK_URL`, not as an argument. The signing secret
+`CLOACINA_ALERT_WEBHOOK_SECRET` is an env var only; the server inherits it.
 
 `server start` **execs the `cloacina-server` binary from `PATH`**
 (after writing `<home>/server.pid`). The install script installs only
 `cloacinactl` — if `cloacina-server` is not separately installed
 (container image or cargo), `server start` fails with "failed to exec
-cloacina-server". The wrapper resolves `database_url` and
-`[server].default_executor` from `config.toml` and forwards them as
-flags; other runtime-tuning knobs are not surfaced through the wrapper
-— if you need to tune them, invoke `cloacina-server` directly.
+cloacina-server". The wrapper resolves `database_url` and the keys of
+`[server]` from `config.toml` and forwards them; other runtime-tuning
+knobs are not surfaced through the wrapper — if you need to tune them,
+invoke `cloacina-server` directly.
 
 ### Default executor (`cloacinactl server start` + `cloacina-server`)
 
@@ -232,18 +253,18 @@ an unknown key fails fast.
 
 ### Fleet agent liveness (`cloacina-server`)
 
-These flags tune the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). They live on the `cloacina-server` binary directly (and via the env vars below); the `cloacinactl server start` wrapper does **not** forward them, so set them on `cloacina-server` itself or through the environment.
+These flags tune the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). They live on the `cloacina-server` binary directly (and via the env vars below). The `cloacinactl server start` wrapper forwards the two time limits (`--fleet-task-timeout-s`, `--fleet-task-timeout-max-s`, or `[server].fleet_task_timeout_s` and `[server].fleet_task_timeout_max_s` in `config.toml`). It does **not** forward the two liveness flags, so set them on `cloacina-server` itself or through the environment.
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--agent-heartbeat-interval-s <N>` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Heartbeat interval (seconds) advertised to agents and used as the liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, more heartbeat traffic. CLOACI-T-0639. |
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
-| `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. CLOACINA-T-1014. |
+| `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own, and of a graph firing sent to an agent. CLOACINA-T-1014. |
 | `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
 
 ### Alert webhook (`cloacina-server`)
 
-These flags send a JSON `POST` when a run ends. They live on the `cloacina-server` binary directly (and via the env vars below); `cloacinactl server start` has no flags for them, but the server it starts reads the env vars. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/).
+These flags send a JSON `POST` when a run ends. They live on the `cloacina-server` binary (and via the env vars below). `cloacinactl server start` takes the same flags and env vars, and the keys `alert_webhook_url`, `alert_webhook_events`, `alert_webhook_timeout_s`, `alert_webhook_max_attempts` and `public_base_url` of `[server]` in `config.toml`. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/).
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
@@ -681,6 +702,17 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 # Server settings read by `cloacinactl server start`.
 [server]
 default_executor = "default"        # "default" (in-process) or "fleet"
+# Optional. A key that is not set is not forwarded: the server default applies.
+# run_history_retention_days = 30   # 0 keeps run history for ever
+# outbox_acked_retention_s = 3600
+# retention_interval_s = 300
+# fleet_task_timeout_s = 300
+# fleet_task_timeout_max_s = 86400
+# alert_webhook_url = "https://alerts.example.com/hook"
+# alert_webhook_events = ["failed"]
+# alert_webhook_timeout_s = 10
+# alert_webhook_max_attempts = 8
+# public_base_url = "https://cloacina.example.com"
 ```
 
 ## Profile Resolution

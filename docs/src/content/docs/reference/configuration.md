@@ -47,9 +47,11 @@ command-line flags (most also accept an environment variable). The
 
 The server binary has **no config file** of its own — flags and
 environment variables are the whole surface. `~/.cloacina/config.toml`
-belongs to `cloacinactl`, whose `server start` resolves
-`[server].default_executor` and `database_url` from it and forwards
-them as flags. The one subcommand is `cloacina-server emit-openapi`,
+belongs to `cloacinactl`, whose `server start` resolves `database_url`
+and the keys of the [`[server]` section](#server-section) from it and
+forwards them to the server. The Helm chart `cloacina-server` sets the
+retention, fleet time limit and alert webhook settings from its values
+`retention.*`, `fleetTaskTimeLimits.*` and `alertWebhook.*`. The one subcommand is `cloacina-server emit-openapi`,
 which prints the OpenAPI 3.1 document to stdout without needing a
 database.
 
@@ -294,12 +296,33 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 |---|---|---|
 | `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
 
+| `server.run_history_retention_days` | not set | Days to keep a finished run; `0` keeps run history for ever. Forwarded as `--run-history-retention-days`. |
+| `server.outbox_acked_retention_s` | not set | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever. Forwarded as `--outbox-acked-retention-s`. |
+| `server.retention_interval_s` | not set | Seconds between passes of the retention job. Forwarded as `--retention-interval-s`. |
+| `server.fleet_task_timeout_s` | not set | Time limit (seconds) of a fleet task that sets none of its own, and of a graph firing on the fleet. Forwarded as `--fleet-task-timeout-s`. |
+| `server.fleet_task_timeout_max_s` | not set | Longest time limit (seconds) a fleet task can get. Forwarded as `--fleet-task-timeout-max-s`. |
+| `server.alert_webhook_url` | not set | URL that gets a JSON `POST` when a run ends. Forwarded as the env var `CLOACINA_ALERT_WEBHOOK_URL`, not as an argument, because the URL can hold a token. |
+| `server.alert_webhook_events` | `[]` | Run outcomes that send an alert: `failed`, `completed`, `cancelled`, or `all`. An empty list is not forwarded. Forwarded as `--alert-webhook-events`. |
+| `server.alert_webhook_timeout_s` | not set | Seconds allowed for one alert request. Forwarded as `--alert-webhook-timeout-s`. |
+| `server.alert_webhook_max_attempts` | not set | The most sends of one alert. Forwarded as `--alert-webhook-max-attempts`. |
+| `server.public_base_url` | not set | Public URL of the server, for the links in an alert. Forwarded as `--public-base-url`. |
+
+A key that is not set is not forwarded, and the server uses its own default
+(see [Server flags](#server-flags-cloacina-server)). The signing secret of the
+alert webhook has no key: set the env var `CLOACINA_ALERT_WEBHOOK_SECRET`, which
+the server started by `cloacinactl server start` inherits.
+
 ```toml
 [server]
 default_executor = "fleet"
+run_history_retention_days = 30
+fleet_task_timeout_s = 600
+alert_webhook_url = "https://alerts.example.com/hook"
+alert_webhook_events = ["failed", "cancelled"]
+public_base_url = "https://cloacina.example.com"
 ```
 
-Overrides for ad-hoc/direct runs use `cloacina-server --default-executor <key>`, `cloacinactl server start --default-executor <key>`, or `CLOACINA_DEFAULT_EXECUTOR=<key>`. Precedence: explicit CLI/env > `config.toml` `[server].default_executor` > built-in `default`.
+Each key has a flag of the same name on `cloacinactl server start` (for example `--default-executor <key>`, `--fleet-task-timeout-s <N>`) and the env var of the server setting (for example `CLOACINA_DEFAULT_EXECUTOR`, `CLOACINA_FLEET_TASK_TIMEOUT_S`). Precedence: flag > env var > `config.toml` `[server]` > the server's default.
 
 ## Environment Variables
 

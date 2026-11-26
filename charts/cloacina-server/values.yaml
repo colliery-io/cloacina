@@ -236,6 +236,77 @@ reactorAffinity:
   enabled: false
 
 # ---------------------------------------------------------------------------
+# Retention job (CLOACINA-T-1023)
+#
+# A background job on the server deletes old rows from the database. The
+# defaults are the server's own.
+# ---------------------------------------------------------------------------
+retention:
+  # Days to keep a finished run (Completed, Failed or Cancelled), counted from
+  # when it finished. 0 keeps run history for ever: set a period to turn the
+  # deletes on. Runs that are not finished are never deleted.
+  # CLOACINA_RUN_HISTORY_RETENTION_DAYS.
+  runHistoryDays: 0
+  # Seconds to keep a delivery_outbox row after it was acked. 0 keeps the rows
+  # for ever. CLOACINA_OUTBOX_ACKED_RETENTION_S.
+  outboxAckedSeconds: 3600
+  # Seconds between passes of the job. CLOACINA_RETENTION_INTERVAL_S.
+  intervalSeconds: 300
+
+# ---------------------------------------------------------------------------
+# Time limits of fleet tasks (CLOACINA-T-1014)
+#
+# Apply to tasks that run on execution agents, and to graph firings sent to
+# an agent. The defaults are the server's own. The server does not start when
+# defaultSeconds is above maxSeconds or either is 0.
+# ---------------------------------------------------------------------------
+fleetTaskTimeLimits:
+  # Time limit (seconds) of a task that sets none of its own, and of a graph
+  # firing. CLOACINA_FLEET_TASK_TIMEOUT_S.
+  defaultSeconds: 300
+  # Longest time limit (seconds) a task can get; a task that asks for more
+  # gets this value. CLOACINA_FLEET_TASK_TIMEOUT_MAX_S.
+  maxSeconds: 86400
+
+# ---------------------------------------------------------------------------
+# Alert webhook (CLOACINA-T-1024)
+#
+# The server sends a JSON POST to a URL when a run ends. Off until a URL is
+# set, by `url` or by `urlSecretRef`. The other values are rendered only when
+# a URL is set.
+# ---------------------------------------------------------------------------
+alertWebhook:
+  # Plaintext URL (CLOACINA_ALERT_WEBHOOK_URL), for example
+  # https://alerts.example.com/hook. A URL that holds a token belongs in a
+  # Secret: use urlSecretRef.
+  url: ""
+  # Name and key of an existing Secret that holds the URL. Used in place of
+  # `url` when name is set.
+  urlSecretRef:
+    name: ""
+    key: url
+  # Run outcomes that send an alert: failed, completed, cancelled, or all.
+  # CLOACINA_ALERT_WEBHOOK_EVENTS.
+  events:
+    - failed
+  # Seconds allowed for one request. CLOACINA_ALERT_WEBHOOK_TIMEOUT_S.
+  timeoutSeconds: 10
+  # The most sends of one alert before it is dropped.
+  # CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS.
+  maxAttempts: 8
+  # Public URL of this server, for example https://cloacina.example.com. Used
+  # for the absolute links in an alert; empty = the alert holds paths only.
+  # CLOACINA_PUBLIC_BASE_URL.
+  publicBaseUrl: ""
+  # Name and key of an existing Secret that holds the signing secret
+  # (CLOACINA_ALERT_WEBHOOK_SECRET). When name is set, each request carries
+  # the header X-Cloacina-Signature. The chart takes the secret only from a
+  # Secret, never as a plain value.
+  secretRef:
+    name: ""
+    key: secret
+
+# ---------------------------------------------------------------------------
 # Ingress
 # ---------------------------------------------------------------------------
 ingress:
