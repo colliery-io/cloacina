@@ -49,6 +49,7 @@ pub mod agent_desired;
 pub mod agent_limits;
 #[cfg(feature = "postgres")]
 pub mod api_keys;
+pub mod audit_events;
 pub mod checkpoint;
 pub mod context;
 pub mod delivery_outbox;
@@ -83,6 +84,7 @@ pub use agent_desired::AgentDesiredDAL;
 pub use agent_limits::AgentLimitsDAL;
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
+pub use audit_events::{AuditEvent, AuditEventDAL, AuditEventFilter, NewAuditEvent};
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
@@ -256,6 +258,12 @@ impl DAL {
     /// substrate (durable, ack-tracked, recipient-addressed push delivery).
     pub fn delivery_outbox(&self) -> DeliveryOutboxDAL<'_> {
         DeliveryOutboxDAL::new(self)
+    }
+
+    /// Returns the audit-event DAL (CLOACINA-T-1024): who did what, when, in
+    /// which tenant. Use it on the admin database.
+    pub fn audit_events(&self) -> AuditEventDAL<'_> {
+        AuditEventDAL::new(self)
     }
 
     /// Returns a fleet-agent roster DAL (register/heartbeat state persisted

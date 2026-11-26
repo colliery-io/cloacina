@@ -238,6 +238,28 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Audit record (CLOACINA-T-1024): who did what, when, in which
+        /// tenant. Lives in the admin schema with a tenant column. `detail`
+        /// is a small JSON object; it never holds a secret or a payload.
+        audit_events (id) {
+            id -> BigInt,
+            created_at -> DbTimestamp,
+            tenant_id -> Nullable<Text>,
+            actor_key_id -> Text,
+            actor_key_name -> Text,
+            actor_identity -> Nullable<Text>,
+            action -> Text,
+            target_kind -> Text,
+            target -> Nullable<Text>,
+            outcome -> Text,
+            detail -> Text,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         /// Execution-agent fleet roster (CLOACI-T-0916). DB-backed so
         /// register/heartbeat state, same-tenant selection, capacity views and
         /// dead-agent reclaim are correct across server replicas. Reads are

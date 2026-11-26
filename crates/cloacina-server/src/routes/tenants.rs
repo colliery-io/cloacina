@@ -35,6 +35,7 @@ use cloacina_api_types::{
 use std::time::Instant;
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
@@ -124,6 +125,16 @@ pub async fn create_tenant(
             // response to prevent credential leakage (SEC-08). The caller should
             // supply their own password via the request body, or retrieve it
             // through a secure channel.
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&credentials.schema_name),
+                AuditEvent::ok(
+                    audit_record::actions::TENANT_CREATE,
+                    credentials.schema_name.as_str(),
+                ),
+            )
+            .await;
             (
                 StatusCode::CREATED,
                 Json(TenantCreatedResponse {
@@ -259,6 +270,14 @@ pub async fn remove_tenant(
                 db_cache_evicted = db_evicted,
                 "tenant teardown complete"
             );
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&schema_name),
+                AuditEvent::ok(audit_record::actions::TENANT_DELETE, schema_name.as_str())
+                    .detail(serde_json::json!({ "revoked_keys": revoked_count })),
+            )
+            .await;
             Json(TenantRemovedResponse {
                 status: "removed".to_string(),
                 schema_name,

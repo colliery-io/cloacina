@@ -35,6 +35,7 @@ use cloacina_api_types::{
 };
 
 use crate::AppState;
+use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
@@ -180,8 +181,26 @@ pub async fn upload_workflow(
         }
     };
 
+    let (content_hash, size_bytes) = (
+        audit::package_content_hash(&package_data),
+        package_data.len(),
+    );
     match registry.register_workflow_package(package_data).await {
         Ok(package_id) => {
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&tenant_id),
+                AuditEvent::ok(
+                    audit_record::actions::PACKAGE_UPLOAD,
+                    package_id.to_string(),
+                )
+                .detail(
+                    audit_record::upload_detail(&registry, package_id, content_hash, size_bytes)
+                        .await,
+                ),
+            )
+            .await;
             info!(
                 "Uploaded workflow package for tenant '{}': {}",
                 tenant_id, package_id
@@ -242,9 +261,12 @@ pub async fn list_workflows(
 
     match registry.list_workflows().await {
         Ok(workflows) => {
+            let ids = workflows.iter().map(|w| w.id.to_string()).collect();
+            let uploaders = audit_record::package_uploaders(&state, &tenant_id, ids).await;
             let items: Vec<WorkflowSummary> = workflows
                 .into_iter()
                 .map(|w| WorkflowSummary {
+                    uploaded_by: uploaders.get(&w.id.to_string()).cloned(),
                     id: w.id.to_string(),
                     package_name: w.package_name,
                     workflow_name: w.workflow_name,
@@ -311,6 +333,12 @@ pub async fn get_workflow(
         match registry.inspect_package_by_id(pkg_id).await {
             Ok(Some(ins)) => {
                 return Json(WorkflowDetail {
+                    uploaded_by: audit_record::package_uploader(
+                        &state,
+                        &tenant_id,
+                        ins.metadata.id.to_string(),
+                    )
+                    .await,
                     tenant_id,
                     id: ins.metadata.id.to_string(),
                     package_name: ins.metadata.package_name,
@@ -362,6 +390,12 @@ pub async fn get_workflow(
                     // addition to success).
                     match registry.inspect_package_by_id(w.id).await {
                         Ok(Some(ins)) => Json(WorkflowDetail {
+                            uploaded_by: audit_record::package_uploader(
+                                &state,
+                                &tenant_id,
+                                ins.metadata.id.to_string(),
+                            )
+                            .await,
                             tenant_id,
                             id: ins.metadata.id.to_string(),
                             package_name: ins.metadata.package_name,
@@ -572,6 +606,14 @@ pub async fn delete_workflow(
                 "Deleted workflow '{}' v{} for tenant '{}'",
                 name, version, tenant_id
             );
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&tenant_id),
+                AuditEvent::ok(audit_record::actions::PACKAGE_DELETE, name.as_str())
+                    .detail(serde_json::json!({ "version": version })),
+            )
+            .await;
             Json(WorkflowDeletedResponse {
                 status: "deleted".to_string(),
                 package_name: name,
@@ -678,6 +720,19 @@ async fn set_workflow_paused(
                 name,
                 tenant_id
             );
+            let action = if pause {
+                audit_record::actions::WORKFLOW_PAUSE
+            } else {
+                audit_record::actions::WORKFLOW_RESUME
+            };
+            audit_record::record(
+                &state,
+                &_auth,
+                Some(&tenant_id),
+                AuditEvent::ok(action, name.as_str())
+                    .detail(serde_json::json!({ "package_id": id.to_string() })),
+            )
+            .await;
             Json(WorkflowPauseResponse {
                 tenant_id,
                 id: id.to_string(),
@@ -837,6 +892,9 @@ pub async fn activate_workflow_version(
                 "Activated version {} of package '{}' for tenant '{}'",
                 version, name, tenant_id
             );
+            let detail = serde_json::json!({ "version": version, "package_id": id.to_string() });
+            let event = AuditEvent::ok(audit_record::actions::PACKAGE_ACTIVATE, name.as_str());
+            audit_record::record(&state, &_auth, Some(&tenant_id), event.detail(detail)).await;
             Json(WorkflowVersionActivatedResponse {
                 tenant_id,
                 id: id.to_string(),
