@@ -15,7 +15,8 @@ command-line flags (most also accept an environment variable). The
 
 | Flag | Env var | Default | Purpose |
 |------|---------|---------|---------|
-| `--bind` | — | `127.0.0.1:8080` | HTTP listen address. Set `0.0.0.0:8080` to accept remote connections (containers, behind a proxy). The server exposes a **single** HTTP port. |
+| `--bind` | — | `127.0.0.1:8080` | HTTP listen address. Set `0.0.0.0:8080` to accept remote connections (containers, behind a proxy). The server exposes a **single** HTTP port unless `--metrics-bind` is set. |
+| `--metrics-bind` | `CLOACINA_METRICS_BIND` | — | Address of a separate listener for `/metrics` (for example `0.0.0.0:9090`). When set, `/metrics` is served only there and the main listener answers 404 for it. When not set, `/metrics` stays on `--bind` with no authentication. |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |

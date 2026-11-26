@@ -1229,6 +1229,7 @@ mod tests {
         CompilerConfig {
             home: home.to_path_buf(),
             bind: "127.0.0.1:0".parse::<SocketAddr>().expect("parse bind"),
+            metrics_bind: None,
             database_url: "unused-in-this-test".to_string(),
             verbose: false,
             poll_interval: Duration::from_secs(1),

@@ -40,6 +40,13 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind: SocketAddr,
 
+    /// Address of a separate listener for `/metrics` (for example
+    /// `0.0.0.0:9090`). When set, `/metrics` is served only there and the main
+    /// listener answers 404 for it. When not set, `/metrics` stays on `--bind`
+    /// with no authentication. CLOACINA-T-1025.
+    #[arg(long, env = "CLOACINA_METRICS_BIND")]
+    metrics_bind: Option<SocketAddr>,
+
     /// Database URL (overrides DATABASE_URL env var). Required to run the
     /// server; not needed for `emit-openapi`.
     #[arg(long, env = "DATABASE_URL")]
@@ -199,6 +206,7 @@ async fn main() -> Result<()> {
     cloacina_server::run(
         cli.home,
         cli.bind,
+        cli.metrics_bind,
         database_url,
         cli.verbose,
         cli.bootstrap_key,

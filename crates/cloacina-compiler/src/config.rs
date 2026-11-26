@@ -45,6 +45,9 @@ pub struct BuildRlimits {
 pub struct CompilerConfig {
     pub home: PathBuf,
     pub bind: SocketAddr,
+    /// CLOACINA-T-1025: when set, `/metrics` is served only on this address
+    /// and `bind` answers 404 for it. `None` keeps `/metrics` on `bind`.
+    pub metrics_bind: Option<SocketAddr>,
     pub database_url: String,
     /// CLOACI-T-0779: when set, scope this compiler to a single tenant's Postgres
     /// schema for build isolation (claims/builds only that tenant's packages).

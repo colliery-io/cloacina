@@ -127,7 +127,7 @@ curl -s http://localhost:8080/health | jq
 
 ### Readiness: GET /ready
 
-Returns 200 if the server can acquire a database connection from the pool. Returns 503 with a `reason` field (`database unreachable`) otherwise.
+Returns 200 if the server can acquire a database connection from the pool and the embedded Python runtime is usable. Returns 503 with a `reason` field otherwise: `database unreachable`, or `python runtime unavailable; restart required`. The reason is a fixed string; the package that wedged the Python runtime is named in the server log only.
 
 Readiness is scoped to **platform health only**. Tenant workload health — for example a crashed computation graph from a bad package — deliberately does *not* fail `/ready`: with multiple replicas behind a load balancer, a single crashed graph would otherwise eject every replica from the pool simultaneously. Crashed graphs remain visible via `GET /v1/health/graphs` (and the `cloacina_component_health` metric).
 
@@ -140,6 +140,16 @@ curl -s http://localhost:8080/ready | jq
 ```
 
 Use `/health` for container liveness probes and `/ready` for load balancer readiness checks.
+
+### Metrics on a separate address
+
+`/metrics` has no authentication. By default it is on the same address as the API, so every client that can reach the API can read it. To serve it somewhere else:
+
+```bash
+cloacina-server --bind 0.0.0.0:8080 --metrics-bind 127.0.0.1:9090
+```
+
+`/metrics` is then served only on `127.0.0.1:9090`, and `0.0.0.0:8080/metrics` answers 404. The env var is `CLOACINA_METRICS_BIND`; `cloacinactl server start` has no flag for it, but the server it starts reads the env var. Without `--metrics-bind` nothing changes.
 
 ## Production Configuration
 

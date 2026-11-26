@@ -55,6 +55,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | `--database-url` | None | Database connection URL |
 | `CLOACINA_BOOTSTRAP_KEY` | `--bootstrap-key` | None | Bootstrap admin API key |
+| `CLOACINA_METRICS_BIND` | `--metrics-bind` | None | Address of a separate listener for `/metrics`. When set, the main listener answers 404 for `/metrics` |
 | `CLOACINA_REQUIRE_SIGNATURES` | `--require-signatures` | off | Signature enforcement toggle |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
@@ -266,7 +267,7 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is 
 
 ### Prometheus Metrics
 
-The server (and `cloacina-compiler`) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog](../metrics-catalog/).
+The server (and `cloacina-compiler`) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. By default `/metrics` is on the main listener with no authentication; set `CLOACINA_METRICS_BIND` (server) or `CLOACINA_COMPILER_METRICS_BIND` (compiler) to serve it only on a separate address. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog](../metrics-catalog/).
 
 The top-of-mind metrics for operators:
 

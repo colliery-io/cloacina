@@ -342,6 +342,9 @@ fn validate_security_args(
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,
+    // CLOACINA-T-1025: when set, `/metrics` is served only on this address and
+    // the main listener answers 404 for it. `None` keeps `/metrics` on `bind`.
+    metrics_bind: Option<SocketAddr>,
     database_url: String,
     verbose: bool,
     bootstrap_key: Option<String>,
@@ -1585,7 +1588,8 @@ pub async fn run(
 
     // Build router; CORS (when enabled) wraps everything, including
     // preflight OPTIONS for the /v1 nest.
-    let app = build_router(state);
+    let metrics_handle_for_listener = state.metrics_handle.clone();
+    let app = build_router_with(state, metrics_bind.is_none());
     let app = match cors_layer {
         Some(layer) => {
             info!("CORS enabled for origins: {:?}", cors.allowed_origins);
@@ -1598,12 +1602,28 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("Failed to bind to {}", bind))?;
+    // CLOACINA-T-1025: the metrics listener binds before the server reports
+    // itself running, so a bad `--metrics-bind` fails start-up.
+    let metrics_listener = match metrics_bind {
+        Some(addr) => Some(
+            tokio::net::TcpListener::bind(addr)
+                .await
+                .with_context(|| format!("Failed to bind the metrics listener to {}", addr))?,
+        ),
+        None => None,
+    };
 
     info!("");
     info!("API server is running on http://{}", bind);
     info!("  GET  /health     — liveness check");
     info!("  GET  /ready      — readiness check");
-    info!("  GET  /metrics    — Prometheus metrics");
+    match metrics_bind {
+        Some(addr) => info!(
+            "  GET  /metrics    — Prometheus metrics, only on http://{}",
+            addr
+        ),
+        None => info!("  GET  /metrics    — Prometheus metrics"),
+    }
     info!("  POST /v1/auth/keys      — create API key (auth required)");
     info!("  GET  /v1/auth/keys      — list API keys (auth required)");
     info!("  DEL  /v1/auth/keys/:id  — revoke key (auth required)");
@@ -1615,6 +1635,21 @@ pub async fn run(
     // Start supervision loop — auto-restart crashed accumulator/reactor tasks
     let _supervision_handle = scheduler_for_shutdown
         .start_supervision(shutdown_rx.clone(), std::time::Duration::from_secs(5));
+
+    if let Some(listener) = metrics_listener {
+        let mut rx = shutdown_rx.clone();
+        let router = metrics_router(metrics_handle_for_listener);
+        tokio::spawn(async move {
+            let served = axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.changed().await;
+                })
+                .await;
+            if let Err(e) = served {
+                warn!("metrics listener exited with error: {}", e);
+            }
+        });
+    }
 
     let scheduler_handle = {
         let scheduler = scheduler_for_shutdown.clone();
@@ -1851,7 +1886,32 @@ mod embedded_ui_tests {
     }
 }
 
+/// The main router with `/metrics` on it: the behaviour when no
+/// `--metrics-bind` is given.
+#[cfg(test)]
 fn build_router(state: AppState) -> Router {
+    build_router_with(state, true)
+}
+
+/// The router of the metrics listener (`--metrics-bind`, CLOACINA-T-1025):
+/// `/metrics` and nothing else. It needs no `AppState`, so no route here can
+/// reach the database or a tenant.
+fn metrics_router(handle: metrics_exporter_prometheus::PrometheusHandle) -> Router {
+    Router::new()
+        .route(
+            "/metrics",
+            get(move || {
+                let handle = handle.clone();
+                async move { render_metrics(&handle) }
+            }),
+        )
+        .fallback(fallback_404)
+}
+
+/// Build the main router. `serve_metrics` is false when a separate metrics
+/// listener is on: `/metrics` then answers 404 here (an explicit route, so the
+/// embedded UI fallback never answers for it).
+fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
     use axum::{
         extract::DefaultBodyLimit, middleware, routing::delete, routing::post, routing::put,
     };
@@ -2229,7 +2289,14 @@ fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
-        .route("/metrics", get(metrics))
+        .route(
+            "/metrics",
+            if serve_metrics {
+                get(metrics)
+            } else {
+                axum::routing::any(fallback_404)
+            },
+        )
         // Machine-readable API contract (CLOACI-T-0643 / REQ-001). Same
         // document the `emit-openapi` subcommand writes to disk.
         .route(
@@ -2323,13 +2390,32 @@ async fn health() -> impl IntoResponse {
     tag = "operational",
     responses(
         (status = 200, description = "Ready — DB reachable and the embedded Python runtime is usable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."),
-        (status = 503, description = "Not ready — `reason` field explains (database unreachable, or the embedded Python runtime is wedged by a package import hang and this process must be restarted)"),
+        (status = 503, description = "Not ready — `reason` is one of two fixed strings: `database unreachable`, or `python runtime unavailable; restart required` (the embedded Python runtime is wedged and this process must be restarted). The package that wedged it is named in the server log only."),
     )
 )]
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
     let db_ready = state.database.get_postgres_connection().await.is_ok();
 
+    // PLATFORM predicate, not workload: this process's embedded interpreter is
+    // unusable and only a restart fixes it (CLOACI-T-0919).
+    let wedged = cloacina::python_runtime::python_runtime_wedged_reason();
+    ready_response(db_ready, wedged.as_deref())
+}
+
+/// The `reason` `/ready` gives when the embedded Python runtime is wedged.
+/// Fixed text: `/ready` has no auth, and the real reason names a tenant's
+/// package (CLOACINA-T-1025).
+const READY_REASON_PYTHON_WEDGED: &str = "python runtime unavailable; restart required";
+
+/// The `/ready` answer for a given platform state. `python_wedged` is the
+/// detailed reason from the runtime; it never goes into the body. The runtime
+/// logs it at error level when the wedge happens
+/// (`cloacina::python_runtime::mark_python_runtime_wedged`).
+fn ready_response(
+    db_ready: bool,
+    python_wedged: Option<&str>,
+) -> (StatusCode, Json<serde_json::Value>) {
     if !db_ready {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2337,12 +2423,11 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
 
-    // PLATFORM predicate, not workload: this process's embedded interpreter is
-    // unusable and only a restart fixes it (CLOACI-T-0919).
-    if let Some(reason) = cloacina::python_runtime::python_runtime_wedged_reason() {
+    if let Some(detail) = python_wedged {
+        tracing::debug!(detail = %detail, "/ready: not ready, python runtime wedged");
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"status": "not ready", "reason": reason})),
+            Json(serde_json::json!({"status": "not ready", "reason": READY_REASON_PYTHON_WEDGED})),
         );
     }
 
@@ -2351,7 +2436,15 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 
 /// GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
-    let body = state.metrics_handle.render();
+    render_metrics(&state.metrics_handle)
+}
+
+/// The Prometheus text exposition, shared by the main listener's `/metrics`
+/// and the metrics listener.
+fn render_metrics(
+    handle: &metrics_exporter_prometheus::PrometheusHandle,
+) -> axum::response::Response {
+    let body = handle.render();
     (
         StatusCode::OK,
         [(
@@ -2360,6 +2453,7 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         )],
         body,
     )
+        .into_response()
 }
 
 /// Fallback for unmatched routes — returns the canonical `ApiError`
@@ -2874,10 +2968,138 @@ mod tests {
             "a wedged python runtime must fail readiness (body: {body})"
         );
         assert_eq!(body["status"], "not ready");
-        assert_eq!(
-            body["reason"], "python runtime wedged by package hostile-loop import hang",
-            "the reason must name the package that wedged the interpreter"
+        // CLOACINA-T-1025: `/ready` has no auth, so the package name stays in
+        // the server log and the body carries a fixed reason.
+        assert_eq!(body["reason"], READY_REASON_PYTHON_WEDGED);
+        assert!(
+            !body.to_string().contains("hostile-loop"),
+            "/ready must not name the package (body: {body})"
         );
+    }
+
+    // ── CLOACINA-T-1025: metrics listener, generic /ready reason ──────────
+
+    /// A recorder that is not installed globally: enough to render `/metrics`,
+    /// and it needs no database.
+    fn detached_metrics_handle() -> metrics_exporter_prometheus::PrometheusHandle {
+        metrics_exporter_prometheus::PrometheusBuilder::new()
+            .build_recorder()
+            .handle()
+    }
+
+    /// The metrics listener serves `/metrics` in the Prometheus text format.
+    /// No database.
+    #[tokio::test]
+    async fn metrics_listener_serves_metrics() {
+        let app = metrics_router(detached_metrics_handle());
+        let req = axum::http::Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        assert!(
+            content_type.starts_with("text/plain"),
+            "got content type {content_type}"
+        );
+    }
+
+    /// The metrics listener serves nothing but `/metrics`: the API, the probes
+    /// and the spec all answer 404 there. No database.
+    #[tokio::test]
+    async fn metrics_listener_serves_nothing_else() {
+        for path in [
+            "/",
+            "/health",
+            "/ready",
+            "/openapi.json",
+            "/v1/auth/keys",
+            "/v1/tenants/acme/workflows",
+            "/metrics/extra",
+        ] {
+            let app = metrics_router(detached_metrics_handle());
+            let req = axum::http::Request::builder()
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let (status, body) = send_request(app, req).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "path {path}");
+            assert_eq!(
+                body["error"], "no route matches this request",
+                "path {path}"
+            );
+        }
+    }
+
+    /// `/ready` gives a fixed reason when the Python runtime is wedged, and the
+    /// package name in the detail is not in the body. No database.
+    #[test]
+    fn ready_response_does_not_name_the_package() {
+        let (status, Json(body)) = ready_response(
+            true,
+            Some("python runtime wedged by package hostile-loop import hang"),
+        );
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"], "not ready");
+        assert_eq!(body["reason"], READY_REASON_PYTHON_WEDGED);
+        assert!(!body.to_string().contains("hostile-loop"), "body: {body}");
+    }
+
+    /// The other two `/ready` answers are unchanged. No database.
+    #[test]
+    fn ready_response_database_and_ready_cases() {
+        let (status, Json(body)) = ready_response(false, None);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["reason"], "database unreachable");
+
+        // The database is checked first, as before.
+        let (_, Json(body)) = ready_response(false, Some("detail"));
+        assert_eq!(body["reason"], "database unreachable");
+
+        let (status, Json(body)) = ready_response(true, None);
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ready");
+        assert!(body.get("reason").is_none());
+    }
+
+    /// With the metrics listener on, the main listener answers 404 for
+    /// `/metrics` and still serves `/health`. Needs Postgres (`test_state`).
+    #[tokio::test]
+    #[serial]
+    async fn main_listener_returns_404_for_metrics_when_metrics_listener_is_on() {
+        let state = test_state().await;
+
+        let req = axum::http::Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(build_router_with(state.clone(), false), req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "no route matches this request");
+
+        let req = axum::http::Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send_request(build_router_with(state.clone(), false), req).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Without the metrics listener the main listener keeps `/metrics`.
+        let req = axum::http::Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let response = build_router_with(state, true)
+            .oneshot(req)
+            .await
+            .expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     // ── CLOACI-T-0916: multi-replica truthfulness ─────────────────────────

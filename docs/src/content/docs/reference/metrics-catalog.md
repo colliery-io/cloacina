@@ -8,7 +8,9 @@ sidebar:
 Both `cloacina-server` and `cloacina-compiler` expose metrics in the
 standard Prometheus text exposition format at `GET /metrics`. Both
 endpoints are public (no auth) so Prometheus can scrape them without
-credential management.
+credential management. By default `/metrics` is on each binary's main
+listener; `--metrics-bind` on either binary serves it only on a separate
+address, and the main listener then answers 404 for it.
 
 `cloacinactl daemon` does **not** expose `/metrics` — it's a
 hobbyist-tier local process per ADR-0005 (Deployment-Mode Trust

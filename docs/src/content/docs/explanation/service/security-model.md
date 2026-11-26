@@ -265,7 +265,11 @@ The Prometheus `/metrics` endpoint and the `/health` + `/ready` probes are **una
 - **In favor:** no credential management on the scraping path; standard Prometheus deployment shape works out of the box; health probes work with off-the-shelf Kubernetes / load-balancer tooling.
 - **Against:** metric values are observable side channels. From `cloacina_workflows_total{status="completed"}` an outside observer can infer whether a tenant is active and roughly how much work it's doing. Similar for `cloacina_active_tasks`.
 
-Deployments where this is unacceptable should terminate `/metrics` at the reverse proxy and require client-cert auth (or IP allowlisting) there. Cloacina does not enforce this in the server — putting the auth boundary at the proxy keeps the server's posture predictable and matches the most common scraping deployment shape.
+By default `/metrics` is on the API port. Every client that can reach the API can read it, and that includes each tenant's execution agents. Metric labels hold names that tenants choose (graphs, reactors, accumulators, sources), so one tenant's code can read another tenant's names.
+
+Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer: in Kubernetes the chart values `metrics.enabled=true` and `metrics.networkPolicy.enabled=true` add the port, a ClusterIP Service for it and a NetworkPolicy that admits only the peers you list. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
+
+`/ready` gives a fixed `reason` (`database unreachable`, or `python runtime unavailable; restart required`). The package that wedged the Python runtime is named in the server log only.
 
 ## See also
 

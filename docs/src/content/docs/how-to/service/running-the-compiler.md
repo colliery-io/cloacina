@@ -264,7 +264,7 @@ grep '"event_type":"compiler.build.finished"' /var/log/cloacina/compiler.log \
 
 ## Observability
 
-`cloacina-compiler` exposes a `/metrics` Prometheus endpoint on the same port as `/health` and `/v1/status` (default `127.0.0.1:9000`). The relevant counters/histograms/gauges are documented in the [Metrics Catalog](../../../reference/metrics-catalog/#compiler-metrics) — `cloacina_compiler_builds_total{status}`, `cloacina_compiler_queue_depth{state}`, `cloacina_compiler_sweep_resets_total`, `cloacina_compiler_build_duration_seconds`.
+`cloacina-compiler` exposes a `/metrics` Prometheus endpoint on the same port as `/health` and `/v1/status` (default `127.0.0.1:9000`). With `--metrics-bind <ADDR>` (env `CLOACINA_COMPILER_METRICS_BIND`) it is served only on that address, and the `--bind` listener answers 404 for `/metrics`. The relevant counters/histograms/gauges are documented in the [Metrics Catalog](../../../reference/metrics-catalog/#compiler-metrics) — `cloacina_compiler_builds_total{status}`, `cloacina_compiler_queue_depth{state}`, `cloacina_compiler_sweep_resets_total`, `cloacina_compiler_build_duration_seconds`.
 
 Daily-rotated structured logs land in `~/.cloacina/logs/cloacina-compiler.log`. Retention is controlled by `--log-retention-days <N>` (default 14, `0` disables pruning). The same flag is supported on `cloacinactl daemon start` and `cloacinactl server start` for symmetry across the three deployables.
 
