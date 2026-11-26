@@ -24,6 +24,7 @@ pub mod actuator;
 pub mod agent_registry;
 pub mod alerts;
 pub mod autoscaler;
+pub mod db_wait;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
@@ -376,6 +377,9 @@ pub async fn run(
     cors: CorsConfig,
     // Retention of run history and acked outbox rows (CLOACINA-T-1023).
     retention: retention::RetentionConfig,
+    // CLOACINA-T-1035: how long to wait at start for the database to accept
+    // a connection. Zero means one try.
+    database_wait_timeout: std::time::Duration,
 ) -> Result<()> {
     // Validate CORS config before any heavy startup work.
     let cors_layer = cors.layer()?;
@@ -797,6 +801,25 @@ pub async fn run(
     // fails closed with a clear error.
     let admin_database =
         cloacina::Database::new(&database_url, "cloacina", runner_config.db_pool_size());
+    // CLOACINA-T-1035: on a fresh install Postgres can come up after the
+    // server. Wait for a connection, with backoff, before the migrations.
+    // The HTTP listener binds later, so nothing answers `/ready` meanwhile.
+    db_wait::wait_until_connected(
+        database_wait_timeout,
+        db_wait::Backoff::default(),
+        || async {
+            admin_database
+                .get_postgres_connection()
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        },
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("{e}");
+        anyhow::anyhow!(e)
+    })?;
     admin_database
         .run_migrations()
         .await

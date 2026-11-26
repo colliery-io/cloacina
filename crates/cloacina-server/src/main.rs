@@ -236,6 +236,14 @@ struct Cli {
     #[arg(long, env = "CLOACINA_PUBLIC_BASE_URL")]
     public_base_url: Option<String>,
 
+    /// Seconds to wait at start for the database to accept a connection.
+    /// The server tries again with a growing delay (0.5 s, doubling, at most
+    /// 5 s) and logs each wait. After this time it exits with an error.
+    /// `0` means one try and no wait. The migrations run after the first
+    /// connection. CLOACINA-T-1035.
+    #[arg(long, env = "CLOACINA_DATABASE_WAIT_TIMEOUT_S", default_value_t = 60)]
+    database_wait_timeout_s: u64,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -336,6 +344,7 @@ async fn main() -> Result<()> {
             cli.outbox_acked_retention_s,
             cli.retention_interval_s,
         ),
+        std::time::Duration::from_secs(cli.database_wait_timeout_s),
     )
     .await
 }
