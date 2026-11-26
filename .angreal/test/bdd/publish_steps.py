@@ -515,8 +515,14 @@ def s8_run_probe(world):
         "other_secret": LEDGER_SECRET,
         "own_digest": world.scratch.get("probe_own_hash", ""),
         "own_secret": TEAM_A_SECRET,
-        "database_host": f"{world.release}-postgresql",
+        "own_tenant": TEAM_A,
+        # The agent runs in its tenant's namespace: name the service in full.
+        "database_host": f"{world.release}-postgresql.{world.ns}.svc.cluster.local",
         "database_port": 5432,
+        "metrics_url": f"http://{world.release}-cloacina-server.{world.ns}.svc.cluster.local:8080/metrics",
+        "other_namespace": world.tenant_namespace(TEAM_B),
+        "internet_host": "1.1.1.1",
+        "internet_port": 443,
         "needles": [TEAM_B, "team-b-only", LEDGER_SECRET],
     }
     exec_id = _run_workflow(world, TEAM_A, PROBE_WORKFLOW, key=world.keys[TEAM_A], context=context)

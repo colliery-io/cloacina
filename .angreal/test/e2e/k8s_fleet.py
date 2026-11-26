@@ -100,6 +100,10 @@ def _check_tool(tool, hint):
         sys.exit(2)
 
 
+# No Homebrew is assumed: the helm binary comes from get.helm.sh.
+HELM_HINT = "download the helm binary from https://get.helm.sh and put it on $PATH"
+
+
 def _compose(args, project, env=None):
     base = ["docker", "compose", "-f", str(COMPOSE_FILE), "-p", project]
     return _run(base + args, env=env)
@@ -339,12 +343,16 @@ def bring_up_cluster(project, hostdir, compose_env, kubeconfig, reuse=False):
 
 def helm_deploy_server(kubeconfig, hostdir, tag, agent_ref, *, release=RELEASE,
                        ns=NS, bootstrap_secret=BOOTSTRAP_SECRET,
-                       bootstrap_key=BOOTSTRAP_KEY, reuse=False):
+                       bootstrap_key=BOOTSTRAP_KEY, reuse=False, values_text=None,
+                       helm_args=()):
     """Create the server namespace + bootstrap secret and helm-install the
     server with `fleet.actuator=kubernetes` (real chart RBAC).
 
     With `reuse=True` an existing deployment is left in place (idempotent
     `helm upgrade --install`, namespace/secret creation tolerated-if-present).
+
+    `values_text` replaces the default values of this lane (`_server_values`);
+    `helm_args` are passed on to helm as they are (for example `--set k=v`).
     """
     if reuse:
         existing = _run(["helm", "status", release, "-n", ns],
@@ -363,11 +371,12 @@ def helm_deploy_server(kubeconfig, hostdir, tag, agent_ref, *, release=RELEASE,
                   f"--from-literal=bootstrap-key={bootstrap_key}"], kubeconfig)
 
     values = hostdir / "values.yaml"
-    values.write_text(_server_values(tag, agent_ref, bootstrap_secret))
+    values.write_text(values_text if values_text is not None
+                      else _server_values(tag, agent_ref, bootstrap_secret))
     helm_verb = ["upgrade", "--install"] if reuse else ["install"]
     try:
         _run(["helm", *helm_verb, release, str(CHART_DIR), "-n", ns,
-              "-f", str(values), "--wait", "--timeout=8m"],
+              "-f", str(values), *helm_args, "--wait", "--timeout=8m"],
              env=_kube_env(kubeconfig))
     except subprocess.CalledProcessError:
         _dump_diag(kubeconfig, "helm install failed")
@@ -417,7 +426,7 @@ def start_port_forward(kubeconfig, release=RELEASE, ns=NS, port=FWD_PORT):
 def k8s_fleet(no_cleanup=False, skip_build=False, agents="2", tag="k8s-e2e"):
     _check_tool("docker", "install Docker Desktop or colima")
     _check_tool("kubectl", "sudo port install kubectl")
-    _check_tool("helm", "sudo port install kubernetes-helm")
+    _check_tool("helm", HELM_HINT)
 
     n_agents = int(agents)
     project = f"cloacina-k8s-e2e-{uuid.uuid4().hex[:8]}"

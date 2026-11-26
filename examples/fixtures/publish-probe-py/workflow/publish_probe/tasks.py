@@ -15,6 +15,10 @@ What to try comes from the execution context:
 - `own_digest`, `own_secret`: the same for this team, as controls. A control
   that fails says the attempt itself is broken, not that the wall holds.
 - `database_host`, `database_port`: where the orchestrator's database listens.
+- `metrics_url`: the orchestrator's metrics page.
+- `other_namespace`: the Kubernetes namespace of the other team's agents.
+- `internet_host`, `internet_port`: a public address, to see if the task can
+  reach the internet.
 - `needles`: strings that name the other team's things, to look for in the
   environment and on disk.
 
@@ -26,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -44,6 +49,7 @@ ORCHESTRATOR_CREDENTIALS = (
     "PGPASSWORD",
 )
 SERVICE_ACCOUNT_TOKEN = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+KUBERNETES_API = "https://kubernetes.default.svc"
 MAX_FILES = 3000
 MAX_CONTENT_BYTES = 262144
 
@@ -105,6 +111,83 @@ def _http_status(server, key, path):
     except Exception as exc:  # noqa: BLE001
         return {"path": path, "status": None, "error": exc.__class__.__name__}
 
+
+def _plain_status(url, token=None):
+    """GET a URL with no cloacina key (and a bearer token when given). Status
+    and size only. Certificates are not checked: this asks "can I reach it"."""
+    request = urllib.request.Request(url)
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    try:
+        unverified = ssl._create_unverified_context()
+        with urllib.request.urlopen(request, timeout=5, context=unverified) as response:
+            return {"url": url, "status": response.status, "bytes": len(response.read())}
+    except urllib.error.HTTPError as exc:
+        return {"url": url, "status": exc.code, "bytes": 0}
+    except Exception as exc:  # noqa: BLE001
+        return {"url": url, "status": None, "error": exc.__class__.__name__}
+
+
+def _kubernetes(own_namespace_hint, other_namespace):
+    """What the pod's service account can do in the Kubernetes API. Status
+    codes only; the token itself is never reported."""
+    token = None
+    try:
+        with open(SERVICE_ACCOUNT_TOKEN, "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+    except Exception:  # noqa: BLE001
+        token = None
+    own_namespace = own_namespace_hint
+    try:
+        with open(SERVICE_ACCOUNT_TOKEN.replace("token", "namespace"), "r", encoding="utf-8") as handle:
+            own_namespace = handle.read().strip()
+    except Exception:  # noqa: BLE001
+        pass
+    out = {
+        "token_readable": bool(token),
+        "own_namespace": own_namespace,
+        "version_no_token": _plain_status(f"{KUBERNETES_API}/version"),
+    }
+    if token:
+        out["list_namespaces"] = _plain_status(f"{KUBERNETES_API}/api/v1/namespaces", token)
+        if own_namespace:
+            out["own_namespace_secrets"] = _plain_status(
+                f"{KUBERNETES_API}/api/v1/namespaces/{own_namespace}/secrets", token)
+        if other_namespace:
+            out["other_namespace_secrets"] = _plain_status(
+                f"{KUBERNETES_API}/api/v1/namespaces/{other_namespace}/secrets", token)
+            out["other_namespace_pods"] = _plain_status(
+                f"{KUBERNETES_API}/api/v1/namespaces/{other_namespace}/pods", token)
+    return out
+
+
+def _filesystem():
+    """What this process can see and write on its disk. Names and counts only."""
+    out = {"uid": os.getuid(), "cwd": os.getcwd()}
+    writable = []
+    for path in ("/", "/tmp", "/home/cloacina", "/usr/local/bin", "/etc",
+                 os.environ.get("CLOACINA_AGENT_CACHE_DIR", "")):
+        if path and os.access(path, os.W_OK):
+            writable.append(path)
+    out["writable"] = writable
+    cache = os.environ.get("CLOACINA_AGENT_CACHE_DIR", "")
+    try:
+        out["agent_cache_entries"] = len(os.listdir(cache)) if cache else None
+    except Exception as exc:  # noqa: BLE001
+        out["agent_cache_entries"] = exc.__class__.__name__
+    readable = []
+    for path in ("/proc/1/environ", "/proc/self/environ", SERVICE_ACCOUNT_TOKEN,
+                 "/etc/shadow", "/var/run/docker.sock"):
+        try:
+            with open(path, "rb") as handle:
+                handle.read(1)
+            readable.append(path)
+        except Exception:  # noqa: BLE001
+            pass
+    out["readable"] = readable
+    return out
+
+
 def _read_secret(context, name):
     """Ask the runtime for a secret by name. Field names only, never a value."""
     if not name:
@@ -165,11 +248,13 @@ def _scan_for_needles(needles):
     }
 
 
+@cloaca.workflow_secrets("report_key")
 @cloaca.task(dependencies=[])
 def probe(context):
     server = os.environ.get("CLOACINA_SERVER", "")
     key = os.environ.get("CLOACINA_API_KEY", "")
     other_tenant = context.get("other_tenant", "") or ""
+    own_tenant = context.get("own_tenant", "") or ""
     own_digest = context.get("own_digest", "") or ""
     other_digest = context.get("other_digest", "") or ""
 
@@ -206,6 +291,32 @@ def probe(context):
             context.get("database_host", ""), context.get("database_port", "")
         ),
         "scan": _scan_for_needles(context.get("needles", [])),
+        # What else the task's own agent key opens. Status and size only.
+        "agent_key_present": bool(key),
+        "fetch_other_providers": _http_status(server, key, f"/v1/agent/providers/{other_digest}")
+        if other_digest
+        else {"outcome": "not tried"},
+        "list_own_secrets": _http_status(server, key, f"/v1/tenants/{own_tenant}/secrets")
+        if own_tenant
+        else {"outcome": "not tried"},
+        "list_own_keys": _http_status(server, key, f"/v1/tenants/{own_tenant}/keys")
+        if own_tenant
+        else {"outcome": "not tried"},
+        "list_own_workflows": _http_status(server, key, f"/v1/tenants/{own_tenant}/workflows")
+        if own_tenant
+        else {"outcome": "not tried"},
+        "list_all_tenants": _http_status(server, key, "/v1/tenants"),
+        "list_all_agents": _http_status(server, key, "/v1/agents"),
+        "compiler_status": _http_status(server, key, "/v1/compiler/status"),
+        # Names only, never a value.
+        "environment_names": sorted(os.environ.keys()),
+        "filesystem": _filesystem(),
+        "network": {
+            "server_metrics": _plain_status(context.get("metrics_url", "") or f"{server.rstrip('/')}/metrics"),
+            "server_health": _plain_status(f"{server.rstrip('/')}/health"),
+            "kubernetes": _kubernetes("", context.get("other_namespace", "") or ""),
+            "internet": _tcp_reach(context.get("internet_host", ""), context.get("internet_port", "")),
+        },
     }
 
     _emit(REPORT_MARKER, report)

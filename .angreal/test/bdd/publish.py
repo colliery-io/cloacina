@@ -101,15 +101,15 @@ def _server_values_with_fleet(tag, agent_ref):
     needs both, so we append them to the extraEnv the e2e values already open.
     """
     base = k8s._server_values(tag, agent_ref, BOOTSTRAP_SECRET)
+    # Let tenant creation bring up one agent, so a publish has somewhere to run
+    # without a separate provision call. The e2e values set 0.
+    zero = '{name: CLOACINA_INITIAL_AGENTS, value: "0"}'
+    assert zero in base, "the e2e server values changed: CLOACINA_INITIAL_AGENTS not found"
+    base = base.replace(zero, '{name: CLOACINA_INITIAL_AGENTS, value: "1"}')
     extra = (
         '    - {name: CLOACINA_DEFAULT_EXECUTOR, value: "fleet"}\n'
         f'    - {{name: CLOACINA_SECRET_KEK, value: "{SECRET_KEK}"}}\n'
-        # Let tenant creation bring up one agent so a publish has somewhere to
-        # run without a separate provision call.
-        '    - {name: CLOACINA_INITIAL_AGENTS, value: "1"}\n'
     )
-    # _server_values sets CLOACINA_INITIAL_AGENTS=0; the later line wins in the
-    # process env, and these are appended after the block it emits.
     return base + extra
 
 
@@ -157,7 +157,7 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
 
     k8s._check_tool("docker", "install Docker Desktop or colima")
     k8s._check_tool("kubectl", "sudo port install kubectl")
-    k8s._check_tool("helm", "sudo port install kubernetes-helm")
+    k8s._check_tool("helm", k8s.HELM_HINT)
 
     project = f"cloacina-bdd-publish-{uuid.uuid4().hex[:8]}"
     hostdir = Path(tempfile.mkdtemp(prefix="cloacina-bdd-publish-"))
@@ -193,6 +193,7 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
             kubeconfig, hostdir, tag, agent_ref,
             release=RELEASE, ns=NS,
             bootstrap_secret=BOOTSTRAP_SECRET, bootstrap_key=BOOTSTRAP_KEY,
+            values_text=_server_values_with_fleet(tag, agent_ref),
         )
 
         print("\n--- port-forward the server API ---\n")

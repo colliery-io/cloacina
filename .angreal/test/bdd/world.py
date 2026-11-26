@@ -43,7 +43,10 @@ class PublishWorld:
         self.tag = tag
         self.base_url = None
         self.home = Path(tempfile.mkdtemp(prefix="bdd-publish-home-"))
-        self.cloacinactl = self.root / "target" / "debug" / "cloacinactl"
+        # cargo honours CARGO_TARGET_DIR, so the driver does too: a worktree can
+        # share one target folder with other checkouts.
+        target = Path(os.environ.get("CARGO_TARGET_DIR") or (self.root / "target"))
+        self.cloacinactl = target / "debug" / "cloacinactl"
         self.db_url_incluster = (
             f"postgres://cloacina:cloacina@{release}-postgresql:5432/cloacina"
         )
@@ -320,10 +323,14 @@ class PublishWorld:
                                  "--poll-interval-ms", "1000",
                                  "--tenant-schema", tenant,
                                  "--cargo-target-dir", "/workspace/target",
+                                 # Release, like the agent image that
+                                 # loads the result and like the dependencies
+                                 # the image already built. Online: the
+                                 # default --frozen --offline needs a vendor dir.
                                  "--cargo-flags-replace=build",
+                                 "--cargo-flags-replace=--release",
                                  "--cargo-flags-replace=--lib"],
-                        "env": [{"name": "CARGO_PROFILE_DEV_DEBUG", "value": "0"},
-                                {"name": "CLOACINA_COMPILER_DEV_WORKSPACE", "value": "/workspace"}],
+                        "env": [{"name": "CLOACINA_COMPILER_DEV_WORKSPACE", "value": "/workspace"}],
                     }]},
                 },
             },
