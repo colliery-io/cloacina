@@ -187,6 +187,29 @@ impl MappingPolicy {
         MappingPolicy::parse(&std::env::var("CLOACINA_OIDC_MAP").unwrap_or_default())
     }
 
+    /// The faults of an allowlist that must stop the server: a rule whose
+    /// role is not one a person may hold (`read`, `write`, `admin`). A rule
+    /// with an unknown role would grant nothing, and to skip it would let a
+    /// later rule win for the same identity (CLOACINA-T-1055).
+    pub fn check(raw: &str) -> Result<(), String> {
+        let bad: Vec<String> = MappingPolicy::parse(raw)
+            .rules
+            .iter()
+            .filter(|r| {
+                !crate::routes::authz::Role::parse(&r.role).is_some_and(|role| role.is_for_people())
+            })
+            .map(|r| format!("{:?}", r.role))
+            .collect();
+        if bad.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "a rule names a role that is not read, write or admin: {}",
+                bad.join(", ")
+            ))
+        }
+    }
+
     /// Parse a `;`-separated allowlist: each rule `<match>=<tenant>:<role>`,
     /// where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and
     /// `<tenant>` may be `_` for a global principal. Malformed clauses are
@@ -560,6 +583,29 @@ mod tests {
         assert!(parse_scopes(None).contains(&"openid".to_string()));
         assert!(parse_scopes(Some("  ")).contains(&"groups".to_string()));
         assert_eq!(parse_scopes(Some("openid, email")), vec!["openid", "email"]);
+    }
+
+    /// CLOACINA-T-1055: a rule with a role a person may not hold stops the
+    /// server at start.
+    #[test]
+    fn check_refuses_a_rule_with_a_role_that_is_not_read_write_or_admin() {
+        assert!(MappingPolicy::check("").is_ok());
+        assert!(
+            MappingPolicy::check(
+                "group:acme-admins=acme:admin;domain:acme.com=acme:write;sub:robin=_:read"
+            )
+            .is_ok()
+        );
+        for bad in [
+            "group:ops=acme:owner",
+            "group:ops=acme:Admin",
+            // `agent` is for API keys only.
+            "group:runners=acme:agent",
+            "group:a=acme:read;group:b=acme:superuser",
+        ] {
+            let err = MappingPolicy::check(bad).unwrap_err();
+            assert!(err.contains("read, write or admin"), "{bad}: {err}");
+        }
     }
 
     #[test]

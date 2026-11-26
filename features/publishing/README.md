@@ -55,7 +55,7 @@ cluster.
   provider is installed. So the driver installs the server with
   `fleet.actuator=none` and applies, for each tenant, what the actuator would
   make: the namespace, the agent key Secret (a tenant key with the role
-  `read`), the hardened agent Deployment and the NetworkPolicy. The manifests
+  `agent`), the hardened agent Deployment and the NetworkPolicy. The manifests
   are a copy of `crates/cloacina-server/src/actuator/kubernetes.rs`; keep them
   in step. `--chart-actuator` goes back to the server's own actuator, for when
   the server starts with it.
@@ -90,7 +90,10 @@ State after the first run on k3s (2026-11-26):
 - scenario 8 (`@CLOACINA-T-1022`): every wall the probe task tried held, but
   the server process imports a team's Python package, so team code runs where
   the orchestrator keeps its credentials. The probe fixture reports what it
-  could reach; it writes names, counts and status codes only.
+  could reach; it writes names, counts and status codes only. The agent's key
+  has the role `agent`: the scenario fails when that key opens a route outside
+  the agent set (its own tenant's packages, secrets or keys, the tenant list,
+  the agent roster, the compiler status).
 
 ## Reading the result
 

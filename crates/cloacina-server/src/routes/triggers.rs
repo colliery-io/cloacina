@@ -349,14 +349,11 @@ async fn set_trigger_paused(
         } else {
             audit_record::actions::TRIGGER_RESUME
         };
-        audit_record::record(
-            &state,
-            &_auth,
+        audit_record::note(
             Some(&tenant_id),
             AuditEvent::ok(action, name.as_str())
                 .detail(serde_json::json!({ "schedule_id": schedule.id.0.to_string() })),
-        )
-        .await;
+        );
     }
     match result {
         Ok(()) => Json(TriggerPauseResponse {
@@ -548,14 +545,11 @@ pub async fn fire_trigger(
 
     if !executions.is_empty() {
         let ids: Vec<&str> = executions.iter().map(|e| e.execution_id.as_str()).collect();
-        audit_record::record(
-            &state,
-            &_auth,
+        audit_record::note(
             Some(&tenant_id),
             AuditEvent::ok(audit_record::actions::TRIGGER_FIRE, name.as_str())
                 .detail(serde_json::json!({ "execution_ids": ids })),
-        )
-        .await;
+        );
     }
     Json(FireTriggerResponse {
         tenant_id,

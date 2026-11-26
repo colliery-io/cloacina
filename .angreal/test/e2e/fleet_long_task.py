@@ -37,6 +37,8 @@ HAPPY_FIXTURE = "compiler-happy-rust"
 HAPPY_WORKFLOW = "compiler_happy_workflow"
 # Before CLOACINA-T-1012 a task with no agent failed after about 4 s.
 NO_AGENT_SECONDS = 15
+# A second tenant: its agent has free capacity and can run no task of `public`.
+OTHER_TENANT = "fleet_wait_other"
 
 TERMINAL = {"Completed", "Failed", "Cancelled"}
 
@@ -137,10 +139,11 @@ def fleet_wait_for_agent():
     with FleetStack("fleet-wait-for-agent-e2e", 18085, 19005) as stack:
         stack.compile_fixture(HAPPY_FIXTURE)
 
-        # One agent with free capacity, but of no tenant: the dispatcher's
+        # One agent with free capacity, but of another tenant: the dispatcher's
         # capacity gate opens, and selection finds no agent for the task. (With
         # no agent at all the gate stays shut and nothing is dispatched.)
-        stack.start_agent(tenant=None)
+        stack.create_tenant(OTHER_TENANT)
+        stack.start_agent(tenant=OTHER_TENANT)
 
         # No agent of the task's tenant yet. The task must wait.
         execution_id = _poll_run_workflow(stack.home, HAPPY_WORKFLOW, timeout_s=120.0)

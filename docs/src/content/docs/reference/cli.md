@@ -543,7 +543,7 @@ what, when, in which tenant.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `key create <NAME> [--role <ROLE>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`. Default `read`. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
+| `key create <NAME> [--role <ROLE>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
 | `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
 | `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. |
 

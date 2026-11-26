@@ -32,6 +32,11 @@ x-db-url: &db_url "postgres://cloacina:cloacina@postgres:5432/cloacina"
 # Seeded at server bootstrap from CLOACINA_DEMO_TENANT_KEYS below.
 x-public-key: &public_key "clk_demo_public_key_0003"
 x-acme-key: &acme_key "clk_demo_acme_key_0002"
+# The agents' keys (CLOACINA-T-1055): role `agent`, one per tenant. An agent
+# registers only with a key of this role; such a key opens the agent routes
+# and nothing else.
+x-public-agent-key: &public_agent_key "clk_demo_public_agent_key_0004"
+x-acme-agent-key: &acme_agent_key "clk_demo_acme_agent_key_0005"
 
 services:
   postgres:
@@ -124,9 +129,11 @@ services:
       # register over WS, fetch cdylibs by digest, run tasks, and report back.
       CLOACINA_DEFAULT_EXECUTOR: "fleet"
       # CLOACI-T-0779: seed deterministic tenant-scoped keys for the isolation
-      # demo (tenant:key:role). Both are tenant-admin (full access within their
-      # tenant, never cross-tenant). The admin bootstrap key still seeds/manages.
-      CLOACINA_DEMO_TENANT_KEYS: "public:clk_demo_public_key_0003:admin,acme:clk_demo_acme_key_0002:admin"
+      # demo (tenant:key:role). The first two are tenant-admin (full access within
+      # their tenant, never cross-tenant). The last two have the role `agent`:
+      # the agent services below register with them. The admin bootstrap key
+      # still seeds/manages.
+      CLOACINA_DEMO_TENANT_KEYS: "public:clk_demo_public_key_0003:admin,acme:clk_demo_acme_key_0002:admin,public:clk_demo_public_agent_key_0004:agent,acme:clk_demo_acme_agent_key_0005:agent"
       # OIDC relying party (CLOACI-I-0118) against the dex sidecar. The browser
       # needs `127.0.0.1 host.docker.internal` in /etc/hosts (see dex-config.yaml);
       # group `acme-admins` → tenant acme / admin via the allowlist (OIDC_MAP).
@@ -446,9 +453,10 @@ services:
       # executor stamps public work as Some("public") and matches only
       # Some("public") agents, so a bootstrap-keyed (None) agent no longer
       # serves the public realm. The public key is seeded via
-      # CLOACINA_DEMO_TENANT_KEYS (public:clk_demo_public_key_0003:admin).
+      # CLOACINA_DEMO_TENANT_KEYS with the role `agent`
+      # (public:clk_demo_public_agent_key_0004:agent).
       - "--api-key"
-      - *public_key
+      - *public_agent_key
       - "--max-concurrency"
       - "16"
     depends_on:
@@ -477,7 +485,7 @@ services:
       - "--server"
       - "http://server:8080"
       - "--api-key"
-      - *acme_key
+      - *acme_agent_key
       - "--max-concurrency"
       - "8"
     depends_on:
@@ -505,7 +513,7 @@ services:
       - "--server"
       - "http://server:8080"
       - "--api-key"
-      - *public_key
+      - *public_agent_key
       - "--max-concurrency"
       - "32"
     depends_on:

@@ -293,10 +293,15 @@ produce a loud boot error, never silent wrong-scaling. The `docker` actuator
 whose real substrate is a cluster — and refuses when no Docker socket is
 reachable. The `kubernetes` actuator refuses when the server is not running
 in-cluster (it needs in-cluster credentials). Whichever actuator runs, it mints a
-tenant-scoped `read` API key and injects it (with the server URL) so the spawned
-agent self-registers down the same path a hand-run agent uses — the Docker
-actuator mints one key per container, the Kubernetes actuator one shared
-per-tenant key (in a `Secret`, re-minted on scale-up). Every list/spawn/scale is
+tenant-scoped API key of role `agent` and injects it (with the server URL) so the
+spawned agent self-registers down the same path a hand-run agent uses. A key of
+role `agent` opens the agent routes and nothing else. The Docker actuator mints
+one key per container and revokes it when the container is stopped. The
+Kubernetes actuator keeps one key per tenant in a `Secret`; the pod template of
+each agent Deployment names the key's id, so a new key rolls the pods. Each
+reconcile revokes every other key the actuator minted for the tenant. The
+actuator's keys are named `agent:<tenant>:<uuid>`: do not give that prefix to a
+key you create. Every list/spawn/scale is
 scoped to the one tenant (a Docker label filter, or the tenant's Kubernetes
 namespace) so the actuator never touches another tenant's workloads (REQ-008 /
 NFR-004).

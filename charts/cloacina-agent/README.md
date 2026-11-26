@@ -31,7 +31,7 @@ helm install fleet charts/cloacina-agent \
 | Value | Description |
 |---|---|
 | `server.url` | Base URL of the cloacina-server to register with. |
-| `apiKey` *or* `apiKeySecretRef.name` | API key (its tenant scope decides which tenants' work the agent receives). |
+| `apiKey` *or* `apiKeySecretRef.name` | API key of role `agent` (its tenant scope decides which tenants' work the agent receives). The server refuses an agent on a key of any other role. |
 
 ## Common values
 

@@ -24,7 +24,7 @@
 //! Both the OIDC mapping (T-0791) and local login (T-0796) resolve a human
 //! login to a [`ResolvedPrincipal`]; [`mint_for_principal`] turns that into a
 //! short-TTL cloacina API key via the existing `api_keys` DAL. The minted key
-//! is an ordinary bearer key — it flows through `require_auth` + the Phase 0
+//! is an ordinary bearer key — it flows through the `guard` middleware and the
 //! authZ matcher unchanged, and `validate_hash` rejects it once its TTL passes.
 //!
 //! This module is deliberately **provider-agnostic**: it knows nothing about

@@ -209,6 +209,11 @@ jobs:
       - name: Spec drift check
         run: angreal docs spec-check
 
+      # CLOACINA-T-1055: the route and role tables of the security model page
+      # are generated from the server's authorization table.
+      - name: Authorization table docs check
+        run: angreal docs authz-table-check
+
       # Generated-SDK drift (T-0645 / NFR-001): the committed TS types must
       # match a fresh generation from the committed spec.
       - name: Set up Node

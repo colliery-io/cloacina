@@ -18,14 +18,9 @@
 //!
 //! Extracts `Authorization: Bearer <key>` headers, hashes the token,
 //! checks an LRU cache (30s TTL) before falling back to the DAL.
-//! Applied via `route_layer` so unauthenticated routes still 404 correctly.
+//! The `guard` middleware (`routes/authz.rs`) calls [`validate_token`] for
+//! each request and puts the [`AuthenticatedKey`] in the request extensions.
 
-use axum::{
-    extract::{Request, State},
-    http::header,
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
@@ -161,33 +156,6 @@ pub async fn validate_token(state: &AppState, token: &str) -> Result<Authenticat
     }
 }
 
-/// Auth middleware — validates Bearer token against cache then DAL.
-///
-/// On success, inserts `AuthenticatedKey` into request extensions.
-/// On failure, returns 401 JSON error.
-pub async fn require_auth(
-    State(state): State<AppState>,
-    mut request: Request,
-    next: Next,
-) -> Response {
-    let token = match extract_bearer_token(&request) {
-        Some(t) => t.to_string(),
-        None => {
-            return ApiError::unauthorized("missing or malformed Authorization header")
-                .into_response();
-        }
-    };
-
-    match validate_token(&state, &token).await {
-        Ok(auth) => {
-            record_auth_span_fields(&tracing::Span::current(), &auth);
-            request.extensions_mut().insert(auth);
-            next.run(request).await
-        }
-        Err(resp) => resp.into_response(),
-    }
-}
-
 /// CLOACI-T-0578: attach `tenant_id`, `key_id`, `role` to the current
 /// request span after authentication. Every downstream `tracing::info!`,
 /// every `audit::log_*` emit, and every OTLP span attribute under this
@@ -220,16 +188,6 @@ pub(crate) fn record_auth_span_fields(span: &tracing::Span, auth: &Authenticated
         }
     }
     span.record("role", auth.permissions.as_str());
-}
-
-/// Extract the Bearer token from the Authorization header.
-fn extract_bearer_token(request: &Request) -> Option<&str> {
-    request
-        .headers()
-        .get(header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
 }
 
 // ---------------------------------------------------------------------------
@@ -267,19 +225,6 @@ impl AuthenticatedKey {
     /// Returns a 403 response for admin-only operations.
     pub fn admin_required_response() -> ApiError {
         ApiError::forbidden("admin_required", "admin access required")
-    }
-
-    /// Check if this key has at least write permission.
-    /// Roles: admin > write > read.
-    /// God mode (is_admin) implicitly has all permissions.
-    pub fn can_write(&self) -> bool {
-        self.is_admin || self.permissions == "admin" || self.permissions == "write"
-    }
-
-    /// Check if this key has admin role within its tenant.
-    /// Note: is_admin (god mode) is separate from permissions="admin" (tenant admin).
-    pub fn can_admin(&self) -> bool {
-        self.is_admin || self.permissions == "admin"
     }
 
     /// Returns a 403 response for insufficient role.

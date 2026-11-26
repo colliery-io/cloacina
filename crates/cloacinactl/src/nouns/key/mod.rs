@@ -34,6 +34,8 @@ pub enum Role {
     Admin,
     Write,
     Read,
+    /// Act as an execution agent, and nothing else.
+    Agent,
 }
 
 #[derive(Subcommand)]
@@ -60,6 +62,7 @@ impl KeyVerb {
             Role::Admin => "admin",
             Role::Write => "write",
             Role::Read => "read",
+            Role::Agent => "agent",
         }
     }
 }

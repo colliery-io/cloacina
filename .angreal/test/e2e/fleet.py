@@ -13,8 +13,8 @@ the cdylib and store it before the reconciler will register the workflow and
 the agent can fetch + dlopen the artifact.
 
 The stack comes from `_fleet_stack.py`. The agent gets a key scoped to the
-tenant of the work (CLOACINA-T-1017): an agent takes its tenant from its key,
-and an agent on the bootstrap admin key has no tenant and gets no work.
+tenant of the work (CLOACINA-T-1017): an agent takes its tenant from its key.
+The key has the role `agent` (CLOACINA-T-1055).
 
 Requires Docker. Run with: `angreal test e2e fleet`.
 """

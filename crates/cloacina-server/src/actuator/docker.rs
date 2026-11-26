@@ -60,10 +60,16 @@ use super::settings::{
 };
 use super::{ActuatorError, FleetActuator, ReconcileOutcome, reconcile_delta};
 
-/// The role minted agent keys carry. `POST /v1/agent/register` is authorized at
-/// `Access::any(Level::Read)` (see `routes/authz.rs`), so a tenant-scoped `read`
-/// key is the minimal credential an agent needs to self-register.
-const AGENT_KEY_ROLE: &str = "read";
+/// The role minted agent keys carry (CLOACINA-T-1055): `agent` holds the
+/// permission to act as an agent and to get a WebSocket ticket, and nothing
+/// else (see `routes/authz.rs`). No other role may register an agent.
+pub(crate) const AGENT_KEY_ROLE: &str = "agent";
+
+/// The name of a key the actuator mints for `tenant_id`: `agent:<tenant>:<uuid>`.
+/// [`KeyMinter::revoke_others`] finds the actuator's keys by this prefix.
+fn agent_key_name_prefix(tenant_id: &str) -> String {
+    format!("agent:{tenant_id}:")
+}
 
 /// Label marking a container as actuator-managed.
 const LABEL_MANAGED: &str = "cloacina.managed";
@@ -75,6 +81,9 @@ const LABEL_POOL: &str = "cloacina.pool";
 /// Label holding the pool settings a container was started with
 /// ([`DockerPoolSettings::label`]). Absent: no settings.
 const LABEL_SETTINGS: &str = "cloacina.agent-settings";
+/// Label naming the id of the API key a managed container was started with,
+/// so the actuator can revoke the key when the container goes.
+const LABEL_KEY_ID: &str = "cloacina.agent-key-id";
 
 /// The part of a pool's settings that maps onto a Docker container.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -181,6 +190,10 @@ pub struct ContainerRef {
     /// The settings it was started with (`cloacina.agent-settings`; empty when
     /// it has no label).
     pub settings: String,
+    /// The id of the API key the container was started with
+    /// (`cloacina.agent-key-id`). `None` for a container started before
+    /// CLOACINA-T-1055.
+    pub key_id: Option<String>,
 }
 
 /// Everything needed to spawn one tenant agent container.
@@ -192,6 +205,8 @@ pub struct SpawnSpec {
     pub server_url: String,
     /// Plaintext tenant-scoped agent key, injected as `CLOACINA_API_KEY`.
     pub api_key: String,
+    /// The id of `api_key`: the container's `cloacina.agent-key-id` label.
+    pub key_id: String,
     /// The pool the agent is in. Other than `default` it is injected as
     /// `CLOACINA_AGENT_POOL` and set as the `cloacina.pool` label.
     pub pool: String,
@@ -214,18 +229,37 @@ pub trait ContainerOps: Send + Sync {
     async fn stop(&self, id: &str) -> Result<(), ActuatorError>;
 }
 
-/// Mints a tenant-scoped agent key, returning the plaintext to inject.
+/// A key the actuator minted: its id, and the plaintext to give the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MintedKey {
+    pub id: String,
+    pub plaintext: String,
+}
+
+/// The agent keys of the fleet: mint, check and revoke.
 #[async_trait]
 pub trait KeyMinter: Send + Sync {
-    async fn mint(&self, tenant_id: &str) -> Result<String, ActuatorError>;
+    /// Mint a key of role `agent` for the tenant.
+    async fn mint(&self, tenant_id: &str) -> Result<MintedKey, ActuatorError>;
+    /// True when `key_id` is a key of the tenant, of role `agent`, not
+    /// revoked. A key of any other role cannot act as an agent: the agents
+    /// that hold it are replaced.
+    async fn is_live_agent_key(&self, tenant_id: &str, key_id: &str)
+    -> Result<bool, ActuatorError>;
+    /// Revoke one key. A key that is gone already is not an error.
+    async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError>;
+    /// Revoke every key the actuator minted for the tenant except `keep`:
+    /// the keys of agents that are gone, and the `read` keys minted before
+    /// CLOACINA-T-1055. Gives the number revoked.
+    async fn revoke_others(&self, tenant_id: &str, keep: &[String]) -> Result<u32, ActuatorError>;
 }
 
 /// Real [`KeyMinter`] backed by the api-keys DAL.
 ///
-/// DECISION (CLOACI-T-0810, flagged): mint one fresh key per spawned container.
-/// Key-reuse and revoke-on-stop are deferred — keys accumulate in `api_keys`
-/// across spawns (each is a tenant-scoped `read` key). A future task should
-/// reclaim/revoke a stopped container's key.
+/// The Docker actuator mints one key for each container and revokes it when
+/// the container is stopped. The Kubernetes actuator keeps one key for each
+/// tenant. A revoked key can still pass for up to 30 seconds on a replica
+/// that has it in its key cache.
 pub struct DalKeyMinter {
     database: Database,
 }
@@ -238,15 +272,75 @@ impl DalKeyMinter {
 
 #[async_trait]
 impl KeyMinter for DalKeyMinter {
-    async fn mint(&self, tenant_id: &str) -> Result<String, ActuatorError> {
+    async fn mint(&self, tenant_id: &str) -> Result<MintedKey, ActuatorError> {
         let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
-        let name = format!("agent:{tenant_id}:{}", Uuid::new_v4());
+        let name = format!("{}{}", agent_key_name_prefix(tenant_id), Uuid::new_v4());
         let dal = cloacina::dal::DAL::new(self.database.clone());
-        dal.api_keys()
+        let info = dal
+            .api_keys()
             .create_key(&hash, &name, Some(tenant_id), false, AGENT_KEY_ROLE)
             .await
             .map_err(|e| ActuatorError::KeyMint(e.to_string()))?;
-        Ok(plaintext)
+        Ok(MintedKey {
+            id: info.id.to_string(),
+            plaintext,
+        })
+    }
+
+    async fn is_live_agent_key(
+        &self,
+        tenant_id: &str,
+        key_id: &str,
+    ) -> Result<bool, ActuatorError> {
+        let Ok(id) = Uuid::parse_str(key_id) else {
+            return Ok(false);
+        };
+        let dal = cloacina::dal::DAL::new(self.database.clone());
+        let info = dal
+            .api_keys()
+            .get_key(id)
+            .await
+            .map_err(|e| ActuatorError::KeyMint(e.to_string()))?;
+        Ok(info.is_some_and(|k| {
+            !k.revoked
+                && k.permissions == AGENT_KEY_ROLE
+                && k.tenant_id.as_deref() == Some(tenant_id)
+        }))
+    }
+
+    async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
+        let Ok(id) = Uuid::parse_str(key_id) else {
+            return Ok(());
+        };
+        let dal = cloacina::dal::DAL::new(self.database.clone());
+        dal.api_keys()
+            .revoke_key(id)
+            .await
+            .map(|_| ())
+            .map_err(|e| ActuatorError::KeyMint(e.to_string()))
+    }
+
+    async fn revoke_others(&self, tenant_id: &str, keep: &[String]) -> Result<u32, ActuatorError> {
+        let dal = cloacina::dal::DAL::new(self.database.clone());
+        let keys = dal
+            .api_keys()
+            .list_keys_for_tenant(tenant_id)
+            .await
+            .map_err(|e| ActuatorError::KeyMint(e.to_string()))?;
+        let prefix = agent_key_name_prefix(tenant_id);
+        let mut revoked = 0;
+        for key in keys {
+            let id = key.id.to_string();
+            if key.revoked || !key.name.starts_with(&prefix) || keep.contains(&id) {
+                continue;
+            }
+            dal.api_keys()
+                .revoke_key(key.id)
+                .await
+                .map_err(|e| ActuatorError::KeyMint(e.to_string()))?;
+            revoked += 1;
+        }
+        Ok(revoked)
     }
 }
 
@@ -299,6 +393,17 @@ impl DockerActuator {
     }
 }
 
+impl DockerActuator {
+    /// Stop a container and revoke the key it was started with.
+    async fn stop_and_revoke(&self, c: &ContainerRef) -> Result<(), ActuatorError> {
+        self.ops.stop(&c.id).await?;
+        if let Some(key_id) = &c.key_id {
+            self.minter.revoke(key_id).await?;
+        }
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl FleetActuator for DockerActuator {
     async fn reconcile(
@@ -312,13 +417,16 @@ impl FleetActuator for DockerActuator {
         let managed = self.ops.list_managed(tenant_id).await?;
 
         let mut total = ReconcileOutcome::default();
+        // The keys of the containers that stay or start: every other key the
+        // actuator minted for the tenant is revoked at the end.
+        let mut live_keys: Vec<String> = Vec::new();
 
         // A container of a pool that no longer exists is stopped.
         for c in managed
             .iter()
             .filter(|c| !pools.iter().any(|(name, _)| *name == c.pool))
         {
-            self.ops.stop(&c.id).await?;
+            self.stop_and_revoke(c).await?;
             total.stopped += 1;
         }
 
@@ -348,14 +456,26 @@ impl FleetActuator for DockerActuator {
             let label = applied.label();
 
             // A container started with other settings is replaced: stop it
-            // here, and the spawn below makes up the count.
-            let (current, stale): (Vec<&ContainerRef>, Vec<&ContainerRef>) = managed
-                .iter()
-                .filter(|c| c.pool == *pool)
-                .partition(|c| c.settings == label);
+            // here, and the spawn below makes up the count. So is a container
+            // whose key cannot act as an agent (CLOACINA-T-1055): one started
+            // before the `agent` role on a `read` key, or one whose key is
+            // revoked.
+            let mut current: Vec<&ContainerRef> = Vec::new();
+            let mut stale: Vec<&ContainerRef> = Vec::new();
+            for c in managed.iter().filter(|c| c.pool == *pool) {
+                let key_ok = match &c.key_id {
+                    Some(id) => self.minter.is_live_agent_key(tenant_id, id).await?,
+                    None => false,
+                };
+                if c.settings == label && key_ok {
+                    current.push(c);
+                } else {
+                    stale.push(c);
+                }
+            }
             let mut stopped = 0u32;
             for c in &stale {
-                self.ops.stop(&c.id).await?;
+                self.stop_and_revoke(c).await?;
                 stopped += 1;
             }
 
@@ -364,8 +484,10 @@ impl FleetActuator for DockerActuator {
 
             let mut spawned = 0u32;
             for _ in 0..delta.to_spawn {
-                // Mint one fresh tenant-scoped key per container (flagged decision).
-                let api_key = self.minter.mint(tenant_id).await?;
+                // One key of role `agent` for each container: it is revoked
+                // when the container is stopped.
+                let key = self.minter.mint(tenant_id).await?;
+                live_keys.push(key.id.clone());
                 let spec = SpawnSpec {
                     tenant_id: tenant_id.to_string(),
                     image: applied
@@ -374,7 +496,8 @@ impl FleetActuator for DockerActuator {
                         .unwrap_or_else(|| self.config.image.clone()),
                     network: self.config.network.clone(),
                     server_url: self.config.server_url.clone(),
-                    api_key,
+                    api_key: key.plaintext,
+                    key_id: key.id,
                     pool: pool.clone(),
                     settings: applied.clone(),
                 };
@@ -384,9 +507,15 @@ impl FleetActuator for DockerActuator {
 
             // Stop surplus: pick the first `to_stop` current containers of the pool.
             for c in current.iter().take(delta.to_stop as usize) {
-                self.ops.stop(&c.id).await?;
+                self.stop_and_revoke(c).await?;
                 stopped += 1;
             }
+            live_keys.extend(
+                current
+                    .iter()
+                    .skip(delta.to_stop as usize)
+                    .filter_map(|c| c.key_id.clone()),
+            );
 
             if spawned > 0 || stopped > 0 {
                 info!(
@@ -406,6 +535,13 @@ impl FleetActuator for DockerActuator {
             total.running += running + spawned - delta.to_stop;
         }
 
+        // Finding 12 of CLOACINA-D-0019: no key outlives its agent. This also
+        // revokes the `read` keys the actuator minted before the `agent` role.
+        let revoked = self.minter.revoke_others(tenant_id, &live_keys).await?;
+        if revoked > 0 {
+            info!(tenant = %tenant_id, revoked, "fleet actuator revoked agent keys with no agent (docker)");
+        }
+
         Ok(total)
     }
 
@@ -422,7 +558,7 @@ impl FleetActuator for DockerActuator {
             .iter()
             .filter(|c| c.pool == pool)
         {
-            self.ops.stop(&c.id).await?;
+            self.stop_and_revoke(c).await?;
         }
         Ok(())
     }
@@ -508,6 +644,7 @@ impl ContainerOps for BollardOps {
                     id: s.id.clone()?,
                     pool: label(LABEL_POOL).unwrap_or_else(|| DEFAULT_AGENT_POOL.to_string()),
                     settings: label(LABEL_SETTINGS).unwrap_or_default(),
+                    key_id: label(LABEL_KEY_ID),
                 })
             })
             .collect())
@@ -517,6 +654,7 @@ impl ContainerOps for BollardOps {
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert(LABEL_TENANT.to_string(), spec.tenant_id.clone());
         labels.insert(LABEL_MANAGED.to_string(), "true".to_string());
+        labels.insert(LABEL_KEY_ID.to_string(), spec.key_id.clone());
         // Labels and env of a pool are added only when set, so a container of
         // the pool `default` with no settings is as it was before pools.
         if spec.pool != DEFAULT_AGENT_POOL {
@@ -620,6 +758,8 @@ mod tests {
             id: id.to_string(),
             pool: pool.to_string(),
             settings: settings.to_string(),
+            // A live `agent` key for the mock minter.
+            key_id: Some(format!("k-{id}")),
         }
     }
 
@@ -639,16 +779,43 @@ mod tests {
         }
     }
 
-    /// Mock minter that counts and hands back a deterministic plaintext.
+    /// Mock minter: counts, hands back a deterministic key, and records
+    /// what it was asked to revoke. A key id that starts with `k-` or
+    /// `minted-` is a live `agent` key; any other id is not.
+    #[derive(Default)]
     struct MockMinter {
         minted: AtomicU32,
+        revoked: Mutex<Vec<String>>,
+        kept: Mutex<Vec<Vec<String>>>,
     }
 
     #[async_trait]
     impl KeyMinter for MockMinter {
-        async fn mint(&self, _tenant_id: &str) -> Result<String, ActuatorError> {
+        async fn mint(&self, _tenant_id: &str) -> Result<MintedKey, ActuatorError> {
             let n = self.minted.fetch_add(1, Ordering::SeqCst);
-            Ok(format!("clk_test_{n}"))
+            Ok(MintedKey {
+                id: format!("minted-{n}"),
+                plaintext: format!("clk_test_{n}"),
+            })
+        }
+        async fn is_live_agent_key(
+            &self,
+            _tenant_id: &str,
+            key_id: &str,
+        ) -> Result<bool, ActuatorError> {
+            Ok(key_id.starts_with("k-") || key_id.starts_with("minted-"))
+        }
+        async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
+            self.revoked.lock().unwrap().push(key_id.to_string());
+            Ok(())
+        }
+        async fn revoke_others(
+            &self,
+            _tenant_id: &str,
+            keep: &[String],
+        ) -> Result<u32, ActuatorError> {
+            self.kept.lock().unwrap().push(keep.to_vec());
+            Ok(0)
         }
     }
 
@@ -667,9 +834,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_spawns_the_deficit_and_mints_one_key_each() {
         let ops = Arc::new(MockOps::with_running(1));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 4).await.unwrap();
@@ -686,9 +851,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_stops_the_surplus() {
         let ops = Arc::new(MockOps::with_running(5));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 2).await.unwrap();
@@ -705,9 +868,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_is_noop_when_converged() {
         let ops = Arc::new(MockOps::with_running(3));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 3).await.unwrap();
@@ -722,9 +883,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_scales_from_zero() {
         let ops = Arc::new(MockOps::with_running(0));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 2).await.unwrap();
@@ -739,9 +898,7 @@ mod tests {
     use super::super::settings::test_support::FixedPools;
 
     fn minter() -> Arc<MockMinter> {
-        Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        })
+        Arc::new(MockMinter::default())
     }
 
     #[test]
@@ -922,12 +1079,89 @@ mod tests {
         assert!(act.remove_pool("acme", "default").await.is_err());
     }
 
+    /// The role the actuator mints is the one role that may act as an agent.
+    #[test]
+    fn minted_keys_have_the_agent_role() {
+        use crate::routes::authz::{Permission, Role};
+        let role = Role::parse(AGENT_KEY_ROLE).expect("a known role");
+        assert_eq!(role, Role::Agent);
+        assert!(role.grants(Permission::AgentAct));
+        assert!(!role.grants(Permission::WorkflowsRead));
+        assert_eq!(agent_key_name_prefix("acme"), "agent:acme:");
+    }
+
+    /// CLOACINA-T-1055: a container whose key cannot act as an agent (no key
+    /// label: started before the `agent` role; or a key that is not a live
+    /// `agent` key) is replaced, and its key is revoked.
+    #[tokio::test]
+    async fn containers_on_keys_that_are_not_agent_keys_are_replaced() {
+        let ops = Arc::new(MockOps::with_containers(vec![
+            ContainerRef {
+                key_id: None,
+                ..container("before-upgrade", "default", "")
+            },
+            ContainerRef {
+                key_id: Some("read-key".to_string()),
+                ..container("on-read-key", "default", "")
+            },
+            container("ok", "default", ""),
+        ]));
+        let m = minter();
+        let act = actuator(ops.clone(), m.clone());
+        let out = act.reconcile("acme", 3).await.unwrap();
+        assert_eq!(
+            ops.stops.lock().unwrap().as_slice(),
+            &["before-upgrade".to_string(), "on-read-key".to_string()]
+        );
+        assert_eq!(out.stopped, 2);
+        assert_eq!(out.spawned, 2);
+        assert_eq!(out.running, 3);
+        // The key that is known is revoked by id...
+        assert_eq!(
+            m.revoked.lock().unwrap().as_slice(),
+            &["read-key".to_string()]
+        );
+        // ...and every key but those of the three agents now running is
+        // revoked by the sweep: that takes the key of `before-upgrade`.
+        let kept = m.kept.lock().unwrap();
+        assert_eq!(kept.len(), 1);
+        let mut keep = kept[0].clone();
+        keep.sort();
+        assert_eq!(keep, vec!["k-ok", "minted-0", "minted-1"]);
+        // The new containers are labelled with their key's id.
+        let specs = ops.spawn_specs.lock().unwrap();
+        assert_eq!(specs[0].key_id, "minted-0");
+        assert_eq!(specs[0].api_key, "clk_test_0");
+    }
+
+    /// Finding 12: a stopped container's key is revoked.
+    #[tokio::test]
+    async fn a_stopped_container_loses_its_key() {
+        let ops = Arc::new(MockOps::with_running(3));
+        let m = minter();
+        let act = actuator(ops.clone(), m.clone());
+        act.reconcile("acme", 1).await.unwrap();
+        assert_eq!(
+            m.revoked.lock().unwrap().as_slice(),
+            &["k-c0".to_string(), "k-c1".to_string()]
+        );
+        assert_eq!(m.kept.lock().unwrap()[0], vec!["k-c2".to_string()]);
+
+        // A removed pool: its containers stop and their keys are revoked.
+        let ops = Arc::new(MockOps::with_containers(vec![
+            container("d-1", "default", ""),
+            container("b-1", "big", ""),
+        ]));
+        let m = minter();
+        let act = actuator(ops.clone(), m.clone());
+        act.remove_pool("acme", "big").await.unwrap();
+        assert_eq!(m.revoked.lock().unwrap().as_slice(), &["k-b-1".to_string()]);
+    }
+
     #[test]
     fn kind_is_docker() {
         let ops = Arc::new(MockOps::with_running(0));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         assert_eq!(actuator(ops, minter).kind(), "docker");
     }
 

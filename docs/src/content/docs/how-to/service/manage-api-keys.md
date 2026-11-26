@@ -27,8 +27,21 @@ cloacinactl key create ci-bot --role write \
   --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
 ```
 
-`--role` is one of `read`, `write`, or `admin` (default `read`). The response
-prints the secret **once** — store it immediately; it cannot be retrieved again.
+`--role` is one of `read`, `write`, `admin` or `agent` (the CLI's default is
+`read`). The response prints the secret **once** — store it immediately; it
+cannot be retrieved again.
+
+| Role | What the key can do |
+|------|---------------------|
+| `read` | List and inspect its tenant. |
+| `write` | `read`, plus upload packages, run workflows, operate triggers, fire and pause reactors, inject into accumulators. |
+| `admin` | `write`, plus the keys, local accounts, secrets, audit record and fleet size of its tenant. |
+| `agent` | Act as an execution agent, and nothing else. Give this role to the key of an agent you start yourself. |
+
+The API needs the role in the request: `POST /v1/auth/keys` and
+`POST /v1/tenants/{tenant_id}/keys` answer `400` when the body has no `role`.
+The full list of permissions by role is in the
+[Security Model](../../../explanation/service/security-model/#authorization-permissions-roles-and-the-route-table).
 
 **Tenant scope:** `key create` calls the global `POST /v1/auth/keys`
 endpoint, which is restricted to platform-admin (god-mode) keys and

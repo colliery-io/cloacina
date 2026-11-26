@@ -20,8 +20,11 @@
 //! `GET /v1/ws/delivery/{recipient}` — recipients connect here to receive
 //! pushed [`cloacina::delivery::ServerMessage`] frames and acknowledge them.
 //!
-//! Auth reuses the existing pattern (`Authorization: Bearer …` header or
-//! single-use `?token=…` ticket from `POST /auth/ws-ticket`). Tenant scoping is
+//! The upgrade request is authenticated by the `guard` middleware
+//! (`Authorization: Bearer …` header or single-use `?token=…` ticket from
+//! `POST /auth/ws-ticket`), which also checks the permission that the kind of
+//! recipient asks for: `agent:` needs `agent.act`, `exec_events:` needs
+//! `executions.read`, `ops_metrics:` needs `ops.read`. Tenant scoping is
 //! enforced from the authenticated key's `tenant_id` — recipients can only
 //! receive rows whose `delivery_outbox.tenant_id` matches their auth context.
 //!
@@ -31,28 +34,28 @@
 //! separate resync frame — recipients just see `welcome` followed by `push`
 //! messages, and must be idempotent on row id (NFR-1.1.2).
 
+use axum::Extension;
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Path, Query, State, WebSocketUpgrade};
-use axum::http::HeaderMap;
+use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::response::Response;
 use cloacina::dal::DAL;
 use cloacina::delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, ServerMessage, WakeHandle};
 use tracing::{debug, info, warn};
 
 use crate::AppState;
-use crate::routes::auth::{AuthenticatedKey, validate_token};
+use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::routes::ws::WsAuthQuery;
 
 /// `GET /v1/ws/delivery/{recipient}` — substrate delivery subscription.
 pub async fn delivery_ws(
     Path(recipient): Path<String>,
-    Query(query): Query<WsAuthQuery>,
     State(state): State<AppState>,
-    headers: HeaderMap,
+    // CLOACINA-T-1055: the `guard` middleware authenticated the upgrade
+    // request (bearer key or single-use ticket) and checked the permission
+    // that this kind of recipient asks for.
+    Extension(auth): Extension<AuthenticatedKey>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    let auth = authenticate_substrate_ws(&state, &headers, &query).await?;
     info!(
         recipient = %recipient,
         key = %auth.name,
@@ -66,37 +69,6 @@ pub async fn delivery_ws(
     Ok(ws.on_upgrade(move |socket| {
         handle_delivery_socket(socket, recipient, tenant, dal, sink, wake)
     }))
-}
-
-/// Token extraction + validation. Bearer header preferred; falls back to the
-/// single-use query-string ticket the existing WS pattern uses for browsers.
-async fn authenticate_substrate_ws(
-    state: &AppState,
-    headers: &HeaderMap,
-    query: &WsAuthQuery,
-) -> Result<AuthenticatedKey, ApiError> {
-    if let Some(value) = headers.get(axum::http::header::AUTHORIZATION) {
-        if let Ok(s) = value.to_str() {
-            let token = s
-                .strip_prefix("Bearer ")
-                .or_else(|| s.strip_prefix("bearer "));
-            if let Some(token) = token {
-                return validate_token(state, token)
-                    .await
-                    .map_err(|_| ApiError::unauthorized("invalid Authorization bearer token"));
-            }
-        }
-    }
-    if let Some(ticket) = query.token.as_deref() {
-        return state
-            .ws_tickets
-            .consume(ticket)
-            .await
-            .ok_or_else(|| ApiError::unauthorized("invalid or expired WebSocket ticket"));
-    }
-    Err(ApiError::unauthorized(
-        "missing credential: provide Authorization bearer header or ?token=<ticket>",
-    ))
 }
 
 /// Per-connection state machine.

@@ -16,8 +16,10 @@ angreal ui up        # or: docker compose -f docker/docker-compose.demo.yml up -
 
 Services: server :8080, UI :8082, Dex :5556, Postgres, Kafka, agents.
 Seeded keys (`CLOACINA_DEMO_TENANT_KEYS`): `acme` + `public` tenant-admins
-(`clk_demo_acme_key_0002`, `clk_demo_public_key_0003`), plus the god bootstrap
-key `clk_demo_bootstrap_key_0001`.
+(`clk_demo_acme_key_0002`, `clk_demo_public_key_0003`), one key of role `agent`
+for each tenant's agents (`clk_demo_acme_agent_key_0005`,
+`clk_demo_public_agent_key_0004`), plus the god bootstrap key
+`clk_demo_bootstrap_key_0001`.
 
 Open the UI at <http://localhost:8082>.
 

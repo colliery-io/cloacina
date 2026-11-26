@@ -212,15 +212,12 @@ pub async fn execute_workflow(
                 "Executed workflow '{}' for tenant '{}': {}",
                 name, tenant_id, execution.execution_id
             );
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::WORKFLOW_RUN, name.as_str()).detail(
                     serde_json::json!({ "execution_id": execution.execution_id.to_string() }),
                 ),
-            )
-            .await;
+            );
             // CLOACI-T-0776: mark this as a manual operator run so the UI can
             // distinguish it from cron/trigger/reactor-driven runs. Best-effort —
             // a tagging failure must not fail the (already-started) execution.
