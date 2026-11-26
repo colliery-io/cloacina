@@ -181,6 +181,50 @@ def test_secret_lifecycle(client: Client) -> None:
     assert deleted.name == name
 
 
+# ---- agent pools (CLOACINA-T-1021) ----
+
+
+def test_agent_pool_lifecycle(client: Client) -> None:
+    """list → put → get → replace → delete; a bad quantity is a 400."""
+    pool = f"py-{int(time.time() * 1000)}"
+
+    # Every tenant has the pool `default`.
+    assert "default" in [p.pool for p in client.list_pools().items]
+
+    created = client.put_pool(
+        pool,
+        {
+            "memory_limit": "2Gi",
+            "max_concurrency": 1,
+            "pod_labels": {"team": "data"},
+            "max_agents": 0,
+        },
+    )
+    assert created.pool == pool
+    assert created.settings.memory_limit == "2Gi"
+    assert created.desired_agents == 0
+
+    fetched = client.get_pool(pool)
+    assert fetched.settings.max_concurrency == 1
+
+    page = client.list_pools()
+    assert pool in [p.pool for p in page.items]
+    assert page.total == len(page.items)
+
+    # PUT replaces the settings as a whole.
+    replaced = client.put_pool(pool, {"max_agents": 0})
+    assert replaced.settings.to_dict() == {"max_agents": 0}
+
+    with pytest.raises(CloacinaApiError) as exc:
+        client.put_pool(pool, {"memory_limit": "2GB", "max_agents": 0})
+    assert exc.value.status == 400
+
+    client.delete_pool(pool)
+    with pytest.raises(CloacinaApiError) as exc:
+        client.get_pool(pool)
+    assert exc.value.status == 404
+
+
 # ---- workflows ----
 
 

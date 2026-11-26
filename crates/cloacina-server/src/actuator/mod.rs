@@ -30,6 +30,7 @@
 pub mod docker;
 pub mod guard;
 pub mod kubernetes;
+pub mod settings;
 
 use async_trait::async_trait;
 
@@ -51,6 +52,9 @@ pub enum ActuatorError {
     Substrate(String),
     /// Minting the per-tenant agent key failed.
     KeyMint(String),
+    /// Reading the tenant's agent pools failed. The reconcile stops: it must
+    /// not fall back to the defaults, which would resize the agents.
+    Settings(String),
 }
 
 impl std::fmt::Display for ActuatorError {
@@ -58,6 +62,7 @@ impl std::fmt::Display for ActuatorError {
         match self {
             ActuatorError::Substrate(m) => write!(f, "container substrate error: {m}"),
             ActuatorError::KeyMint(m) => write!(f, "agent-key mint error: {m}"),
+            ActuatorError::Settings(m) => write!(f, "agent pool settings error: {m}"),
         }
     }
 }
@@ -66,18 +71,31 @@ impl std::error::Error for ActuatorError {}
 
 /// Reconciles a tenant's *actual* agent count toward its *desired* count.
 ///
-/// Implementations are substrate-specific (Docker today; Kubernetes later).
-/// `reconcile` is idempotent: called repeatedly by the server's background loop
-/// with the current desired count, it actuates only the delta.
+/// Implementations are substrate-specific (Docker for dev, Kubernetes for
+/// production). `reconcile` is idempotent: called repeatedly by the server's
+/// background loop with the current desired count, it actuates only the delta.
+///
+/// A tenant's agents are grouped in pools (CLOACINA-T-1021). `desired` is the
+/// count of the pool `default`; the actuator reads the tenant's other pools
+/// and their fixed counts itself, and reconciles each pool.
 #[async_trait]
 pub trait FleetActuator: Send + Sync {
-    /// Drive the tenant's running agent count toward `desired`, returning what
-    /// changed. Must never touch another tenant's runtimes (NFR-004).
+    /// Drive the tenant's running agents toward what is wanted: `desired`
+    /// agents in the pool `default`, and each other pool at its own count.
+    /// The outcome sums the pools. Must never touch another tenant's runtimes
+    /// (NFR-004).
     async fn reconcile(
         &self,
         tenant_id: &str,
         desired: u32,
     ) -> Result<ReconcileOutcome, ActuatorError>;
+
+    /// Remove what the actuator made for one pool of a tenant (its agents and
+    /// the objects that belong to the pool alone). The caller has checked that
+    /// the pool has no agents. Idempotent; never called for `default`.
+    async fn remove_pool(&self, _tenant_id: &str, _pool: &str) -> Result<(), ActuatorError> {
+        Ok(())
+    }
 
     /// A short, stable identifier for the actuator kind (`"docker"`, `"none"`,
     /// …). `"none"` signals the background reconcile loop should not run.

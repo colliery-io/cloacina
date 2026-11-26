@@ -60,18 +60,18 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, CompilerStatus, CreateInstanceRequest, CreateKeyRequest,
-    CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse,
-    ExecutionDetail, ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse,
-    FireReactorRequest, FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
-    InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
-    KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
-    RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
-    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
-    TriggerPauseResponse, TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail,
-    WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary,
-    WorkflowUploadedResponse, WorkflowVersionActivatedResponse, WorkflowVersionSummary,
-    WsTicketResponse,
+    AccumulatorStatus, AgentInfo, AgentPoolInfo, AgentPoolSettings, CompilerStatus,
+    CreateInstanceRequest, CreateKeyRequest, CreateSecretRequest, CreateTenantRequest,
+    DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
+    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse,
+    FireTriggerRequest, FireTriggerResponse, GraphStatus, InjectAccumulatorRequest,
+    InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
+    ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, RotateSecretRequest,
+    SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse, TenantListResponse,
+    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerPauseResponse,
+    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary,
+    WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
+    WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
 };
 
 /// Builder for [`Client`].
@@ -1031,6 +1031,49 @@ impl Client {
 
     pub async fn compiler_status(&self) -> Result<CompilerStatus, ClientError> {
         self.get_json("/v1/compiler/status").await
+    }
+
+    // ---- agent pools ----
+
+    /// List the tenant's agent pools. Every tenant has `default`.
+    pub async fn list_pools(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<AgentPoolInfo>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/pools")).await
+    }
+
+    /// Get one agent pool.
+    pub async fn get_pool(
+        &self,
+        pool: &str,
+        tenant: Option<&str>,
+    ) -> Result<AgentPoolInfo, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/pools/{pool}"))
+            .await
+    }
+
+    /// Create an agent pool, or replace its settings as a whole. Needs a
+    /// platform-admin key.
+    pub async fn put_pool(
+        &self,
+        pool: &str,
+        settings: &AgentPoolSettings,
+        tenant: Option<&str>,
+    ) -> Result<AgentPoolInfo, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.put_json(&format!("/v1/tenants/{t}/pools/{pool}"), settings)
+            .await
+    }
+
+    /// Remove an agent pool (for `default`: clear its settings). The server
+    /// answers 409 while the pool has agents. Needs a platform-admin key.
+    pub async fn delete_pool(&self, pool: &str, tenant: Option<&str>) -> Result<(), ClientError> {
+        let t = self.tenant_of(tenant);
+        self.delete_path(&format!("/v1/tenants/{t}/pools/{pool}"))
+            .await
     }
 
     // ---- WebSocket (substrate delivery) ----

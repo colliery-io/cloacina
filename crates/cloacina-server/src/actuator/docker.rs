@@ -26,6 +26,15 @@
 //! unit-testable (assert the spawn/stop call counts) without a live daemon or a
 //! database.
 //!
+//! ## Pools (CLOACINA-T-1021)
+//! A tenant's agents are grouped in pools. A container carries its pool in the
+//! `cloacina.pool` label (none: the pool `default`) and the pool settings it
+//! was started with in `cloacina.agent-settings`. Of a pool's settings this
+//! actuator applies the image, the memory and CPU limits and the max
+//! concurrency; requests, the service account and the egress rules have no
+//! Docker counterpart and are ignored. A container whose settings label
+//! differs from the pool's current settings is replaced.
+//!
 //! ## Tenant isolation (NFR-004)
 //! Every list/spawn/stop is scoped by the `cloacina.tenant` label, so the
 //! actuator never observes or targets another tenant's containers.
@@ -40,11 +49,15 @@ use bollard::query_parameters::{
     CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
     StopContainerOptions,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use cloacina::database::Database;
+use cloacina_api_types::{AgentPoolSettings, DEFAULT_AGENT_POOL};
 
+use super::settings::{
+    AgentPoolSource, DalPoolSource, DefaultPoolOnly, Quantity, fixed_agent_count,
+};
 use super::{ActuatorError, FleetActuator, ReconcileOutcome, reconcile_delta};
 
 /// The role minted agent keys carry. `POST /v1/agent/register` is authorized at
@@ -56,6 +69,74 @@ const AGENT_KEY_ROLE: &str = "read";
 const LABEL_MANAGED: &str = "cloacina.managed";
 /// Label binding a managed container to its tenant.
 const LABEL_TENANT: &str = "cloacina.tenant";
+
+/// Label naming a container's pool. Absent: the pool `default`.
+const LABEL_POOL: &str = "cloacina.pool";
+/// Label holding the pool settings a container was started with
+/// ([`DockerPoolSettings::label`]). Absent: no settings.
+const LABEL_SETTINGS: &str = "cloacina.agent-settings";
+
+/// The part of a pool's settings that maps onto a Docker container.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DockerPoolSettings {
+    /// Image override. `None`: the server-wide image.
+    pub image: Option<String>,
+    /// Memory limit in bytes (`HostConfig.Memory`).
+    pub memory_bytes: Option<i64>,
+    /// CPU limit in units of 1e-9 CPUs (`HostConfig.NanoCpus`).
+    pub nano_cpus: Option<i64>,
+    /// The agent's max concurrency (`CLOACINA_AGENT_MAX_CONCURRENCY`).
+    pub max_concurrency: Option<u32>,
+}
+
+impl DockerPoolSettings {
+    /// Take what maps from a pool's settings. The quantities were validated
+    /// at the API; one that does not parse here is an error, not a default.
+    pub fn from_pool(settings: &AgentPoolSettings) -> Result<Self, ActuatorError> {
+        let quantity = |field: &str, raw: &Option<String>| {
+            raw.as_deref()
+                .map(|r| {
+                    Quantity::parse(r).map_err(|e| ActuatorError::Settings(format!("{field}: {e}")))
+                })
+                .transpose()
+        };
+        let to_i64 = |field: &str, v: i128| {
+            i64::try_from(v).map_err(|_| ActuatorError::Settings(format!("{field}: too large")))
+        };
+        let memory_bytes = quantity("memory_limit", &settings.memory_limit)?
+            .map(|q| to_i64("memory_limit", q.units_ceil()))
+            .transpose()?;
+        let nano_cpus = quantity("cpu_limit", &settings.cpu_limit)?
+            .map(|q| to_i64("cpu_limit", q.nanos()))
+            .transpose()?;
+        Ok(Self {
+            image: settings.image.clone(),
+            memory_bytes,
+            nano_cpus,
+            max_concurrency: settings.max_concurrency,
+        })
+    }
+
+    /// The value of the `cloacina.agent-settings` label: empty with no
+    /// settings (so a container from before pools counts as current), else the
+    /// set values in a fixed order.
+    pub fn label(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(image) = &self.image {
+            parts.push(format!("image={image}"));
+        }
+        if let Some(m) = self.memory_bytes {
+            parts.push(format!("memory={m}"));
+        }
+        if let Some(c) = self.nano_cpus {
+            parts.push(format!("nano_cpus={c}"));
+        }
+        if let Some(n) = self.max_concurrency {
+            parts.push(format!("max_concurrency={n}"));
+        }
+        parts.join(";")
+    }
+}
 
 /// Docker actuator configuration, read from the environment.
 #[derive(Debug, Clone)]
@@ -95,6 +176,11 @@ impl DockerConfig {
 #[derive(Debug, Clone)]
 pub struct ContainerRef {
     pub id: String,
+    /// The container's pool (`cloacina.pool`; `default` when it has no label).
+    pub pool: String,
+    /// The settings it was started with (`cloacina.agent-settings`; empty when
+    /// it has no label).
+    pub settings: String,
 }
 
 /// Everything needed to spawn one tenant agent container.
@@ -106,6 +192,12 @@ pub struct SpawnSpec {
     pub server_url: String,
     /// Plaintext tenant-scoped agent key, injected as `CLOACINA_API_KEY`.
     pub api_key: String,
+    /// The pool the agent is in. Other than `default` it is injected as
+    /// `CLOACINA_AGENT_POOL` and set as the `cloacina.pool` label.
+    pub pool: String,
+    /// The pool settings that map onto a container (`image` is already applied
+    /// to [`SpawnSpec::image`]).
+    pub settings: DockerPoolSettings,
 }
 
 /// The Docker Engine operations the actuator needs. Abstracted so `reconcile`
@@ -164,11 +256,14 @@ impl KeyMinter for DalKeyMinter {
 pub struct DockerActuator {
     ops: Arc<dyn ContainerOps>,
     minter: Arc<dyn KeyMinter>,
+    pools: Arc<dyn AgentPoolSource>,
     config: DockerConfig,
 }
 
 impl DockerActuator {
-    /// Construct with explicit collaborators (used by tests).
+    /// Construct with explicit collaborators (used by tests). Every tenant has
+    /// only the pool `default` with no settings until [`Self::with_pools`]
+    /// gives a source.
     pub fn new(
         ops: Arc<dyn ContainerOps>,
         minter: Arc<dyn KeyMinter>,
@@ -177,8 +272,15 @@ impl DockerActuator {
         Self {
             ops,
             minter,
+            pools: Arc::new(DefaultPoolOnly),
             config,
         }
+    }
+
+    /// Read each tenant's pools from `pools`.
+    pub fn with_pools(mut self, pools: Arc<dyn AgentPoolSource>) -> Self {
+        self.pools = pools;
+        self
     }
 
     /// Production constructor: a lazily-connected bollard client + DAL-backed
@@ -190,7 +292,8 @@ impl DockerActuator {
         let config = DockerConfig::from_env();
         Ok(Self {
             ops: Arc::new(BollardOps::new(docker)),
-            minter: Arc::new(DalKeyMinter::new(database)),
+            minter: Arc::new(DalKeyMinter::new(database.clone())),
+            pools: Arc::new(DalPoolSource::new(database)),
             config,
         })
     }
@@ -203,53 +306,162 @@ impl FleetActuator for DockerActuator {
         tenant_id: &str,
         desired: u32,
     ) -> Result<ReconcileOutcome, ActuatorError> {
+        // The tenant's pools, `default` first. A failed read stops here: the
+        // agents stay as they are.
+        let pools = self.pools.pools(tenant_id).await?;
         let managed = self.ops.list_managed(tenant_id).await?;
-        let running = managed.len() as u32;
-        let delta = reconcile_delta(running, desired);
 
-        let mut spawned = 0u32;
-        for _ in 0..delta.to_spawn {
-            // Mint one fresh tenant-scoped key per container (flagged decision).
-            let api_key = self.minter.mint(tenant_id).await?;
-            let spec = SpawnSpec {
-                tenant_id: tenant_id.to_string(),
-                image: self.config.image.clone(),
-                network: self.config.network.clone(),
-                server_url: self.config.server_url.clone(),
-                api_key,
-            };
-            self.ops.spawn(spec).await?;
-            spawned += 1;
-        }
+        let mut total = ReconcileOutcome::default();
 
-        let mut stopped = 0u32;
-        // Stop surplus: pick the first `to_stop` managed containers for the tenant.
-        for c in managed.iter().take(delta.to_stop as usize) {
+        // A container of a pool that no longer exists is stopped.
+        for c in managed
+            .iter()
+            .filter(|c| !pools.iter().any(|(name, _)| *name == c.pool))
+        {
             self.ops.stop(&c.id).await?;
-            stopped += 1;
+            total.stopped += 1;
         }
 
-        if spawned > 0 || stopped > 0 {
-            info!(
-                tenant = %tenant_id,
-                desired,
-                running_before = running,
-                spawned,
-                stopped,
-                "fleet actuator reconciled tenant agents (docker)"
-            );
+        for (pool, settings) in &pools {
+            let desired = if pool == DEFAULT_AGENT_POOL {
+                desired
+            } else {
+                fixed_agent_count(settings)
+            };
+            let applied = DockerPoolSettings::from_pool(settings)?;
+            if settings.cpu_request.is_some()
+                || settings.memory_request.is_some()
+                || settings.service_account_name.is_some()
+                || !settings.service_account_annotations.is_empty()
+                || !settings.pod_labels.is_empty()
+                || !settings.pod_annotations.is_empty()
+                || settings.automount_service_account_token.is_some()
+                || !settings.extra_egress.is_empty()
+            {
+                debug!(
+                    tenant = %tenant_id,
+                    pool = %pool,
+                    "docker actuator ignores the pool's resource requests, service account, pod \
+                     labels and annotations and extra egress: they have no Docker counterpart"
+                );
+            }
+            let label = applied.label();
+
+            // A container started with other settings is replaced: stop it
+            // here, and the spawn below makes up the count.
+            let (current, stale): (Vec<&ContainerRef>, Vec<&ContainerRef>) = managed
+                .iter()
+                .filter(|c| c.pool == *pool)
+                .partition(|c| c.settings == label);
+            let mut stopped = 0u32;
+            for c in &stale {
+                self.ops.stop(&c.id).await?;
+                stopped += 1;
+            }
+
+            let running = current.len() as u32;
+            let delta = reconcile_delta(running, desired);
+
+            let mut spawned = 0u32;
+            for _ in 0..delta.to_spawn {
+                // Mint one fresh tenant-scoped key per container (flagged decision).
+                let api_key = self.minter.mint(tenant_id).await?;
+                let spec = SpawnSpec {
+                    tenant_id: tenant_id.to_string(),
+                    image: applied
+                        .image
+                        .clone()
+                        .unwrap_or_else(|| self.config.image.clone()),
+                    network: self.config.network.clone(),
+                    server_url: self.config.server_url.clone(),
+                    api_key,
+                    pool: pool.clone(),
+                    settings: applied.clone(),
+                };
+                self.ops.spawn(spec).await?;
+                spawned += 1;
+            }
+
+            // Stop surplus: pick the first `to_stop` current containers of the pool.
+            for c in current.iter().take(delta.to_stop as usize) {
+                self.ops.stop(&c.id).await?;
+                stopped += 1;
+            }
+
+            if spawned > 0 || stopped > 0 {
+                info!(
+                    tenant = %tenant_id,
+                    pool = %pool,
+                    desired,
+                    running_before = running,
+                    spawned,
+                    stopped,
+                    replaced = stale.len(),
+                    "fleet actuator reconciled tenant agents (docker)"
+                );
+            }
+
+            total.spawned += spawned;
+            total.stopped += stopped;
+            total.running += running + spawned - delta.to_stop;
         }
 
-        Ok(ReconcileOutcome {
-            spawned,
-            stopped,
-            running: running + spawned - stopped,
-        })
+        Ok(total)
+    }
+
+    async fn remove_pool(&self, tenant_id: &str, pool: &str) -> Result<(), ActuatorError> {
+        if pool == DEFAULT_AGENT_POOL {
+            return Err(ActuatorError::Settings(
+                "the pool 'default' is not removed".to_string(),
+            ));
+        }
+        for c in self
+            .ops
+            .list_managed(tenant_id)
+            .await?
+            .iter()
+            .filter(|c| c.pool == pool)
+        {
+            self.ops.stop(&c.id).await?;
+        }
+        Ok(())
     }
 
     fn kind(&self) -> &'static str {
         "docker"
     }
+}
+
+/// The environment of a spawned agent container.
+fn spawn_env(spec: &SpawnSpec) -> Vec<String> {
+    let mut env = vec![
+        format!("CLOACINA_SERVER={}", spec.server_url),
+        format!("CLOACINA_API_KEY={}", spec.api_key),
+    ];
+    if spec.pool != DEFAULT_AGENT_POOL {
+        env.push(format!("CLOACINA_AGENT_POOL={}", spec.pool));
+    }
+    if let Some(n) = spec.settings.max_concurrency {
+        env.push(format!("CLOACINA_AGENT_MAX_CONCURRENCY={n}"));
+    }
+    env
+}
+
+/// The host config of a spawned agent container: the network, and the pool's
+/// memory and CPU limits. `None` when nothing is set.
+fn spawn_host_config(spec: &SpawnSpec) -> Option<HostConfig> {
+    if spec.network.is_none()
+        && spec.settings.memory_bytes.is_none()
+        && spec.settings.nano_cpus.is_none()
+    {
+        return None;
+    }
+    Some(HostConfig {
+        network_mode: spec.network.clone(),
+        memory: spec.settings.memory_bytes,
+        nano_cpus: spec.settings.nano_cpus,
+        ..Default::default()
+    })
 }
 
 /// Real [`ContainerOps`] over the Docker Engine API (`bollard`).
@@ -290,7 +502,14 @@ impl ContainerOps for BollardOps {
 
         Ok(summaries
             .into_iter()
-            .filter_map(|s| s.id.map(|id| ContainerRef { id }))
+            .filter_map(|s| {
+                let label = |key: &str| s.labels.as_ref().and_then(|l| l.get(key)).cloned();
+                Some(ContainerRef {
+                    id: s.id.clone()?,
+                    pool: label(LABEL_POOL).unwrap_or_else(|| DEFAULT_AGENT_POOL.to_string()),
+                    settings: label(LABEL_SETTINGS).unwrap_or_default(),
+                })
+            })
             .collect())
     }
 
@@ -298,16 +517,18 @@ impl ContainerOps for BollardOps {
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert(LABEL_TENANT.to_string(), spec.tenant_id.clone());
         labels.insert(LABEL_MANAGED.to_string(), "true".to_string());
+        // Labels and env of a pool are added only when set, so a container of
+        // the pool `default` with no settings is as it was before pools.
+        if spec.pool != DEFAULT_AGENT_POOL {
+            labels.insert(LABEL_POOL.to_string(), spec.pool.clone());
+        }
+        let settings_label = spec.settings.label();
+        if !settings_label.is_empty() {
+            labels.insert(LABEL_SETTINGS.to_string(), settings_label);
+        }
 
-        let env = vec![
-            format!("CLOACINA_SERVER={}", spec.server_url),
-            format!("CLOACINA_API_KEY={}", spec.api_key),
-        ];
-
-        let host_config = spec.network.as_ref().map(|net| HostConfig {
-            network_mode: Some(net.clone()),
-            ..Default::default()
-        });
+        let env = spawn_env(&spec);
+        let host_config = spawn_host_config(&spec);
 
         let body = ContainerCreateBody {
             image: Some(spec.image.clone()),
@@ -370,6 +591,7 @@ mod tests {
     struct MockOps {
         running: Vec<ContainerRef>,
         spawns: AtomicU32,
+        spawn_specs: Mutex<Vec<SpawnSpec>>,
         stops: Mutex<Vec<String>>,
     }
 
@@ -377,13 +599,27 @@ mod tests {
         fn with_running(n: usize) -> Self {
             Self {
                 running: (0..n)
-                    .map(|i| ContainerRef {
-                        id: format!("c{i}"),
-                    })
+                    .map(|i| container(&format!("c{i}"), DEFAULT_AGENT_POOL, ""))
                     .collect(),
                 spawns: AtomicU32::new(0),
+                spawn_specs: Mutex::new(Vec::new()),
                 stops: Mutex::new(Vec::new()),
             }
+        }
+
+        fn with_containers(running: Vec<ContainerRef>) -> Self {
+            Self {
+                running,
+                ..Self::with_running(0)
+            }
+        }
+    }
+
+    fn container(id: &str, pool: &str, settings: &str) -> ContainerRef {
+        ContainerRef {
+            id: id.to_string(),
+            pool: pool.to_string(),
+            settings: settings.to_string(),
         }
     }
 
@@ -392,8 +628,9 @@ mod tests {
         async fn list_managed(&self, _tenant_id: &str) -> Result<Vec<ContainerRef>, ActuatorError> {
             Ok(self.running.clone())
         }
-        async fn spawn(&self, _spec: SpawnSpec) -> Result<(), ActuatorError> {
+        async fn spawn(&self, spec: SpawnSpec) -> Result<(), ActuatorError> {
             self.spawns.fetch_add(1, Ordering::SeqCst);
+            self.spawn_specs.lock().unwrap().push(spec);
             Ok(())
         }
         async fn stop(&self, id: &str) -> Result<(), ActuatorError> {
@@ -495,6 +732,194 @@ mod tests {
         assert_eq!(out.spawned, 2);
         assert_eq!(out.running, 2);
         assert_eq!(ops.spawns.load(Ordering::SeqCst), 2);
+    }
+
+    // ── pools and their settings (CLOACINA-T-1021) ──────────────────────────
+
+    use super::super::settings::test_support::FixedPools;
+
+    fn minter() -> Arc<MockMinter> {
+        Arc::new(MockMinter {
+            minted: AtomicU32::new(0),
+        })
+    }
+
+    #[test]
+    fn docker_settings_take_what_maps_and_label_it() {
+        let none = DockerPoolSettings::from_pool(&AgentPoolSettings::default()).unwrap();
+        assert_eq!(none, DockerPoolSettings::default());
+        // No settings: an empty label, so a container from before pools counts
+        // as current.
+        assert_eq!(none.label(), "");
+
+        let applied = DockerPoolSettings::from_pool(&AgentPoolSettings {
+            cpu_limit: Some("1500m".into()),
+            memory_limit: Some("2Gi".into()),
+            max_concurrency: Some(2),
+            image: Some("registry.example/cloacina-agent:1.2.3".into()),
+            // No Docker counterpart: not in the applied settings or the label.
+            cpu_request: Some("1".into()),
+            memory_request: Some("1Gi".into()),
+            service_account_name: Some("team-data".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(applied.memory_bytes, Some(2 << 30));
+        assert_eq!(applied.nano_cpus, Some(1_500_000_000));
+        assert_eq!(applied.max_concurrency, Some(2));
+        assert_eq!(
+            applied.label(),
+            "image=registry.example/cloacina-agent:1.2.3;memory=2147483648;\
+             nano_cpus=1500000000;max_concurrency=2"
+        );
+
+        assert!(matches!(
+            DockerPoolSettings::from_pool(&AgentPoolSettings {
+                memory_limit: Some("2GB".into()),
+                ..Default::default()
+            }),
+            Err(ActuatorError::Settings(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn spawn_applies_image_limits_and_concurrency() {
+        let settings = AgentPoolSettings {
+            cpu_limit: Some("2".into()),
+            memory_limit: Some("512Mi".into()),
+            max_concurrency: Some(1),
+            image: Some("registry.example/cloacina-agent:1.2.3".into()),
+            ..Default::default()
+        };
+        let ops = Arc::new(MockOps::with_running(0));
+        let act = actuator(ops.clone(), minter())
+            .with_pools(Arc::new(FixedPools::default_pool(settings)));
+        act.reconcile("acme", 1).await.unwrap();
+
+        let specs = ops.spawn_specs.lock().unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].image, "registry.example/cloacina-agent:1.2.3");
+        let host = spawn_host_config(&specs[0]).unwrap();
+        assert_eq!(host.memory, Some(512 << 20));
+        assert_eq!(host.nano_cpus, Some(2_000_000_000));
+        assert_eq!(host.network_mode.as_deref(), Some("cloacina_net"));
+        let env = spawn_env(&specs[0]);
+        assert!(env.contains(&"CLOACINA_AGENT_MAX_CONCURRENCY=1".to_string()));
+        // The pool `default` sets no pool env.
+        assert!(!env.iter().any(|e| e.starts_with("CLOACINA_AGENT_POOL=")));
+    }
+
+    #[tokio::test]
+    async fn spawn_with_no_settings_is_as_before_pools() {
+        let ops = Arc::new(MockOps::with_running(0));
+        let act = actuator(ops.clone(), minter());
+        act.reconcile("acme", 1).await.unwrap();
+        let specs = ops.spawn_specs.lock().unwrap();
+        assert_eq!(specs[0].image, "cloacina-agent:latest");
+        assert_eq!(
+            spawn_env(&specs[0]),
+            vec![
+                "CLOACINA_SERVER=http://server:8080".to_string(),
+                "CLOACINA_API_KEY=clk_test_0".to_string(),
+            ]
+        );
+        let host = spawn_host_config(&specs[0]).unwrap();
+        assert_eq!(host.memory, None);
+        assert_eq!(host.nano_cpus, None);
+        assert_eq!(specs[0].settings.label(), "");
+    }
+
+    #[tokio::test]
+    async fn containers_with_old_settings_are_replaced() {
+        // Two containers from before the setting, one already current.
+        let label = "max_concurrency=2";
+        let ops = Arc::new(MockOps::with_containers(vec![
+            container("old-1", "default", ""),
+            container("old-2", "default", ""),
+            container("new-1", "default", label),
+        ]));
+        let act = actuator(ops.clone(), minter()).with_pools(Arc::new(FixedPools::default_pool(
+            AgentPoolSettings {
+                max_concurrency: Some(2),
+                ..Default::default()
+            },
+        )));
+        let out = act.reconcile("acme", 3).await.unwrap();
+        assert_eq!(
+            ops.stops.lock().unwrap().as_slice(),
+            &["old-1".to_string(), "old-2".to_string()]
+        );
+        assert_eq!(out.stopped, 2);
+        assert_eq!(out.spawned, 2);
+        assert_eq!(out.running, 3);
+        assert!(
+            ops.spawn_specs
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|s| s.settings.label() == label)
+        );
+    }
+
+    #[tokio::test]
+    async fn each_pool_runs_its_own_count() {
+        let ops = Arc::new(MockOps::with_containers(vec![
+            container("d-1", "default", ""),
+            container("b-1", "big", "max_concurrency=1"),
+            container("b-2", "big", "max_concurrency=1"),
+            container("b-3", "big", "max_concurrency=1"),
+            // A pool that no longer exists.
+            container("gone-1", "gone", ""),
+        ]));
+        let act = actuator(ops.clone(), minter()).with_pools(Arc::new(FixedPools(vec![(
+            "big".to_string(),
+            AgentPoolSettings {
+                max_concurrency: Some(1),
+                max_agents: Some(2),
+                ..Default::default()
+            },
+        )])));
+        // 2 is the desired count of `default`; `big` runs its own 2.
+        let out = act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(
+            ops.stops.lock().unwrap().as_slice(),
+            &["gone-1".to_string(), "b-1".to_string()]
+        );
+        let specs = ops.spawn_specs.lock().unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].pool, "default");
+        assert_eq!(out.spawned, 1);
+        assert_eq!(out.stopped, 2);
+        assert_eq!(out.running, 4);
+    }
+
+    #[tokio::test]
+    async fn a_spawn_in_another_pool_names_the_pool() {
+        let ops = Arc::new(MockOps::with_running(0));
+        let act = actuator(ops.clone(), minter()).with_pools(Arc::new(FixedPools(vec![(
+            "big".to_string(),
+            AgentPoolSettings {
+                max_agents: Some(1),
+                ..Default::default()
+            },
+        )])));
+        act.reconcile("acme", 0).await.unwrap();
+        let specs = ops.spawn_specs.lock().unwrap();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].pool, "big");
+        assert!(spawn_env(&specs[0]).contains(&"CLOACINA_AGENT_POOL=big".to_string()));
+    }
+
+    #[tokio::test]
+    async fn remove_pool_stops_only_that_pool() {
+        let ops = Arc::new(MockOps::with_containers(vec![
+            container("d-1", "default", ""),
+            container("b-1", "big", ""),
+        ]));
+        let act = actuator(ops.clone(), minter());
+        act.remove_pool("acme", "big").await.unwrap();
+        assert_eq!(ops.stops.lock().unwrap().as_slice(), &["b-1".to_string()]);
+        assert!(act.remove_pool("acme", "default").await.is_err());
     }
 
     #[test]

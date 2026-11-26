@@ -81,11 +81,15 @@ struct Args {
     #[arg(long)]
     agent_id: Option<String>,
     /// Max concurrent work packets this agent will accept.
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, env = "CLOACINA_AGENT_MAX_CONCURRENCY", default_value_t = 4)]
     max_concurrency: u32,
     /// Free-form capability tags advertised at registration.
     #[arg(long, value_delimiter = ',')]
     capabilities: Vec<String>,
+    /// The agent pool this agent is in. Registered as the capability
+    /// `pool:<name>`. Not set: the server counts the agent in `default`.
+    #[arg(long, env = "CLOACINA_AGENT_POOL")]
+    pool: Option<String>,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -216,6 +220,12 @@ async fn connect_and_serve(
 
     // ── 1. Register (fresh each session — the server may have restarted and
     //       forgotten us, in which case a stale agent_id would be unroutable).
+    // CLOACINA-T-1021: the agent's pool is registered as the capability
+    // `pool:<name>`. With no pool the server counts the agent in `default`.
+    let mut capabilities = args.capabilities.clone();
+    if let Some(pool) = args.pool.as_deref().filter(|p| !p.is_empty()) {
+        capabilities.push(format!("pool:{pool}"));
+    }
     let register_resp = register(
         http,
         server_base,
@@ -223,7 +233,7 @@ async fn connect_and_serve(
         &args.agent_id,
         args.max_concurrency,
         target_triple,
-        &args.capabilities,
+        &capabilities,
         ephemeral_key_pool,
     )
     .await
