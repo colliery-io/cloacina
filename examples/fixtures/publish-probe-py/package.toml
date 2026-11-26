@@ -1,0 +1,17 @@
+# Fixture of the publishing behaviour spec (CLOACINA-T-1026,
+# features/publishing/independent_publish.feature): a job of team A whose task
+# tries to reach what belongs to another team, and reports what it could reach.
+# It reports names and status codes only, never a secret value or a key.
+[package]
+name = "publish-probe-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "publish_probe"
+language = "python"
+description = "publishing spec fixture: a task that reports what it can reach"
+author = "team-a"
+entry_module = "publish_probe.tasks"

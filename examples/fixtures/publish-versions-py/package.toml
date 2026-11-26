@@ -1,0 +1,18 @@
+# Fixture of the publishing behaviour spec (CLOACINA-T-1026,
+# features/publishing/independent_publish.feature): team A's "orders job".
+# A Python package whose tasks report the version of the code that ran them.
+# The spec driver makes version 0.2.0 from this tree when it stages it: it
+# replaces 0.1.0 here and in workflow/publish_versions/tasks.py.
+[package]
+name = "publish-versions-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "publish_versions"
+language = "python"
+description = "publishing spec fixture: tasks that report their package version"
+author = "team-a"
+entry_module = "publish_versions.tasks"
