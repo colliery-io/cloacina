@@ -39,10 +39,17 @@ affinity: {}
 # ---------------------------------------------------------------------------
 # High availability (CLOACI-T-0819)
 #
-# The server is safe to run with replicaCount>1: the autoscaler/reconciler
-# leader is gated by a Postgres advisory lock (ADR CLOACI-A-0008), so extra
-# replicas serve HTTP without double-driving the control loop. A
-# PodDisruptionBudget keeps a minimum available during voluntary disruptions
+# The server is safe to run with replicaCount>1:
+#   - the autoscaler/reconciler leader is gated by a Postgres advisory lock
+#     (ADR CLOACI-A-0008), so extra replicas serve HTTP without double-driving
+#     the control loop;
+#   - an execution agent may post a task result to any replica: a replica that
+#     did not dispatch the task stores the result in Postgres and the replica
+#     that waits for it takes it (CLOACINA-T-1015). No session affinity is
+#     needed on the Service.
+# A replica that stops loses the result waits it held; those tasks run again
+# (tasks on the fleet must be safe to run twice).
+# A PodDisruptionBudget keeps a minimum available during voluntary disruptions
 # (node drains, rolling updates).
 #
 # NOTE: there is deliberately NO HorizontalPodAutoscaler. The control-plane

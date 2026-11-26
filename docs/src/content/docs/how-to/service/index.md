@@ -22,6 +22,7 @@ day-2 operations.
 - [Multi-Tenant Recovery](multi-tenant-recovery/)
 - [Production Deployment](production-deployment/)
 - [Back Up and Restore](backup-and-restore/)
+- [Alert on a Failed Run](alert-on-a-failed-run/)
 - [Configure PostgreSQL Schema-Based Multi-Tenancy](multi-tenant-setup/)
 - [Performance Tuning](performance-tuning/)
 - [Security](security/)

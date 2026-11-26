@@ -215,8 +215,10 @@ actuator only ever touches the requesting tenant's namespace.
 
 `fleet.agentImage` and `fleet.agentResources` are the server-wide defaults. A
 pool's settings override them for that pool: resources, max concurrency, image,
-a ServiceAccount with annotations (for a cloud workload identity) and extra
-egress rules. A platform admin sets them through the
+a ServiceAccount with annotations, pod labels and annotations and the
+`automountServiceAccountToken` switch (for a cloud workload identity; see
+[Give a pool a cloud identity](../deploy-an-execution-agent-fleet/#give-a-pool-a-cloud-identity)),
+and extra egress rules. A platform admin sets them through the
 [pool API](../../../reference/http-api/#agent-pools) or
 `cloacinactl tenant pool set`; see
 [Size the agents: pools](../deploy-an-execution-agent-fleet/#size-the-agents-pools).

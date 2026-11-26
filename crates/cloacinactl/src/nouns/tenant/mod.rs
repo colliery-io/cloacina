@@ -90,7 +90,8 @@ struct PoolSettingsArgs {
     /// other flags. The object is the body of `PUT .../pools/<pool>`.
     #[arg(long, conflicts_with_all = [
         "cpu_request", "memory_request", "cpu_limit", "memory_limit", "max_concurrency",
-        "image", "service_account", "service_account_annotation", "egress", "agents",
+        "image", "service_account", "service_account_annotation", "pod_label",
+        "pod_annotation", "automount_service_account_token", "egress", "agents",
     ])]
     file: Option<String>,
     /// CPU request of each agent, a Kubernetes quantity (`500m`).
@@ -117,6 +118,16 @@ struct PoolSettingsArgs {
     /// Annotation for that ServiceAccount, `KEY=VALUE`. Repeat for more.
     #[arg(long, value_name = "KEY=VALUE")]
     service_account_annotation: Vec<String>,
+    /// Label for the pool's pods, `KEY=VALUE`. Repeat for more.
+    #[arg(long, value_name = "KEY=VALUE")]
+    pod_label: Vec<String>,
+    /// Annotation for the pool's pods, `KEY=VALUE`. Repeat for more.
+    #[arg(long, value_name = "KEY=VALUE")]
+    pod_annotation: Vec<String>,
+    /// The pods' `automountServiceAccountToken` (`true` or `false`). Not
+    /// given: the cluster default.
+    #[arg(long, value_name = "BOOL")]
+    automount_service_account_token: Option<bool>,
     /// Extra egress rule, `CIDR` or `CIDR=PORT[/PROTOCOL][,PORT...]`
     /// (`198.51.100.0/24=443,53/UDP`). Repeat for more.
     #[arg(long, value_name = "CIDR[=PORTS]")]
@@ -165,17 +176,30 @@ impl PoolSettingsArgs {
         put("image", self.image.map(Into::into));
         put("service_account_name", self.service_account.map(Into::into));
         put("max_agents", self.agents.map(Into::into));
-        if !self.service_account_annotation.is_empty() {
-            let mut annotations = serde_json::Map::new();
-            for raw in &self.service_account_annotation {
-                let (key, value) = raw.split_once('=').ok_or_else(|| {
-                    CliError::UserError(format!(
-                        "--service-account-annotation '{raw}' is not KEY=VALUE"
-                    ))
-                })?;
-                annotations.insert(key.to_string(), value.into());
+        put(
+            "automount_service_account_token",
+            self.automount_service_account_token.map(Into::into),
+        );
+        for (flag, field, values) in [
+            (
+                "--service-account-annotation",
+                "service_account_annotations",
+                &self.service_account_annotation,
+            ),
+            ("--pod-label", "pod_labels", &self.pod_label),
+            ("--pod-annotation", "pod_annotations", &self.pod_annotation),
+        ] {
+            if values.is_empty() {
+                continue;
             }
-            put("service_account_annotations", Some(annotations.into()));
+            let mut map = serde_json::Map::new();
+            for raw in values {
+                let (key, value) = raw.split_once('=').ok_or_else(|| {
+                    CliError::UserError(format!("{flag} '{raw}' is not KEY=VALUE"))
+                })?;
+                map.insert(key.to_string(), value.into());
+            }
+            put(field, Some(map.into()));
         }
         if !self.egress.is_empty() {
             let rules = self
@@ -306,6 +330,9 @@ mod tests {
             max_concurrency: Some(1),
             service_account: Some("team-data".into()),
             service_account_annotation: vec!["example.com/role=team-data".into()],
+            pod_label: vec!["azure.workload.identity/use=true".into()],
+            pod_annotation: vec!["example.com/note=a=b".into()],
+            automount_service_account_token: Some(false),
             egress: vec!["198.51.100.0/24=443,53/udp".into(), "192.0.2.7/32".into()],
             agents: Some(2),
             ..Default::default()
@@ -320,6 +347,9 @@ mod tests {
                 "max_concurrency": 1,
                 "service_account_name": "team-data",
                 "service_account_annotations": { "example.com/role": "team-data" },
+                "pod_labels": { "azure.workload.identity/use": "true" },
+                "pod_annotations": { "example.com/note": "a=b" },
+                "automount_service_account_token": false,
                 "extra_egress": [
                     {
                         "cidr": "198.51.100.0/24",

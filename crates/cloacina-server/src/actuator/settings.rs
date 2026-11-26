@@ -50,6 +50,8 @@ pub const MAX_EGRESS_RULES: usize = 64;
 pub const MAX_EGRESS_PORTS: usize = 32;
 /// Most annotations on a pool's service account.
 pub const MAX_ANNOTATIONS: usize = 32;
+/// Most labels, and most annotations, a pool can add to its pods.
+pub const MAX_POD_METADATA: usize = 32;
 /// Longest annotation value, in bytes.
 pub const MAX_ANNOTATION_VALUE_BYTES: usize = 4096;
 
@@ -246,6 +248,64 @@ fn validate_cidr(raw: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A Kubernetes label value: empty, or 63 characters at most of alphanumerics,
+/// `-`, `_` and `.`, alphanumeric at both ends.
+fn is_label_value(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.is_empty()
+        || (b.len() <= 63
+            && b.iter()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+            && b[0].is_ascii_alphanumeric()
+            && b[b.len() - 1].is_ascii_alphanumeric())
+}
+
+/// Check the labels and annotations a pool adds to its pods. A label key the
+/// actuator sets itself is refused: one of them is the Deployment's selector.
+fn validate_pod_metadata(settings: &AgentPoolSettings) -> Result<(), String> {
+    for (field, map) in [
+        ("pod_labels", &settings.pod_labels),
+        ("pod_annotations", &settings.pod_annotations),
+    ] {
+        if map.len() > MAX_POD_METADATA {
+            return Err(format!(
+                "{field}: {} entries; the most is {MAX_POD_METADATA}",
+                map.len()
+            ));
+        }
+    }
+    for (key, value) in &settings.pod_labels {
+        if super::kubernetes::RESERVED_POD_LABELS.contains(&key.as_str()) {
+            return Err(format!(
+                "pod_labels: '{key}' is a label the fleet actuator sets itself; it cannot be set"
+            ));
+        }
+        if !is_qualified_name(key) {
+            return Err(format!("pod_labels: '{key}' is not a valid label key"));
+        }
+        if !is_label_value(value) {
+            return Err(format!(
+                "pod_labels: the value of '{key}' is not a valid label value (63 characters at \
+                 most; letters, digits, '-', '_' and '.'; a letter or digit at both ends)"
+            ));
+        }
+    }
+    for (key, value) in &settings.pod_annotations {
+        if !is_qualified_name(key) {
+            return Err(format!(
+                "pod_annotations: '{key}' is not a valid annotation key"
+            ));
+        }
+        if value.len() > MAX_ANNOTATION_VALUE_BYTES {
+            return Err(format!(
+                "pod_annotations: the value of '{key}' is longer than \
+                 {MAX_ANNOTATION_VALUE_BYTES} bytes"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_egress(rules: &[AgentEgressRule]) -> Result<(), String> {
     if rules.len() > MAX_EGRESS_RULES {
         return Err(format!(
@@ -430,6 +490,7 @@ pub fn validate(
         }
     }
 
+    validate_pod_metadata(settings)?;
     validate_egress(&settings.extra_egress)
 }
 
@@ -803,6 +864,97 @@ mod tests {
             ],
             min_agents: None,
             max_agents: None,
+            pod_labels: [("azure.workload.identity/use", "true"), ("team", "data")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            pod_annotations: [("example.com/note", "any text, with spaces")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            automount_service_account_token: Some(false),
+        });
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// A label the actuator sets itself cannot be set by a pool: one of them
+    /// is the Deployment's selector. The error names the key.
+    #[test]
+    fn validate_refuses_the_label_keys_the_actuator_owns() {
+        for key in [
+            "app.kubernetes.io/name",
+            "cloacina.managed",
+            "cloacina.tenant",
+            "cloacina.pool",
+        ] {
+            let e = err(&AgentPoolSettings {
+                pod_labels: map(&[(key, "x")]),
+                ..Default::default()
+            });
+            assert!(e.starts_with("pod_labels:"), "{e}");
+            assert!(e.contains(&format!("'{key}'")), "{e}");
+            assert!(e.contains("sets itself"), "{e}");
+        }
+    }
+
+    #[test]
+    fn validate_checks_pod_label_keys_and_values() {
+        for key in ["", "bad key", "Example.com/use", "example.com/", "-x"] {
+            let e = err(&AgentPoolSettings {
+                pod_labels: map(&[(key, "true")]),
+                ..Default::default()
+            });
+            assert!(e.contains("not a valid label key"), "{key}: {e}");
+        }
+        let long = "x".repeat(64);
+        for value in ["has space", "-x", "x-", "a/b", long.as_str()] {
+            let e = err(&AgentPoolSettings {
+                pod_labels: map(&[("example.com/use", value)]),
+                ..Default::default()
+            });
+            assert!(e.contains("not a valid label value"), "{value}: {e}");
+        }
+        // An empty value is a valid label value.
+        ok(&AgentPoolSettings {
+            pod_labels: map(&[("example.com/use", ""), ("tier", "a_b.c-1")]),
+            ..Default::default()
+        });
+        let too_many: Vec<(String, String)> = (0..=MAX_POD_METADATA)
+            .map(|i| (format!("k{i}"), "v".to_string()))
+            .collect();
+        assert!(
+            err(&AgentPoolSettings {
+                pod_labels: too_many.into_iter().collect(),
+                ..Default::default()
+            })
+            .contains("the most is")
+        );
+    }
+
+    #[test]
+    fn validate_checks_pod_annotations() {
+        let e = err(&AgentPoolSettings {
+            pod_annotations: map(&[("bad key", "x")]),
+            ..Default::default()
+        });
+        assert!(e.starts_with("pod_annotations:"), "{e}");
+        let long = "x".repeat(MAX_ANNOTATION_VALUE_BYTES + 1);
+        let e = err(&AgentPoolSettings {
+            pod_annotations: map(&[("example.com/note", long.as_str())]),
+            ..Default::default()
+        });
+        assert!(e.contains("longer than"), "{e}");
+        // An annotation key is not held to the label rules of the actuator's
+        // own labels, and its value is free text.
+        ok(&AgentPoolSettings {
+            pod_annotations: map(&[("cloacina.pool", "free text / any")]),
+            ..Default::default()
         });
     }
 

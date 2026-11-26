@@ -95,9 +95,17 @@ On the agent:
 9. **Execute + report.** It resolves the task in the loaded library, runs it
    under the packet's timeout with the inlined context, and POSTs the outcome
    (`Success` / `Failure` / `Refused`) back to the server.
-   It acks the work packet only now, when the work has ended: until then the
-   open `delivery_outbox` row marks the work as in flight (see
-   [dead-agent reclaim](#liveness-and-dead-agent-reclaim)).
+   A POST that fails for a reason that can pass (a network error, a time
+   limit, a 5xx) is sent again with a backoff of 1 s, doubled up to 15 s, at
+   most 12 times, and not past the point where the server stops waiting. A
+   4xx that rejects the report itself (protocol mismatch, a key of another
+   tenant) is not sent again.
+   It acks the work packet only after that, when the work has ended and the
+   report is delivered or given up: until then the open `delivery_outbox` row
+   marks the work as in flight (see
+   [dead-agent reclaim](#liveness-and-dead-agent-reclaim)). When the retries
+   are used up the agent still acks; the server's result wait ends and its
+   retry policy starts the task again.
 10. **Reconcile.** The server hands the outcome to the **shared**
     `TaskResultHandler` — the same code the in-process executor uses — so state
     writes, retries, and context persistence are identical by construction
@@ -105,6 +113,26 @@ On the agent:
 
 The agent reporting wakes the rendezvous registered in step 5, so the original
 executor invocation resumes and finalizes the task.
+
+### A report can reach any server replica
+
+The rendezvous of step 5 lives in the memory of the replica that dispatched
+the task. The agent posts to the server's Service address, so with more than
+one replica the report can reach a different one. That replica has no wait for
+it: it stores the report in the `fleet_result_inbox` table and answers 200.
+The insert sends a Postgres `NOTIFY`; the replica that waits takes the row
+(a delete, so one replica gets it) and resolves its wait. Each replica also
+reads the inbox for its own waits every 5 s, which covers a missed
+notification. If the report can be neither forwarded nor stored (the database
+is down), the server answers with a 5xx and the agent sends it again.
+
+The rules below do not change: a stored report resolves only its own dispatch,
+the terminal write is still made by the executor that holds the claim, and a
+report that no replica waits for changes no state. Such a row is deleted after
+about 15 minutes and counted in `cloacina_fleet_orphan_results_total`.
+
+What this does not cover: a replica that stops takes its waits with it. The
+task is then picked up by the stale-claim sweep and runs again, as before.
 
 > **Wire format is always bincode.** fidius serializes with bincode in every
 > build profile — there is no debug/JSON split, so agents and packages don't
@@ -198,7 +226,8 @@ Two things worth knowing about the recovery characteristics:
   time.
 - **A late report changes nothing.** A result counts only for the dispatch it
   belongs to, and only while the dispatching server holds the claim on the
-  task. A report that nobody waits for is logged and counted in
+  task. A report that no replica waits for is logged, deleted from the result
+  inbox after about 15 minutes, and counted then in
   `cloacina_fleet_orphan_results_total`.
 - **Detection latency is tunable.** Total time to recover ≈ (dead-after
   detection) + (re-run). The detection floor is `interval × misses`; lower both
@@ -320,16 +349,37 @@ that tick. It does not fall back to the defaults, which would resize the agents.
 
 ### Cloud identity and network reach
 
-Two settings let a task reach object storage, a table catalog or a cloud API
-with the tenant's own identity:
+The pool settings for identity are generic: Cloacina has no code for any one
+cloud. They are the same knobs a Helm chart gives a workload, and they let a
+task reach object storage, a table catalog or a cloud API with the pool's own
+identity:
 
 - `service_account_name` and `service_account_annotations`: the actuator creates
   the ServiceAccount in the tenant namespace with the annotations, and the
-  pool's pods run as it. This is the hook that workload identity uses (for
-  example an IAM role annotation on EKS, or a Google service account annotation
-  on GKE). The pod's `automountServiceAccountToken` is not set, as before: those
-  two mechanisms do not need it changed. Azure workload identity also needs a
-  label on the pod, which the actuator does not set.
+  pool's pods run as it. Workload identity systems read an annotation on the
+  ServiceAccount.
+- `pod_labels` and `pod_annotations`: added to the pod template of the pool's
+  Deployment. Some identity systems act only on pods that carry a label. The
+  labels the actuator sets itself (`app.kubernetes.io/name`, `cloacina.managed`,
+  `cloacina.tenant`, `cloacina.pool`) cannot be set: the first is the
+  Deployment's selector, which never changes.
+- `automount_service_account_token`: the pod's field of that name. Not set, it
+  is left out and the cluster default applies (the token is mounted). The agent
+  does not call the Kubernetes API and does not need that token. The identity
+  token that a workload identity system injects is a separate projected volume,
+  so `false` is the tighter setting where the identity system allows it.
+
+An injected token reaches the agent as a mounted volume and environment
+variables that an admission webhook adds to the pod, not to the Deployment, so
+the actuator's apply does not undo them. The pod's hardening does not block a
+mounted token: the read-only root filesystem and the dropped capabilities do
+not apply to a volume, and the pod sets `fsGroup` to the agent's group
+(`10001`), which is how a non-root container reads a projected token. See
+[Give a pool a cloud identity](../../../how-to/service/deploy-an-execution-agent-fleet/#give-a-pool-a-cloud-identity)
+for examples.
+
+The network side is one more setting:
+
 - `extra_egress`: CIDR blocks, each with optional ports, that the pool's pods
   may reach in addition to cluster DNS and the server. The rules are CIDR
   blocks only, not host names: for a service whose addresses change, use a

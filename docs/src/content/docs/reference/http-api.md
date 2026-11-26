@@ -1686,6 +1686,9 @@ The pool name is lowercase letters, digits and `-`, 40 characters at most.
 | `image` | string | Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`. |
 | `service_account_name` | string | Kubernetes ServiceAccount the pool's pods run as. The actuator creates it in the tenant namespace. |
 | `service_account_annotations` | object | Annotations for that ServiceAccount (a cloud workload identity). Needs `service_account_name`. Two pools of a tenant that name one ServiceAccount must give the same annotations. |
+| `pod_labels` | object | Labels added to the pool's pods. Keys and values must be valid Kubernetes label keys and values. The keys the actuator sets itself (`app.kubernetes.io/name`, `cloacina.managed`, `cloacina.tenant`, `cloacina.pool`) are refused. 32 at most. |
+| `pod_annotations` | object | Annotations added to the pool's pods. Keys must be valid annotation keys. 32 at most. |
+| `automount_service_account_token` | boolean | The pod's `automountServiceAccountToken`. Absent: left out of the pod, the cluster default applies. |
 | `extra_egress` | array | Egress rules added to the default (DNS and the server only). Each has `cidr` (IPv4 or IPv6 block, no host bits set) and optional `ports` (`port` 1 to 65535; `protocol` `TCP` (default), `UDP` or `SCTP`). No ports: every port. 64 rules at most. |
 | `max_agents` | integer | For a pool other than `default`: the number of agents the pool runs (needed; 0 to 1000). Refused for `default`, whose max is the tenant's agent limit. |
 | `min_agents` | integer | For a pool other than `default`: must equal `max_agents` (such a pool is not autoscaled yet). Refused for `default`. |
@@ -1697,7 +1700,7 @@ applies the settings on its next tick; a changed setting rolls the pool's agents
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad annotation key, a bad CIDR block, port or protocol, an agent count that is missing or not allowed. The message names the field. |
+| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed. The message names the field. |
 | `401` | (auth) | Missing or invalid API key. |
 | `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
 | `422` | | The body is not the JSON object above (for example an unknown field). |

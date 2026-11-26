@@ -57,6 +57,12 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_BOOTSTRAP_KEY` | `--bootstrap-key` | None | Bootstrap admin API key |
 | `CLOACINA_METRICS_BIND` | `--metrics-bind` | None | Address of a separate listener for `/metrics`. When set, the main listener answers 404 for `/metrics` |
 | `CLOACINA_REQUIRE_SIGNATURES` | `--require-signatures` | off | Signature enforcement toggle |
+| `CLOACINA_ALERT_WEBHOOK_URL` | `--alert-webhook-url` | None | URL that gets a JSON `POST` when a run ends. Not set = off. Never logged. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/) |
+| `CLOACINA_ALERT_WEBHOOK_EVENTS` | `--alert-webhook-events` | `failed` | Outcomes that send an alert, comma-separated: `failed`, `completed`, `cancelled`, or `all` |
+| `CLOACINA_ALERT_WEBHOOK_SECRET` | — (environment only) | None | Shared secret that signs each alert request (`X-Cloacina-Signature`, HMAC-SHA256). Never logged |
+| `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `--alert-webhook-timeout-s` | `10` | Seconds allowed for one alert request |
+| `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `--alert-webhook-max-attempts` | `8` | The most sends of one alert before it is dropped |
+| `CLOACINA_PUBLIC_BASE_URL` | `--public-base-url` | None | Public URL of the server, for the absolute links in an alert |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |

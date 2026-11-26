@@ -1324,6 +1324,12 @@ export interface components {
          *     managed agent of the pool: a pool has one size of agent.
          */
         AgentPoolSettings: {
+            /**
+             * @description The pod's `automountServiceAccountToken`. Absent: the field is left
+             *     out and the cluster default applies. The agent does not call the
+             *     Kubernetes API, so `false` is the tighter setting.
+             */
+            automount_service_account_token?: boolean | null;
             /** @description CPU limit of the agent container, a Kubernetes quantity (`4`). */
             cpu_limit?: string | null;
             /** @description CPU request of the agent container, a Kubernetes quantity (`500m`). */
@@ -1359,6 +1365,21 @@ export interface components {
              *     `default` is not autoscaled yet: set it equal to `max_agents`.
              */
             min_agents?: number | null;
+            /**
+             * @description Annotations added to the pool's pods (the pod template of its
+             *     Deployment).
+             */
+            pod_annotations?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Labels added to the pool's pods (the pod template of its Deployment).
+             *     Some identity systems select pods by a label. The labels the actuator
+             *     sets itself are refused.
+             */
+            pod_labels?: {
+                [key: string]: string;
+            };
             /**
              * @description Annotations the actuator puts on that ServiceAccount (for a cloud
              *     workload identity). Needs `service_account_name`.

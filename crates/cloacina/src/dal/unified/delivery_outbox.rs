@@ -248,10 +248,16 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// Rows in the `pending` state across all recipients, oldest first — the
     /// relay's drain query (T-0626). Delivered-but-unacked rows are excluded
     /// (they await ack or sweeper reclaim, not (re)delivery on a fresh wake).
+    ///
+    /// Run-finished notices ([`crate::run_alerts`]) are excluded: no sink
+    /// delivers them, and the alert sender of the server reads them by
+    /// recipient. Left in, a backlog of them would fill the relay's batch
+    /// (CLOACINA-T-1024).
     pub async fn list_pending(&self, limit: i64) -> Result<Vec<DeliveryOutbox>, ValidationError> {
         let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
             delivery_outbox::table
                 .filter(delivery_outbox::delivery_state.eq(STATE_PENDING))
+                .filter(delivery_outbox::recipient.ne(crate::run_alerts::RECIPIENT))
                 .order(delivery_outbox::id.asc())
                 .limit(limit)
                 .load(conn)
@@ -265,6 +271,9 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// of its lease ([`renew_delivered`](Self::renew_delivered)), was before
     /// `cutoff` (CLOACINA-T-1011): a recipient that still works on a row keeps
     /// it out of this scan.
+    ///
+    /// Run-finished notices ([`crate::run_alerts`]) are excluded: the alert
+    /// sender of the server does its own retry of them (CLOACINA-T-1024).
     pub async fn list_stuck(
         &self,
         cutoff: UniversalTimestamp,
@@ -272,6 +281,7 @@ impl<'a> DeliveryOutboxDAL<'a> {
     ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
         let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
             delivery_outbox::table
+                .filter(delivery_outbox::recipient.ne(crate::run_alerts::RECIPIENT))
                 .filter(
                     delivery_outbox::delivery_state
                         .eq(STATE_PENDING)

@@ -66,6 +66,11 @@ const LABEL_APP: &str = "app.kubernetes.io/name";
 /// so that its objects stay as they were before pools.
 const LABEL_POOL: &str = "cloacina.pool";
 
+/// The pod label keys the actuator sets itself. A pool's `pod_labels` cannot
+/// set them: [`LABEL_APP`] is the Deployment's selector, which cannot change
+/// after the Deployment is created.
+pub const RESERVED_POD_LABELS: [&str; 4] = [LABEL_APP, LABEL_MANAGED, LABEL_TENANT, LABEL_POOL];
+
 /// Name of the agent `Deployment` of the pool `default` (lives in the tenant's
 /// namespace, so the name need not encode the tenant). Another pool's
 /// Deployment is `cloacina-agent-<pool>`: see [`pool_deployment_name`].
@@ -324,6 +329,13 @@ pub struct AgentDeployment {
     /// ServiceAccount the pods run as. `None` leaves `serviceAccountName` out:
     /// the pods run as the namespace's `default` ServiceAccount.
     pub service_account_name: Option<String>,
+    /// Labels the pool adds to the pod template (not to the selector). A key
+    /// in [`RESERVED_POD_LABELS`] is skipped.
+    pub pod_labels: BTreeMap<String, String>,
+    /// Annotations the pool adds to the pod template.
+    pub pod_annotations: BTreeMap<String, String>,
+    /// The pod's `automountServiceAccountToken`. `None` leaves it out.
+    pub automount_service_account_token: Option<bool>,
     pub image: String,
     pub server_url: String,
     /// Secret the agent key is read from (referenced as `CLOACINA_API_KEY`).
@@ -534,6 +546,9 @@ impl KubernetesActuator {
             pool: pool.to_string(),
             max_concurrency: settings.max_concurrency,
             service_account_name: settings.service_account_name.clone(),
+            pod_labels: settings.pod_labels.clone(),
+            pod_annotations: settings.pod_annotations.clone(),
+            automount_service_account_token: settings.automount_service_account_token,
             image: settings
                 .image
                 .clone()
@@ -783,9 +798,25 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
         manifest["metadata"]["labels"][LABEL_POOL] = spec.pool.clone().into();
         manifest["spec"]["template"]["metadata"]["labels"][LABEL_POOL] = spec.pool.clone().into();
     }
+    // The pool's own pod labels and annotations go on the pod template only.
+    // The selector stays the app label: a selector cannot change once the
+    // Deployment exists. A key the actuator owns is skipped here too (the API
+    // refuses it), so a stored value can never reach the selector's label.
+    let template_meta = &mut manifest["spec"]["template"]["metadata"];
+    for (key, value) in &spec.pod_labels {
+        if !RESERVED_POD_LABELS.contains(&key.as_str()) {
+            template_meta["labels"][key.as_str()] = value.clone().into();
+        }
+    }
+    if !spec.pod_annotations.is_empty() {
+        template_meta["annotations"] = serde_json::json!(spec.pod_annotations);
+    }
     let pod = &mut manifest["spec"]["template"]["spec"];
     if let Some(sa) = &spec.service_account_name {
         pod["serviceAccountName"] = sa.clone().into();
+    }
+    if let Some(automount) = spec.automount_service_account_token {
+        pod["automountServiceAccountToken"] = automount.into();
     }
     if let Some(env) = pod["containers"][0]["env"].as_array_mut() {
         if spec.pool != DEFAULT_AGENT_POOL {
@@ -1387,6 +1418,9 @@ mod tests {
             pool: DEFAULT_AGENT_POOL.to_string(),
             max_concurrency: None,
             service_account_name: None,
+            pod_labels: BTreeMap::new(),
+            pod_annotations: BTreeMap::new(),
+            automount_service_account_token: None,
             image: "cloacina-agent:latest".to_string(),
             server_url: "http://server:8080".to_string(),
             secret_name: AGENT_SECRET_NAME.to_string(),
@@ -1517,6 +1551,9 @@ mod tests {
             pool: DEFAULT_AGENT_POOL.to_string(),
             max_concurrency: None,
             service_account_name: None,
+            pod_labels: BTreeMap::new(),
+            pod_annotations: BTreeMap::new(),
+            automount_service_account_token: None,
             image: "cloacina-agent:latest".to_string(),
             server_url: "http://server:8080".to_string(),
             secret_name: AGENT_SECRET_NAME.to_string(),
@@ -1681,6 +1718,165 @@ mod tests {
         let pod = &m["spec"]["template"]["spec"];
         assert_eq!(pod["serviceAccountName"], "team-data");
         assert!(pod.get("automountServiceAccountToken").is_none());
+    }
+
+    fn string_map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn manifest_adds_pod_labels_to_the_template_and_not_to_the_selector() {
+        let mut spec = default_spec();
+        spec.pod_labels = string_map(&[("azure.workload.identity/use", "true"), ("team", "data")]);
+        let m = agent_deployment_manifest(&spec);
+        let labels = &m["spec"]["template"]["metadata"]["labels"];
+        assert_eq!(labels["azure.workload.identity/use"], "true");
+        assert_eq!(labels["team"], "data");
+        // The actuator's own labels are still there.
+        assert_eq!(labels["app.kubernetes.io/name"], "cloacina-agent");
+        assert_eq!(labels["cloacina.managed"], "true");
+        assert_eq!(labels["cloacina.tenant"], "acme");
+
+        // A selector cannot change after the Deployment is created: it is the
+        // same with and without the labels, and with other labels.
+        let plain = agent_deployment_manifest(&default_spec());
+        assert_eq!(m["spec"]["selector"], plain["spec"]["selector"]);
+        assert_eq!(
+            m["spec"]["selector"],
+            serde_json::json!({ "matchLabels": { "app.kubernetes.io/name": "cloacina-agent" } })
+        );
+        spec.pod_labels = string_map(&[("team", "other")]);
+        let changed = agent_deployment_manifest(&spec);
+        assert_eq!(changed["spec"]["selector"], plain["spec"]["selector"]);
+        // The Deployment's own labels do not take the pod labels.
+        assert!(m["metadata"]["labels"].get("team").is_none());
+    }
+
+    /// A changed label or annotation changes the pod template, which is what
+    /// makes Kubernetes roll the Deployment.
+    #[test]
+    fn a_changed_pod_label_or_annotation_changes_the_pod_template() {
+        let template =
+            |spec: &AgentDeployment| agent_deployment_manifest(spec)["spec"]["template"].clone();
+        let base = template(&default_spec());
+
+        let mut labelled = default_spec();
+        labelled.pod_labels = string_map(&[("team", "data")]);
+        assert_ne!(template(&labelled), base);
+        let mut relabelled = default_spec();
+        relabelled.pod_labels = string_map(&[("team", "other")]);
+        assert_ne!(template(&relabelled), template(&labelled));
+
+        let mut annotated = default_spec();
+        annotated.pod_annotations = string_map(&[("example.com/note", "a")]);
+        assert_ne!(template(&annotated), base);
+
+        let mut automount = default_spec();
+        automount.automount_service_account_token = Some(false);
+        assert_ne!(template(&automount), base);
+    }
+
+    /// The API refuses a label key the actuator owns. If one is stored all the
+    /// same, the manifest keeps the actuator's value.
+    #[test]
+    fn manifest_never_lets_a_pod_label_replace_one_the_actuator_owns() {
+        let mut spec = default_spec();
+        spec.pod_labels = string_map(&[
+            ("app.kubernetes.io/name", "something-else"),
+            ("cloacina.tenant", "globex"),
+            ("cloacina.managed", "false"),
+            ("cloacina.pool", "big"),
+        ]);
+        let m = agent_deployment_manifest(&spec);
+        assert_eq!(m, agent_deployment_manifest(&default_spec()));
+    }
+
+    #[test]
+    fn manifest_adds_pod_annotations_only_when_set() {
+        let m = agent_deployment_manifest(&default_spec());
+        assert!(
+            m["spec"]["template"]["metadata"]
+                .get("annotations")
+                .is_none()
+        );
+
+        let mut spec = default_spec();
+        spec.pod_annotations = string_map(&[("example.com/note", "free text")]);
+        let m = agent_deployment_manifest(&spec);
+        assert_eq!(
+            m["spec"]["template"]["metadata"]["annotations"],
+            serde_json::json!({ "example.com/note": "free text" })
+        );
+        // On the pod template, not on the Deployment itself.
+        assert!(m["metadata"].get("annotations").is_none());
+    }
+
+    #[test]
+    fn manifest_sets_automount_service_account_token_only_when_set() {
+        let pod = |v: Option<bool>| {
+            let mut spec = default_spec();
+            spec.automount_service_account_token = v;
+            agent_deployment_manifest(&spec)["spec"]["template"]["spec"].clone()
+        };
+        assert!(pod(None).get("automountServiceAccountToken").is_none());
+        assert_eq!(pod(Some(false))["automountServiceAccountToken"], false);
+        assert_eq!(pod(Some(true))["automountServiceAccountToken"], true);
+    }
+
+    /// What an injected identity token needs from the pod: it is a mounted
+    /// volume, so the read-only root filesystem and the dropped capabilities
+    /// do not matter, and the non-root user reads it through `fsGroup`. The
+    /// pool settings leave these as they are.
+    #[test]
+    fn identity_settings_keep_the_pod_hardening_and_fs_group() {
+        let mut spec = default_spec();
+        spec.service_account_name = Some("team-data".to_string());
+        spec.pod_labels = string_map(&[("azure.workload.identity/use", "true")]);
+        spec.automount_service_account_token = Some(false);
+        let m = agent_deployment_manifest(&spec);
+        let pod = &m["spec"]["template"]["spec"];
+        assert_eq!(pod["securityContext"]["runAsUser"], 10001);
+        assert_eq!(pod["securityContext"]["fsGroup"], 10001);
+        assert_eq!(pod["securityContext"]["runAsNonRoot"], true);
+        let c = &pod["containers"][0];
+        assert_eq!(c["securityContext"]["readOnlyRootFilesystem"], true);
+        assert_eq!(
+            c["securityContext"]["capabilities"]["drop"],
+            serde_json::json!(["ALL"])
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_passes_pod_metadata_and_automount_to_the_deployment() {
+        let settings = AgentPoolSettings {
+            service_account_name: Some("team-data".into()),
+            pod_labels: string_map(&[("azure.workload.identity/use", "true")]),
+            pod_annotations: string_map(&[("example.com/note", "a")]),
+            automount_service_account_token: Some(false),
+            ..Default::default()
+        };
+        let ops = Arc::new(MockOps::with_ready(0));
+        let act = actuator(ops.clone(), minter())
+            .with_pools(Arc::new(FixedPools::default_pool(settings.clone())));
+        act.reconcile("acme", 1).await.unwrap();
+        {
+            let specs = ops.deployment_specs.lock().unwrap();
+            assert_eq!(specs[0].pod_labels, settings.pod_labels);
+            assert_eq!(specs[0].pod_annotations, settings.pod_annotations);
+            assert_eq!(specs[0].automount_service_account_token, Some(false));
+        }
+
+        // With no settings none of them is set.
+        let ops = Arc::new(MockOps::with_ready(0));
+        let act = actuator(ops.clone(), minter());
+        act.reconcile("acme", 1).await.unwrap();
+        let specs = ops.deployment_specs.lock().unwrap();
+        assert!(specs[0].pod_labels.is_empty());
+        assert!(specs[0].pod_annotations.is_empty());
+        assert_eq!(specs[0].automount_service_account_token, None);
     }
 
     #[test]

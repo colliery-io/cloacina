@@ -8,6 +8,8 @@ from .agent_egress_rule import AgentEgressRule
 from .agent_info import AgentInfo
 from .agent_pool_info import AgentPoolInfo
 from .agent_pool_settings import AgentPoolSettings
+from .agent_pool_settings_pod_annotations import AgentPoolSettingsPodAnnotations
+from .agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
 from .agent_pool_settings_service_account_annotations import (
     AgentPoolSettingsServiceAccountAnnotations,
 )
@@ -146,6 +148,8 @@ __all__ = (
     "AgentInfo",
     "AgentPoolInfo",
     "AgentPoolSettings",
+    "AgentPoolSettingsPodAnnotations",
+    "AgentPoolSettingsPodLabels",
     "AgentPoolSettingsServiceAccountAnnotations",
     "CompilerStatus",
     "CreateAccountRequest",

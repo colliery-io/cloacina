@@ -5006,6 +5006,13 @@
         "type": "object",
         "description": "Settings of one agent pool of a tenant (CLOACINA-T-1021).\n\nEach field is optional. A field that is absent means the server-wide\ndefault (`CLOACINA_AGENT_*` on the server). The settings apply to every\nmanaged agent of the pool: a pool has one size of agent.",
         "properties": {
+          "automount_service_account_token": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "The pod's `automountServiceAccountToken`. Absent: the field is left\nout and the cluster default applies. The agent does not call the\nKubernetes API, so `false` is the tighter setting."
+          },
           "cpu_limit": {
             "type": [
               "string",
@@ -5074,6 +5081,26 @@
             "format": "int32",
             "description": "Fewest agents of the pool. Not for the pool `default` (its floor is\nthe server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than\n`default` is not autoscaled yet: set it equal to `max_agents`.",
             "minimum": 0
+          },
+          "pod_annotations": {
+            "type": "object",
+            "description": "Annotations added to the pool's pods (the pod template of its\nDeployment).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "pod_labels": {
+            "type": "object",
+            "description": "Labels added to the pool's pods (the pod template of its Deployment).\nSome identity systems select pods by a label. The labels the actuator\nsets itself are refused.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "service_account_annotations": {
             "type": "object",

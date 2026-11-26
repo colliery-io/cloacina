@@ -17,6 +17,12 @@ command-line flags (most also accept an environment variable). The
 |------|---------|---------|---------|
 | `--bind` | — | `127.0.0.1:8080` | HTTP listen address. Set `0.0.0.0:8080` to accept remote connections (containers, behind a proxy). The server exposes a **single** HTTP port unless `--metrics-bind` is set. |
 | `--metrics-bind` | `CLOACINA_METRICS_BIND` | — | Address of a separate listener for `/metrics` (for example `0.0.0.0:9090`). When set, `/metrics` is served only there and the main listener answers 404 for it. When not set, `/metrics` stays on `--bind` with no authentication. |
+| `--alert-webhook-url` | `CLOACINA_ALERT_WEBHOOK_URL` | — | URL that gets a JSON `POST` when a run ends. Not set = off. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/). |
+| `--alert-webhook-events` | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `failed` | Outcomes that send an alert: `failed`, `completed`, `cancelled`, or `all`. |
+| — | `CLOACINA_ALERT_WEBHOOK_SECRET` | — | Shared secret that signs each alert request. Environment only. |
+| `--alert-webhook-timeout-s` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one alert request. |
+| `--alert-webhook-max-attempts` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
+| `--public-base-url` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |

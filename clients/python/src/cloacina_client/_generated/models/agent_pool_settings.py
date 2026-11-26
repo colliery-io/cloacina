@@ -9,6 +9,10 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.agent_egress_rule import AgentEgressRule
+    from ..models.agent_pool_settings_pod_annotations import (
+        AgentPoolSettingsPodAnnotations,
+    )
+    from ..models.agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
     from ..models.agent_pool_settings_service_account_annotations import (
         AgentPoolSettingsServiceAccountAnnotations,
     )
@@ -26,6 +30,10 @@ class AgentPoolSettings:
     managed agent of the pool: a pool has one size of agent.
 
         Attributes:
+            automount_service_account_token (bool | None | Unset): The pod's `automountServiceAccountToken`. Absent: the
+                field is left
+                out and the cluster default applies. The agent does not call the
+                Kubernetes API, so `false` is the tighter setting.
             cpu_limit (None | str | Unset): CPU limit of the agent container, a Kubernetes quantity (`4`).
             cpu_request (None | str | Unset): CPU request of the agent container, a Kubernetes quantity (`500m`).
             extra_egress (list[AgentEgressRule] | Unset): Extra egress rules for the pool's pods, added to the default
@@ -42,6 +50,13 @@ class AgentPoolSettings:
             min_agents (int | None | Unset): Fewest agents of the pool. Not for the pool `default` (its floor is
                 the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
                 `default` is not autoscaled yet: set it equal to `max_agents`.
+            pod_annotations (AgentPoolSettingsPodAnnotations | Unset): Annotations added to the pool's pods (the pod
+                template of its
+                Deployment).
+            pod_labels (AgentPoolSettingsPodLabels | Unset): Labels added to the pool's pods (the pod template of its
+                Deployment).
+                Some identity systems select pods by a label. The labels the actuator
+                sets itself are refused.
             service_account_annotations (AgentPoolSettingsServiceAccountAnnotations | Unset): Annotations the actuator puts
                 on that ServiceAccount (for a cloud
                 workload identity). Needs `service_account_name`.
@@ -50,6 +65,7 @@ class AgentPoolSettings:
                 `default` ServiceAccount.
     """
 
+    automount_service_account_token: bool | None | Unset = UNSET
     cpu_limit: None | str | Unset = UNSET
     cpu_request: None | str | Unset = UNSET
     extra_egress: list[AgentEgressRule] | Unset = UNSET
@@ -59,12 +75,20 @@ class AgentPoolSettings:
     memory_limit: None | str | Unset = UNSET
     memory_request: None | str | Unset = UNSET
     min_agents: int | None | Unset = UNSET
+    pod_annotations: AgentPoolSettingsPodAnnotations | Unset = UNSET
+    pod_labels: AgentPoolSettingsPodLabels | Unset = UNSET
     service_account_annotations: AgentPoolSettingsServiceAccountAnnotations | Unset = (
         UNSET
     )
     service_account_name: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
+        automount_service_account_token: bool | None | Unset
+        if isinstance(self.automount_service_account_token, Unset):
+            automount_service_account_token = UNSET
+        else:
+            automount_service_account_token = self.automount_service_account_token
+
         cpu_limit: None | str | Unset
         if isinstance(self.cpu_limit, Unset):
             cpu_limit = UNSET
@@ -120,6 +144,14 @@ class AgentPoolSettings:
         else:
             min_agents = self.min_agents
 
+        pod_annotations: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.pod_annotations, Unset):
+            pod_annotations = self.pod_annotations.to_dict()
+
+        pod_labels: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.pod_labels, Unset):
+            pod_labels = self.pod_labels.to_dict()
+
         service_account_annotations: dict[str, Any] | Unset = UNSET
         if not isinstance(self.service_account_annotations, Unset):
             service_account_annotations = self.service_account_annotations.to_dict()
@@ -133,6 +165,10 @@ class AgentPoolSettings:
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
+        if automount_service_account_token is not UNSET:
+            field_dict["automount_service_account_token"] = (
+                automount_service_account_token
+            )
         if cpu_limit is not UNSET:
             field_dict["cpu_limit"] = cpu_limit
         if cpu_request is not UNSET:
@@ -151,6 +187,10 @@ class AgentPoolSettings:
             field_dict["memory_request"] = memory_request
         if min_agents is not UNSET:
             field_dict["min_agents"] = min_agents
+        if pod_annotations is not UNSET:
+            field_dict["pod_annotations"] = pod_annotations
+        if pod_labels is not UNSET:
+            field_dict["pod_labels"] = pod_labels
         if service_account_annotations is not UNSET:
             field_dict["service_account_annotations"] = service_account_annotations
         if service_account_name is not UNSET:
@@ -161,11 +201,26 @@ class AgentPoolSettings:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.agent_egress_rule import AgentEgressRule
+        from ..models.agent_pool_settings_pod_annotations import (
+            AgentPoolSettingsPodAnnotations,
+        )
+        from ..models.agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
         from ..models.agent_pool_settings_service_account_annotations import (
             AgentPoolSettingsServiceAccountAnnotations,
         )
 
         d = dict(src_dict)
+
+        def _parse_automount_service_account_token(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        automount_service_account_token = _parse_automount_service_account_token(
+            d.pop("automount_service_account_token", UNSET)
+        )
 
         def _parse_cpu_limit(data: object) -> None | str | Unset:
             if data is None:
@@ -248,6 +303,22 @@ class AgentPoolSettings:
 
         min_agents = _parse_min_agents(d.pop("min_agents", UNSET))
 
+        _pod_annotations = d.pop("pod_annotations", UNSET)
+        pod_annotations: AgentPoolSettingsPodAnnotations | Unset
+        if isinstance(_pod_annotations, Unset):
+            pod_annotations = UNSET
+        else:
+            pod_annotations = AgentPoolSettingsPodAnnotations.from_dict(
+                _pod_annotations
+            )
+
+        _pod_labels = d.pop("pod_labels", UNSET)
+        pod_labels: AgentPoolSettingsPodLabels | Unset
+        if isinstance(_pod_labels, Unset):
+            pod_labels = UNSET
+        else:
+            pod_labels = AgentPoolSettingsPodLabels.from_dict(_pod_labels)
+
         _service_account_annotations = d.pop("service_account_annotations", UNSET)
         service_account_annotations: AgentPoolSettingsServiceAccountAnnotations | Unset
         if isinstance(_service_account_annotations, Unset):
@@ -271,6 +342,7 @@ class AgentPoolSettings:
         )
 
         agent_pool_settings = cls(
+            automount_service_account_token=automount_service_account_token,
             cpu_limit=cpu_limit,
             cpu_request=cpu_request,
             extra_egress=extra_egress,
@@ -280,6 +352,8 @@ class AgentPoolSettings:
             memory_limit=memory_limit,
             memory_request=memory_request,
             min_agents=min_agents,
+            pod_annotations=pod_annotations,
+            pod_labels=pod_labels,
             service_account_annotations=service_account_annotations,
             service_account_name=service_account_name,
         )

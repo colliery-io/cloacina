@@ -333,13 +333,16 @@ impl FleetActuator for DockerActuator {
                 || settings.memory_request.is_some()
                 || settings.service_account_name.is_some()
                 || !settings.service_account_annotations.is_empty()
+                || !settings.pod_labels.is_empty()
+                || !settings.pod_annotations.is_empty()
+                || settings.automount_service_account_token.is_some()
                 || !settings.extra_egress.is_empty()
             {
                 debug!(
                     tenant = %tenant_id,
                     pool = %pool,
-                    "docker actuator ignores the pool's resource requests, service account and \
-                     extra egress: they have no Docker counterpart"
+                    "docker actuator ignores the pool's resource requests, service account, pod \
+                     labels and annotations and extra egress: they have no Docker counterpart"
                 );
             }
             let label = applied.label();

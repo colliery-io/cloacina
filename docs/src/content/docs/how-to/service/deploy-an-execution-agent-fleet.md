@@ -253,6 +253,88 @@ cloacinactl tenant pool delete tenant_acme big
 See [Agent pools](../../../explanation/service/execution-agent-fleet/#agent-pools)
 for how a change reaches the agents and what the identity and egress settings do.
 
+### Give a pool a cloud identity
+
+Cloacina has no cloud-specific code. A pool has four generic settings, and a
+cloud's workload identity system is set up with them:
+
+| Setting | What the actuator does |
+|---|---|
+| `service_account_name`, `service_account_annotations` | Creates the ServiceAccount in the tenant namespace with the annotations; the pool's pods run as it. |
+| `pod_labels` | Adds the labels to the pool's pods. |
+| `pod_annotations` | Adds the annotations to the pool's pods. |
+| `automount_service_account_token` | Sets the pod's field of that name. Not set: left out, the cluster default. |
+
+The three recipes below are examples of those settings. The account ids, role
+names and addresses are placeholders. Each recipe shows the identity settings
+only. `set` replaces all of a pool's settings, so give the pool's resources in
+the same command. The cloud side (the role, its trust in the cluster's identity
+provider, its permissions) is yours to set up.
+
+**Amazon EKS, IAM roles for service accounts.** An annotation on the
+ServiceAccount names the role. A webhook in the cluster then adds a projected
+token volume and environment variables to pods that use the ServiceAccount.
+
+```bash
+cloacinactl tenant pool set tenant_acme default \
+  --service-account team-data \
+  --service-account-annotation eks.amazonaws.com/role-arn=arn:aws:iam::000000000000:role/example-team \
+  --automount-service-account-token false \
+  --egress 198.51.100.0/24=443
+```
+
+**Google GKE, Workload Identity.** An annotation on the ServiceAccount names the
+Google service account. Pods get credentials from the node's metadata server.
+
+```bash
+cloacinactl tenant pool set tenant_acme default \
+  --service-account team-data \
+  --service-account-annotation iam.gke.io/gcp-service-account=example-team@example-project.iam.gserviceaccount.com \
+  --egress 198.51.100.0/24=443
+```
+
+**Azure AKS, Workload Identity.** An annotation on the ServiceAccount names the
+client id, and a label on the pod turns the webhook on for it. The webhook adds
+a projected token volume and environment variables.
+
+```bash
+cloacinactl tenant pool set tenant_acme default \
+  --service-account team-data \
+  --service-account-annotation azure.workload.identity/client-id=00000000-0000-0000-0000-000000000000 \
+  --pod-label azure.workload.identity/use=true \
+  --automount-service-account-token false \
+  --egress 198.51.100.0/24=443
+```
+
+**Egress.** A managed agent reaches cluster DNS and the server only, so the
+pool needs egress rules for the identity and for the service the task calls.
+`198.51.100.0/24` above stands for your real ranges. The rules are CIDR blocks,
+not host names: for an endpoint whose addresses change, use a private endpoint
+in your network (its subnet is a fixed range) or the provider's published
+ranges.
+
+- **EKS:** the AWS STS endpoint on port 443, where the pod exchanges its token
+  for credentials, and the endpoints of the services the task calls (object
+  storage, the catalog) on 443.
+- **GKE:** the node's metadata server, a link-local address that your GKE
+  documentation gives with its port, and the Google APIs the task calls on 443.
+- **Azure:** the Microsoft Entra login endpoint on port 443, where the pod
+  exchanges its token, and the endpoints of the services the task calls on 443.
+
+How an `ipBlock` rule applies to a node-local address such as a metadata server
+depends on the cluster's network plugin: follow the plugin's documentation for
+that address. A missing rule fails closed: the task gets a network timeout.
+
+**The mounted Kubernetes token.** `--automount-service-account-token false`
+stops Kubernetes from mounting the ServiceAccount's own API token in the pod.
+The agent does not use it. The token a workload identity webhook injects is a
+separate projected volume and still arrives.
+
+A changed label, annotation, ServiceAccount or automount setting changes the
+pod template, so the pool's agents are rolled. Setting a ServiceAccount's
+annotations alone does not restart pods: a webhook acts when a pod is created,
+so change something in the pod template too, or delete the pods.
+
 ### Docker actuator (local dev)
 
 For a single-host dev loop, the Docker actuator spawns/stops `cloacina-agent`
