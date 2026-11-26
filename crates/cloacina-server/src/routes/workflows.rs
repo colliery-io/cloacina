@@ -169,7 +169,7 @@ pub async fn upload_workflow(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
@@ -260,13 +260,13 @@ pub async fn list_workflows(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => return ApiError::internal_logged("list workflows failed", &e).into_response(),
     };
 
     match registry.list_workflows().await {
@@ -292,7 +292,7 @@ pub async fn list_workflows(
         }
         Err(e) => {
             warn!("Failed to list workflows for tenant '{}': {}", tenant_id, e);
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("list workflows failed", &e).into_response()
         }
     }
 }
@@ -327,13 +327,13 @@ pub async fn get_workflow(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => return ApiError::internal_logged("get workflow failed", &e).into_response(),
     };
 
     // Use inspect_package_by_id when `name` parses as a UUID so operators can
@@ -383,7 +383,7 @@ pub async fn get_workflow(
                 )
                 .into_response();
             }
-            Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+            Err(e) => return ApiError::internal_logged("get workflow failed", &e).into_response(),
         }
     }
 
@@ -437,7 +437,9 @@ pub async fn get_workflow(
                             format!("workflow '{}' not found", name),
                         )
                         .into_response(),
-                        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+                        Err(e) => {
+                            ApiError::internal_logged("get workflow failed", &e).into_response()
+                        }
                     }
                 }
                 None => ApiError::not_found(
@@ -447,7 +449,7 @@ pub async fn get_workflow(
                 .into_response(),
             }
         }
-        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => ApiError::internal_logged("get workflow failed", &e).into_response(),
     }
 }
 
@@ -486,13 +488,15 @@ pub async fn get_workflow_source(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => {
+            return ApiError::internal_logged("get workflow source failed", &e).into_response();
+        }
     };
 
     // Resolve `name` to a package UUID. Mirrors get_workflow: a UUID path is
@@ -511,7 +515,9 @@ pub async fn get_workflow_source(
                     .into_response();
                 }
             },
-            Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+            Err(e) => {
+                return ApiError::internal_logged("get workflow source failed", &e).into_response();
+            }
         }
     };
 
@@ -542,7 +548,7 @@ pub async fn get_workflow_source(
                 "Failed to read source for workflow '{}' (tenant '{}'): {}",
                 name, tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("get workflow source failed", &e).into_response()
         }
     }
 }
@@ -598,13 +604,13 @@ pub async fn delete_workflow(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let mut registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => return ApiError::internal_logged("delete workflow failed", &e).into_response(),
     };
 
     match registry
@@ -713,13 +719,15 @@ async fn set_workflow_paused(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => {
+            return ApiError::internal_logged("set workflow paused failed", &e).into_response();
+        }
     };
 
     match registry.set_workflow_paused(&name, pause).await {
@@ -765,7 +773,7 @@ async fn set_workflow_paused(
                 tenant_id,
                 e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("set workflow paused failed", &e).into_response()
         }
     }
 }
@@ -805,13 +813,15 @@ pub async fn list_workflow_versions(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => {
+            return ApiError::internal_logged("list workflow versions failed", &e).into_response();
+        }
     };
 
     match registry.list_package_versions(&name).await {
@@ -843,7 +853,7 @@ pub async fn list_workflow_versions(
                 "Failed to list versions of '{}' for tenant '{}': {}",
                 name, tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("list workflow versions failed", &e).into_response()
         }
     }
 }
@@ -886,13 +896,16 @@ pub async fn activate_workflow_version(
     {
         Ok(db) => db,
         Err(e) => {
-            return ApiError::internal(format!("tenant database error: {}", e)).into_response();
+            return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
-        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
+        Err(e) => {
+            return ApiError::internal_logged("activate workflow version failed", &e)
+                .into_response();
+        }
     };
 
     use cloacina::registry::error::RegistryError;
@@ -925,7 +938,7 @@ pub async fn activate_workflow_version(
                 "Failed to activate version {} of '{}' for tenant '{}': {}",
                 version, name, tenant_id, e
             );
-            ApiError::internal(format!("{}", e)).into_response()
+            ApiError::internal_logged("activate workflow version failed", &e).into_response()
         }
     }
 }

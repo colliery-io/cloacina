@@ -90,7 +90,7 @@ async fn reject_cross_tenant_agent(
         .agent_registry
         .agent_tenant(agent_id)
         .await
-        .map_err(|e| ApiError::internal(format!("agent roster lookup failed: {e}")))?;
+        .map_err(|e| ApiError::internal_logged("agent roster lookup failed", &e))?;
     if let Some(agent_tenant) = agent_tenant {
         if agent_tenant != auth.tenant_id {
             return Err(ApiError::forbidden(
@@ -146,7 +146,7 @@ pub async fn register_agent(
             ServerKeyPool::from_entries(pool_entries),
         )
         .await
-        .map_err(|e| ApiError::internal(format!("agent registration persist failed: {e}")))?;
+        .map_err(|e| ApiError::internal_logged("agent registration persist failed", &e))?;
 
     info!(
         agent_id = %agent_id,
@@ -184,7 +184,7 @@ pub async fn heartbeat_agent(
         .agent_registry
         .record_heartbeat(&req.agent_id, req.in_flight, req.available_capacity)
         .await
-        .map_err(|e| ApiError::internal(format!("agent heartbeat persist failed: {e}")))?;
+        .map_err(|e| ApiError::internal_logged("agent heartbeat persist failed", &e))?;
     if !known {
         return Err(ApiError::not_found(
             "agent_not_registered",
@@ -243,7 +243,7 @@ pub async fn replenish_keys(
         .agent_registry
         .agent_tenant(&req.agent_id)
         .await
-        .map_err(|e| ApiError::internal(format!("agent roster lookup failed: {e}")))?
+        .map_err(|e| ApiError::internal_logged("agent roster lookup failed", &e))?
         .is_some();
     if !registered {
         return Err(ApiError::not_found(
@@ -346,9 +346,7 @@ pub async fn report_result(
         Err(e) => {
             // Neither forwarded nor stored. A 5xx makes the agent send the
             // report again (it retries with backoff).
-            return Err(ApiError::internal(format!(
-                "agent result not accepted: {e}"
-            )));
+            return Err(ApiError::internal_logged("agent result not accepted", &e));
         }
     }
 
@@ -377,7 +375,7 @@ async fn caller_package_db(
             .tenant_databases
             .resolve(tenant, &state.database)
             .await
-            .map_err(|e| ApiError::internal(format!("tenant database error: {}", e))),
+            .map_err(|e| ApiError::internal_logged("tenant database error", &e)),
         None if auth.is_admin => Ok(state.database.clone()),
         None => Err(ApiError::forbidden(
             "tenant_access_denied",
@@ -402,7 +400,7 @@ pub async fn fetch_artifact(
         .workflow_packages()
         .get_compiled_data_by_content_hash(&digest)
         .await
-        .map_err(|e| ApiError::internal(format!("artifact lookup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal_logged("artifact lookup failed", &e))?;
 
     let Some(bytes) = bytes else {
         return Err(ApiError::not_found(
@@ -419,7 +417,7 @@ pub async fn fetch_artifact(
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .header("x-build-target-triple", host_target_triple())
         .body(Body::from(bytes))
-        .map_err(|e| ApiError::internal(format!("build artifact response: {}", e)))?;
+        .map_err(|e| ApiError::internal_logged("build artifact response", &e))?;
     Ok(resp)
 }
 
@@ -439,7 +437,7 @@ pub async fn fetch_source(
         .workflow_packages()
         .get_package_archive_by_content_hash(&digest)
         .await
-        .map_err(|e| ApiError::internal(format!("source lookup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal_logged("source lookup failed", &e))?;
 
     let Some(bytes) = bytes else {
         return Err(ApiError::not_found(
@@ -453,7 +451,7 @@ pub async fn fetch_source(
         .header(header::CONTENT_TYPE, "application/octet-stream")
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .body(Body::from(bytes))
-        .map_err(|e| ApiError::internal(format!("build source response: {}", e)))?;
+        .map_err(|e| ApiError::internal_logged("build source response", &e))?;
     Ok(resp)
 }
 
@@ -491,7 +489,7 @@ pub async fn fetch_providers(
         .workflow_packages()
         .get_package_name_version_by_content_hash(&digest)
         .await
-        .map_err(|e| ApiError::internal(format!("provider lookup failed: {}", e)))?
+        .map_err(|e| ApiError::internal_logged("provider lookup failed", &e))?
     else {
         return Err(ApiError::not_found(
             "package_not_found",
@@ -503,7 +501,7 @@ pub async fn fetch_providers(
         .workflow_packages()
         .get_providers_for_package(&package_name, &version, None)
         .await
-        .map_err(|e| ApiError::internal(format!("provider fetch failed: {}", e)))?;
+        .map_err(|e| ApiError::internal_logged("provider fetch failed", &e))?;
 
     // CLOACI-T-0908: select rows for the requesting agent's arch. Agents send
     // `?target_triple=<{arch}-{os}>`; an absent param (a pre-T-0908 agent) gets
@@ -552,7 +550,7 @@ pub async fn list_agents(
     let live = match state.agent_registry.live_agents().await {
         Ok(live) => live,
         Err(e) => {
-            return ApiError::internal(format!("agent roster read failed: {e}")).into_response();
+            return ApiError::internal_logged("agent roster read failed", &e).into_response();
         }
     };
     let now = chrono::Utc::now();

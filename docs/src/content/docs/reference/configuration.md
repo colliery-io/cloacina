@@ -24,6 +24,7 @@ command-line flags (most also accept an environment variable). The
 | `--alert-webhook-max-attempts` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
+| `--database-wait-timeout-s` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds to wait at start for the database to accept a connection, with retries. After it the server exits with an error. `0` = one try. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |
 | `--verification-org-id` | `CLOACINA_VERIFICATION_ORG_ID` | — | Trusted org UUID for signature verification (mandatory when signatures are required). |

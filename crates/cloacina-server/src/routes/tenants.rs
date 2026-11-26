@@ -27,7 +27,7 @@ use axum::{
 };
 use tracing::{info, warn};
 
-use cloacina::database::{DatabaseAdmin, TenantConfig};
+use cloacina::database::{AdminError, DatabaseAdmin, TenantConfig};
 use cloacina::security::audit;
 use cloacina_api_types::{
     CreateTenantRequest, ListResponse, TenantCreatedResponse, TenantRemovedResponse, TenantSummary,
@@ -49,6 +49,33 @@ pub(crate) fn initial_desired_count(initial_agents: u32, default_max_agents: u32
     initial_agents.min(default_max_agents)
 }
 
+/// The answer for a failed tenant create or remove (CLOACINA-T-1035).
+///
+/// - the tenant exists: 409 `tenant_exists`, a message that names it;
+/// - the name fails validation: 400 with `invalid_code` and the validation text
+///   (it describes the name, it is not database text);
+/// - anything else (SQL, pool, migration): 500 with a fixed text. The cause
+///   is logged, never sent.
+pub(crate) fn admin_error_response(
+    tenant: &str,
+    invalid_code: &'static str,
+    what: &str,
+    e: &AdminError,
+) -> ApiError {
+    match e {
+        AdminError::TenantExists { .. } => ApiError::conflict(
+            "tenant_exists",
+            format!("tenant '{}' already exists", tenant),
+        ),
+        AdminError::InvalidSchema(_)
+        | AdminError::InvalidUsername(_)
+        | AdminError::InvalidConfig { .. } => ApiError::bad_request(invalid_code, e.to_string()),
+        AdminError::Database(_) | AdminError::Pool(_) | AdminError::SqlExecution { .. } => {
+            ApiError::internal_logged(what, e)
+        }
+    }
+}
+
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
 /// Admin-only: only is_admin keys can create tenants.
 #[utoipa::path(
@@ -58,9 +85,11 @@ pub(crate) fn initial_desired_count(initial_agents: u32, default_max_agents: u32
     request_body = CreateTenantRequest,
     responses(
         (status = 201, description = "Tenant created (credentials intentionally excluded)", body = TenantCreatedResponse),
-        (status = 400, description = "Tenant creation failed", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "Invalid tenant name", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 409, description = "A tenant of this name exists (`tenant_exists`)", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
 )]
@@ -160,7 +189,13 @@ pub async fn create_tenant(
         }
         Err(e) => {
             warn!("Failed to create tenant '{}': {}", body.name, e);
-            ApiError::bad_request("tenant_creation_failed", format!("{}", e)).into_response()
+            admin_error_response(
+                &body.name,
+                "tenant_creation_failed",
+                "failed to create tenant",
+                &e,
+            )
+            .into_response()
         }
     }
 }
@@ -190,7 +225,7 @@ pub async fn create_tenant(
     params(("schema_name" = String, Path, description = "Tenant schema name")),
     responses(
         (status = 200, description = "Tenant removed — teardown report", body = TenantRemovedResponse),
-        (status = 400, description = "Tenant removal failed", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "Invalid tenant name", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Teardown step failed (safe to retry)", body = cloacina_api_types::ErrorBody),
@@ -220,7 +255,7 @@ pub async fn remove_tenant(
                 false,
                 teardown_started.elapsed().as_millis() as u64,
             );
-            return ApiError::internal(format!("revoke keys failed: {}", e)).into_response();
+            return ApiError::internal_logged("revoke keys failed", &e).into_response();
         }
     };
     audit::log_tenant_teardown_step(
@@ -311,7 +346,13 @@ pub async fn remove_tenant(
                 false,
                 teardown_started.elapsed().as_millis() as u64,
             );
-            ApiError::bad_request("tenant_removal_failed", format!("{}", e)).into_response()
+            admin_error_response(
+                &schema_name,
+                "tenant_removal_failed",
+                "failed to remove tenant",
+                &e,
+            )
+            .into_response()
         }
     }
 }
@@ -350,7 +391,62 @@ pub async fn list_tenants(
         }
         Err(e) => {
             warn!("Failed to list tenants: {}", e);
-            ApiError::internal(format!("failed to list tenants: {}", e)).into_response()
+            ApiError::internal_logged("failed to list tenants", &e).into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_error(e: &AdminError) -> ApiError {
+        admin_error_response(
+            "team_a",
+            "tenant_creation_failed",
+            "failed to create tenant",
+            e,
+        )
+    }
+
+    /// CLOACINA-T-1035: a tenant that exists is a 409 that names it.
+    #[test]
+    fn an_existing_tenant_is_a_conflict_that_names_the_tenant() {
+        let e = create_error(&AdminError::TenantExists {
+            name: "team_a".to_string(),
+        });
+        assert_eq!(e.status, StatusCode::CONFLICT);
+        assert_eq!(e.code, "tenant_exists");
+        assert_eq!(e.message, "tenant 'team_a' already exists");
+    }
+
+    /// CLOACINA-T-1035: the text of a SQL failure stays out of the body.
+    #[test]
+    fn a_sql_failure_is_a_500_with_no_sql_text() {
+        let e = create_error(&AdminError::SqlExecution {
+            message: "Failed to grant permissions: relation \"pg_authid\" is locked".to_string(),
+        });
+        assert_eq!(e.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(e.code, "internal_error");
+        assert!(e.message.contains("failed to create tenant"));
+        assert!(!e.message.contains("pg_authid"));
+        assert!(!e.message.contains("grant"));
+
+        let e = create_error(&AdminError::Pool(
+            "connection refused (db:5432)".to_string(),
+        ));
+        assert_eq!(e.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!e.message.contains("5432"));
+    }
+
+    /// A name that fails validation is still a 400 that says why.
+    #[test]
+    fn an_invalid_name_is_a_400_with_the_reason() {
+        let schema_err = cloacina::database::connection::validate_schema_name("bad-name")
+            .expect_err("a hyphen is not allowed in a schema name");
+        let e = create_error(&AdminError::InvalidSchema(schema_err));
+        assert_eq!(e.status, StatusCode::BAD_REQUEST);
+        assert_eq!(e.code, "tenant_creation_failed");
+        assert!(e.message.starts_with("Invalid schema name"));
     }
 }

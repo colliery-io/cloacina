@@ -67,6 +67,8 @@ pub enum WorkflowInstanceError {
     UnknownParam(String),
     #[error("required param '{0}' was not supplied and has no default")]
     MissingParam(String),
+    #[error("{}", missing_secret_ref_message(.0))]
+    MissingSecretRef(String),
     #[error("param '{0}' conflicts with the reserved scheduler key of the same name")]
     ReservedParam(String),
     #[error("param '{name}' failed schema validation: {message}")]
@@ -85,6 +87,18 @@ pub enum WorkflowInstanceError {
     MalformedSecretRef { name: String, message: String },
     #[error("serialization: {0}")]
     Serialization(String),
+}
+
+/// The message for a declared secret that the supplied params or context do
+/// not bind (CLOACINA-T-1035). It names the secret and shows the reference to
+/// add. Shared by [`WorkflowInstanceBuilder::build`] and the server's check of
+/// an execute context.
+pub fn missing_secret_ref_message(name: &str) -> String {
+    format!(
+        "secret '{}' is declared by the workflow but not bound: add a reference for it, {}",
+        name,
+        cloacina_workflow::secret::secret_ref_form(name)
+    )
 }
 
 /// The instance-param marker key for a secret reference (CLOACI-I-0133 / T-0859,
@@ -232,6 +246,9 @@ impl WorkflowInstanceBuilder {
                 None => match &slot.default {
                     Some(d) => {
                         resolved.insert(slot.name.clone(), d.clone());
+                    }
+                    None if slot.encrypted => {
+                        return Err(WorkflowInstanceError::MissingSecretRef(slot.name.clone()));
                     }
                     None if slot.required => {
                         return Err(WorkflowInstanceError::MissingParam(slot.name.clone()));
@@ -493,13 +510,20 @@ mod tests {
     fn build_requires_secret_slot_bound_with_ref() {
         let declared = vec![slot("source", true, None), secret_slot("db")];
 
-        // Encrypted slot left unbound → MissingParam (declared-but-unbound).
+        // Encrypted slot left unbound → MissingSecretRef: the message names the
+        // secret and shows the reference to add (CLOACINA-T-1035).
         let err = WorkflowInstance::builder("sync")
             .param("source", "/a")
             .unwrap()
             .build(&declared)
             .unwrap_err();
-        assert!(matches!(err, WorkflowInstanceError::MissingParam(_)));
+        assert!(matches!(err, WorkflowInstanceError::MissingSecretRef(_)));
+        let message = err.to_string();
+        assert!(message.contains("secret 'db'"), "{message}");
+        assert!(
+            message.contains(r#"{"db": {"$secret": "<name of a stored secret>"}}"#),
+            "{message}"
+        );
 
         // Encrypted slot bound with a literal value → SecretRequiresRef.
         let err = WorkflowInstance::builder("sync")
