@@ -149,7 +149,7 @@ Use `/health` for container liveness probes and `/ready` for load balancer readi
 cloacina-server --bind 0.0.0.0:8080 --metrics-bind 127.0.0.1:9090
 ```
 
-`/metrics` is then served only on `127.0.0.1:9090`, and `0.0.0.0:8080/metrics` answers 404. The env var is `CLOACINA_METRICS_BIND`; `cloacinactl server start` has no flag for it, but the server it starts reads the env var. Without `--metrics-bind` nothing changes.
+`/metrics` is then served only on `127.0.0.1:9090`, and `0.0.0.0:8080/metrics` answers 404. The env var is `CLOACINA_METRICS_BIND`. `cloacinactl server start` takes the same flag and env var and passes them to the server. Without `--metrics-bind` nothing changes. The Helm chart sets the flag by default: see [Deploying to Kubernetes](../deploying-to-kubernetes/#metrics-and-prometheus).
 
 ## Production Configuration
 

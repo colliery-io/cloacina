@@ -75,6 +75,7 @@ distinguish failure modes:
 |---|---|---|
 | `DATABASE_URL` | `server start`, `compiler start`, `admin cleanup-events` | PostgreSQL or SQLite connection URL. Overridden by the corresponding `--database-url` flag where applicable. |
 | `CLOACINA_BOOTSTRAP_KEY` | `server start` | Pre-supplied bootstrap admin key. If unset and no keys exist, one is generated. Overridden by `--bootstrap-key`. |
+| `CLOACINA_METRICS_BIND` | `server start` | Address of a separate listener for `/metrics`. Overridden by `--metrics-bind`. |
 | `CLOACINA_REQUIRE_SIGNATURES` | `server start` | If `true`, the server enforces package signature verification at upload. Overridden by `--require-signatures`. |
 | `RUST_LOG` | All commands | Log filter directive (e.g., `info`, `debug`, `cloacina=debug`). Overridden by `-v` / `--verbose`. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `server start` | If set, enables OpenTelemetry tracing to the named gRPC collector. |
@@ -175,7 +176,8 @@ under the `/v1/` prefix and the unauth probes `/health`, `/ready`,
 ### `server start`
 
 ```text
-cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
+cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
+                        [--database-url <URL>]
                         [--bootstrap-key <KEY>]
                         [--require-signatures] [--verification-org-id <UUID>]
                         [--reconcile-interval-s <N>]
@@ -187,6 +189,7 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--bind <ADDR>` | | `127.0.0.1:8080` | Listen address. |
+| `--metrics-bind <ADDR>` | `CLOACINA_METRICS_BIND` | (none) | Address of a separate listener for `/metrics`. When set, `/metrics` is served only there and `--bind` answers 404 for it. When not set, `/metrics` is on `--bind`. |
 | `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
 | `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. Requires `--verification-org-id`. CLOACI-I-0103. |
