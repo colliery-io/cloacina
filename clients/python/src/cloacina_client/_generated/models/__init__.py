@@ -3,7 +3,16 @@
 from .account_action_response import AccountActionResponse
 from .account_info import AccountInfo
 from .accumulator_status import AccumulatorStatus
+from .agent_egress_port import AgentEgressPort
+from .agent_egress_rule import AgentEgressRule
 from .agent_info import AgentInfo
+from .agent_pool_info import AgentPoolInfo
+from .agent_pool_settings import AgentPoolSettings
+from .agent_pool_settings_pod_annotations import AgentPoolSettingsPodAnnotations
+from .agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
+from .agent_pool_settings_service_account_annotations import (
+    AgentPoolSettingsServiceAccountAnnotations,
+)
 from .audit_event_info import AuditEventInfo
 from .audit_event_info_detail import AuditEventInfoDetail
 from .audit_list_response import AuditListResponse
@@ -52,6 +61,8 @@ from .list_response_accumulator_status_items_item import (
 )
 from .list_response_agent_info import ListResponseAgentInfo
 from .list_response_agent_info_items_item import ListResponseAgentInfoItemsItem
+from .list_response_agent_pool_info import ListResponseAgentPoolInfo
+from .list_response_agent_pool_info_items_item import ListResponseAgentPoolInfoItemsItem
 from .list_response_graph_status import ListResponseGraphStatus
 from .list_response_graph_status_items_item import ListResponseGraphStatusItemsItem
 from .list_response_key_info import ListResponseKeyInfo
@@ -135,7 +146,14 @@ __all__ = (
     "AccountActionResponse",
     "AccountInfo",
     "AccumulatorStatus",
+    "AgentEgressPort",
+    "AgentEgressRule",
     "AgentInfo",
+    "AgentPoolInfo",
+    "AgentPoolSettings",
+    "AgentPoolSettingsPodAnnotations",
+    "AgentPoolSettingsPodLabels",
+    "AgentPoolSettingsServiceAccountAnnotations",
     "AuditEventInfo",
     "AuditEventInfoDetail",
     "AuditListResponse",
@@ -182,6 +200,8 @@ __all__ = (
     "ListResponseAccumulatorStatusItemsItem",
     "ListResponseAgentInfo",
     "ListResponseAgentInfoItemsItem",
+    "ListResponseAgentPoolInfo",
+    "ListResponseAgentPoolInfoItemsItem",
     "ListResponseGraphStatus",
     "ListResponseGraphStatusItemsItem",
     "ListResponseKeyInfo",

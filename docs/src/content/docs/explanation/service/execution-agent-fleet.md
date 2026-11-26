@@ -333,7 +333,100 @@ tenant is still isolated primarily by *being its own tenant*, not by the policy.
 If the chart cannot supply the server's coordinates the actuator skips the policy
 (fail-open) rather than strand a fleet that can no longer reach the server.
 
+## Agent pools
+
+A tenant's managed agents are grouped in **pools**. A pool is a set of agents of
+one size: its own CPU and memory requests and limits, max concurrency, image,
+service account and extra egress rules. On Kubernetes each pool is its own
+Deployment in the tenant's namespace.
+
+Every tenant has a pool named `default`. With no settings stored it is what a
+tenant's fleet was before pools: the server-wide image and resources
+(`CLOACINA_AGENT_*`), the tenant's agent limit as its ceiling, and the
+autoscaler moving its count. A platform admin can add other pools and size them
+through the [pool API](../../../reference/http-api/#agent-pools).
+
+An agent tells the server its pool when it registers, as the capability
+`pool:<name>` (`--pool` / `CLOACINA_AGENT_POOL`; the actuator sets it). An agent
+with no pool capability, such as one you start by hand, is in `default`.
+
+What pools do **not** do yet:
+
+- **All work runs on `default`.** A task cannot name the pool it needs, so the
+  server sends every task to an agent of the pool `default`. A pool other than
+  `default` can be created and sized, and its agents start and register, but
+  they receive no work. Until a task can name a pool, a tenant with one task
+  that needs 32 GB must size its `default` pool for that task (so every agent
+  of the tenant is that size), or run that work in a second tenant.
+- **Only `default` is autoscaled.** Another pool runs a fixed number of agents,
+  its `max_agents`. The tenant's agent limit and the provision API are for
+  `default`; they do not count or bound the other pools.
+- **No per-task resources.** A task runs inside the agent process. The pool's
+  limits are the agent's limits, shared by the tasks it runs at one time
+  (`max_concurrency`). For a task that needs most of the agent's memory, set
+  `max_concurrency` to 1.
+
+### How a change of settings reaches the agents
+
+The pool's settings are stored in the server's database. The fleet loop reads
+them on every tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30s) and the
+Kubernetes actuator applies each pool's Deployment with server-side apply. A
+changed image, resource, concurrency or service account changes the pod
+template, so Kubernetes rolls the Deployment: new pods start with the new
+settings and the old ones are stopped. A task that was running on a stopped
+agent is reclaimed and run again, as for any agent that goes away. A changed
+egress rule changes the pool's NetworkPolicy only; no pod restarts.
+
+If the settings cannot be read, the actuator changes nothing for that tenant on
+that tick. It does not fall back to the defaults, which would resize the agents.
+
+### Cloud identity and network reach
+
+The pool settings for identity are generic: Cloacina has no code for any one
+cloud. They are the same knobs a Helm chart gives a workload, and they let a
+task reach object storage, a table catalog or a cloud API with the pool's own
+identity:
+
+- `service_account_name` and `service_account_annotations`: the actuator creates
+  the ServiceAccount in the tenant namespace with the annotations, and the
+  pool's pods run as it. Workload identity systems read an annotation on the
+  ServiceAccount.
+- `pod_labels` and `pod_annotations`: added to the pod template of the pool's
+  Deployment. Some identity systems act only on pods that carry a label. The
+  labels the actuator sets itself (`app.kubernetes.io/name`, `cloacina.managed`,
+  `cloacina.tenant`, `cloacina.pool`) cannot be set: the first is the
+  Deployment's selector, which never changes.
+- `automount_service_account_token`: the pod's field of that name. Not set, it
+  is left out and the cluster default applies (the token is mounted). The agent
+  does not call the Kubernetes API and does not need that token. The identity
+  token that a workload identity system injects is a separate projected volume,
+  so `false` is the tighter setting where the identity system allows it.
+
+An injected token reaches the agent as a mounted volume and environment
+variables that an admission webhook adds to the pod, not to the Deployment, so
+the actuator's apply does not undo them. The pod's hardening does not block a
+mounted token: the read-only root filesystem and the dropped capabilities do
+not apply to a volume, and the pod sets `fsGroup` to the agent's group
+(`10001`), which is how a non-root container reads a projected token. See
+[Give a pool a cloud identity](../../../how-to/service/deploy-an-execution-agent-fleet/#give-a-pool-a-cloud-identity)
+for examples.
+
+The network side is one more setting:
+
+- `extra_egress`: CIDR blocks, each with optional ports, that the pool's pods
+  may reach in addition to cluster DNS and the server. The rules are CIDR
+  blocks only, not host names: for a service whose addresses change, use a
+  private endpoint with a fixed range or the provider's published ranges.
+  Include the address your cloud's identity mechanism calls for its token. A
+  block that covers the cluster's pod or service range opens in-cluster
+  traffic too.
+
+With no `extra_egress` a managed agent reaches cluster DNS and the server and
+nothing else.
+
 ## Capacity limits & autoscaling
+
+These numbers are for the pool `default` (see [Agent pools](#agent-pools)).
 
 Two numbers bound a tenant's fleet:
 
@@ -352,7 +445,9 @@ Two numbers bound a tenant's fleet:
 A **back-pressure autoscaler** can move `desired_count` on its own. It runs as a
 single control loop that, each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default
 30s), computes each tenant's **utilization** — Σ `in_flight` / Σ
-`max_concurrency` over that tenant's live agents — and decides:
+`max_concurrency` over that tenant's live agents of the pool `default` — and
+decides (capacity is what each agent registered, so a pool with another
+`max_concurrency` is measured against its own capacity):
 
 - **up** (+1) when utilization exceeds the up-threshold (default 0.8) and there
   is room under the effective limit;

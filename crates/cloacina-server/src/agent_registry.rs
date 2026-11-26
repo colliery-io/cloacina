@@ -234,9 +234,9 @@ impl AgentRegistry {
     }
 }
 
-/// Select a live fleet agent for a task: same tenant as the work, with spare
-/// capacity, AND a target triple this package has a cdylib for. Greedy on
-/// most-free-capacity so load spreads.
+/// Select a live fleet agent for a task: same tenant as the work, in the pool
+/// the work is for, with spare capacity, AND a target triple this package has
+/// a cdylib for. Greedy on most-free-capacity so load spreads.
 ///
 /// Tenant isolation (REQ-008) lives here: `a.tenant_id == *task_tenant` is the
 /// only cross-tenant gate, so an agent only ever receives work in its own
@@ -244,15 +244,23 @@ impl AgentRegistry {
 /// carries `Some("public")` and matches only `Some("public")` agents.
 /// `runnable_triples == None` means "any arch is fine" (interpreted package,
 /// e.g. Python).
+///
+/// Pools (CLOACINA-T-1021): an agent is in the pool its `pool:<name>`
+/// capability names, or in `default` when it has none
+/// ([`cloacina_api_types::agent_pool_of`]). Work for `pool` goes only to an
+/// agent of that pool. No task can name a pool yet, so the caller passes
+/// [`cloacina_api_types::DEFAULT_AGENT_POOL`].
 pub fn select_fleet_agent<'a>(
     live: &'a [FleetAgent],
     task_tenant: &Option<String>,
     runnable_triples: &Option<Vec<String>>,
+    pool: &str,
 ) -> Option<&'a FleetAgent> {
     live.iter()
         .filter(|a| {
             a.available_capacity > 0
                 && &a.tenant_id == task_tenant
+                && cloacina_api_types::agent_pool_of(&a.capabilities) == pool
                 && runnable_triples
                     .as_ref()
                     .map_or(true, |ts| ts.iter().any(|t| t == &a.target_triple))
@@ -355,7 +363,7 @@ mod tests {
             agent("public-1", 8, Some("public")),
             agent("admin-1", 32, None),
         ];
-        let chosen = select_fleet_agent(&roster, &Some("public".to_string()), &None)
+        let chosen = select_fleet_agent(&roster, &Some("public".to_string()), &None, "default")
             .expect("a public agent must be selectable for public work");
         assert_eq!(chosen.agent_id, "public-1");
     }
@@ -369,12 +377,12 @@ mod tests {
             agent("acme-1", 4, Some("acme")),
             agent("beta-1", 64, Some("beta")),
         ];
-        let chosen = select_fleet_agent(&roster, &Some("acme".to_string()), &None)
+        let chosen = select_fleet_agent(&roster, &Some("acme".to_string()), &None, "default")
             .expect("acme work must select the acme agent");
         assert_eq!(chosen.agent_id, "acme-1");
 
         assert!(
-            select_fleet_agent(&roster, &Some("gamma".to_string()), &None).is_none(),
+            select_fleet_agent(&roster, &Some("gamma".to_string()), &None, "default").is_none(),
             "work for a tenant with no agents must not leak onto another tenant"
         );
     }
@@ -383,7 +391,7 @@ mod tests {
     fn public_work_does_not_select_a_none_tenant_agent() {
         let roster = vec![agent("admin-1", 32, None)];
         assert!(
-            select_fleet_agent(&roster, &Some("public".to_string()), &None).is_none(),
+            select_fleet_agent(&roster, &Some("public".to_string()), &None, "default").is_none(),
             "a None-tenant (bootstrap/admin) agent must not serve public work"
         );
     }
@@ -398,7 +406,60 @@ mod tests {
         let roster = vec![full, wrong_arch, ok];
 
         let triples = Some(vec!["aarch64-apple-darwin".to_string()]);
-        let chosen = select_fleet_agent(&roster, &Some("t1".to_string()), &triples).unwrap();
+        let chosen =
+            select_fleet_agent(&roster, &Some("t1".to_string()), &triples, "default").unwrap();
         assert_eq!(chosen.agent_id, "ok");
+    }
+
+    // ── pools (CLOACINA-T-1021) ──────────────────────────────────────────────
+
+    fn pool_agent(id: &str, cap: u32, pool: Option<&str>) -> FleetAgent {
+        let mut a = agent(id, cap, Some("acme"));
+        a.capabilities = vec!["python".to_string()];
+        if let Some(pool) = pool {
+            a.capabilities.push(format!("pool:{pool}"));
+        }
+        a
+    }
+
+    /// Default work never goes to an agent of another pool, even when that
+    /// agent has the most free capacity or is the only one alive.
+    #[test]
+    fn default_work_never_selects_an_agent_of_another_pool() {
+        let tenant = Some("acme".to_string());
+        let roster = vec![
+            pool_agent("big-1", 64, Some("big")),
+            pool_agent("default-1", 2, Some("default")),
+        ];
+        let chosen = select_fleet_agent(&roster, &tenant, &None, "default").unwrap();
+        assert_eq!(chosen.agent_id, "default-1");
+
+        let only_big = vec![pool_agent("big-1", 64, Some("big"))];
+        assert!(select_fleet_agent(&only_big, &tenant, &None, "default").is_none());
+    }
+
+    /// An agent that registered no pool capability (started by hand, or from
+    /// before pools) is in `default`.
+    #[test]
+    fn an_agent_with_no_pool_capability_counts_as_default() {
+        let tenant = Some("acme".to_string());
+        let roster = vec![
+            pool_agent("big-1", 64, Some("big")),
+            pool_agent("plain-1", 4, None),
+        ];
+        let chosen = select_fleet_agent(&roster, &tenant, &None, "default").unwrap();
+        assert_eq!(chosen.agent_id, "plain-1");
+        // And it is not picked for another pool's work.
+        let chosen = select_fleet_agent(&roster, &tenant, &None, "big").unwrap();
+        assert_eq!(chosen.agent_id, "big-1");
+    }
+
+    /// The pool rule does not weaken the tenant rule.
+    #[test]
+    fn pool_selection_stays_inside_the_tenant() {
+        let mut other = pool_agent("other-big", 64, Some("big"));
+        other.tenant_id = Some("globex".to_string());
+        let roster = vec![other];
+        assert!(select_fleet_agent(&roster, &Some("acme".to_string()), &None, "big").is_none());
     }
 }

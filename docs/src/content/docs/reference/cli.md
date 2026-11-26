@@ -308,7 +308,7 @@ holding no database connection of its own. It is a standalone binary, not a
 
 ```text
 cloacina-agent --server <URL> --api-key <KEY>
-               [--agent-id <ID>] [--max-concurrency <N>]
+               [--agent-id <ID>] [--max-concurrency <N>] [--pool <NAME>]
                [--capabilities <TAG,TAG>] [--target-triple-override <TRIPLE>]
                [--cache-dir <PATH>]
 ```
@@ -318,7 +318,8 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--server <URL>` | `CLOACINA_SERVER` | (required) | Base URL of the server to register with (REST + WS ticket mint). |
 | `--api-key <KEY>` | `CLOACINA_API_KEY` | (required) | API key for REST + WS auth. Its tenant scope determines which tenants' work the agent may receive (REQ-008). |
 | `--agent-id <ID>` | | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. |
-| `--max-concurrency <N>` | | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
+| `--max-concurrency <N>` | `CLOACINA_AGENT_MAX_CONCURRENCY` | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
+| `--pool <NAME>` | `CLOACINA_AGENT_POOL` | (none) | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in. Registered as the capability `pool:<name>`. Not set: the server counts the agent in `default`. Work goes only to agents of the pool `default` for now. |
 | `--capabilities <TAG,TAG>` | | (none) | Free-form capability tags advertised at registration. |
 | `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
@@ -517,6 +518,10 @@ Requires an admin-role key.
 |---|---|---|
 | `tenant create <NAME> [--description <STR>] [--password <PW>]` | `POST /v1/tenants` | Creates a new Postgres schema (per-tenant). `--password` sets the tenant DB password; omitted, the server auto-generates one. The password is **never returned** — it's set during provisioning and not surfaced. |
 | `tenant list` | `GET /v1/tenants` | Lists tenant schema names. |
+| `tenant pool list <TENANT>` | `GET /v1/tenants/<tenant>/pools` | Lists the tenant's [agent pools](../../explanation/service/execution-agent-fleet/#agent-pools). Every tenant has `default`. |
+| `tenant pool get <TENANT> <POOL>` | `GET /v1/tenants/<tenant>/pools/<pool>` | One pool: its settings, the agent count the server keeps, and the live agents. |
+| `tenant pool set <TENANT> <POOL> [--cpu-request <Q>] [--memory-request <Q>] [--cpu-limit <Q>] [--memory-limit <Q>] [--max-concurrency <N>] [--image <IMAGE>] [--service-account <NAME>] [--service-account-annotation <KEY=VALUE>]... [--pod-label <KEY=VALUE>]... [--pod-annotation <KEY=VALUE>]... [--automount-service-account-token <BOOL>] [--egress <CIDR[=PORTS]>]... [--agents <N>]` | `PUT /v1/tenants/<tenant>/pools/<pool>` | Creates the pool or replaces its settings with exactly what is given; a setting not given goes back to the server-wide default. `--egress` is `CIDR` or `CIDR=PORT[/PROTOCOL][,PORT...]` (`198.51.100.0/24=443,53/UDP`). `--agents` is the fixed agent count of a pool other than `default` (needed there, refused for `default`). `--file <PATH>` (`-` for stdin) sends a JSON object instead of the flags. |
+| `tenant pool delete <TENANT> <POOL> [--force]` | `DELETE /v1/tenants/<tenant>/pools/<pool>` | Removes the pool. The server refuses while the pool has agents: run `set --agents 0` first and wait. For `default` it clears the settings. Confirmation unless `--force`. |
 | `tenant delete <NAME> [--force]` | `DELETE /v1/tenants/<name>` | Triggers the 4-step teardown orchestration (revoke keys → evict runner cache → evict DB cache → drop schema). Each step emits an audit event. The drain step is bounded by `--tenant-deletion-drain-timeout-s` (server flag, default 30s); past that, the runner is hard-evicted. Interactive confirmation unless `--force`. CLOACI-T-0581. |
 
 ## `audit` (admin)

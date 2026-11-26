@@ -15,3 +15,4 @@ from .soak import daemon, server  # noqa: F401
 from .soak import fleet as soak_fleet  # noqa: F401
 from .soak import fleet_actuator as soak_fleet_actuator  # noqa: F401
 from .soak import k8s_fleet as soak_k8s_fleet  # noqa: F401
+from .bdd import publish as bdd_publish  # noqa: F401

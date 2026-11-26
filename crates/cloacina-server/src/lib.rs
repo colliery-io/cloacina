@@ -1610,13 +1610,26 @@ pub async fn run(
                             }
 
                             // (b) RECONCILE — drive actual→desired for each tenant.
-                            let desired = match loop_dal.agent_desired().list_all().await {
+                            let mut desired = match loop_dal.agent_desired().list_all().await {
                                 Ok(rows) => rows,
                                 Err(e) => {
                                     warn!(error = %e, "fleet reconcile: failed to read desired counts; skipping reconcile step");
                                     return;
                                 }
                             };
+                            // CLOACINA-T-1021: a tenant with stored agent pools is
+                            // reconciled too, also with no desired count (0 agents
+                            // in `default`): its other pools run their own counts.
+                            match loop_dal.agent_pools().list_tenants().await {
+                                Ok(pool_tenants) => {
+                                    for tenant in pool_tenants {
+                                        if !desired.iter().any(|(t, _)| *t == tenant) {
+                                            desired.push((tenant, 0));
+                                        }
+                                    }
+                                }
+                                Err(e) => warn!(error = %e, "fleet reconcile: failed to read agent pool tenants"),
+                            }
                             for (tenant, want) in desired {
                                 match loop_actuator.reconcile(&tenant, want).await {
                                     Ok(out) if out.spawned > 0 || out.stopped > 0 => {
@@ -2090,6 +2103,17 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
         .route(
             "/tenants/{tenant_id}/limits",
             delete(crate::routes::limits::clear_tenant_limit),
+        )
+        // CLOACINA-T-1021: agent pools (settings and size of each pool of a tenant).
+        .route(
+            "/tenants/{tenant_id}/pools",
+            get(crate::routes::pools::list_pools),
+        )
+        .route(
+            "/tenants/{tenant_id}/pools/{pool}",
+            get(crate::routes::pools::get_pool)
+                .put(crate::routes::pools::put_pool)
+                .delete(crate::routes::pools::delete_pool),
         )
         // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
         .route(
@@ -3465,9 +3489,13 @@ mod tests {
         );
 
         // Same-tenant selection on replica B picks it.
-        let chosen =
-            crate::agent_registry::select_fleet_agent(&live_b, &Some(tenant.clone()), &None)
-                .expect("selection must see the other replica's agent");
+        let chosen = crate::agent_registry::select_fleet_agent(
+            &live_b,
+            &Some(tenant.clone()),
+            &None,
+            cloacina_api_types::DEFAULT_AGENT_POOL,
+        )
+        .expect("selection must see the other replica's agent");
         assert_eq!(chosen.agent_id, agent_id);
 
         // A heartbeat landing on replica B does NOT flap ("not registered").
@@ -5074,6 +5102,237 @@ mod tests {
 
         let (status, _) = send_request(app, req).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Agent pools (CLOACINA-T-1021) ────────────────────────────────
+
+    /// One pool-route call with the god key; returns status and JSON body.
+    async fn pool_call(
+        state: &AppState,
+        token: &str,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut req = axum::http::Request::builder()
+            .method(method)
+            .uri(path)
+            .header("Authorization", format!("Bearer {}", token));
+        let body = match body {
+            Some(json) => {
+                req = req.header("Content-Type", "application/json");
+                Body::from(json.to_string())
+            }
+            None => Body::empty(),
+        };
+        send_request(build_router(state.clone()), req.body(body).unwrap()).await
+    }
+
+    /// Every tenant has the pool `default`, with no settings stored.
+    #[tokio::test]
+    #[serial]
+    async fn test_pools_list_always_has_default() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let tenant = format!("pools_{}", uuid::Uuid::new_v4().simple());
+        let (status, body) = pool_call(
+            &state,
+            &token,
+            "GET",
+            &format!("/v1/tenants/{tenant}/pools"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["items"][0]["pool"], "default");
+        assert_eq!(body["items"][0]["settings"], serde_json::json!({}));
+    }
+
+    /// PUT stores a pool's settings; GET and the list show them; a second PUT
+    /// replaces them as a whole; DELETE removes the pool once it is at 0 agents.
+    #[tokio::test]
+    #[serial]
+    async fn test_pool_put_get_replace_delete() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let tenant = format!("pools_{}", uuid::Uuid::new_v4().simple());
+        let path = format!("/v1/tenants/{tenant}/pools/big");
+
+        let (status, body) = pool_call(
+            &state,
+            &token,
+            "PUT",
+            &path,
+            Some(
+                r#"{"memory_limit":"32Gi","memory_request":"16Gi","max_concurrency":1,
+                    "service_account_name":"team-data",
+                    "service_account_annotations":{"example.com/role":"team-data"},
+                    "extra_egress":[{"cidr":"198.51.100.0/24","ports":[{"port":443}]}],
+                    "max_agents":2}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["pool"], "big");
+        assert_eq!(body["desired_agents"], 2);
+        assert_eq!(body["settings"]["memory_limit"], "32Gi");
+
+        let (status, body) = pool_call(&state, &token, "GET", &path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["settings"]["extra_egress"][0]["cidr"],
+            "198.51.100.0/24"
+        );
+
+        let (_, list) = pool_call(
+            &state,
+            &token,
+            "GET",
+            &format!("/v1/tenants/{tenant}/pools"),
+            None,
+        )
+        .await;
+        assert_eq!(list["total"], 2);
+        assert_eq!(list["items"][0]["pool"], "default");
+        assert_eq!(list["items"][1]["pool"], "big");
+
+        // Still set to 2 agents: the removal is refused.
+        let (status, body) = pool_call(&state, &token, "DELETE", &path, None).await;
+        assert_eq!(status, StatusCode::CONFLICT, "body: {:?}", body);
+        assert_eq!(body["code"], "pool_has_agents");
+
+        // A second PUT replaces the settings as a whole.
+        let (status, body) =
+            pool_call(&state, &token, "PUT", &path, Some(r#"{"max_agents":0}"#)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["settings"], serde_json::json!({"max_agents": 0}));
+
+        let (status, _) = pool_call(&state, &token, "DELETE", &path, None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _) = pool_call(&state, &token, "GET", &path, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// What Kubernetes would refuse is a 400 at the API, and nothing is stored.
+    #[tokio::test]
+    #[serial]
+    async fn test_pool_put_rejects_invalid_settings_with_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let tenant = format!("pools_{}", uuid::Uuid::new_v4().simple());
+        for (pool, body) in [
+            ("big", r#"{"memory_limit":"32GB","max_agents":1}"#),
+            ("big", r#"{"memory_request":"8Gi","max_agents":1}"#),
+            (
+                "big",
+                r#"{"extra_egress":[{"cidr":"198.51.100.1/24"}],"max_agents":1}"#,
+            ),
+            ("big", r#"{"memory_limit":"32Gi"}"#),
+            (
+                "big",
+                r#"{"pod_labels":{"cloacina.tenant":"other"},"max_agents":1}"#,
+            ),
+            ("default", r#"{"max_agents":3}"#),
+            ("Big_Pool", r#"{"max_agents":1}"#),
+        ] {
+            let (status, resp) = pool_call(
+                &state,
+                &token,
+                "PUT",
+                &format!("/v1/tenants/{tenant}/pools/{pool}"),
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{pool} {body}: {:?}", resp);
+            assert_eq!(resp["code"], "invalid_pool_settings");
+        }
+        let (_, list) = pool_call(
+            &state,
+            &token,
+            "GET",
+            &format!("/v1/tenants/{tenant}/pools"),
+            None,
+        )
+        .await;
+        assert_eq!(list["total"], 1, "nothing was stored");
+    }
+
+    /// The pool `default` takes settings; DELETE clears them and the pool stays.
+    #[tokio::test]
+    #[serial]
+    async fn test_default_pool_settings_set_and_clear() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let tenant = format!("pools_{}", uuid::Uuid::new_v4().simple());
+        let path = format!("/v1/tenants/{tenant}/pools/default");
+
+        let (status, body) = pool_call(
+            &state,
+            &token,
+            "PUT",
+            &path,
+            Some(r#"{"max_concurrency":2}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        assert_eq!(body["settings"]["max_concurrency"], 2);
+
+        let (status, _) = pool_call(&state, &token, "DELETE", &path, None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, body) = pool_call(&state, &token, "GET", &path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["settings"], serde_json::json!({}));
+    }
+
+    /// A tenant key reads its own pools, cannot change them, and cannot read
+    /// another tenant's.
+    #[tokio::test]
+    #[serial]
+    async fn test_pools_tenant_key_reads_own_and_cannot_write() {
+        let state = test_state().await;
+        let tenant = format!("pools_{}", uuid::Uuid::new_v4().simple());
+        let token = create_tenant_api_key(&state, &tenant, "admin").await;
+
+        let (status, _) = pool_call(
+            &state,
+            &token,
+            "GET",
+            &format!("/v1/tenants/{tenant}/pools"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = pool_call(
+            &state,
+            &token,
+            "PUT",
+            &format!("/v1/tenants/{tenant}/pools/big"),
+            Some(r#"{"max_agents":1}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _) = pool_call(
+            &state,
+            &token,
+            "DELETE",
+            &format!("/v1/tenants/{tenant}/pools/default"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _) = pool_call(
+            &state,
+            &token,
+            "GET",
+            "/v1/tenants/some_other_tenant/pools",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
     // ── Fleet scaling (desired-count provisioning, CLOACI-T-0809) ─────

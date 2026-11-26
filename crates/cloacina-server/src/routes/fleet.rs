@@ -71,9 +71,15 @@ async fn actual_count_for(state: &AppState, tenant_id: &str) -> Result<u32, ApiE
         warn!("agent roster read failed: {}", e);
         ApiError::internal("failed to read agent roster")
     })?;
+    // CLOACINA-T-1021: this view is the pool `default` (the pool the desired
+    // count and the limit are for). The pool routes show the other pools.
     Ok(live
         .iter()
         .filter(|r| r.tenant_id.as_deref() == Some(tenant_id))
+        .filter(|r| {
+            cloacina_api_types::agent_pool_of(&r.capabilities)
+                == cloacina_api_types::DEFAULT_AGENT_POOL
+        })
         .count() as u32)
 }
 
