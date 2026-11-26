@@ -25,6 +25,8 @@ Server-side, the `DELETE /v1/tenants/{name}` route runs four steps in order, eac
 3. **Evict the tenant's `Database` from `TenantDatabaseCache`.** Releases the per-tenant connection pool.
 4. **Drop the schema + user via `DatabaseAdmin::remove_tenant`** (`DROP SCHEMA … CASCADE` + `DROP USER`).
 
+Between steps 3 and 4, a server that runs a compiler per tenant (see [Run cloacina-compiler in Production](../running-the-compiler/#how-many-compilers-a-deployment-runs)) removes the tenant's compiler: it deletes the Deployment `cloacina-compiler` and its NetworkPolicy in the tenant's namespace and writes an empty value over the Secret `cloacina-compiler-db`. If that fails, the delete answers 500 and the schema is not dropped.
+
 Each step is idempotent. If a step fails, earlier steps stay committed, and a retry resumes from the failure point.
 
 ## Steps

@@ -154,6 +154,135 @@ packages can resolve under `--offline`. Curate it explicitly.
    tree, then re-run `cargo vendor` against the union, and replace
    the compiler's vendor dir. Restart the compiler.
 
+## How many compilers a deployment runs
+
+A compiler serves one schema. A deployment runs:
+
+- **One compiler for `public`**, that you deploy: the Helm chart's
+  `compiler.enabled=true`, or your own process. It runs all the time.
+- **One compiler per tenant**, that you deploy with `--tenant-schema`, or that
+  the server makes for you. Without one, a package published to the tenant
+  stays `pending`: a Rust package and a Python package alike, because the
+  compiler is the process that completes every package (it runs no cargo for
+  a Python one).
+
+### Compilers the server makes
+
+With a fleet actuator (`CLOACINA_FLEET_ACTUATOR=kubernetes` or `docker`) and
+`CLOACINA_TENANT_COMPILERS=true`, the server runs the tenant compilers itself.
+The Helm chart sets both with `fleet.actuator=kubernetes`
+(`fleet.compiler.enabled` is `true` by default). No step is needed when a
+tenant is created.
+
+On each tick of the fleet loop (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30 s)
+the server reads the build queue of every tenant schema: the `pending` and
+`building` rows of `workflow_packages`, the rows the compiler claims.
+
+| The tenant's queue | The tenant's compiler |
+|---|---|
+| has a `pending` or `building` package | is created if there is none, and set to 1 replica |
+| is empty, and the last build ended or failed less than the cooldown ago | stays as it is |
+| has been empty for the cooldown (`CLOACINA_TENANT_COMPILER_COOLDOWN_S`, default 300 s) | is set to 0 replicas |
+| never held a package | does not exist |
+
+A tenant has at most one compiler. The server keeps no record of the wanted
+state: it works it out from the queue on each tick, so any replica can lead a
+tick. A removed tenant loses its compiler: `DELETE /v1/tenants/{name}` deletes
+the Deployment and its NetworkPolicy and writes an empty value over the
+database URL Secret.
+
+On Kubernetes the compiler of a tenant is a Deployment `cloacina-compiler` in
+the tenant's namespace (`cloacina-tenant-<tenant>`), next to its agents. With
+the Docker actuator it is one container with the labels
+`cloacina.compiler=true` and `cloacina.compiler-tenant=<tenant>`; the
+resources, the hardening, the cache volumes and the NetworkPolicy below do not
+apply there.
+
+**A start is a cold start.** The pod's cargo home and target directory are
+`emptyDir` volumes, so a compiler that starts has empty caches: its first
+build downloads and compiles every dependency of the package. Builds that
+follow while it runs reuse them. A longer cooldown keeps the caches longer; it
+also keeps the pod's requested CPU and memory reserved.
+
+**Settings** (environment of the server; the chart renders them from
+`fleet.compiler.*`):
+
+| Variable | Chart value | Default | What it sets |
+|---|---|---|---|
+| `CLOACINA_TENANT_COMPILERS` | `enabled` | off (chart: on) | Run a compiler per tenant. |
+| `CLOACINA_TENANT_COMPILER_IMAGE` | `image` | `cloacina-compiler:latest` (chart: the image of `compiler.image`) | The compiler image. |
+| `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | `cargoFlags` | empty (chart: `build --lib`) | The whole cargo flag list, separated by spaces (`--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. |
+| `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `vendorDir` | unset | `--vendor-dir`: a path inside the image. |
+| `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `devWorkspace` | unset | `--dev-workspace`: a path inside the image. Development only. |
+| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `targetDir` | `/workspace/target` | `--cargo-target-dir`. |
+| `CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S` | `buildTimeoutSeconds` | unset (the compiler's 600) | `--build-timeout-s`. |
+| `CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS` | `pollIntervalMs` | `1000` | `--poll-interval-ms`. |
+| `CLOACINA_TENANT_COMPILER_COOLDOWN_S` | `cooldownSeconds` | `300` | How long the queue must be empty before the compiler is set to 0. |
+| `CLOACINA_TENANT_COMPILER_CPU_REQUEST`, `_MEMORY_REQUEST`, `_CPU_LIMIT`, `_MEMORY_LIMIT` | `resources` | `500m`, `1Gi`, `2`, `4Gi` | Requests and limits of the compiler container. |
+| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | `cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
+| `CLOACINA_TENANT_COMPILER_HARDENED` | `hardened` | `true` | The pod hardening below. |
+| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | `databaseUrlSecretRef` | the server's own URL | The database URL of the tenant compilers. |
+| `CLOACINA_TENANT_COMPILER_EGRESS` | `egress` | `internet` | Where a build may fetch crates from: `internet`, `all` or `none`. |
+| `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | `egressCidrs` | empty | More egress CIDR blocks, every port. |
+| `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | `databaseCidrs` | empty | CIDR blocks of the database. |
+
+A value the server cannot use (a CIDR block that does not parse, an egress
+mode it does not know) stops the server at start with a message that names
+the variable.
+
+**The pod.** With `hardened` the pod runs as uid and gid `10001`, not root,
+with the `RuntimeDefault` seccomp profile, a read-only root filesystem, no
+capabilities and no privilege escalation, and mounts no service account
+token. The paths a build writes are `emptyDir` volumes: the compiler's home
+(`/var/cloacina/home`: unpacked sources and logs), the cargo home
+(`/var/cloacina/cargo`), the target directory and `/tmp`. The image must be
+usable by uid `10001`: the toolchain readable, and nothing it needs written
+outside those four paths. `hardened=false` runs the image as it is built, on
+its own filesystem; use it only for a development image that carries its
+caches. The compiler listens on `127.0.0.1:9000` only, and the pod has no
+probe.
+
+**The database URL.** The server writes the URL into a Secret
+`cloacina-compiler-db` in the tenant's namespace, and the pod reads it as the
+environment variable `DATABASE_URL`. It is not on the pod's command line. By
+default it is the server's own URL, which reaches every schema: the same
+credential the chart's own compiler has. To give the tenant compilers a
+weaker one, set `CLOACINA_TENANT_COMPILER_DATABASE_URL` (chart:
+`fleet.compiler.databaseUrlSecretRef`) to the URL of a role you made for
+builds. A tenant compiler reads and writes four tables of its tenant's
+schema, `workflow_packages`, `workflow_registry`, `package_providers` and
+`package_artifacts`, and nothing in `public`. All tenant compilers get the
+same URL. The host in the URL must resolve from the tenant namespaces: use a
+full Service name (`<service>.<namespace>.svc.cluster.local`), not a short
+one. A changed URL reaches a compiler when it next starts.
+
+**The network.** With `CLOACINA_FLEET_NETWORK_POLICY` on (the default), the
+server writes a NetworkPolicy `cloacina-compiler` for the compiler pods:
+
+- No ingress.
+- Egress to cluster DNS.
+- Egress to the database: TCP on the port of the database URL, to the blocks
+  in `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS`, or to every destination when
+  that list is empty (a NetworkPolicy cannot name a host).
+- Egress for crates, by `CLOACINA_TENANT_COMPILER_EGRESS`:
+  - `internet` (the default): TCP 443 to every public IPv4 address. The
+    private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+    `100.64.0.0/10`) and the link-local range (`169.254.0.0/16`) are left
+    out, so this rule opens no path to the cluster, the nodes or a cloud
+    metadata address.
+  - `all`: every destination and port.
+  - `none`: nothing more.
+- Egress to each block in `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS`, on every
+  port: a registry mirror, a git host, a proxy.
+
+The pods also get what the tenant's agent policy allows: DNS and the server.
+
+**An install with no route to a registry** sets `egress` to `none`, leaves
+`cargoFlags` empty so that builds run `--frozen --offline`, and sets
+`vendorDir` to a cargo home inside the compiler image that holds every crate
+a build may use (see [The `cargo vendor` workflow](#the-cargo-vendor-workflow)).
+With a mirror inside the network, list its CIDR in `egressCidrs` instead.
+
 ## Flag reference
 
 All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
@@ -180,7 +309,9 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 - `--tenant-schema` scopes the compiler to a single tenant's Postgres schema
   for build isolation: it claims and builds **only** that tenant's pending
   packages, with separate source, logs, and target dir (no cross-tenant
-  leakage). Run one compiler per tenant. Omit for the default public schema.
+  leakage). Run one compiler per tenant, or let the server run them (see
+  [How many compilers a deployment runs](#how-many-compilers-a-deployment-runs)).
+  Omit for the default public schema.
 - `--build-target` runs the compiler as a per-target builder producing
   cdylibs for a given triple (e.g. `x86_64-linux`), backfilling
   `package_artifacts` for success packages that lack that architecture. Run

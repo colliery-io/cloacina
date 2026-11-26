@@ -325,6 +325,72 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
 > **Restricted clusters.** Because the agent pods are already `restricted`-clean,
 > you can safely label tenant namespaces `pod-security.kubernetes.io/enforce: restricted`.
 
+### A compiler per tenant
+
+The chart's own compiler (`compiler.enabled`) serves the `public` schema only.
+With `fleet.actuator=kubernetes` the server also runs one compiler for each
+other tenant (`fleet.compiler.enabled`, default `true`): a Deployment
+`cloacina-compiler` in the tenant's namespace with `--tenant-schema <tenant>`.
+The server creates it when the tenant's build queue first has a package, sets
+it to 0 replicas when the queue has been empty for
+`fleet.compiler.cooldownSeconds`, and deletes it when the tenant is removed. A
+package published to a tenant created after install is built with no manual
+step. A deployment with `T` tenants runs between 0 and `T` tenant compilers,
+one for each tenant that has a package to build or built one in the last
+cooldown.
+
+```yaml
+fleet:
+  actuator: kubernetes
+  compiler:
+    enabled: true
+    cooldownSeconds: 300
+    # Where builds fetch crates from: internet | all | none
+    egress: internet
+```
+
+| Value | Default | Purpose |
+|---|---|---|
+| `fleet.compiler.enabled` | `true` | Run a compiler per tenant. |
+| `fleet.compiler.image.repository`, `.tag` | the image of `compiler.image` | The compiler image. |
+| `fleet.compiler.cargoFlags` | `[build, --lib]` | The whole cargo flag list of a build. An empty list keeps the compiler's `build --release --lib --frozen --offline`. |
+| `fleet.compiler.vendorDir` | `""` | A cargo home inside the image for offline builds (`--vendor-dir`). |
+| `fleet.compiler.targetDir` | `/workspace/target` | The cargo target directory; an `emptyDir` is mounted there. |
+| `fleet.compiler.buildTimeoutSeconds` | `0` (the compiler's 600) | Wall-clock limit of one build. |
+| `fleet.compiler.cooldownSeconds` | `300` | How long a tenant's queue must be empty before its compiler is set to 0 replicas. |
+| `fleet.compiler.cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
+| `fleet.compiler.hardened` | `true` | Not root, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. |
+| `fleet.compiler.resources` | `500m`/`1Gi` requests, `2`/`4Gi` limits | Requests and limits of the compiler container. |
+| `fleet.compiler.databaseUrlSecretRef` | empty (the server's URL) | A Secret in the release namespace with the database URL of the tenant compilers. |
+| `fleet.compiler.egress` | `internet` | Crate egress of the compiler pods: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. |
+| `fleet.compiler.egressCidrs` | `[]` | More egress CIDR blocks, every port (a mirror, a git host, a proxy). |
+| `fleet.compiler.databaseCidrs` | `[]` | CIDR blocks of the database; empty allows the database port to every destination. |
+
+What the server writes in a tenant namespace for the compiler:
+
+- the Deployment `cloacina-compiler`;
+- the Secret `cloacina-compiler-db`, with the database URL the pod reads as
+  `DATABASE_URL`;
+- the NetworkPolicy `cloacina-compiler` (when `fleet.networkPolicy.enabled`):
+  no ingress; egress to DNS, to the database port, and to where crates come
+  from by `fleet.compiler.egress` and `fleet.compiler.egressCidrs`.
+
+These need no RBAC verb beyond the table above. The server has no `delete` on
+Secrets, so when a tenant is removed it writes an empty value over
+`cloacina-compiler-db`.
+
+The cache volumes are `emptyDir`s: each start of a tenant's compiler is a cold
+start, and its first build downloads and compiles every dependency.
+
+With `postgresql.enabled` the chart gives the tenant compilers the bundled
+database by its full Service name. With `database.url` or
+`databaseUrlSecretRef`, the host in the URL must resolve from the tenant
+namespaces.
+
+The details (the scale rules, the pod, the database credential, an install
+with no route to a registry) are in
+[Run cloacina-compiler in Production](../running-the-compiler/#how-many-compilers-a-deployment-runs).
+
 ### Fail-closed guard
 
 The actuator validates its substrate at boot and **refuses to start** on a

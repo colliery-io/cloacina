@@ -164,6 +164,34 @@ These are read by the **Kubernetes actuator** and applied to every `cloacina-age
 
 The actuator mints a tenant-scoped `read` API key and injects it as `CLOACINA_API_KEY`, so spawned agents self-register exactly like a hand-run agent (see [Execution Agent](#execution-agent)). The Docker actuator mints one key per container; the Kubernetes actuator mints one shared per-tenant key into a `Secret` and re-mints it on scale-up.
 
+#### A compiler per tenant
+
+Read by the server. With a fleet actuator and `CLOACINA_TENANT_COMPILERS=true`, the server runs one `cloacina-compiler` for each tenant whose build queue has work and stops it when the queue has been empty for the cooldown. See [Run cloacina-compiler in Production](../../how-to/service/running-the-compiler/#how-many-compilers-a-deployment-runs).
+
+| Variable | Purpose | Default | Example | Component | Required |
+|----------|---------|---------|---------|-----------|----------|
+| `CLOACINA_TENANT_COMPILERS` | Run a compiler per tenant. | `false` (the chart sets `true` with `fleet.actuator=kubernetes`) | `true` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_IMAGE` | The compiler image. | `cloacina-compiler:latest` | `ghcr.io/colliery-io/cloacina-compiler:0.12.0` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | The database URL the tenant compilers connect with. | The server's own URL | `postgres://builder:…@db.example:5432/cloacina` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | The whole cargo flag list of a build, separated by spaces (the compiler's `--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. | empty | `build --lib` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `--vendor-dir`: a cargo home inside the compiler image. | None | `/opt/vendor` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `--dev-workspace`: a cloacina workspace inside the image. Development only. | None | `/workspace` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `--cargo-target-dir`. An absolute path. | `/workspace/target` | `/var/cache/target` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S` | `--build-timeout-s`. | None (the compiler's `600`) | `1200` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS` | `--poll-interval-ms`. | `1000` | `2000` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_COOLDOWN_S` | Seconds a tenant's build queue must be empty before its compiler is stopped. | `300` | `900` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CPU_REQUEST` | CPU request of the compiler container. | `500m` | `1` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_MEMORY_REQUEST` | Memory request of the compiler container. | `1Gi` | `2Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CPU_LIMIT` | CPU limit of the compiler container. | `2` | `4` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_MEMORY_LIMIT` | Memory limit of the compiler container. | `4Gi` | `8Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | Size limit of each cache volume (cargo home, target directory). | `8Gi` | `20Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_HARDENED` | Pod hardening: uid `10001`, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. `false` runs the image as it is built. | `true` | `false` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_EGRESS` | Crate egress in the compiler pods' NetworkPolicy: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. | `internet` | `none` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | More egress CIDR blocks, separated by commas, every port. | None | `10.9.0.0/24` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | CIDR blocks of the database, separated by commas. Empty allows the database port to every destination. | None | `10.1.2.3/32` | Server (k8s actuator) | No |
+
+The compiler pods' NetworkPolicy is written when `CLOACINA_FLEET_NETWORK_POLICY` is on, and uses `CLOACINA_FLEET_DNS_NAMESPACE`. The Docker actuator attaches a compiler container to `CLOACINA_AGENT_NETWORK`.
+
 ### Autoscaler
 
 The autoscaler is a single leader-gated control loop (one replica drives the fleet via a Postgres advisory lock). Each tick it computes per-tenant utilization (Σ `in_flight` / Σ `max_concurrency` over the tenant's live agents) and nudges `desired_count` by ±1 within `[floor, effective_limit]`, then reconciles actual → desired through the actuator.
@@ -456,6 +484,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_NETWORK` | Server (docker actuator) | Docker network attached to spawned agent containers |
 | `CLOACINA_AGENT_CPU_REQUEST` / `_MEMORY_REQUEST` / `_CPU_LIMIT` / `_MEMORY_LIMIT` | Server (k8s actuator) | Agent pod resource requests/limits (defaults `250m`/`256Mi`/`1`/`1Gi`) |
 | `CLOACINA_FLEET_NETWORK_POLICY` | Server (k8s actuator) | Install per-tenant agent NetworkPolicy (default `true`; defense-in-depth) |
+| `CLOACINA_TENANT_COMPILERS` | Server (actuator) | Run one compiler per tenant, scaled with the tenant's build queue (default `false`); settings are `CLOACINA_TENANT_COMPILER_*` |
 | `CLOACINA_SERVER_NAMESPACE` | Server (k8s actuator) | Server namespace targeted by the NetworkPolicy egress allow |
 | `CLOACINA_SERVER_POD_SELECTOR` | Server (k8s actuator) | Server pod selector (`k=v,k=v`) targeted by the NetworkPolicy egress allow |
 | `CLOACINA_SERVER_PORT` | Server (k8s actuator) | Server pod port opened by the NetworkPolicy egress (default `8080`) |
