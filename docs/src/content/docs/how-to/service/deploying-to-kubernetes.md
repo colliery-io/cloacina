@@ -260,6 +260,8 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
   forbid privilege escalation, and use a `readOnlyRootFilesystem`. The agent's
   writable paths (`$HOME` for the unpacked `workflow/`+`vendor/` tree and cdylib
   cache, plus `/tmp`) are backed by `emptyDir` volumes.
+- **No service account token.** Pods set `automountServiceAccountToken: false`;
+  the agent never calls the Kubernetes API.
 - **Resources.** Requests/limits come from `fleet.agentResources`. The defaults
   account for the agent's embedded CPython interpreter (PyO3) — bump
   `fleet.agentResources.limits.memory` for heavy vendored dependencies.

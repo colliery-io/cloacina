@@ -88,6 +88,17 @@ free capacity. Useful options (full list in the [CLI reference](../../../referen
 - `--cache-dir <PATH>` / `CLOACINA_AGENT_CACHE_DIR` — persist the fetched-cdylib
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
+- `--api-key-file <PATH>` / `CLOACINA_API_KEY_FILE` — read the key from a file
+  in place of `CLOACINA_API_KEY`.
+
+**The key and task code.** Tasks run inside the agent process. At start the
+agent reads `CLOACINA_API_KEY`, overwrites the value in its start-time
+environment and removes the variable, so a task finds no key in `std::env`,
+`os.environ` or `/proc/self/environ`. A key given with `--api-key` on the command
+line stays in the process's argument list, and a key file stays readable by the
+agent's user: for an agent that runs untrusted tasks, give the key in
+`CLOACINA_API_KEY`. See
+[what a task can reach on its agent](../../../explanation/service/security-model/#what-a-task-can-reach-on-its-agent).
 
 > **Architecture must match.** Agents `dlopen` the compiler's cdylibs — native
 > code that only runs on the target triple it was built for. The fidius wire
@@ -372,6 +383,8 @@ production cluster:
   resource requests/limits (`fleet.agentResources`). The pods carry **no probes**
   — the agent has no health endpoint; liveness is the server's heartbeat/eviction
   sweep, tuned by `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` / `CLOACINA_AGENT_LIVENESS_MISSES`.
+- **No service account token** — the pods set
+  `automountServiceAccountToken: false`. The agent never calls the Kubernetes API.
 - **Per-tenant `NetworkPolicy`** (`fleet.networkPolicy.enabled`, default on) —
   deny all ingress; egress only to DNS + the `cloacina-server`, plus the extra
   egress rules of each pool for that pool's pods. Defense-in-depth; the
