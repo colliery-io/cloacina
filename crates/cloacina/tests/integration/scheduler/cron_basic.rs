@@ -380,6 +380,27 @@ async fn test_workflow_instance_register_roundtrip() {
     runner.shutdown().await.unwrap();
 }
 
+/// The one task of the workflow of `test_cron_backstop_fires_unnotified_schedule`.
+struct BackstopTask;
+
+#[async_trait::async_trait]
+impl cloacina::Task for BackstopTask {
+    async fn execute(
+        &self,
+        context: cloacina::Context<serde_json::Value>,
+    ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
+        Ok(context)
+    }
+
+    fn id(&self) -> &str {
+        "work"
+    }
+
+    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
+        &[]
+    }
+}
+
 #[tokio::test]
 #[serial]
 async fn test_cron_backstop_fires_unnotified_schedule() {
@@ -413,7 +434,26 @@ async fn test_cron_backstop_fires_unnotified_schedule() {
         4,
         Some(&fixture.get_schema()),
     );
-    let runner = DefaultRunner::with_database(runner_db, config, None)
+    // The scheduler takes a fire only for a workflow that the runner knows
+    // (CLOACINA-T-1041), so the workflow of the row is in the runtime.
+    let runtime = std::sync::Arc::new(cloacina::Runtime::empty());
+    let task: std::sync::Arc<dyn cloacina::Task> = std::sync::Arc::new(BackstopTask);
+    let workflow = cloacina::Workflow::builder("backstop-wf")
+        .add_task(task.clone())
+        .expect("add task")
+        .build()
+        .expect("build workflow");
+    runtime.register_task(
+        cloacina::TaskNamespace::new(
+            workflow.tenant(),
+            workflow.package(),
+            workflow.name(),
+            "work",
+        ),
+        move || task.clone(),
+    );
+    runtime.register_workflow("backstop-wf".to_string(), move || workflow.clone());
+    let runner = DefaultRunner::with_database(runner_db, config, Some(runtime))
         .await
         .unwrap();
 
@@ -430,9 +470,8 @@ async fn test_cron_backstop_fires_unnotified_schedule() {
         .unwrap();
     let original_next_run = created.next_run_at;
 
-    // The claim path advances next_run_at before any workflow lookup, so an
-    // advanced next_run_at IS the proof the cron branch ran. Backstop is 2s;
-    // allow 10s for slow CI.
+    // The claim advances next_run_at, so an advanced next_run_at IS the proof
+    // the cron branch ran. Backstop is 2s; allow 10s for slow CI.
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut fired = false;
     while std::time::Instant::now() < deadline {

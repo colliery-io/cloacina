@@ -598,6 +598,23 @@ impl Scheduler {
             return Ok(());
         };
 
+        // No fire is taken for a workflow that this runner does not know
+        // (CLOACINA-T-1041). When a runner starts, the schedule row of a
+        // package is there before the reconciler has loaded the package. A
+        // fire taken then cannot start its run and is lost. The schedule
+        // stays due, with the schedules that are held: the loop looks at it
+        // again each `cron_held_poll_interval` and on each cron change, and
+        // takes the fire once the workflow is loaded.
+        if self.runtime.get_workflow(&schedule.workflow_name).is_none() {
+            if self.cron_held.lock().insert(schedule.id) {
+                warn!(
+                    "Cron schedule {} is due but its workflow '{}' is not loaded; it stays due",
+                    schedule.id, schedule.workflow_name
+                );
+            }
+            return Ok(());
+        }
+
         // The fire times this pass wants, with the schedule times for each.
         let candidates = self.cron_fire_candidates(schedule, now)?;
         if candidates.is_empty() {
@@ -3182,6 +3199,185 @@ mod tests {
 
             dal.schedule().disable(schedule.id).await.expect("disable");
             gate.send(true).expect("open the gate");
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// The database of a server that stopped: migrated, with no runner.
+        /// Call [`stop`] before a runner opens the same file.
+        async fn stopped_database(dir: &tempfile::TempDir) -> DAL {
+            let url = format!("sqlite://{}", dir.path().join("scheduler.db").display());
+            let database = crate::database::Database::new(&url, "", 1);
+            database.run_migrations().await.expect("migrations");
+            DAL::new(database)
+        }
+
+        /// Closes the connections of [`stopped_database`].
+        async fn stop(dal: DAL) {
+            dal.database().close();
+            drop(dal);
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+
+        /// What a package load does for its cron trigger and its workflow, in
+        /// the order of the reconciler: the schedule is registered again
+        /// (with the next fire after now, as `DalCronRegistrar` computes it),
+        /// and then the workflow is in the runtime.
+        async fn load_package(
+            dal: &DAL,
+            runtime: &Runtime,
+            workflow: &str,
+            expression: &str,
+        ) -> (Arc<parking_lot::Mutex<Vec<SeenRun>>>, watch::Sender<bool>) {
+            let next = CronEvaluator::new(expression, "UTC")
+                .expect("evaluator")
+                .next_execution(Utc::now())
+                .expect("next fire");
+            dal.schedule()
+                .upsert_cron(NewSchedule::cron(
+                    workflow,
+                    expression,
+                    UniversalTimestamp(next),
+                ))
+                .await
+                .expect("register the schedule again");
+            register_workflow(runtime, workflow, true)
+        }
+
+        /// CLOACINA-T-1041. A packaged `skip` schedule missed fires while the
+        /// server was down. The runner starts before the package is loaded:
+        /// the fire is not taken while the workflow is unknown, and the
+        /// schedule stays due. Then the package loads (the schedule is
+        /// registered again, the workflow is known): one run, for the fire
+        /// time that was due. Before the fix the scheduler took the fire at
+        /// start, the run could not start, and nothing ran after the load.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn fire_due_at_runner_start_waits_for_the_package_and_runs_once() {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let this_hour =
+                DateTime::<Utc>::from_timestamp(Utc::now().timestamp() / 3600 * 3600, 0)
+                    .expect("hour");
+            let due = this_hour - chrono::Duration::hours(2);
+            let last_run = this_hour - chrono::Duration::hours(3);
+
+            // Before the restart: the schedule row of a loaded package.
+            let schedule = {
+                let dal = stopped_database(&dir).await;
+                let created = dal
+                    .schedule()
+                    .upsert_cron(NewSchedule::cron(
+                        "packaged_workflow",
+                        "0 * * * *",
+                        UniversalTimestamp(due),
+                    ))
+                    .await
+                    .expect("schedule");
+                dal.schedule()
+                    .update_schedule_times(created.id, last_run, due)
+                    .await
+                    .expect("times");
+                stop(dal).await;
+                created
+            };
+
+            // The runner starts. The package is not loaded yet.
+            let runtime = Arc::new(Runtime::empty());
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+
+            let rows = dal
+                .schedule_execution()
+                .list_by_schedule(schedule.id, 100, 0)
+                .await
+                .expect("rows");
+            let row = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            assert_eq!(
+                (rows.len(), row.next_run_at.map(|t| t.0)),
+                (0, Some(due)),
+                "no fire is taken for a workflow that is not loaded; the schedule stays due"
+            );
+
+            // The package loads.
+            let (seen, _gate) =
+                load_package(&dal, &runtime, "packaged_workflow", "0 * * * *").await;
+            runner.notify_cron_change();
+
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    !seen.lock().is_empty()
+                })
+                .await,
+                "the missed fire must run after the load"
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let seen_runs = seen.lock().clone();
+            assert_eq!(seen_runs.len(), 1, "`skip`: one run for the missed fires");
+            assert_eq!(seen_runs[0].scheduled_time, due.to_rfc3339());
+
+            let rows = dal
+                .schedule_execution()
+                .list_by_schedule(schedule.id, 100, 0)
+                .await
+                .expect("rows");
+            assert_eq!(rows.len(), 1);
+            assert!(
+                rows[0].workflow_execution_id.is_some(),
+                "the fire is linked to its run"
+            );
+            let row = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            assert!(
+                row.next_run_at.map(|t| t.0) > Some(Utc::now()),
+                "after the run the schedule waits for its next fire"
+            );
+
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// CLOACINA-T-1041. The same restart with a `run_all` schedule that
+        /// missed 4 fires: each of them runs after the load, oldest first,
+        /// one at a time.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn run_all_fires_missed_over_a_restart_run_after_the_package_loads() {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let (schedule, last_fire) = {
+                let dal = stopped_database(&dir).await;
+                let made = schedule_with_missed_minutes(&dal, "packaged_history", 4, None).await;
+                stop(dal).await;
+                made
+            };
+
+            let runtime = Arc::new(Runtime::empty());
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            let rows = dal
+                .schedule_execution()
+                .list_by_schedule(schedule.id, 100, 0)
+                .await
+                .expect("rows");
+            assert!(rows.is_empty(), "no fire is taken before the load");
+
+            let (seen, _gate) = load_package(&dal, &runtime, "packaged_history", "* * * * *").await;
+            runner.notify_cron_change();
+
+            assert!(
+                wait_until(Duration::from_secs(30), || async { seen.lock().len() >= 4 }).await,
+                "each missed fire must run; runs seen: {:?}",
+                seen.lock()
+            );
+            dal.schedule().disable(schedule.id).await.expect("disable");
+
+            // (A fifth can follow when the test crosses a minute.)
+            let fire = |n: i64| (last_fire + chrono::Duration::minutes(n)).to_rfc3339();
+            let expected: Vec<String> = (1..=4).map(fire).collect();
+            let seen_times: Vec<String> = seen
+                .lock()
+                .iter()
+                .take(4)
+                .map(|run| run.scheduled_time.clone())
+                .collect();
+            assert_eq!(seen_times, expected);
+
             runner.shutdown().await.expect("shutdown");
         }
     }

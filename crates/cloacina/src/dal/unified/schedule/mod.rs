@@ -645,9 +645,9 @@ impl<'a> ScheduleDAL<'a> {
 
     /// Upserts a cron schedule by its identity (workflow_name, cron_expression,
     /// timezone). Idempotent: re-registering the same packaged cron trigger
-    /// (e.g. on every reconcile re-load) updates the existing row's next-run
-    /// time instead of inserting a duplicate (CLOACI-T-0669). Returns the
-    /// resulting schedule.
+    /// (e.g. on every reconcile re-load) keeps the existing row, with its
+    /// `next_run_at` and `last_run_at`, instead of inserting a duplicate
+    /// (CLOACI-T-0669, CLOACINA-T-1041). Returns the resulting schedule.
     pub async fn upsert_cron(
         &self,
         new_schedule: NewSchedule,
@@ -711,13 +711,23 @@ impl<'a> ScheduleDAL<'a> {
                 .enabled
                 .unwrap_or_else(|| UniversalBool::from(true));
 
+            // `next_run_at` and `last_run_at` of a row that exists are the
+            // state of the schedule: a registration does not move them
+            // (CLOACINA-T-1041). A load after a restart would else erase the
+            // fires that were missed. Only a row with no `next_run_at` gets
+            // the new one.
             crate::interact_on_backend!(self.dal, |conn| {
                 diesel::update(schedules::table.find(existing_id))
                     .set((
-                        schedules::next_run_at.eq(next_run_at),
                         schedules::enabled.eq(enabled),
                         schedules::updated_at.eq(now),
                     ))
+                    .execute(conn)
+            })?;
+            crate::interact_on_backend!(self.dal, |conn| {
+                diesel::update(schedules::table.find(existing_id))
+                    .filter(schedules::next_run_at.is_null())
+                    .set(schedules::next_run_at.eq(next_run_at))
                     .execute(conn)
             })?;
 
@@ -1027,6 +1037,38 @@ mod tests {
     /// CLOACINA-T-1020: a declared catch-up policy is written on insert and
     /// on re-registration; a re-registration that declares none keeps the
     /// value on the row.
+    /// CLOACINA-T-1041: a registration of a schedule that exists (a package
+    /// load after a restart) keeps `next_run_at` and `last_run_at`, so the
+    /// fires that were missed are still due.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn upsert_cron_keeps_the_times_of_a_row_that_exists() {
+        let dal = unique_dal().await;
+        let hour =
+            |n: i64| chrono::DateTime::<Utc>::from_timestamp(1_800_000_000 + n * 3600, 0).unwrap();
+        let first = dal
+            .schedule()
+            .upsert_cron(NewSchedule::cron(
+                "wf",
+                "0 * * * *",
+                UniversalTimestamp(hour(1)),
+            ))
+            .await
+            .unwrap();
+        dal.schedule()
+            .update_schedule_times(first.id, hour(1), hour(2))
+            .await
+            .unwrap();
+
+        let mut again = NewSchedule::cron("wf", "0 * * * *", UniversalTimestamp(hour(9)));
+        again.enabled = Some(UniversalBool::from(true));
+        let second = dal.schedule().upsert_cron(again).await.unwrap();
+
+        assert_eq!(second.id, first.id);
+        assert_eq!(second.last_run_at.map(|t| t.0), Some(hour(1)));
+        assert_eq!(second.next_run_at.map(|t| t.0), Some(hour(2)));
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn upsert_cron_declared_sets_and_keeps_the_catchup_policy() {
