@@ -86,3 +86,6 @@ jobs:
 
       - name: Fleet e2e (a 150 s task runs one time)
         run: angreal test e2e fleet-long-task
+
+      - name: Fleet e2e (a task refused by a full agent waits)
+        run: angreal test e2e fleet-full-agent
