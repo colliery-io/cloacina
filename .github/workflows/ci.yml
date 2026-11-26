@@ -488,14 +488,20 @@ jobs:
       - name: Curl /health from inside the cluster
         run: |
           set -euo pipefail
-          # `kubectl run` with curlimages/curl, --rm cleans up the pod.
+          # The pod runs detached and its log is read after it ends: with
+          # `kubectl run -i --rm`, a command that ends at once can finish
+          # before kubectl attaches, and its output is lost.
           kubectl run healthcheck \
             -n cloacina-e2e \
-            --rm --restart=Never -i \
+            --restart=Never \
             --image=curlimages/curl:8.10.1 \
-            --command -- curl -fsS -o /dev/null -w "HTTP %{http_code}\n" \
-            http://cloacina-cloacina-server:8080/health \
-          | tee /tmp/health.out
+            --command -- curl -sS --retry 5 --retry-connrefused --max-time 10 \
+            -o /dev/null -w "HTTP %{http_code}\n" \
+            http://cloacina-cloacina-server:8080/health
+          kubectl wait pod/healthcheck -n cloacina-e2e \
+            --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s \
+            || kubectl describe pod/healthcheck -n cloacina-e2e
+          kubectl logs pod/healthcheck -n cloacina-e2e | tee /tmp/health.out
           grep -q "HTTP 200" /tmp/health.out
 
       - name: Diagnostics on failure
