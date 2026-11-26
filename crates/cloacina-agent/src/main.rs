@@ -2129,6 +2129,7 @@ fn synthetic_package_metadata(
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     }
 }
 

@@ -244,6 +244,18 @@ struct Cli {
     #[arg(long, env = "CLOACINA_DATABASE_WAIT_TIMEOUT_S", default_value_t = 60)]
     database_wait_timeout_s: u64,
 
+    /// The largest package archive, in bytes, that an upload accepts. A
+    /// larger upload is refused with status 413 and an error that names the
+    /// size and this limit. Default: 104857600 (100 MiB). A Python package
+    /// carries its vendored dependencies, one folder per platform.
+    /// CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_PACKAGE_BYTES",
+        default_value_t = cloacina_server::upload_limit::DEFAULT_MAX_PACKAGE_BYTES
+    )]
+    max_package_bytes: u64,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -308,6 +320,10 @@ async fn main() -> Result<()> {
         .map_err(anyhow::Error::msg)?;
         cloacina_server::alerts::install(config);
     }
+
+    // The package upload limit (CLOACINA-T-1048).
+    cloacina_server::upload_limit::set_max_package_bytes(cli.max_package_bytes)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // Fail at start on limits the server cannot run with (CLOACINA-T-1014).
     let fleet_task_time_limits =

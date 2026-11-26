@@ -509,6 +509,24 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         let pkg_name = manifest.package.name.clone();
         let pkg_version = manifest.package.version.clone();
 
+        // CLOACINA-T-1048: refuse at upload a Python package that the Python
+        // of this server cannot run: `requires_python`, and the version its
+        // dependencies were vendored for. A process with no Python runtime
+        // has no version to check against.
+        if manifest.metadata.language.eq_ignore_ascii_case("python")
+            && let Some(python) =
+                crate::python_runtime::python_runtime().and_then(|r| r.python_version())
+        {
+            cloacina_workflow_plugin::python_env::check_python(
+                &pkg_name,
+                manifest.metadata.requires_python.as_deref(),
+                manifest.metadata.vendored.as_ref(),
+                &python,
+                "this server",
+            )
+            .map_err(|reason| RegistryError::ValidationError { reason })?;
+        }
+
         // 3. Content hash for idempotency + audit of what's installed.
         let content_hash = {
             use sha2::{Digest, Sha256};
@@ -562,6 +580,11 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             declared_surfaces: vec![],
             // Filled at build success from the compiler doc parse (CLOACI-T-0754).
             task_docs: Default::default(),
+            // CLOACINA-T-1048: where a Python package with native vendored
+            // dependencies can run. Dispatch reads it.
+            python_platforms: cloacina_workflow_plugin::python_env::runnable_platforms(
+                manifest.metadata.vendored.as_ref(),
+            ),
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;

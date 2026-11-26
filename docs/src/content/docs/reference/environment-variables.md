@@ -63,6 +63,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `--alert-webhook-timeout-s` | `10` | Seconds allowed for one alert request |
 | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `--alert-webhook-max-attempts` | `8` | The most sends of one alert before it is dropped |
 | `CLOACINA_PUBLIC_BASE_URL` | `--public-base-url` | None | Public URL of the server, for the absolute links in an alert |
+| `CLOACINA_MAX_PACKAGE_BYTES` | `--max-package-bytes` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload is refused with status 413 and an error that names the size and the limit |
 | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `--database-wait-timeout-s` | `60` | Seconds the server waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s), then exits with an error. `0` = one try, no wait |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner warning limit |
@@ -443,6 +444,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Server | Per-tenant runner warning limit |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Server | Drain timeout during tenant teardown |
 | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | Server | Wait for the database at start |
+| `CLOACINA_MAX_PACKAGE_BYTES` | Server | Largest package upload, in bytes (default `104857600`) |
+| `CLOACINA_UV` | `cloacinactl` | Path of the `uv` program that `package build` runs (default: `uv` on `PATH`) |
 | `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |

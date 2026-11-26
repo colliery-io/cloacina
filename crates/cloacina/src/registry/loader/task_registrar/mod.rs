@@ -328,6 +328,7 @@ mod tests {
             declared_params: Vec::new(),
             declared_surfaces: Vec::new(),
             task_docs: Default::default(),
+            python_platforms: None,
         }
     }
 

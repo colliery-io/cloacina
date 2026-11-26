@@ -256,6 +256,7 @@ These flags send a JSON `POST` when a run ends. They live on the `cloacina-serve
 | `--alert-webhook-timeout-s <N>` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one request. |
 | `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
+| `--max-package-bytes <N>` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload gets status 413 with the code `package_too_large` and an error that names the size of the upload and the limit. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. CLOACINA-T-1048. |
 | `--database-wait-timeout-s <N>` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds `cloacina-server` waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s) and logs `Waiting for the database to accept connections` for each wait. After this time it exits with an error that holds the last connection error. `0` = one try, no wait. The HTTP listener opens after the database answers and the migrations ran, so `/health` and `/ready` do not answer during the wait. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. |
 
 ### `server stop` / `status` / `health`
@@ -353,14 +354,39 @@ Scaffolds a canonical package source tree. Local-only.
 | `--kind <workflow\|graph\|cron>` | `workflow` | Package shape. All three kinds scaffold for both languages; `cron` emits a workflow bound to a cron trigger (`#[trigger(on, cron)]` in Rust, `@cloaca.trigger(on=..., cron=...)` in Python). |
 | `--path <DIR>` | `./<name>` | Directory to create. |
 
-### `package build <DIR> [--release]`
+### `package build <DIR> [--release] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-vendor]`
 
-Runs `cargo build` in `<DIR>` (must contain a `Cargo.toml` and
+Local-only; does not contact the server. Exits 1 on missing files or a
+failed build. What it does depends on `[metadata].language`.
+
+**Rust.** Runs `cargo build` in `<DIR>` (must contain a `Cargo.toml` and
 `package.toml`). With `--release`, builds the release profile. Default
-is debug. Local-only; does not contact the server. Exits 1 on missing
-files or build failure. A no-op for Python packages.
+is debug. The other flags do nothing.
 
-### `package validate <PATH>`
+**Python.** Vendors the dependencies of the package. It reads
+`[project].dependencies` of `<DIR>/pyproject.toml`, writes the pinned
+versions and hashes to `<DIR>/requirements.lock`, installs the wheels
+of each target platform into `<DIR>/vendor/<platform>/`, and records
+the Python version and the platforms in `[metadata.vendored]` of
+`package.toml`. With no `pyproject.toml` or no dependencies it prints
+that there is nothing to vendor and exits 0. It needs `uv` on `PATH`
+(or its path in `CLOACINA_UV`).
+
+| Flag | Default | Description |
+|---|---|---|
+| `--python-version <MAJOR.MINOR>` | `3.11` | The Python the dependencies are vendored for. |
+| `--arch <x86_64\|aarch64\|both>` | `both` | The CPU architecture of the Linux agents: `x86_64-linux`, `aarch64-linux`, or both. Cannot be used with `--platform`. |
+| `--platform <ARCH-OS>` | — | A platform to vendor for. Repeatable. One of `aarch64-linux`, `x86_64-linux`, `aarch64-macos`, `x86_64-macos`, `x86_64-windows`. Replaces the platforms of `--arch`. |
+| `--locked` | off | Install from the existing `requirements.lock` as it is. Without it the versions are resolved again and the lock file is written again. |
+| `--no-vendor` | off | Do not read `pyproject.toml` and do not touch `vendor/`. |
+
+The build fails when: a dependency has no wheel for a target (the error
+names it); `uv` is not found (the error says how to install it);
+`vendor/` holds an entry that is not a platform folder;
+`requires_python` excludes `--python-version`; `--locked` is given and
+there is no `requirements.lock`.
+
+### `package validate <PATH> [--python-version <V>]`
 
 Validates a package — a source directory or a `.cloacina` archive —
 against the canonical format without uploading. Checks the resolved
@@ -369,6 +395,13 @@ manifest (closed schema), the language layout (Rust
 known footguns (unrewritten `__WORKSPACE__` placeholders,
 `#[computation_graph]` without `graph_name`, a cron trigger duplicated
 in `#[workflow(triggers = ...)]`). Local-only.
+
+For a Python package it also checks the Python environment:
+`requires_python` must allow the Python that runs the package, the
+vendored dependencies must be for the same `major.minor`, and each
+platform of `[metadata.vendored]` must have its `vendor/<platform>/`
+folder. The Python that runs the package is `--python-version` when
+given, else `[metadata.vendored].python_version`, else `3.11`.
 
 ### `package pack <DIR> [--out <PATH>] [--sign <KEY>]`
 
@@ -385,10 +418,12 @@ exists, so a server requiring signatures cannot accept packages packed
 by this CLI until I-0103 lands (signature rows must be inserted
 out-of-band).
 
-### `package publish <DIR> [--release] [--sign <KEY>]`
+### `package publish <DIR> [--release] [--sign <KEY>] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-vendor]`
 
 `build` → `pack` → `upload` in one shot. `--sign` fails hard, same as
-`package pack`.
+`package pack`. It takes the flags of `package build`: a publish of a
+Python package vendors its dependencies. Pass `--no-vendor` for a
+package whose `vendor/` is filled by hand.
 
 ### `package upload <FILE>`
 

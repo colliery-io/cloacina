@@ -486,6 +486,11 @@ pub struct CloacinaMetadata {
     /// packages don't need it (their Cargo.toml is the source of truth).
     #[serde(default)]
     pub providers: std::collections::HashMap<String, ProviderDep>,
+    /// What `cloacinactl package build` put in `vendor/` (Python packages
+    /// only, CLOACINA-T-1048): the Python version and the platforms. Absent
+    /// when the package has no dependencies, or `vendor/` is filled by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendored: Option<crate::python_env::Vendored>,
 }
 
 /// One `[metadata.providers]` dependency spec — a Cargo-style dependency
@@ -743,6 +748,36 @@ mod tests {
         assert_eq!(metadata.language, "python");
         assert_eq!(metadata.requires_python.as_deref(), Some(">=3.11"));
         assert_eq!(metadata.entry_module.as_deref(), Some("workflow.tasks"));
+    }
+
+    #[test]
+    fn test_cloacina_metadata_vendored_record_from_toml() {
+        let toml_str = r#"
+            workflow_name = "etl_pipeline"
+            language = "python"
+            requires_python = ">=3.11"
+
+            [vendored]
+            python_version = "3.11"
+            platforms = ["aarch64-linux", "x86_64-linux"]
+            native = true
+            lock_file = "requirements.lock"
+        "#;
+        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
+        let vendored = metadata.vendored.clone().unwrap();
+        assert_eq!(vendored.python_version, "3.11");
+        assert_eq!(vendored.platforms, vec!["aarch64-linux", "x86_64-linux"]);
+        assert!(vendored.native);
+        assert_eq!(vendored.lock_file.as_deref(), Some("requirements.lock"));
+
+        // The record survives a write and a read; a manifest with no record
+        // writes no `vendored` key.
+        let text = toml::to_string(&metadata).unwrap();
+        let back: CloacinaMetadata = toml::from_str(&text).unwrap();
+        assert_eq!(back.vendored, Some(vendored));
+        let plain: CloacinaMetadata = toml::from_str("language = \"python\"").unwrap();
+        assert!(plain.vendored.is_none());
+        assert!(!toml::to_string(&plain).unwrap().contains("vendored"));
     }
 
     #[test]

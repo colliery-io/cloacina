@@ -122,6 +122,63 @@ pub fn validate_python_layout(dir: &Path, meta: &CloacinaMetadata) -> Result<(),
     )))
 }
 
+/// Check the Python environment of a Python package (CLOACINA-T-1048), as
+/// `validate`, `pack` and `publish` do before the server sees it:
+///
+/// - `requires_python` allows the Python that runs the package, and the
+///   dependencies are vendored for that Python. That Python is
+///   `python_version` when given, else the version in `[metadata.vendored]`,
+///   else the Python of the official agent image.
+/// - Each platform of `[metadata.vendored]` has its `vendor/<platform>/`
+///   folder, and a record that says "no compiled code" is true.
+pub fn validate_python_env(
+    dir: &Path,
+    package: &str,
+    meta: &CloacinaMetadata,
+    python_version: Option<&str>,
+) -> Result<(), CliError> {
+    use cloacina_workflow_plugin::python_env;
+
+    let (python, runner) = match (python_version, meta.vendored.as_ref()) {
+        (Some(v), _) => (v.to_string(), "the target (--python-version)"),
+        (None, Some(v)) => (v.python_version.clone(), "the build target"),
+        (None, None) => (
+            python_env::DEFAULT_PYTHON_VERSION.to_string(),
+            "the official agent image",
+        ),
+    };
+    python_env::check_python(
+        package,
+        meta.requires_python.as_deref(),
+        meta.vendored.as_ref(),
+        &python,
+        runner,
+    )
+    .map_err(CliError::UserError)?;
+
+    if let Some(v) = &meta.vendored {
+        for platform in &v.platforms {
+            let folder = dir.join("vendor").join(platform);
+            if !folder.is_dir() {
+                return Err(CliError::UserError(format!(
+                    "package.toml records vendored dependencies for {platform}, and \
+                     vendor/{platform}/ does not exist. Run `cloacinactl package build` again."
+                )));
+            }
+            if !v.native
+                && let Some(file) = python_env::native_files(&folder, 1).first()
+            {
+                return Err(CliError::UserError(format!(
+                    "package.toml records no compiled code in vendor/, and \
+                     vendor/{platform}/{file} is a compiled file. Run `cloacinactl \
+                     package build` again."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Validate that a Rust package's source is present: a `Cargo.toml` and a
 /// `src/lib.rs` (the server compiles `src/` into a cdylib at load). A missing
 /// `build.rs` (which calls `cloacina_build::configure()`) is surfaced as a
@@ -377,6 +434,7 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
             providers: Default::default(),
+            vendored: None,
         }
     }
 
@@ -460,6 +518,7 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
             providers: Default::default(),
+            vendored: None,
         }
     }
 

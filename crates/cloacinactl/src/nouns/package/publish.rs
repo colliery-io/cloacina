@@ -25,6 +25,7 @@ pub async fn run(
     dir: &Path,
     release: bool,
     sign: Option<&Path>,
+    vendor: &super::vendor::VendorArgs,
 ) -> Result<(), CliError> {
     // CLOACI-T-0596 / API-05: `--sign` not yet implemented; fail-hard
     // before doing the build so the operator catches the gap. See
@@ -37,9 +38,9 @@ pub async fn run(
         )));
     }
 
-    // Rust: cargo build. Python: no-op (nothing to compile). build::run
-    // branches on [metadata].language (CLOACI-T-0665).
-    super::build::run(dir, release)?;
+    // Rust: cargo build. Python: vendor the dependencies (CLOACINA-T-1048).
+    // build::run branches on [metadata].language (CLOACI-T-0665).
+    super::build::run(dir, release, vendor)?;
 
     let tmp = TempDir::new().map_err(CliError::Io)?;
     let pkg_path = tmp.path().join("package.cloacina");

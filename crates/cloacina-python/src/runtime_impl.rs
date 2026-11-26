@@ -34,6 +34,10 @@ use cloacina::task::TaskNamespace;
 pub struct CloacinaPythonRuntime;
 
 impl PythonRuntime for CloacinaPythonRuntime {
+    fn python_version(&self) -> Option<String> {
+        Some(crate::interpreter_version())
+    }
+
     fn load_workflow_package(
         &self,
         archive_data: &[u8],

@@ -694,7 +694,8 @@ version stays in service. An upload of the same bytes returns the same
 |---|---|---|
 | `400` | `{"error": "no 'file' field in multipart request"}` | Missing file field |
 | `400` | `{"error": "empty package file"}` | Zero-byte file |
-| `400` | `{"error": "<detail>"}` | Package validation or registration failure |
+| `400` | `{"error": "<detail>"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
+| `413` | `{"error": "package too large: the upload is <N> bytes (<M> MiB), and the limit of this server is <L> bytes (<K> MiB). …", "code": "package_too_large"}` | The upload is larger than `--max-package-bytes` (`CLOACINA_MAX_PACKAGE_BYTES`, default 100 MiB) |
 | `500` | `{"error": "internal registry error"}` | Registry initialization failure |
 
 ### GET /v1/tenants/{tenant_id}/workflows
@@ -1996,8 +1997,9 @@ been removed.
 
 ### Request handling
 
-- All routes share a global **100 MB body limit** via
-  `DefaultBodyLimit::max(100 * 1024 * 1024)`. Package uploads consume
+- All routes share one body limit: the package upload limit
+  (`--max-package-bytes` / `CLOACINA_MAX_PACKAGE_BYTES`, 100 MiB by
+  default) plus 64 KiB for the multipart framing. Package uploads consume
   this; there's no per-route override.
 - **No request timeout** is enforced by the server itself; rely on
   OS / reverse-proxy timeouts. Long-running executions block the

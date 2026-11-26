@@ -173,13 +173,23 @@ pub fn extract_python_package(
         .ok_or(LoaderError::MissingPythonConfig)?
         .clone();
 
-    let vendor_dir = source_dir.join("vendor");
     let workflow_dir = source_dir.join("workflow");
 
     // Workflow directory is required
     if !workflow_dir.exists() {
         return Err(LoaderError::MissingSourceDir);
     }
+
+    // CLOACINA-T-1048: the Python version and the platform of this process
+    // decide whether the package loads here, and from which vendor folder.
+    let vendor_dir = resolve_python_env(
+        &manifest.package.name,
+        &source_dir,
+        &manifest.metadata,
+        &crate::interpreter_version(),
+        &cloacina_workflow_plugin::python_env::host_platform(),
+    )
+    .map_err(|reason| LoaderError::Validation { reason })?;
 
     // Clean up archive file
     let _ = std::fs::remove_file(&archive_path);
@@ -199,10 +209,119 @@ pub fn extract_python_package(
     })
 }
 
+/// Check a Python package against the Python version and the platform that
+/// load it, and choose its vendor folder (CLOACINA-T-1048).
+///
+/// - `requires_python` must allow `python`, and dependencies that
+///   `cloacinactl package build` vendored must be for the same `major.minor`.
+/// - The vendor folder is `vendor/<platform>/` when the package has one. A
+///   package with compiled dependencies for other platforms only is refused.
+///
+/// Returns the folder to put on `sys.path`. For a package with no vendored
+/// dependencies it is `vendor/`, which does not have to exist.
+pub fn resolve_python_env(
+    package_name: &str,
+    package_root: &Path,
+    metadata: &cloacina_workflow_plugin::CloacinaMetadata,
+    python: &str,
+    platform: &str,
+) -> Result<PathBuf, String> {
+    use cloacina_workflow_plugin::python_env;
+
+    python_env::check_python(
+        package_name,
+        metadata.requires_python.as_deref(),
+        metadata.vendored.as_ref(),
+        python,
+        "this host",
+    )?;
+    let chosen = python_env::select_vendor_dir(
+        package_name,
+        package_root,
+        metadata.vendored.as_ref(),
+        platform,
+    )?;
+    Ok(chosen.unwrap_or_else(|| package_root.join("vendor")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    fn python_metadata(extra: &str) -> cloacina_workflow_plugin::CloacinaMetadata {
+        toml::from_str(&format!(
+            "workflow_name = \"w\"\nlanguage = \"python\"\nentry_module = \"w.tasks\"\n{extra}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn test_env_refuses_requires_python_the_interpreter_does_not_meet() {
+        let tmp = TempDir::new().unwrap();
+        let meta = python_metadata("requires_python = \">=3.12\"\n");
+        let err =
+            resolve_python_env("etl", tmp.path(), &meta, "3.11.9", "x86_64-linux").unwrap_err();
+        assert!(err.contains("`etl`"), "{err}");
+        assert!(err.contains(">=3.12"), "{err}");
+        assert!(err.contains("3.11.9"), "{err}");
+        // The same package loads on 3.12, with the flat vendor/ path.
+        assert_eq!(
+            resolve_python_env("etl", tmp.path(), &meta, "3.12.1", "x86_64-linux").unwrap(),
+            tmp.path().join("vendor")
+        );
+    }
+
+    #[test]
+    fn test_env_refuses_dependencies_vendored_for_another_python() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("vendor/x86_64-linux")).unwrap();
+        let meta = python_metadata(
+            "[vendored]\npython_version = \"3.11\"\nplatforms = [\"x86_64-linux\"]\nnative = true\n",
+        );
+        let err =
+            resolve_python_env("etl", tmp.path(), &meta, "3.12.1", "x86_64-linux").unwrap_err();
+        assert!(err.contains("vendored for Python 3.11"), "{err}");
+    }
+
+    #[test]
+    fn test_env_picks_the_folder_of_this_platform() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("vendor/x86_64-linux")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("vendor/aarch64-linux")).unwrap();
+        let meta = python_metadata(
+            "[vendored]\npython_version = \"3.11\"\nplatforms = [\"aarch64-linux\", \"x86_64-linux\"]\nnative = true\n",
+        );
+        assert_eq!(
+            resolve_python_env("etl", tmp.path(), &meta, "3.11.2", "aarch64-linux").unwrap(),
+            tmp.path().join("vendor/aarch64-linux")
+        );
+    }
+
+    #[test]
+    fn test_env_refuses_native_dependencies_for_another_platform_only() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("vendor/x86_64-linux")).unwrap();
+        let meta = python_metadata(
+            "[vendored]\npython_version = \"3.11\"\nplatforms = [\"x86_64-linux\"]\nnative = true\n",
+        );
+        let err =
+            resolve_python_env("etl", tmp.path(), &meta, "3.11.2", "aarch64-linux").unwrap_err();
+        assert!(
+            err.contains("native dependencies vendored for x86_64-linux"),
+            "{err}"
+        );
+        assert!(err.contains("aarch64-linux"), "{err}");
+    }
+
+    #[test]
+    fn test_interpreter_version_is_a_version() {
+        let v = crate::interpreter_version();
+        assert!(
+            cloacina_workflow_plugin::python_env::major_minor(&v).is_ok(),
+            "{v}"
+        );
+    }
 
     /// Create a fidius source package directory for a Python workflow.
     fn create_python_source_package(
@@ -290,6 +409,43 @@ entry_module = "workflow.tasks"
         let staging = TempDir::new().unwrap();
         let err = extract_python_package(&archive_data, staging.path()).unwrap_err();
         assert!(matches!(err, LoaderError::MissingSourceDir));
+    }
+
+    /// The checks run on the real load path: an archive whose
+    /// `requires_python` no interpreter meets is refused at extract.
+    #[test]
+    fn test_extract_refuses_requires_python_the_interpreter_does_not_meet() {
+        let tmp = TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        std::fs::create_dir_all(pkg_dir.join("workflow")).unwrap();
+        std::fs::write(pkg_dir.join("workflow/tasks.py"), "").unwrap();
+        std::fs::write(
+            pkg_dir.join("package.toml"),
+            r#"[package]
+name = "too-new"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "w"
+language = "python"
+requires_python = ">=99.0"
+entry_module = "tasks"
+"#,
+        )
+        .unwrap();
+        let output = tmp.path().join("too-new-0.1.0.cloacina");
+        fidius_core::package::pack_package(&pkg_dir, Some(&output)).unwrap();
+        let archive_data = std::fs::read(&output).unwrap();
+
+        let staging = TempDir::new().unwrap();
+        let err = extract_python_package(&archive_data, staging.path()).unwrap_err();
+        let text = err.to_string();
+        assert!(matches!(err, LoaderError::Validation { .. }), "{text}");
+        assert!(text.contains("`too-new` requires Python >=99.0"), "{text}");
+        assert!(text.contains("this host runs Python"), "{text}");
     }
 
     #[test]

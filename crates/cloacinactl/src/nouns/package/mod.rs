@@ -33,6 +33,7 @@ pub mod pack;
 pub mod publish;
 pub mod upload;
 pub mod validate;
+pub mod vendor;
 pub mod versions;
 
 #[derive(Args)]
@@ -57,18 +58,27 @@ enum PackageVerb {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// cargo build the package source directory.
+    /// Build the package source directory. Rust: cargo build. Python: vendor
+    /// the dependencies of pyproject.toml into vendor/<platform>/.
     Build {
         dir: PathBuf,
-        /// Build in release profile (default is debug).
+        /// Rust packages: build in release profile (default is debug).
         #[arg(long)]
         release: bool,
+        #[command(flatten)]
+        vendor: vendor::VendorArgs,
     },
     /// Validate a package (source dir or .cloacina archive) against the
     /// canonical format without uploading.
     Validate {
         /// Package source directory or .cloacina archive.
         path: PathBuf,
+        /// Python packages: the Python version of the agents that run the
+        /// package. `requires_python` and the vendored dependencies are
+        /// checked against it. Default: the version the dependencies were
+        /// vendored for, or 3.11.
+        #[arg(long, value_name = "MAJOR.MINOR")]
+        python_version: Option<String>,
     },
     /// fidius-pack the source directory into a .cloacina archive.
     Pack {
@@ -87,6 +97,8 @@ enum PackageVerb {
         release: bool,
         #[arg(long)]
         sign: Option<PathBuf>,
+        #[command(flatten)]
+        vendor: vendor::VendorArgs,
     },
     /// Upload a pre-packed .cloacina archive.
     Upload { file: PathBuf },
@@ -128,14 +140,24 @@ impl PackageCmd {
                 kind,
                 path,
             } => new::run(&name, lang, kind, path.as_deref()),
-            PackageVerb::Validate { path } => validate::run(&path),
-            PackageVerb::Build { dir, release } => build::run(&dir, release),
+            PackageVerb::Validate {
+                path,
+                python_version,
+            } => validate::run(&path, python_version.as_deref()),
+            PackageVerb::Build {
+                dir,
+                release,
+                vendor,
+            } => build::run(&dir, release, &vendor),
             PackageVerb::Pack { dir, out, sign } => {
                 pack::run(&dir, out.as_deref(), sign.as_deref())
             }
-            PackageVerb::Publish { dir, release, sign } => {
-                publish::run(globals, &dir, release, sign.as_deref()).await
-            }
+            PackageVerb::Publish {
+                dir,
+                release,
+                sign,
+                vendor,
+            } => publish::run(globals, &dir, release, sign.as_deref(), &vendor).await,
             PackageVerb::Upload { file } => upload::run(globals, &file).await,
             PackageVerb::List { filter } => list::run(globals, filter.as_deref()).await,
             PackageVerb::Inspect { id } => inspect::run(globals, &id).await,

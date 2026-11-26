@@ -12,8 +12,9 @@ environment.
 > **One canonical format.** A `.cloacina` package is described by a top-level
 > **`package.toml`** and a Python module tree under a **`workflow/`** directory.
 > This is the only format the server/daemon accept. (Older docs that used
-> `pyproject.toml` + `[tool.cloaca]` + a hand-written `manifest.json` are
-> obsolete.)
+> `[tool.cloaca]` in `pyproject.toml` + a hand-written `manifest.json` are
+> obsolete. A `pyproject.toml` in the package now has one job: it declares the
+> package's dependencies, see Step 3.)
 
 ## Prerequisites
 
@@ -78,7 +79,8 @@ upload. The accepted keys are:
 | `entry_module` | yes | Dotted module path **relative to `workflow/`** that the loader imports. |
 | `description` | no | Human-readable description. |
 | `author` | no | Author/owner. |
-| `requires_python` | no | e.g. `">=3.11"`. |
+| `requires_python` | no | A version specifier, e.g. `">=3.11"`. Checked against the Python that runs the package: at `package validate`, at upload and at load. |
+| `vendored` | written by `package build` | The `[metadata.vendored]` table: the Python version and the platforms of `vendor/`. See Step 3. Do not write it by hand. |
 | `reaction_mode` / `input_strategy` | computation graphs | `when_any`/`when_all`, `latest`/`sequential`. |
 | `accumulators` | computation graphs | `[[metadata.accumulators]]` entries (stream/kafka sources). |
 
@@ -135,22 +137,173 @@ All decorators **must** run at import time (module level) — if registration is
 gated behind `if __name__ == "__main__"`, the loader won't find the tasks.
 :::
 
-## Step 3: Vendoring Dependencies
+## Step 3: Vendor the Dependencies
 
-If your workflow uses third-party libraries not available on the target host,
-place them in a `vendor/` directory at the package root. The loader adds both the
-`workflow/` directory and `vendor/` to `sys.path` before importing.
+A package carries its third-party libraries with it. The agent that runs the
+package installs nothing: it puts the package's `vendor/` folder on `sys.path`.
+`cloacinactl package build` fills that folder.
+
+### Declare the dependencies
+
+Add a `pyproject.toml` at the package root and list the dependencies in
+`[project].dependencies`:
+
+```toml
+[project]
+name = "data-pipeline"
+version = "1.0.0"
+dependencies = [
+    "requests>=2.31",
+    "pyarrow>=18",
+]
+```
+
+This list is the source of truth. A package with no `pyproject.toml`, or with no
+`[project].dependencies`, has nothing to vendor, and the command says so.
+
+### Build
+
+```bash
+cloacinactl package build .
+```
+
+The command needs [`uv`](https://docs.astral.sh/uv/) on `PATH` (or its path in
+`CLOACINA_UV`). It runs on your machine; the server and the compiler download
+no dependency. It does three things:
+
+1. It resolves the dependencies to pinned versions with hashes and writes them
+   to `requirements.lock` in the package root (`uv pip compile --universal`).
+2. For each target platform it installs the wheels into `vendor/<platform>/`
+   (`uv pip install --target`, with `--only-binary :all:` and
+   `--require-hashes`).
+3. It records the Python version and the platforms in `[metadata.vendored]` of
+   `package.toml`.
 
 ```
 data-pipeline/
-├── package.toml
+├── package.toml             # now with [metadata.vendored]
+├── pyproject.toml           # the dependencies
+├── requirements.lock        # the pinned versions and hashes
 ├── workflow/
 │   └── data_pipeline/
 │       └── tasks.py
 └── vendor/
-    └── requests/
-        └── __init__.py
+    ├── aarch64-linux/       # wheels for 64-bit ARM Linux agents
+    │   ├── requests/
+    │   └── pyarrow/
+    └── x86_64-linux/        # wheels for 64-bit x86 Linux agents
+        ├── requests/
+        └── pyarrow/
 ```
+
+```toml
+# Written by `cloacinactl package build`: what is in vendor/. Do not edit.
+[metadata.vendored]
+python_version = "3.11"
+platforms = ["aarch64-linux", "x86_64-linux"]
+native = true
+lock_file = "requirements.lock"
+```
+
+`cloacinactl package publish` runs `package build` first, so a publish vendors.
+Commit `pyproject.toml` and `requirements.lock`. `vendor/` can stay out of
+version control: the build writes it again.
+
+### Choose the target
+
+The default target is the official agent image: Python 3.11 on Linux, for both
+CPU architectures the image is built for.
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--python-version <MAJOR.MINOR>` | `3.11` | The Python of the agents that run the package. |
+| `--arch <x86_64\|aarch64\|both>` | `both` | The CPU architecture of the Linux agents. |
+| `--platform <ARCH-OS>` | — | A platform to vendor for, repeatable: `aarch64-linux`, `x86_64-linux`, `aarch64-macos`, `x86_64-macos`, `x86_64-windows`. It replaces the platforms of `--arch`. |
+| `--locked` | off | Install from the `requirements.lock` in the package as it is. Without it the build resolves the versions again. |
+| `--no-vendor` | off | Do not touch `vendor/`. |
+
+To run a package with native dependencies on a daemon on a Mac as well as on
+Linux agents, name each platform:
+
+```bash
+cloacinactl package build . \
+  --platform aarch64-linux --platform x86_64-linux --platform aarch64-macos
+```
+
+A platform name is `<arch>-<os>`, the same name an agent reports for itself.
+
+### What the build refuses
+
+- **A dependency with no wheel for the target.** A package holds built wheels
+  only; the build compiles no source distribution. The error names the
+  dependency, the platform and the Python version. Pin a version that has a
+  wheel, or remove the dependency.
+- **`uv` is not installed.** The error says how to install it.
+- **A `vendor/` folder with files the command did not write.** The command
+  writes only `vendor/<platform>/` folders. Move hand-copied files out and
+  declare them in `pyproject.toml`, or pass `--no-vendor`.
+- **A `requires_python` that excludes the target Python.**
+
+### How a package is matched to an agent
+
+- **Python version.** `requires_python` must allow the Python that runs the
+  package, and vendored dependencies must be for the same `major.minor`.
+  `cloacinactl package validate` and `package pack` check it (against
+  `--python-version`, else the recorded version, else 3.11). The server checks
+  it at upload against its own Python and refuses the upload. The loader checks
+  it against the interpreter of the process that loads the package.
+- **Platform.** The loader uses `vendor/<its own platform>/`. A package whose
+  dependencies are all pure Python (`native = false`) loads on any platform,
+  from one of its folders. A package with compiled dependencies and no folder
+  for the loading platform is refused, with an error that names the platforms
+  it has and the one it needs.
+
+### Two packages, one library, different versions
+
+One agent process has one Python interpreter. A module is imported one time,
+and every package in the process gets that copy. So when a package loads, each
+top-level module of its vendor folder is compared with the packages loaded
+before it. If another package vendors the same module at a different version,
+the load of the new package fails:
+
+```
+package `reports` (tenant `acme`) vendors the module `yaml` at version 6.0.2
+(PyYAML 6.0.2), and package `billing` (tenant `acme`), loaded before it in this
+process, vendors `yaml` at version 5.4.1 (PyYAML 5.4.1), which is already
+imported. One Python interpreter holds one version of a module, so package
+`reports` (tenant `acme`) is not loaded. Vendor the same version in both
+packages, or run them on different agents.
+```
+
+The package loaded first keeps running. Two packages that vendor the same
+version share one copy. To run both versions, give the packages to different
+agents.
+
+A process keeps the modules it has imported, and the vendor folders on its
+`sys.path`, until it stops. To move two packages to a new version of a shared
+library, publish both with the new version, then restart the processes that
+load them (the agents, and the server when it runs tasks itself).
+
+The comparison reads the versions from the `.dist-info` folders that the build
+writes. It does not cover a namespace package (a top-level folder shared by
+several distributions, such as `google`), a `vendor/` folder with no
+`.dist-info` folders, a shared library that two different modules each bundle,
+or a new version of the same package that changes a vendored version.
+
+### Size
+
+The server accepts a package up to its upload limit: 100 MiB by default, set
+with `--max-package-bytes` or `CLOACINA_MAX_PACKAGE_BYTES` on `cloacina-server`.
+An upload over the limit is refused with status 413 and an error that names the
+size of the upload and the limit. Each platform adds its own copy of the
+dependencies; `--arch` vendors for one architecture.
+
+### A `vendor/` folder filled by hand
+
+A package with a `vendor/` folder and no `[metadata.vendored]` table still
+loads: the loader puts `vendor/` itself on `sys.path`. Publish it with
+`--no-vendor`. The loader refuses it when it holds a wheel or a compiled file
+built for another platform.
 
 :::caution[Stdlib Shadowing]
 The loader **rejects** any package that shadows Python standard library modules.
@@ -195,25 +348,30 @@ directory or a packed archive, without uploading:
 cloacinactl package validate .
 ```
 
-Then pack. `cloacinactl package pack` reads `package.toml`, runs the same
-validation, and emits the `.cloacina` archive:
+Then pack. Run `cloacinactl package build .` first when the package has
+dependencies (Step 3). `cloacinactl package pack` reads `package.toml`, runs the
+same validation, and emits the `.cloacina` archive:
 
 ```bash
 cloacinactl package pack . --out data-pipeline-1.0.0.cloacina
 ```
 
 A `.cloacina` package is a bzip2-compressed tar archive of `package.toml` + the
-`workflow/` tree (+ `vendor/` if present), under a single `<name>-<version>/`
-top-level directory:
+`workflow/` tree (+ `pyproject.toml`, `requirements.lock` and `vendor/` if
+present), under a single `<name>-<version>/` top-level directory:
 
 ```
 data-pipeline-1.0.0.cloacina
 └── data-pipeline-1.0.0/
     ├── package.toml
+    ├── pyproject.toml          # if present
+    ├── requirements.lock       # if present
     ├── workflow/
     │   └── data_pipeline/
     │       └── tasks.py
     └── vendor/                 # if present
+        ├── aarch64-linux/
+        └── x86_64-linux/
 ```
 
 :::note[Packing fails fast on a bad layout]
@@ -314,6 +472,33 @@ matches (e.g. `workflow/data_pipeline/tasks.py` for
 The loader enforces a 60-second import timeout. Move expensive module-level
 initialization into task functions; the package is rejected with
 `"Python workflow import timed out after 60s"` otherwise.
+
+### "requires Python …, and this host runs Python …"
+
+`requires_python` in `package.toml` excludes the Python of the process that
+loads the package. Change `requires_python`, or run the package on agents with a
+Python it allows.
+
+### "has dependencies vendored for Python …"
+
+The dependencies in `vendor/` were built for another Python `major.minor` than
+the one that loads the package. Build again with
+`cloacinactl package build --python-version <MAJOR.MINOR>`.
+
+### "has native dependencies vendored for …, and none for this platform"
+
+The package has compiled dependencies and no `vendor/<platform>/` folder for
+the platform that loads it. Build again and name every platform it runs on
+(`--arch both`, or `--platform` for each).
+
+### "vendors the module … at version …, and package …"
+
+Two packages in one agent process vendor different versions of one library. See
+"Two packages, one library, different versions" in Step 3.
+
+### "package too large"
+
+The archive is larger than the server's upload limit. See "Size" in Step 3.
 
 ### "stdlib shadowing detected"
 

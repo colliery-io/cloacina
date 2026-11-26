@@ -2704,6 +2704,7 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
             providers: Default::default(),
+            vendored: None,
         }
     }
 

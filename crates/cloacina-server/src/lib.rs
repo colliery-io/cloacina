@@ -37,6 +37,7 @@ pub mod retention;
 pub mod routes;
 pub mod secrets;
 pub mod tenant_runner_cache;
+pub mod upload_limit;
 
 /// CORS configuration (CLOACI-T-0643 / REQ-009). Disabled unless at least
 /// one allowed origin is configured — browser consumers (the TS SDK / UI)
@@ -2461,8 +2462,11 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
                 fallback_404
             }
         })
-        // Body size limit: 100MB (matches PackageValidator)
-        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        // Body size limit: the package upload limit, a server setting with a
+        // default of 100 MiB (CLOACINA-T-1048).
+        .layer(DefaultBodyLimit::max(
+            crate::upload_limit::max_request_body_bytes(),
+        ))
         // API request metrics (counts by method and status)
         .layer(middleware::from_fn(api_request_metrics))
         // Request ID + tracing span (outermost — wraps everything)

@@ -50,7 +50,12 @@ pub fn pack_to(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError> {
     let meta = manifest::read_metadata(dir)?;
     let lang = manifest::language(&meta)?;
     match lang {
-        PackageLanguage::Python => manifest::validate_python_layout(dir, &meta)?,
+        PackageLanguage::Python => {
+            manifest::validate_python_layout(dir, &meta)?;
+            // CLOACINA-T-1048: the Python version and the vendored platforms.
+            let name = manifest::read_manifest(dir)?.package.name;
+            manifest::validate_python_env(dir, &name, &meta, None)?;
+        }
         PackageLanguage::Rust => manifest::validate_rust_layout(dir)?,
     }
     manifest::lint_footguns(dir, lang, &meta)?;
