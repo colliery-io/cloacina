@@ -181,6 +181,39 @@ struct Cli {
     )]
     cors_allowed_headers: Vec<String>,
 
+    /// Alert webhook (CLOACINA-T-1024): a URL that gets a JSON POST when a
+    /// run ends. Not set = off. The URL can hold a token, so it is never
+    /// logged. To sign each request, set `CLOACINA_ALERT_WEBHOOK_SECRET`
+    /// (environment only): the header `X-Cloacina-Signature` then holds
+    /// `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`.
+    #[arg(long, env = "CLOACINA_ALERT_WEBHOOK_URL", hide_env_values = true)]
+    alert_webhook_url: Option<String>,
+
+    /// Which run outcomes send an alert, comma-separated: `failed`,
+    /// `completed`, `cancelled`, or `all`. Default `failed`.
+    #[arg(
+        long,
+        env = "CLOACINA_ALERT_WEBHOOK_EVENTS",
+        value_delimiter = ',',
+        num_args = 0..
+    )]
+    alert_webhook_events: Vec<String>,
+
+    /// Seconds allowed for one alert webhook request. Default 10.
+    #[arg(long, env = "CLOACINA_ALERT_WEBHOOK_TIMEOUT_S", default_value_t = 10)]
+    alert_webhook_timeout_s: u64,
+
+    /// The most sends of one alert before it is dropped. The wait between
+    /// sends doubles from 30 seconds to 15 minutes. Default 8.
+    #[arg(long, env = "CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS", default_value_t = 8)]
+    alert_webhook_max_attempts: u32,
+
+    /// The public URL of this server (for example
+    /// `https://cloacina.example.com`). Used for the absolute links in an
+    /// alert. Not set = the alert holds paths only.
+    #[arg(long, env = "CLOACINA_PUBLIC_BASE_URL")]
+    public_base_url: Option<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -227,6 +260,24 @@ async fn main() -> Result<()> {
              pass --database-url or set DATABASE_URL"
         )
     })?;
+
+    // CLOACINA-T-1024: the alert webhook. An empty URL means off, like no URL.
+    if let Some(url) = cli
+        .alert_webhook_url
+        .as_deref()
+        .filter(|u| !u.trim().is_empty())
+    {
+        let config = cloacina_server::alerts::AlertWebhookConfig::new(
+            url,
+            &cli.alert_webhook_events,
+            std::env::var("CLOACINA_ALERT_WEBHOOK_SECRET").ok(),
+            std::time::Duration::from_secs(cli.alert_webhook_timeout_s),
+            cli.alert_webhook_max_attempts,
+            cli.public_base_url.clone(),
+        )
+        .map_err(anyhow::Error::msg)?;
+        cloacina_server::alerts::install(config);
+    }
 
     cloacina_server::run(
         cli.home,

@@ -22,6 +22,7 @@
 
 pub mod actuator;
 pub mod agent_registry;
+pub mod alerts;
 pub mod autoscaler;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
@@ -694,6 +695,8 @@ pub async fn run(
          `pending` + `delivered`). Sustained growth means delivery is wedged \
          — the analog of the compiler `sweep_resets_total` signal."
     );
+    // CLOACINA-T-1024: the alert webhook counters.
+    crate::alerts::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -1006,6 +1009,19 @@ pub async fn run(
     // the same tenant schemas so a secret written over HTTP is the one a fleet
     // task resolves.
     let tenant_database_cache = Arc::new(TenantDatabaseCache::new(database_url.clone()));
+
+    // CLOACINA-T-1024: alert webhook for finished runs. Off unless `main`
+    // gave settings with `alerts::install`. The sender reads the notice rows
+    // that the engine writes when a run ends, in each tenant schema.
+    if let Some(alert_config) = crate::alerts::installed() {
+        crate::alerts::spawn(
+            alert_config.clone(),
+            runner.database().clone(),
+            tenant_database_cache.clone(),
+            substrate_shutdown_rx.clone(),
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    }
 
     // CLOACI-T-0862 / T-0861 handoff: the concrete fleet secret resolver factory.
     // Activates the `FleetExecutor` secret seam so a `$secret`-referencing fleet
