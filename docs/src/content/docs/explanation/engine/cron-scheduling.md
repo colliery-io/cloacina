@@ -324,7 +324,7 @@ No missed firing is dropped, however long the backlog is:
 
 - One claim takes at most `cron_max_catchup_executions` firings (default 100). That number is a batch size, not a cap.
 - The claim moves `last_run_at` to the last firing it took and `next_run_at` to the firing after it. While that is in the past the schedule stays due, and the next pass of the scheduler goes on from there.
-- A `RunAll` schedule has one active run at a time. The scheduler does not wait for the run: when the schedule has an active run it takes no firing and leaves the schedule due. When the run ends, the next firing is taken at once in the same process; another scheduler replica sees it within a second.
+- A `RunAll` schedule has one active run at a time, or as many as its `max_active_runs` (see [a limit on active runs](#a-limit-on-active-runs)). The scheduler does not wait for the run: when the schedule is at its limit it takes no firing and leaves the schedule due. When the run ends, the next firing is taken at once in the same process; another scheduler replica sees it within a second.
 - A run is active while its `schedule_executions` row is open and its workflow execution has not reached `Completed`, `Failed` or `Cancelled`. A failed run does not stop the backlog: the next firing runs.
 - The start of the backlog is `last_run_at`, or the creation time of a schedule that never ran. `RunAll` does not reach before the schedule was created.
 - Each catch-up run gets the interval of the firing it stands for (see [the interval of a run](#the-interval-of-a-run)).
@@ -344,10 +344,38 @@ The scheduler applies the policy when it claims a due schedule. The policy is de
 | Python packaged trigger | `@cloaca.trigger(on="wf", cron="0 * * * *", catchup="run_all")` |
 | Named instance (HTTP) | `"catchup_policy": "run_all"` in the body of `POST /v1/tenants/{tenant}/workflows/{name}/instances` |
 | Named instance (CLI) | `cloacinactl instance create wf name --cron "0 * * * *" --catchup run_all` |
-| Embedded Rust | `runner.register_cron_workflow_with_options(wf, expr, tz, &CronScheduleOptions { catchup_policy: Some(CatchupPolicy::RunAll) })` |
+| Embedded Rust | `runner.register_cron_workflow_with_options(wf, expr, tz, &CronScheduleOptions { catchup_policy: Some(CatchupPolicy::RunAll), max_active_runs: None })` |
 | Embedded Python | `runner.register_cron_workflow(wf, expr, tz, catchup_policy="run_all")` |
 
 A value that is not `skip` or `run_all` is an error at each of these places. A packaged trigger that declares no policy does not change the policy of a schedule that already exists, so a policy set on the row by an operator survives a re-load of the package.
+
+### A limit on active runs
+
+A cron schedule can declare `max_active_runs`: the most runs of that schedule that may be active at once. When the schedule is due and has that many active runs, the scheduler starts no new run and leaves the schedule due. It looks again when a run of the schedule ends, and each second.
+
+| Policy | `max_active_runs` not declared | `max_active_runs = N` |
+|---|---|---|
+| `skip` | No limit. A fire starts a run even while the run before it is active. | A fire that comes due at the limit waits. When a run ends the schedule fires once, for the due time it was held at, and the fire times missed in between are skipped. Runs of the schedule do not overlap with `N = 1`. |
+| `run_all` | One active run: the missed fire times run one after another, oldest first. | Up to `N` active runs: the backlog drains `N` at a time. Runs start oldest first; with `N` above 1 they can end in any order. |
+
+It is declared next to the catch-up policy:
+
+| Where the schedule is declared | How to set the limit |
+|---|---|
+| Rust packaged trigger | `#[trigger(on = "wf", cron = "0 * * * *", catchup = "run_all", max_active_runs = 4)]` |
+| Python packaged trigger | `@cloaca.trigger(on="wf", cron="0 * * * *", catchup="run_all", max_active_runs=4)` |
+| Named instance (HTTP) | `"max_active_runs": 4` in the body of `POST /v1/tenants/{tenant}/workflows/{name}/instances` |
+| Named instance (CLI) | `cloacinactl instance create wf name --cron "0 * * * *" --catchup run_all --max-active-runs 4` |
+| Embedded Rust | `CronScheduleOptions { catchup_policy: Some(CatchupPolicy::RunAll), max_active_runs: Some(4) }` |
+| Embedded Python | `runner.register_cron_workflow(wf, expr, tz, catchup_policy="run_all", max_active_runs=4)` |
+
+The value is 1 or more; `0` is an error. It is stored in `schedules.max_active_runs` (NULL when not declared). A packaged trigger that declares no limit does not change the limit of a schedule that already exists.
+
+The limit counts the runs that this schedule started. It does not count a manual run of the same workflow, a run started by another schedule or trigger of the workflow, or the runs of another named instance: each schedule row has its own count. It limits workflow runs, not tasks: `max_concurrent_tasks` still bounds how many tasks run at once.
+
+A long backlog is cheap to hold: 5,500 missed hourly fire times are two timestamps on the schedule row, and the scheduler starts `N` runs at a time, not 5,500 at once.
+
+`run_all` starts at the creation of the schedule, so it does not load the history from before that. A backfill over a chosen range of intervals is not built yet (CLOACINA-T-1020). Until then, one interval is loaded with a manual run that sets `interval_start` and `interval_end`.
 
 See [Configuration Reference](../../../reference/configuration/) for the related knobs:
 `cron_max_catchup_executions` (default 100), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).

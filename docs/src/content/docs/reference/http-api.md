@@ -903,14 +903,14 @@ detail page and `cloacinactl instance` drives the same endpoints.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip"}` — `params`, `cron`, `timezone`, `enabled` and `catchup_policy` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`; another value, or a policy with no `cron`, is a `400` (`invalid_schedule_options`). Returns `201` with the instance summary. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip", "max_active_runs": 1}` — `params`, `cron`, `timezone`, `enabled`, `catchup_policy` and `max_active_runs` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`. `max_active_runs` is the most runs of the schedule active at once, 1 or more; omitted, a `run_all` schedule runs one fire time at a time and a `skip` schedule has no limit. A wrong value, or either option with no `cron`, is a `400` (`invalid_schedule_options`). Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
 
 Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
-`cron_expression`, `timezone`, `catchup_policy`, `enabled`, `paused`,
-`next_run_at`, `last_run_at`, `created_at`.
+`cron_expression`, `timezone`, `catchup_policy`, `max_active_runs` (when one
+is declared), `enabled`, `paused`, `next_run_at`, `last_run_at`, `created_at`.
 
 ## Executions
 

@@ -97,7 +97,8 @@ cloacinactl instance delete sync_file sync_prod
 `--param` flags override, so a shared configuration can be reused with a couple
 of per-instance tweaks. `--timezone` sets the cron timezone (default `UTC`),
 `--catchup run_all` makes the schedule run each fire time it missed (default
-`skip`), and `--disabled` creates the schedule switched off.
+`skip`), `--max-active-runs N` limits how many runs of the schedule are active
+at once, and `--disabled` creates the schedule switched off.
 
 Values are validated against the workflow's declared `params(...)` **when the
 instance is created**, with the same check that validates a per-run context — a

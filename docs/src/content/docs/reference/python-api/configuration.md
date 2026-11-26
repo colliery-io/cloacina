@@ -179,8 +179,8 @@ runner.delete_cron_schedule(schedule_id)
 ```
 
 Each schedule dict has the keys: `id`, `workflow_name`, `cron_expression`,
-`timezone`, `enabled`, `catchup_policy`, `next_run_at`, `last_run_at`,
-`created_at`, `updated_at`. Execution history and statistics are available via
+`timezone`, `enabled`, `catchup_policy`, `max_active_runs`, `next_run_at`,
+`last_run_at`, `created_at`, `updated_at`. Execution history and statistics are available via
 `get_cron_execution_history(schedule_id, ...)` and
 `get_cron_execution_stats(since)`. See the
 [DefaultRunner](../runner/) reference for the

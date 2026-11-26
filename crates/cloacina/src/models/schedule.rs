@@ -86,16 +86,35 @@ impl CatchupPolicy {
 pub struct CronScheduleOptions {
     /// Catch-up policy. Default for a new schedule: `Skip`.
     pub catchup_policy: Option<CatchupPolicy>,
+    /// The most runs of the schedule that may be active at once, 1 or more.
+    /// At the limit the scheduler takes no fire and leaves the schedule due.
+    /// Not declared: a `RunAll` schedule runs one fire at a time, a `Skip`
+    /// schedule has no limit.
+    pub max_active_runs: Option<i32>,
 }
 
 impl CronScheduleOptions {
     /// Builds the options from declared values, as the trigger metadata, the
     /// instance API and the Python bindings carry them.
-    pub fn from_declared(catchup_policy: Option<&str>) -> Result<Self, String> {
+    pub fn from_declared(
+        catchup_policy: Option<&str>,
+        max_active_runs: Option<u32>,
+    ) -> Result<Self, String> {
+        let max_active_runs = match max_active_runs {
+            None => None,
+            Some(0) => {
+                return Err("invalid max_active_runs 0: use 1 or more, or leave it out".to_string());
+            }
+            Some(limit) => Some(
+                i32::try_from(limit)
+                    .map_err(|_| format!("invalid max_active_runs {}: it is too large", limit))?,
+            ),
+        };
         Ok(Self {
             catchup_policy: catchup_policy
                 .map(CatchupPolicy::parse_declared)
                 .transpose()?,
+            max_active_runs,
         })
     }
 
@@ -104,6 +123,28 @@ impl CronScheduleOptions {
         if let Some(policy) = &self.catchup_policy {
             new_schedule.catchup_policy = Some(policy.as_str().to_string());
         }
+        if let Some(limit) = self.max_active_runs {
+            new_schedule.max_active_runs = Some(limit);
+        }
+    }
+}
+
+/// The limit on active runs that the scheduler applies to a cron schedule
+/// (CLOACINA-T-1020). `None` is no limit.
+///
+/// A declared limit wins. With none declared, a `run_all` schedule runs one
+/// fire at a time: its missed fires run in order, and a long backlog cannot
+/// start everything at once. A `skip` schedule has no limit.
+pub fn effective_max_active_runs(
+    catchup_policy: Option<&str>,
+    max_active_runs: Option<i32>,
+) -> Option<i64> {
+    match max_active_runs {
+        Some(limit) => Some(i64::from(limit.max(1))),
+        None => match CatchupPolicy::from(catchup_policy.unwrap_or("skip")) {
+            CatchupPolicy::RunAll => Some(1),
+            CatchupPolicy::Skip => None,
+        },
     }
 }
 
@@ -181,6 +222,13 @@ pub struct Schedule {
     // unique per workflow.
     pub params: Option<String>,
     pub instance_name: Option<String>,
+
+    /// The most runs of this cron schedule that may be active at once
+    /// (CLOACINA-T-1020). `None` = not declared: a `run_all` schedule runs
+    /// one fire at a time, a `skip` schedule has no limit. `serde(default)`
+    /// keeps older serialized schedules readable.
+    #[serde(default)]
+    pub max_active_runs: Option<i32>,
 }
 
 impl Schedule {
@@ -256,6 +304,11 @@ pub struct NewSchedule {
     // CLOACI-I-0116: named parameterized instance (None = anonymous schedule).
     pub params: Option<String>,
     pub instance_name: Option<String>,
+
+    /// CLOACINA-T-1020: limit on active runs of a cron schedule (None = not
+    /// declared).
+    #[serde(default)]
+    pub max_active_runs: Option<i32>,
 }
 
 impl NewSchedule {
@@ -280,6 +333,7 @@ impl NewSchedule {
             next_run_at: Some(next_run_at),
             params: None,
             instance_name: None,
+            max_active_runs: None,
         }
     }
 
@@ -300,6 +354,7 @@ impl NewSchedule {
             next_run_at: None,
             params: None,
             instance_name: None,
+            max_active_runs: None,
         }
     }
 }
@@ -378,9 +433,9 @@ mod tests {
         assert!(CatchupPolicy::parse_declared("").is_err());
         assert_eq!(CatchupPolicy::from("all"), CatchupPolicy::Skip);
 
-        assert!(CronScheduleOptions::from_declared(Some("RUN_ALL")).is_err());
+        assert!(CronScheduleOptions::from_declared(Some("RUN_ALL"), None).is_err());
         assert_eq!(
-            CronScheduleOptions::from_declared(None),
+            CronScheduleOptions::from_declared(None, None),
             Ok(CronScheduleOptions::default())
         );
 
@@ -388,10 +443,36 @@ mod tests {
         let mut schedule = NewSchedule::cron("wf", "0 * * * *", now);
         CronScheduleOptions::default().apply_to(&mut schedule);
         assert_eq!(schedule.catchup_policy.as_deref(), Some("skip"));
-        CronScheduleOptions::from_declared(Some("run_all"))
+        CronScheduleOptions::from_declared(Some("run_all"), None)
             .unwrap()
             .apply_to(&mut schedule);
         assert_eq!(schedule.catchup_policy.as_deref(), Some("run_all"));
+        assert_eq!(schedule.max_active_runs, None);
+    }
+
+    /// CLOACINA-T-1020: a declared limit is 1 or more, and the limit the
+    /// scheduler applies follows the declaration, then the policy.
+    #[test]
+    fn declared_max_active_runs_and_the_limit_in_effect() {
+        assert!(CronScheduleOptions::from_declared(None, Some(0)).is_err());
+        assert!(CronScheduleOptions::from_declared(None, Some(u32::MAX)).is_err());
+        let options = CronScheduleOptions::from_declared(None, Some(4)).unwrap();
+        assert_eq!(options.max_active_runs, Some(4));
+
+        let now = current_timestamp();
+        let mut schedule = NewSchedule::cron("wf", "0 * * * *", now);
+        assert_eq!(schedule.max_active_runs, None);
+        options.apply_to(&mut schedule);
+        assert_eq!(schedule.max_active_runs, Some(4));
+        assert_eq!(schedule.catchup_policy.as_deref(), Some("skip"));
+
+        // Not declared: run_all runs one at a time, skip has no limit.
+        assert_eq!(effective_max_active_runs(Some("run_all"), None), Some(1));
+        assert_eq!(effective_max_active_runs(Some("skip"), None), None);
+        assert_eq!(effective_max_active_runs(None, None), None);
+        // Declared: the declaration wins for both policies.
+        assert_eq!(effective_max_active_runs(Some("run_all"), Some(8)), Some(8));
+        assert_eq!(effective_max_active_runs(Some("skip"), Some(1)), Some(1));
     }
 
     #[test]
@@ -440,6 +521,7 @@ mod tests {
             paused_at: None,
             params: None,
             instance_name: None,
+            max_active_runs: None,
         };
 
         assert!(schedule.is_trigger());

@@ -399,6 +399,7 @@ mod unified_schema {
             paused_at -> Nullable<DbTimestamp>,
             params -> Nullable<Text>,
             instance_name -> Nullable<Text>,
+            max_active_runs -> Nullable<Integer>,
         }
     }
 

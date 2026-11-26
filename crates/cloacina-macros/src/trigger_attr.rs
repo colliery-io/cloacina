@@ -42,6 +42,9 @@ pub struct TriggerAttributes {
     /// Catch-up policy of the cron schedule: `"skip"` or `"run_all"`
     /// (CLOACINA-T-1020). Cron triggers only.
     pub catchup: Option<String>,
+    /// Limit on active runs of the cron schedule, 1 or more
+    /// (CLOACINA-T-1020). Cron triggers only.
+    pub max_active_runs: Option<u32>,
     pub allow_concurrent: bool,
     pub name: Option<String>,
 }
@@ -53,6 +56,7 @@ impl Parse for TriggerAttributes {
         let mut cron = None;
         let mut timezone = None;
         let mut catchup = None;
+        let mut max_active_runs = None;
         let mut allow_concurrent = false;
         let mut name = None;
 
@@ -88,6 +92,17 @@ impl Parse for TriggerAttributes {
                     }
                     catchup = Some(value);
                 }
+                "max_active_runs" => {
+                    let lit: syn::LitInt = input.parse()?;
+                    let value: u32 = lit.base10_parse()?;
+                    if value == 0 || value > i32::MAX as u32 {
+                        return Err(syn::Error::new(
+                            lit.span(),
+                            "Invalid max_active_runs: use a whole number, 1 or more",
+                        ));
+                    }
+                    max_active_runs = Some(value);
+                }
                 "allow_concurrent" => {
                     let lit: syn::LitBool = input.parse()?;
                     allow_concurrent = lit.value();
@@ -100,7 +115,7 @@ impl Parse for TriggerAttributes {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid: on, poll_interval, cron, timezone, catchup, allow_concurrent, name",
+                            "Unknown attribute: '{}'. Valid: on, poll_interval, cron, timezone, catchup, max_active_runs, allow_concurrent, name",
                             field_name
                         ),
                     ));
@@ -137,12 +152,20 @@ impl Parse for TriggerAttributes {
             ));
         }
 
+        if cron.is_none() && max_active_runs.is_some() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "#[trigger] 'max_active_runs' needs 'cron': it limits the runs of a cron schedule (a poll trigger has 'allow_concurrent')",
+            ));
+        }
+
         Ok(TriggerAttributes {
             on,
             poll_interval,
             cron,
             timezone,
             catchup,
+            max_active_runs,
             allow_concurrent,
             name,
         })
@@ -325,6 +348,11 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
         None => quote! { None },
     };
 
+    let max_active_runs = match attrs.max_active_runs {
+        Some(limit) => quote! { Some(#limit) },
+        None => quote! { None },
+    };
+
     // Compile-time validation of the cron expression
     // We parse it here to give a compile error if invalid
     if let Err(e) = validate_cron_expression(cron_expression) {
@@ -384,6 +412,10 @@ fn generate_cron_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStr
 
             fn cron_catchup_policy(&self) -> Option<String> {
                 #catchup_policy
+            }
+
+            fn cron_max_active_runs(&self) -> Option<u32> {
+                #max_active_runs
             }
 
             fn workflow_name(&self) -> &str {
@@ -508,6 +540,48 @@ mod tests {
             generated.contains("fncron_catchup_policy(&self)->Option<String>{None}"),
             "{generated}"
         );
+    }
+
+    /// CLOACINA-T-1020: `max_active_runs` is read for a cron trigger and
+    /// reaches the generated `cron_max_active_runs()`.
+    #[test]
+    fn cron_trigger_carries_the_declared_max_active_runs() {
+        let attrs: TriggerAttributes = syn::parse2(quote! {
+            on = "hourly_table", cron = "0 * * * *", catchup = "run_all", max_active_runs = 4
+        })
+        .unwrap();
+        assert_eq!(attrs.max_active_runs, Some(4));
+
+        let input_fn: ItemFn = syn::parse2(quote! { async fn hourly() {} }).unwrap();
+        let generated = generate_cron_trigger(attrs, input_fn)
+            .to_string()
+            .replace(' ', "");
+        assert!(
+            generated.contains("fncron_max_active_runs(&self)->Option<u32>{Some(4u32)}"),
+            "{generated}"
+        );
+
+        let attrs: TriggerAttributes =
+            syn::parse2(quote! { on = "hourly_table", cron = "0 * * * *" }).unwrap();
+        let input_fn: ItemFn = syn::parse2(quote! { async fn hourly() {} }).unwrap();
+        let generated = generate_cron_trigger(attrs, input_fn)
+            .to_string()
+            .replace(' ', "");
+        assert!(
+            generated.contains("fncron_max_active_runs(&self)->Option<u32>{None}"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn max_active_runs_is_checked_at_compile_time() {
+        let parse = |tokens| syn::parse2::<TriggerAttributes>(tokens).map(|_| ());
+        let err = parse(quote! { on = "wf", cron = "0 * * * *", max_active_runs = 0 }).unwrap_err();
+        assert!(err.to_string().contains("Invalid max_active_runs"), "{err}");
+        assert!(parse(quote! { on = "wf", cron = "0 * * * *", max_active_runs = "4" }).is_err());
+        let err =
+            parse(quote! { on = "wf", poll_interval = "5s", max_active_runs = 2 }).unwrap_err();
+        assert!(err.to_string().contains("needs 'cron'"), "{err}");
     }
 
     #[test]

@@ -752,15 +752,14 @@ impl Scheduler {
 
     /// The limit on active runs of a cron schedule. `None` is no limit.
     ///
-    /// A `run_all` schedule runs one fire at a time: its missed fires run in
-    /// order, as they did when the scheduler waited for each run, and a long
-    /// backlog cannot start everything at once. A `skip` schedule has no
-    /// limit.
+    /// The declared `max_active_runs` of the schedule, or else the default
+    /// of its catch-up policy: one for `run_all`, none for `skip`. See
+    /// [`effective_max_active_runs`](crate::models::schedule::effective_max_active_runs).
     fn max_active_runs(&self, schedule: &Schedule) -> Option<i64> {
-        match CatchupPolicy::from(schedule.catchup_policy.as_deref().unwrap_or("skip")) {
-            CatchupPolicy::RunAll => Some(1),
-            CatchupPolicy::Skip => None,
-        }
+        crate::models::schedule::effective_max_active_runs(
+            schedule.catchup_policy.as_deref(),
+            schedule.max_active_runs,
+        )
     }
 
     /// Checks if a cron schedule is within its active time window.
@@ -1873,6 +1872,7 @@ mod tests {
             paused_at: None,
             params: None,
             instance_name: None,
+            max_active_runs: None,
         }
     }
 
@@ -1900,6 +1900,7 @@ mod tests {
             paused_at: None,
             params: None,
             instance_name: None,
+            max_active_runs: None,
         }
     }
 
@@ -2756,6 +2757,7 @@ mod tests {
             dal: &DAL,
             workflow: &str,
             missed: i64,
+            max_active_runs: Option<i32>,
         ) -> (Schedule, DateTime<Utc>) {
             let this_minute = DateTime::<Utc>::from_timestamp(Utc::now().timestamp() / 60 * 60, 0)
                 .expect("minute");
@@ -2768,6 +2770,7 @@ mod tests {
                 UniversalTimestamp(Utc::now() + chrono::Duration::hours(1)),
             );
             new.catchup_policy = Some("run_all".to_string());
+            new.max_active_runs = max_active_runs;
             let created = dal.schedule().create(new).await.expect("schedule");
             dal.schedule()
                 .update_schedule_times(
@@ -2810,7 +2813,7 @@ mod tests {
             let dal = runner.dal();
 
             let (schedule, last_fire) =
-                schedule_with_missed_minutes(&dal, "history_workflow", 8).await;
+                schedule_with_missed_minutes(&dal, "history_workflow", 8, None).await;
             runner.notify_cron_change();
 
             // Wait for 8 finished runs. On each look, count the active runs:
@@ -2919,7 +2922,8 @@ mod tests {
             let runner = start_runner(&runtime, &dir, 100).await;
             let dal = runner.dal();
 
-            let (held, last_fire) = schedule_with_missed_minutes(&dal, "held_workflow", 5).await;
+            let (held, last_fire) =
+                schedule_with_missed_minutes(&dal, "held_workflow", 5, None).await;
             runner.notify_cron_change();
             assert!(
                 wait_until(Duration::from_secs(15), || async {
@@ -3036,6 +3040,147 @@ mod tests {
 
             let _ = dal.schedule().delete(held.id).await;
             let _ = dal.schedule().delete(other.id).await;
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A `run_all` schedule that declares `max_active_runs = 3` and
+        /// missed 7 fire times starts 3 runs and no more while they are
+        /// active: the oldest 3, with the row at the third. When runs end,
+        /// the rest follow.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn declared_max_active_runs_sets_how_fast_a_backlog_drains() {
+            let runtime = Arc::new(Runtime::empty());
+            let (seen, gate) = register_workflow(&runtime, "wide_workflow", false);
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+
+            let (schedule, last_fire) =
+                schedule_with_missed_minutes(&dal, "wide_workflow", 7, Some(3)).await;
+            runner.notify_cron_change();
+
+            let rows = || {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule_execution()
+                        .list_by_schedule(schedule.id, 100, 0)
+                        .await
+                        .unwrap_or_default()
+                }
+            };
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    rows()
+                        .await
+                        .iter()
+                        .filter(|row| row.workflow_execution_id.is_some())
+                        .count()
+                        >= 3
+                })
+                .await,
+                "3 runs must be handed off"
+            );
+
+            // Two seconds on: still 3 runs, the 3 oldest fire times.
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut taken: Vec<DateTime<Utc>> = rows()
+                .await
+                .into_iter()
+                .filter_map(|row| row.scheduled_time.map(|t| t.0))
+                .collect();
+            taken.sort();
+            let fire = |n: i64| last_fire + chrono::Duration::minutes(n);
+            assert_eq!(taken, vec![fire(1), fire(2), fire(3)]);
+            let row = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            assert_eq!(row.last_run_at.map(|t| t.0), Some(fire(3)));
+            assert_eq!(row.next_run_at.map(|t| t.0), Some(fire(4)));
+
+            // Runs end: the rest of the backlog runs.
+            gate.send(true).expect("open the gate");
+            assert!(
+                wait_until(Duration::from_secs(30), || async { seen.lock().len() >= 7 }).await,
+                "the 7 missed fires must all run; runs seen: {:?}",
+                seen.lock()
+            );
+            let mut seen_times: Vec<String> = seen
+                .lock()
+                .iter()
+                .take(7)
+                .map(|run| run.scheduled_time.clone())
+                .collect();
+            seen_times.sort();
+            assert_eq!(
+                seen_times,
+                (1..=7).map(|n| fire(n).to_rfc3339()).collect::<Vec<_>>()
+            );
+
+            let _ = dal.schedule().delete(schedule.id).await;
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A `skip` schedule that fires each second and declares
+        /// `max_active_runs = 1` does not start a second run while the first
+        /// is active. Without the limit it would hand off one run a second.
+        /// When the run ends, the schedule fires again, once, for the time it
+        /// was held.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn skip_schedule_with_a_limit_does_not_overlap_its_runs() {
+            let runtime = Arc::new(Runtime::empty());
+            let (seen, gate) = register_workflow(&runtime, "no_overlap_workflow", false);
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = start_runner(&runtime, &dir, 100).await;
+            let dal = runner.dal();
+
+            let mut new = NewSchedule::cron(
+                "no_overlap_workflow",
+                "* * * * * *",
+                UniversalTimestamp(Utc::now()),
+            );
+            new.max_active_runs = Some(1);
+            let schedule = dal.schedule().create(new).await.expect("schedule");
+            runner.notify_cron_change();
+
+            let row_count = || {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule_execution()
+                        .list_by_schedule(schedule.id, 100, 0)
+                        .await
+                        .unwrap_or_default()
+                        .len()
+                }
+            };
+            assert!(
+                wait_until(Duration::from_secs(15), || async { seen.lock().len() == 1 }).await,
+                "the first run did not start"
+            );
+
+            // Three fire times pass. One run, one row.
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            assert_eq!(row_count().await, 1, "no run while the first is active");
+            let held = dal.schedule().get_by_id(schedule.id).await.expect("row");
+            assert!(
+                held.next_run_at.map(|t| t.0) < Some(Utc::now()),
+                "the schedule stays due while it is held"
+            );
+
+            // The run ends, the gate closes again: one more run starts, and
+            // again only one.
+            gate.send(true).expect("open the gate");
+            assert!(
+                wait_until(Duration::from_secs(10), || async { row_count().await >= 2 }).await,
+                "the schedule must fire again when its run ends"
+            );
+            gate.send(false).expect("close the gate");
+            let rows_after_release = row_count().await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(
+                row_count().await <= rows_after_release + 1,
+                "with the gate closed again, at most one more run may start"
+            );
+
+            dal.schedule().disable(schedule.id).await.expect("disable");
+            gate.send(true).expect("open the gate");
             runner.shutdown().await.expect("shutdown");
         }
     }

@@ -596,6 +596,9 @@ macro_rules! package {
                             catchup_policy: cloacina_workflow::Trigger::cron_catchup_policy(
                                 &*trigger,
                             ),
+                            max_active_runs: cloacina_workflow::Trigger::cron_max_active_runs(
+                                &*trigger,
+                            ),
                         });
                     }
                     Ok(out)
@@ -1011,8 +1014,9 @@ pub trait CloacinaHost: Send + Sync {
 // so a packaged cron schedule is registered in its trigger's timezone and not
 // always in UTC. Positional bincode again — the gate must reject a v7 plugin.
 // version 8, no bump (CLOACINA-T-1020): `TriggerPackageMetadata` gained
-// `catchup_policy` at the end. Version 8 is not released yet, so the new field
-// rides it; a plugin built from an earlier commit of version 8 must be rebuilt.
+// `catchup_policy` and then `max_active_runs` at the end. Version 8 is not
+// released yet, so the new fields ride it; a plugin built from an earlier
+// commit of version 8 must be rebuilt.
 #[fidius::plugin_interface(version = 8, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.

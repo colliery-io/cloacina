@@ -109,6 +109,7 @@ impl<'a> ScheduleDAL<'a> {
             updated_at: now,
             params: new_schedule.params,
             instance_name: new_schedule.instance_name,
+            max_active_runs: new_schedule.max_active_runs,
         };
 
         crate::interact_on_backend!(self.dal, |conn| {
@@ -624,6 +625,7 @@ impl<'a> ScheduleDAL<'a> {
                 updated_at: now,
                 params: new_schedule.params,
                 instance_name: new_schedule.instance_name,
+                max_active_runs: new_schedule.max_active_runs,
             };
 
             crate::interact_on_backend!(self.dal, |conn| {
@@ -669,6 +671,7 @@ impl<'a> ScheduleDAL<'a> {
             .catchup_policy
             .as_ref()
             .map(|policy| policy.as_str().to_string());
+        let declared_max_active_runs = options.max_active_runs;
         // Identity of a cron schedule: (workflow_name, cron_expression,
         // timezone). Re-registering the same packaged cron on a reconcile
         // re-load updates the existing row instead of inserting a duplicate.
@@ -725,6 +728,13 @@ impl<'a> ScheduleDAL<'a> {
                         .execute(conn)
                 })?;
             }
+            if let Some(limit) = declared_max_active_runs {
+                crate::interact_on_backend!(self.dal, |conn| {
+                    diesel::update(schedules::table.find(existing_id))
+                        .set(schedules::max_active_runs.eq(Some(limit)))
+                        .execute(conn)
+                })?;
+            }
 
             let result: UnifiedSchedule = crate::interact_on_backend!(self.dal, |conn| {
                 schedules::table.find(existing_id).first(conn)
@@ -753,6 +763,7 @@ impl<'a> ScheduleDAL<'a> {
                 updated_at: now,
                 params: new_schedule.params,
                 instance_name: new_schedule.instance_name,
+                max_active_runs: new_schedule.max_active_runs,
             };
             crate::interact_on_backend!(self.dal, |conn| {
                 diesel::insert_into(schedules::table)
@@ -1026,9 +1037,11 @@ mod tests {
         let new = || NewSchedule::cron("wf", "0 * * * *", next_run);
         let run_all = CronScheduleOptions {
             catchup_policy: Some(CatchupPolicy::RunAll),
+            max_active_runs: None,
         };
         let skip = CronScheduleOptions {
             catchup_policy: Some(CatchupPolicy::Skip),
+            max_active_runs: Some(4),
         };
 
         // Not declared: a new schedule gets the default.
@@ -1044,17 +1057,29 @@ mod tests {
         assert_eq!(declared.id, plain.id);
         assert_eq!(declared.catchup_policy.as_deref(), Some("run_all"));
 
+        assert_eq!(declared.max_active_runs, None);
+
         // Not declared on a re-registration: the row keeps its value.
         let kept = dal.schedule().upsert_cron(new()).await.unwrap();
         assert_eq!(kept.catchup_policy.as_deref(), Some("run_all"));
 
-        // Declared again: back to skip.
+        // Declared again: back to skip, now with a limit on active runs.
         let back = dal
             .schedule()
             .upsert_cron_declared(new(), &skip)
             .await
             .unwrap();
         assert_eq!(back.catchup_policy.as_deref(), Some("skip"));
+        assert_eq!(back.max_active_runs, Some(4));
+
+        // A re-registration that declares no limit keeps the limit.
+        let kept = dal
+            .schedule()
+            .upsert_cron_declared(new(), &run_all)
+            .await
+            .unwrap();
+        assert_eq!(kept.catchup_policy.as_deref(), Some("run_all"));
+        assert_eq!(kept.max_active_runs, Some(4));
 
         // Declared on insert.
         let mut other = NewSchedule::cron("wf", "0 0 * * *", next_run);

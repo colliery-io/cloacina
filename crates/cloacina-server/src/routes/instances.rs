@@ -114,6 +114,9 @@ fn to_summary(s: Schedule) -> WorkflowInstanceSummary {
         cron_expression: s.cron_expression,
         timezone: s.timezone,
         catchup_policy: s.catchup_policy,
+        max_active_runs: s
+            .max_active_runs
+            .and_then(|limit| u32::try_from(limit).ok()),
         enabled: s.enabled.is_true(),
         paused: s.paused.is_true(),
         next_run_at: s.next_run_at.map(|t| t.0.to_rfc3339()),
@@ -233,8 +236,10 @@ pub async fn create_instance(
 
     // The options of the schedule (CLOACINA-T-1020). They describe a cron
     // schedule, so an instance with no `cron` cannot carry them.
-    let schedule_options = match CronScheduleOptions::from_declared(body.catchup_policy.as_deref())
-    {
+    let schedule_options = match CronScheduleOptions::from_declared(
+        body.catchup_policy.as_deref(),
+        body.max_active_runs,
+    ) {
         Ok(options) => options,
         Err(e) => {
             return ApiError::bad_request("invalid_schedule_options", e).into_response();
@@ -243,7 +248,7 @@ pub async fn create_instance(
     if body.cron.is_none() && schedule_options != CronScheduleOptions::default() {
         return ApiError::bad_request(
             "invalid_schedule_options",
-            "catchup_policy needs a cron expression".to_string(),
+            "catchup_policy and max_active_runs need a cron expression".to_string(),
         )
         .into_response();
     }

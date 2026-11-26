@@ -403,6 +403,8 @@ fn schedule_to_cron_dict(
         "catchup_policy",
         schedule.catchup_policy.as_deref().unwrap_or("skip"),
     )?;
+    // CLOACINA-T-1020: the declared limit on active runs, or None.
+    dict.set_item("max_active_runs", schedule.max_active_runs)?;
     dict.set_item("next_run_at", schedule.next_run_at.map(|t| t.to_string()))?;
     dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
     dict.set_item("created_at", schedule.created_at.to_string())?;
@@ -1149,19 +1151,21 @@ impl PyDefaultRunner {
         )
     }
 
-    #[pyo3(signature = (workflow_name, cron_expression, timezone, catchup_policy = None))]
+    #[pyo3(signature = (workflow_name, cron_expression, timezone, catchup_policy = None, max_active_runs = None))]
     pub fn register_cron_workflow(
         &self,
         workflow_name: String,
         cron_expression: String,
         timezone: String,
         catchup_policy: Option<String>,
+        max_active_runs: Option<u32>,
         py: Python,
     ) -> PyResult<String> {
         // CLOACINA-T-1020: the options of the schedule. A value that is not a
-        // policy is an error here, not a silent `skip`.
+        // policy is an error here, not a silent `skip`; so is a limit of 0.
         let options = cloacina::models::schedule::CronScheduleOptions::from_declared(
             catchup_policy.as_deref(),
+            max_active_runs,
         )
         .map_err(PyValueError::new_err)?;
         let (response_tx, response_rx) = oneshot::channel();
@@ -1658,6 +1662,7 @@ mod tests {
                     "0 * * * *".to_string(),
                     "UTC".to_string(),
                     Some("run_all".to_string()),
+                    Some(3),
                     py,
                 )
                 .expect("register_cron_workflow should succeed");
@@ -1671,6 +1676,13 @@ mod tests {
                 .extract()
                 .unwrap();
             assert_eq!(policy, "run_all");
+            let limit: Option<i32> = schedule
+                .bind(py)
+                .get_item("max_active_runs")
+                .unwrap()
+                .extract()
+                .unwrap();
+            assert_eq!(limit, Some(3));
 
             let err = runner
                 .register_cron_workflow(
@@ -1678,10 +1690,23 @@ mod tests {
                     "0 * * * *".to_string(),
                     "UTC".to_string(),
                     Some("all".to_string()),
+                    None,
                     py,
                 )
                 .expect_err("a wrong policy must fail");
             assert!(err.to_string().contains("invalid catch-up policy"), "{err}");
+
+            let err = runner
+                .register_cron_workflow(
+                    "test-cron-history".to_string(),
+                    "0 * * * *".to_string(),
+                    "UTC".to_string(),
+                    None,
+                    Some(0),
+                    py,
+                )
+                .expect_err("a limit of 0 must fail");
+            assert!(err.to_string().contains("invalid max_active_runs"), "{err}");
             runner.shutdown(py).unwrap();
         });
     }
@@ -1699,6 +1724,7 @@ mod tests {
                     "test-cron-wf".to_string(),
                     "0 * * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     None,
                     py,
                 )
@@ -1722,6 +1748,7 @@ mod tests {
                     "list-test-wf".to_string(),
                     "0 12 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     None,
                     py,
                 )
@@ -1749,6 +1776,7 @@ mod tests {
                     "30 2 * * *".to_string(),
                     "America/New_York".to_string(),
                     None,
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1774,6 +1802,7 @@ mod tests {
                     "enable-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     None,
                     py,
                 )
@@ -1803,6 +1832,7 @@ mod tests {
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
                     None,
+                    None,
                     py,
                 )
                 .unwrap();
@@ -1830,6 +1860,7 @@ mod tests {
                     "update-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     None,
                     py,
                 )
@@ -1860,6 +1891,7 @@ mod tests {
                     "history-test-wf".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     None,
                     py,
                 )
@@ -2043,6 +2075,7 @@ mod tests {
                     "filter-test".to_string(),
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
+                    None,
                     None,
                     py,
                 )

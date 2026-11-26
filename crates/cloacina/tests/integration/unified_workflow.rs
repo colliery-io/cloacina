@@ -161,8 +161,14 @@ fn test_cron_trigger_poll_returns_result() {
     assert_eq!(trigger.poll_interval(), std::time::Duration::from_secs(30));
 }
 
-// CLOACINA-T-1020: the catch-up policy is declared on the trigger.
-#[trigger(on = "unified_test_workflow", cron = "0 * * * *", catchup = "run_all")]
+// CLOACINA-T-1020: the catch-up policy and the limit on active runs are
+// declared on the trigger.
+#[trigger(
+    on = "unified_test_workflow",
+    cron = "0 * * * *",
+    catchup = "run_all",
+    max_active_runs = 4
+)]
 fn hourly_history_job() {}
 
 #[test]
@@ -172,10 +178,12 @@ fn test_cron_trigger_declares_its_catchup_policy() {
         .get_trigger("hourly_history_job")
         .expect("hourly_history_job trigger should exist");
     assert_eq!(history.cron_catchup_policy().as_deref(), Some("run_all"));
+    assert_eq!(history.cron_max_active_runs(), Some(4));
 
     // A trigger that declares none sends none: the schedule keeps its policy.
     let nightly = runtime
         .get_trigger("nightly_job")
         .expect("nightly_job trigger should exist");
     assert_eq!(nightly.cron_catchup_policy(), None);
+    assert_eq!(nightly.cron_max_active_runs(), None);
 }

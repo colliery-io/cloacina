@@ -335,6 +335,7 @@ mod postgres_bindings {
                     "0 0 * * *".to_string(),
                     "UTC".to_string(),
                     None,
+                    None,
                     py,
                 )
                 .unwrap();

@@ -54,9 +54,13 @@ runner.delete_cron_schedule(schedule_id)
   `@cloaca.trigger`, `catchup_policy` on a named instance and on
   `register_cron_workflow`. See
   [missed fire times](../../../engine/cron-scheduling/#missed-execution-handling).
+- **Limit on active runs:** `max_active_runs`, declared in the same places.
+  At the limit the schedule starts no new run and stays due. Not declared:
+  one for `run_all`, no limit for `skip`. See
+  [a limit on active runs](../../../engine/cron-scheduling/#a-limit-on-active-runs).
 - **Schedule dicts (Python):** `id`, `workflow_name`, `cron_expression`,
-  `timezone`, `enabled`, `catchup_policy`, `next_run_at`, `last_run_at`,
-  `created_at`, `updated_at`.
+  `timezone`, `enabled`, `catchup_policy`, `max_active_runs`, `next_run_at`,
+  `last_run_at`, `created_at`, `updated_at`.
 - **Timezone of a packaged cron trigger:** the schedule is registered in the
   trigger's `timezone` (UTC when the trigger names none).
 - **Parity:** Python packages can also declare cron triggers —

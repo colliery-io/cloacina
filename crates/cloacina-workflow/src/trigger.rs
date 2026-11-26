@@ -134,6 +134,17 @@ pub trait Trigger: Send + Sync + fmt::Debug {
         None
     }
 
+    /// Returns the limit on active runs of this trigger's cron schedule, if
+    /// it declares one (`#[trigger(cron = "...", max_active_runs = 4)]`): the
+    /// most runs of the schedule that may be active at once. At the limit the
+    /// scheduler takes no fire and leaves the schedule due. Default `None`
+    /// means the schedule keeps the limit it has; a new `run_all` schedule
+    /// then runs one fire at a time and a new `skip` schedule has no limit.
+    /// (CLOACINA-T-1020)
+    fn cron_max_active_runs(&self) -> Option<u32> {
+        None
+    }
+
     /// The target workflow this trigger fires — the `#[trigger(on = "...")]`
     /// binding. For cron triggers the reconciler registers the schedule against
     /// this workflow (not the trigger's own `name`). Default empty for manual

@@ -61,7 +61,7 @@ impl DefaultRunner {
 
     /// [`register_cron_workflow_instance`](Self::register_cron_workflow_instance)
     /// with the options of the schedule (CLOACINA-T-1020): the catch-up
-    /// policy.
+    /// policy and the limit on active runs.
     pub async fn register_cron_workflow_instance_with_options(
         &self,
         instance: &crate::workflow_instance::WorkflowInstance,
@@ -191,7 +191,9 @@ impl DefaultRunner {
     /// * `timezone` - Timezone for interpreting the cron expression
     /// * `options` - The catch-up policy: `Skip` (the default) fires once for
     ///   the fire times missed while no scheduler ran; `RunAll` fires each of
-    ///   them, oldest first.
+    ///   them, oldest first. And `max_active_runs`: the most runs of the
+    ///   schedule that may be active at once; at the limit the scheduler
+    ///   takes no fire and leaves the schedule due.
     ///
     /// # Returns
     /// * `Result<UniversalUuid, WorkflowExecutionError>` - The ID of the created schedule or an error

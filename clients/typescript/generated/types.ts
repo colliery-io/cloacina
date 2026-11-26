@@ -1281,6 +1281,14 @@ export interface components {
              */
             instance_name: string;
             /**
+             * Format: int32
+             * @description The most runs of this schedule that may be active at once, 1 or more.
+             *     At the limit the scheduler starts no new run and leaves the schedule
+             *     due. When omitted, a `run_all` schedule runs one fire at a time and a
+             *     `skip` schedule has no limit. Needs `cron`.
+             */
+            max_active_runs?: number | null;
+            /**
              * @description Parameter values bound to this instance, validated against the
              *     workflow's declared `params(...)` slots.
              */
@@ -2200,6 +2208,11 @@ export interface components {
                 instance_name: string;
                 /** @description RFC 3339 timestamp. */
                 last_run_at?: string | null;
+                /**
+                 * Format: int32
+                 * @description The declared limit on active runs. Absent when none is declared.
+                 */
+                max_active_runs?: number | null;
                 /** @description RFC 3339 timestamp. */
                 next_run_at?: string | null;
                 /** @description Bound parameter values, as stored. */
@@ -2455,6 +2468,11 @@ export interface components {
             instance_name: string;
             /** @description RFC 3339 timestamp. */
             last_run_at?: string | null;
+            /**
+             * Format: int32
+             * @description The declared limit on active runs. Absent when none is declared.
+             */
+            max_active_runs?: number | null;
             /** @description RFC 3339 timestamp. */
             next_run_at?: string | null;
             /** @description Bound parameter values, as stored. */

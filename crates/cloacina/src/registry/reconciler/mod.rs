@@ -188,7 +188,8 @@ pub trait CronWorkflowRegistrar: Send + Sync {
     ) -> Result<String, String>;
 
     /// Create a cron schedule with what its trigger declares for it
-    /// (CLOACINA-T-1020): the catch-up policy. The reconciler calls this one.
+    /// (CLOACINA-T-1020): the catch-up policy and the limit on active runs.
+    /// The reconciler calls this one.
     /// The default ignores the options, so a registrar written before them
     /// still compiles; `DalCronRegistrar` applies them.
     async fn register_cron_workflow_with_options(

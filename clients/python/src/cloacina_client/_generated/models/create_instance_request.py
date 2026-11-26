@@ -24,6 +24,10 @@ class CreateInstanceRequest:
         cron (None | str | Unset): Cron expression. When omitted the instance is created **unscheduled** —
             a durable named param binding that never fires on its own.
         enabled (bool | None | Unset): Whether the schedule is enabled on creation. Defaults to `true`.
+        max_active_runs (int | None | Unset): The most runs of this schedule that may be active at once, 1 or more.
+            At the limit the scheduler starts no new run and leaves the schedule
+            due. When omitted, a `run_all` schedule runs one fire at a time and a
+            `skip` schedule has no limit. Needs `cron`.
         params (Any | Unset): Parameter values bound to this instance, validated against the
             workflow's declared `params(...)` slots.
         timezone (None | str | Unset): IANA timezone for `cron`. Defaults to `UTC`.
@@ -33,6 +37,7 @@ class CreateInstanceRequest:
     catchup_policy: None | str | Unset = UNSET
     cron: None | str | Unset = UNSET
     enabled: bool | None | Unset = UNSET
+    max_active_runs: int | None | Unset = UNSET
     params: Any | Unset = UNSET
     timezone: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -58,6 +63,12 @@ class CreateInstanceRequest:
         else:
             enabled = self.enabled
 
+        max_active_runs: int | None | Unset
+        if isinstance(self.max_active_runs, Unset):
+            max_active_runs = UNSET
+        else:
+            max_active_runs = self.max_active_runs
+
         params = self.params
 
         timezone: None | str | Unset
@@ -79,6 +90,8 @@ class CreateInstanceRequest:
             field_dict["cron"] = cron
         if enabled is not UNSET:
             field_dict["enabled"] = enabled
+        if max_active_runs is not UNSET:
+            field_dict["max_active_runs"] = max_active_runs
         if params is not UNSET:
             field_dict["params"] = params
         if timezone is not UNSET:
@@ -118,6 +131,15 @@ class CreateInstanceRequest:
 
         enabled = _parse_enabled(d.pop("enabled", UNSET))
 
+        def _parse_max_active_runs(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        max_active_runs = _parse_max_active_runs(d.pop("max_active_runs", UNSET))
+
         params = d.pop("params", UNSET)
 
         def _parse_timezone(data: object) -> None | str | Unset:
@@ -134,6 +156,7 @@ class CreateInstanceRequest:
             catchup_policy=catchup_policy,
             cron=cron,
             enabled=enabled,
+            max_active_runs=max_active_runs,
             params=params,
             timezone=timezone,
         )

@@ -1647,6 +1647,7 @@ impl RegistryReconciler {
                 allow_concurrent: impl_.allow_concurrent(),
                 timezone: impl_.cron_timezone(),
                 catchup_policy: impl_.cron_catchup_policy(),
+                max_active_runs: impl_.cron_max_active_runs(),
             });
         }
 
@@ -1794,6 +1795,7 @@ impl RegistryReconciler {
             // A value that is not a policy fails this one registration.
             let options = match crate::models::schedule::CronScheduleOptions::from_declared(
                 t.catchup_policy.as_deref(),
+                t.max_active_runs,
             ) {
                 Ok(options) => options,
                 Err(e) => {
@@ -2899,6 +2901,7 @@ mod tests {
         cron: String,
         timezone: Option<String>,
         catchup: Option<String>,
+        max_active_runs: Option<u32>,
     }
 
     #[async_trait::async_trait]
@@ -2926,6 +2929,9 @@ mod tests {
         }
         fn cron_catchup_policy(&self) -> Option<String> {
             self.catchup.clone()
+        }
+        fn cron_max_active_runs(&self) -> Option<u32> {
+            self.max_active_runs
         }
         fn workflow_name(&self) -> &str {
             &self.workflow
@@ -3022,6 +3028,7 @@ mod tests {
                 cron: "0 0 * * *".to_string(),
                 timezone: None,
                 catchup: None,
+                max_active_runs: None,
             })
         });
 
@@ -3061,6 +3068,7 @@ mod tests {
                 cron: "0 0 * * *".to_string(),
                 timezone: None,
                 catchup: None,
+                max_active_runs: None,
             })
         });
         runtime.register_trigger("file_watch".to_string(), || {
@@ -3119,6 +3127,7 @@ mod tests {
                 cron: "0 9 * * *".to_string(),
                 timezone: Some("America/New_York".to_string()),
                 catchup: None,
+                max_active_runs: None,
             })
         });
 
@@ -3149,9 +3158,9 @@ mod tests {
         );
     }
 
-    /// CLOACINA-T-1020: the catch-up policy that a trigger declares reaches
-    /// the registrar. A trigger that declares none sends no policy, and a
-    /// value that is not a policy registers nothing.
+    /// CLOACINA-T-1020: the catch-up policy and the limit on active runs
+    /// that a trigger declares reach the registrar. A trigger that declares
+    /// none sends none, and a wrong value registers nothing.
     #[tokio::test]
     #[serial]
     async fn step_load_cron_triggers_carries_the_declared_catchup_policy() {
@@ -3160,10 +3169,11 @@ mod tests {
         let registrar = Arc::new(RecordingCronRegistrar::default());
         let reconciler = make_test_reconciler().with_cron_registrar(registrar.clone());
         let runtime = runtime_of(&reconciler);
-        for (name, catchup) in [
-            ("a_history", Some("run_all")),
-            ("b_plain", None),
-            ("c_typo", Some("all")),
+        for (name, catchup, max_active_runs) in [
+            ("a_history", Some("run_all"), Some(4)),
+            ("b_plain", None, None),
+            ("c_typo", Some("all"), None),
+            ("d_zero", None, Some(0)),
         ] {
             runtime.register_trigger(name.to_string(), move || {
                 Arc::new(MockCronTrigger {
@@ -3172,33 +3182,43 @@ mod tests {
                     cron: "0 * * * *".to_string(),
                     timezone: None,
                     catchup: catchup.map(str::to_string),
+                    max_active_runs,
                 })
             });
         }
 
         let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
         let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
-        let mut declared: Vec<(String, Option<String>)> = view
+        let mut declared: Vec<(String, Option<String>, Option<u32>)> = view
             .triggers
             .iter()
-            .map(|t| (t.name.clone(), t.catchup_policy.clone()))
+            .map(|t| (t.name.clone(), t.catchup_policy.clone(), t.max_active_runs))
             .collect();
         declared.sort();
         assert_eq!(
             declared,
             vec![
-                ("a_history".to_string(), Some("run_all".to_string())),
-                ("b_plain".to_string(), None),
-                ("c_typo".to_string(), Some("all".to_string())),
+                (
+                    "a_history".to_string(),
+                    Some("run_all".to_string()),
+                    Some(4)
+                ),
+                ("b_plain".to_string(), None, None),
+                ("c_typo".to_string(), Some("all".to_string()), None),
+                ("d_zero".to_string(), None, Some(0)),
             ],
-            "the view must carry the trigger's cron_catchup_policy()"
+            "the view must carry cron_catchup_policy() and cron_max_active_runs()"
         );
 
         let ids = reconciler
             .step_load_cron_triggers(&make_test_metadata(), &view)
             .await
             .expect("step_load_cron_triggers should succeed");
-        assert_eq!(ids.len(), 2, "the trigger with a wrong policy is skipped");
+        assert_eq!(
+            ids.len(),
+            2,
+            "a trigger with a wrong policy or a limit of 0 is skipped"
+        );
 
         let mut registered: Vec<(String, CronScheduleOptions)> = registrar
             .calls
@@ -3216,6 +3236,7 @@ mod tests {
                     "a_history_workflow".to_string(),
                     CronScheduleOptions {
                         catchup_policy: Some(CatchupPolicy::RunAll),
+                        max_active_runs: Some(4),
                     }
                 ),
                 (
