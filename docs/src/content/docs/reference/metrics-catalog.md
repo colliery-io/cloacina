@@ -8,7 +8,9 @@ sidebar:
 Both `cloacina-server` and `cloacina-compiler` expose metrics in the
 standard Prometheus text exposition format at `GET /metrics`. Both
 endpoints are public (no auth) so Prometheus can scrape them without
-credential management.
+credential management. By default `/metrics` is on each binary's main
+listener; `--metrics-bind` on either binary serves it only on a separate
+address, and the main listener then answers 404 for it.
 
 `cloacinactl daemon` does **not** expose `/metrics` — it's a
 hobbyist-tier local process per ADR-0005 (Deployment-Mode Trust
@@ -66,11 +68,16 @@ label at scrape time with a `metric_relabel_configs` `labeldrop` rule.
 | `cloacina_context_merge_failures_total` | `kind` | Failures merging dependency contexts. `kind` ∈ `parse` (JSON deserialize failed — fails the task as `ContextLoadFailed`), `merge` (Context API rejected an insert/update; counted but does not fail the task). Closes COR-11. |
 | `cloacina_fleet_agents_evicted_total` | — | Execution-agent fleet: agents removed by the heartbeat sweeper after their heartbeat went stale (older than `--agent-liveness-misses` × the advertised interval). Sustained non-zero means agents are dying or losing connectivity. CLOACI-I-0114 / T-0634. |
 | `cloacina_fleet_work_reassigned_total` | — | Execution-agent fleet: in-flight `delivery_outbox` rows re-targeted from an evicted (dead) agent to a live agent by the sweeper's reclaim path. Tracks how much work crashed agents shed onto the rest of the fleet. CLOACI-T-0634. |
-| `cloacina_fleet_orphan_results_total` | — | Execution-agent fleet: agent reports that no dispatch waited for (the report of an older dispatch of a task, a second report, or a report that reached a replica which did not dispatch the task). The report changes no state. Each one is work that ran and was not used. CLOACINA-T-1013. |
+| `cloacina_fleet_orphan_results_total` | — | Execution-agent fleet: agent reports that no dispatch on any replica waited for (the report of an older dispatch of a task, a second report, or a report whose replica stopped). Counted when the stored report is deleted by age, about 15 minutes after it came. The report changes no state. Each one is work that ran and was not used. CLOACINA-T-1013, CLOACINA-T-1015. |
 | `cloacina_fleet_dispatch_deferred_total` | — | Execution-agent fleet: dispatch tries put back in the queue because no agent could take the task (no live agent of its tenant had a free slot, or the chosen agent was full). The task keeps its attempt count and is tried again after 2 s. Sustained growth means a tenant needs more agents. CLOACINA-T-1012. |
 | `cloacina_delivery_outbox_sweep_runs_total` | — | Delivery-outbox sweeper: total sweep passes executed. Complements the `cloacina_delivery_outbox_open` gauge. |
 | `cloacina_delivery_outbox_sweep_redeliveries_total` | — | Delivery-outbox sweeper: total outbox rows re-delivered by a sweep pass (e.g. after a missed acknowledgement). |
+| `cloacina_alert_webhook_sent_total` | `event` | Alert webhook: requests the receiver answered with a 2xx status. `event` ∈ `failed`, `completed`, `cancelled`. Zero while no `--alert-webhook-url` is set. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/). CLOACINA-T-1024. |
+| `cloacina_alert_webhook_failed_total` | `reason` | Alert webhook: sends that failed and will be tried again. `reason` ∈ `timeout`, `status` (a status outside 2xx), `transport` (no connection, TLS, DNS), `load` (the run could not be read). Sustained growth means the receiver is down or slow. |
+| `cloacina_alert_webhook_dropped_total` | `reason` | Alert webhook: alerts given up without a 2xx answer. `reason` ∈ `attempts` (`--alert-webhook-max-attempts` sends failed), `expired` (not sent 24 hours after the run ended), `invalid` (the stored notice could not be read). Each one is an alert that nobody got. |
 | `cloacina_reactor_firings_pruned_total` | — | Reactor firing-history rows pruned during retention cleanup. Each increment counts one pruned firing record. |
+| `cloacina_retention_rows_deleted_total` | `table` | Rows removed by the server's background retention job, summed over the admin schema and all tenant schemas. `table` ∈ `workflow_executions`, `task_executions`, `task_execution_metadata`, `contexts`, `execution_events`, `recovery_events`, `schedule_executions`, `delivery_outbox`. Only the replica that holds the retention lock for a tick counts. A series appears after its first removed row. CLOACINA-T-1023. |
+| `cloacina_retention_errors_total` | — | Retention passes over one schema that failed (also: the tenant schema list could not be read). The pass is retried on the next tick. Sustained growth means run history is not being removed. CLOACINA-T-1023. |
 
 ### Histograms
 

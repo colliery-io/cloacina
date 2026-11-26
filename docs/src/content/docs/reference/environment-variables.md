@@ -55,13 +55,25 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | `--database-url` | None | Database connection URL |
 | `CLOACINA_BOOTSTRAP_KEY` | `--bootstrap-key` | None | Bootstrap admin API key |
+| `CLOACINA_METRICS_BIND` | `--metrics-bind` | None | Address of a separate listener for `/metrics`. When set, the main listener answers 404 for `/metrics` |
 | `CLOACINA_REQUIRE_SIGNATURES` | `--require-signatures` | off | Signature enforcement toggle |
+| `CLOACINA_ALERT_WEBHOOK_URL` | `--alert-webhook-url` | None | URL that gets a JSON `POST` when a run ends. Not set = off. Never logged. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/) |
+| `CLOACINA_ALERT_WEBHOOK_EVENTS` | `--alert-webhook-events` | `failed` | Outcomes that send an alert, comma-separated: `failed`, `completed`, `cancelled`, or `all` |
+| `CLOACINA_ALERT_WEBHOOK_SECRET` | — (environment only) | None | Shared secret that signs each alert request (`X-Cloacina-Signature`, HMAC-SHA256). Never logged |
+| `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `--alert-webhook-timeout-s` | `10` | Seconds allowed for one alert request |
+| `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `--alert-webhook-max-attempts` | `8` | The most sends of one alert before it is dropped |
+| `CLOACINA_PUBLIC_BASE_URL` | `--public-base-url` | None | Public URL of the server, for the absolute links in an alert |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Trusted org UUID |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner cache cap |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
 | `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). |
+| `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
+| `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `--outbox-acked-retention-s` | `3600` | Seconds to keep a `delivery_outbox` row after its ack. `0` turns it off. |
+| `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
+| `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. |
+| `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
 | `CLOACINA_CORS_ALLOWED_METHODS` | `--cors-allowed-methods` | `GET,POST,DELETE,OPTIONS` | Comma-separated allowed methods. |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | `--cors-allowed-headers` | `authorization,content-type` | Comma-separated allowed request headers. |
@@ -71,7 +83,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 `[server].default_executor` in `config.toml`). The two
 `CLOACINA_AGENT_*` liveness flags are read by the `cloacina-server` binary
 directly (and via the env vars above); the wrapper does **not** forward them,
-so set them on `cloacina-server` itself or through the environment.
+so set them on `cloacina-server` itself or through the environment. The same
+holds for the three retention settings.
 
 The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
 
@@ -266,7 +279,7 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is **not** set, no OpenTelemetry overhead is 
 
 ### Prometheus Metrics
 
-The server (and `cloacina-compiler`) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog](../metrics-catalog/).
+The server (and `cloacina-compiler`) expose a `/metrics` endpoint in Prometheus exposition format. No environment variable is needed; metrics are always available when the binary is running. By default `/metrics` is on the main listener with no authentication; set `CLOACINA_METRICS_BIND` (server) or `CLOACINA_COMPILER_METRICS_BIND` (compiler) to serve it only on a separate address. The full catalog — every metric name, type, labels, meaning, and example PromQL — lives in [Metrics Catalog](../metrics-catalog/).
 
 The top-of-mind metrics for operators:
 
@@ -428,6 +441,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
+| `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |
+| `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | Server | Longest time limit a fleet task can get (default `86400`) |
 | `CLOACINA_DEFAULT_MAX_AGENTS` | Server | Platform-wide default per-tenant agent limit (default `4`) |
 | `CLOACINA_INITIAL_AGENTS` | Server | Agents auto-provisioned on tenant create (default `1`; `0` disables) |
 | `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` / `kubernetes` (default `none`) |

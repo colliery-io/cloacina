@@ -248,10 +248,16 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// Rows in the `pending` state across all recipients, oldest first — the
     /// relay's drain query (T-0626). Delivered-but-unacked rows are excluded
     /// (they await ack or sweeper reclaim, not (re)delivery on a fresh wake).
+    ///
+    /// Run-finished notices ([`crate::run_alerts`]) are excluded: no sink
+    /// delivers them, and the alert sender of the server reads them by
+    /// recipient. Left in, a backlog of them would fill the relay's batch
+    /// (CLOACINA-T-1024).
     pub async fn list_pending(&self, limit: i64) -> Result<Vec<DeliveryOutbox>, ValidationError> {
         let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
             delivery_outbox::table
                 .filter(delivery_outbox::delivery_state.eq(STATE_PENDING))
+                .filter(delivery_outbox::recipient.ne(crate::run_alerts::RECIPIENT))
                 .order(delivery_outbox::id.asc())
                 .limit(limit)
                 .load(conn)
@@ -265,6 +271,9 @@ impl<'a> DeliveryOutboxDAL<'a> {
     /// of its lease ([`renew_delivered`](Self::renew_delivered)), was before
     /// `cutoff` (CLOACINA-T-1011): a recipient that still works on a row keeps
     /// it out of this scan.
+    ///
+    /// Run-finished notices ([`crate::run_alerts`]) are excluded: the alert
+    /// sender of the server does its own retry of them (CLOACINA-T-1024).
     pub async fn list_stuck(
         &self,
         cutoff: UniversalTimestamp,
@@ -272,6 +281,7 @@ impl<'a> DeliveryOutboxDAL<'a> {
     ) -> Result<Vec<DeliveryOutbox>, ValidationError> {
         let rows: Vec<UnifiedDeliveryOutbox> = crate::interact_on_backend!(self.dal, |conn| {
             delivery_outbox::table
+                .filter(delivery_outbox::recipient.ne(crate::run_alerts::RECIPIENT))
                 .filter(
                     delivery_outbox::delivery_state
                         .eq(STATE_PENDING)
@@ -335,6 +345,40 @@ impl<'a> DeliveryOutboxDAL<'a> {
                 .get_result(conn)
         })?;
         Ok(count)
+    }
+
+    /// Deletes up to `limit` `acked` rows whose ack is older than `cutoff`
+    /// (CLOACINA-T-1023). An acked row is terminal: nothing reads it again, so
+    /// it only has to outlive the ack long enough to help debugging.
+    ///
+    /// `limit` is clamped to `1..=5000`: the ids travel as bind parameters on
+    /// SQLite. The delete repeats the `acked` filter, so it can only ever
+    /// remove acked rows. Returns the rows removed; fewer than `limit` means
+    /// nothing older is left.
+    pub async fn delete_acked_older_than(
+        &self,
+        cutoff: UniversalTimestamp,
+        limit: i64,
+    ) -> Result<usize, ValidationError> {
+        let limit = limit.clamp(1, 5_000);
+        let deleted: usize = crate::interact_on_backend!(self.dal, |conn| {
+            let ids: Vec<i64> = delivery_outbox::table
+                .filter(delivery_outbox::delivery_state.eq(STATE_ACKED))
+                .filter(delivery_outbox::acked_at.lt(cutoff))
+                .select(delivery_outbox::id)
+                .limit(limit)
+                .load(conn)?;
+            if ids.is_empty() {
+                return Ok(0);
+            }
+            diesel::delete(
+                delivery_outbox::table
+                    .filter(delivery_outbox::id.eq_any(ids))
+                    .filter(delivery_outbox::delivery_state.eq(STATE_ACKED)),
+            )
+            .execute(conn)
+        })?;
+        Ok(deleted)
     }
 }
 
@@ -839,5 +883,75 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    /// Backdates the ack of one row (CLOACINA-T-1023 tests).
+    #[cfg(feature = "sqlite")]
+    async fn backdate_ack(dal: &DAL, id: i64, seconds: i64) {
+        let at = UniversalTimestamp::from(chrono::Utc::now() - chrono::Duration::seconds(seconds));
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(delivery_outbox::table.filter(delivery_outbox::id.eq(id)))
+                .set(delivery_outbox::acked_at.eq(Some(at)))
+                .execute(conn)
+        })
+        .unwrap();
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn total_rows(dal: &DAL) -> i64 {
+        crate::interact_on_backend!(dal, |conn| {
+            delivery_outbox::table.count().get_result::<i64>(conn)
+        })
+        .unwrap()
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_acked_older_than_removes_only_old_acked_rows() {
+        let dal = unique_dal().await;
+        let outbox = dal.delivery_outbox();
+        let old_acked = outbox.enqueue(new_row("agent:1")).await.unwrap();
+        let fresh_acked = outbox.enqueue(new_row("agent:1")).await.unwrap();
+        let old_pending = outbox.enqueue(new_row("agent:1")).await.unwrap();
+        let old_delivered = outbox.enqueue(new_row("agent:1")).await.unwrap();
+        outbox.mark_acked(old_acked.id).await.unwrap();
+        outbox.mark_acked(fresh_acked.id).await.unwrap();
+        outbox.mark_delivered(old_delivered.id).await.unwrap();
+        backdate_ack(&dal, old_acked.id, 60).await;
+
+        // Short period: 5 seconds.
+        let cutoff = UniversalTimestamp::from(chrono::Utc::now() - chrono::Duration::seconds(5));
+        let deleted = outbox.delete_acked_older_than(cutoff, 100).await.unwrap();
+
+        assert_eq!(deleted, 1, "only the row acked 60 seconds ago goes");
+        assert_eq!(total_rows(&dal).await, 3);
+        // The open rows are untouched, whatever their age.
+        let open = outbox.list_open_for_recipient("agent:1", 10).await.unwrap();
+        let open_ids: Vec<i64> = open.iter().map(|r| r.id).collect();
+        assert_eq!(open_ids, vec![old_pending.id, old_delivered.id]);
+        // A second pass finds nothing.
+        assert_eq!(
+            outbox.delete_acked_older_than(cutoff, 100).await.unwrap(),
+            0
+        );
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_acked_older_than_is_bounded_by_limit() {
+        let dal = unique_dal().await;
+        let outbox = dal.delivery_outbox();
+        for _ in 0..5 {
+            let row = outbox.enqueue(new_row("agent:1")).await.unwrap();
+            outbox.mark_acked(row.id).await.unwrap();
+            backdate_ack(&dal, row.id, 60).await;
+        }
+        let cutoff = UniversalTimestamp::from(chrono::Utc::now() - chrono::Duration::seconds(5));
+
+        assert_eq!(outbox.delete_acked_older_than(cutoff, 2).await.unwrap(), 2);
+        assert_eq!(total_rows(&dal).await, 3);
+        assert_eq!(outbox.delete_acked_older_than(cutoff, 2).await.unwrap(), 2);
+        assert_eq!(outbox.delete_acked_older_than(cutoff, 2).await.unwrap(), 1);
+        assert_eq!(total_rows(&dal).await, 0);
     }
 }

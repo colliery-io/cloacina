@@ -190,6 +190,11 @@ impl TaskRegistrar {
             // or the executor skips the handle path and defer_until cannot work.
             let requires_handle = task.requires_handle;
 
+            // CLOACINA-T-1014: the packaged task's own retry policy and time
+            // limit. Without them every packaged task got the trait defaults.
+            let retry_policy = dynamic_task::parse_retry_policy(&task.retry_policy_json, task_id);
+            let timeout = task.timeout_seconds.map(std::time::Duration::from_secs);
+
             let constructor = Box::new(move || {
                 Arc::new(DynamicLibraryTask::new(
                     plugin.clone(),
@@ -197,6 +202,8 @@ impl TaskRegistrar {
                     deps.clone(),
                     trigger_rules.clone(),
                     requires_handle,
+                    retry_policy.clone(),
+                    timeout,
                 )) as Arc<dyn Task>
             });
 

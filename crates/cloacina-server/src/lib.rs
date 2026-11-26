@@ -22,6 +22,7 @@
 
 pub mod actuator;
 pub mod agent_registry;
+pub mod alerts;
 pub mod autoscaler;
 pub mod delivery_sink;
 pub mod fleet_coordinator;
@@ -31,6 +32,7 @@ pub mod identity;
 pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
+pub mod retention;
 pub mod routes;
 pub mod secrets;
 pub mod tenant_runner_cache;
@@ -342,6 +344,9 @@ fn validate_security_args(
 pub async fn run(
     home: std::path::PathBuf,
     bind: SocketAddr,
+    // CLOACINA-T-1025: when set, `/metrics` is served only on this address and
+    // the main listener answers 404 for it. `None` keeps `/metrics` on `bind`.
+    metrics_bind: Option<SocketAddr>,
     database_url: String,
     verbose: bool,
     bootstrap_key: Option<String>,
@@ -363,9 +368,14 @@ pub async fn run(
     // the prior hardcoded 15s/45s.
     agent_heartbeat_interval_s: u32,
     agent_liveness_misses: u32,
+    // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
+    // A task with a limit of its own gets that limit, capped at the maximum.
+    fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
+    // Retention of run history and acked outbox rows (CLOACINA-T-1023).
+    retention: retention::RetentionConfig,
 ) -> Result<()> {
     // Validate CORS config before any heavy startup work.
     let cors_layer = cors.layer()?;
@@ -688,6 +698,8 @@ pub async fn run(
          `pending` + `delivered`). Sustained growth means delivery is wedged \
          — the analog of the compiler `sweep_resets_total` signal."
     );
+    // CLOACINA-T-1024: the alert webhook counters.
+    crate::alerts::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -697,10 +709,11 @@ pub async fn run(
     );
     metrics::describe_counter!(
         "cloacina_fleet_orphan_results_total",
-        "Agent reports that no dispatch waited for: the report of an older \
-         dispatch of a task, a second report, or a report that reached a \
-         replica which did not dispatch the task (CLOACINA-T-1013). The report \
-         changes no state. Each one is work that ran and was not used; \
+        "Agent reports that no dispatch on any replica waited for: the report \
+         of an older dispatch of a task, a second report, or a report whose \
+         replica stopped (CLOACINA-T-1013, CLOACINA-T-1015). Counted when the \
+         stored report is deleted by age, about 15 minutes after it came. The \
+         report changes no state. Each one is work that ran and was not used; \
          sustained non-zero means tasks time out or agents are declared dead \
          while they still run."
     );
@@ -967,12 +980,51 @@ pub async fn run(
     ));
     let fleet_coordinator = Arc::new(crate::fleet_coordinator::FleetCoordinator::new());
 
+    // CLOACINA-T-1015: an agent posts its report to any replica. A replica
+    // with no wait for it stores it in `fleet_result_inbox` (admin schema);
+    // this loop gives the stored reports to the waits of THIS replica and
+    // deletes the reports nobody took. It runs on every server, because the
+    // result route stores on every server. The LISTEN connection for the
+    // insert NOTIFY is opened only where the fleet executor runs: only there
+    // can a wait exist. Without it the loop still reads on its slow tick.
+    {
+        let result_inbox_wake = cloacina::delivery::WakeHandle::new();
+        tokio::spawn(crate::fleet_coordinator::run_result_inbox(
+            fleet_coordinator.clone(),
+            unified_dal.clone(),
+            result_inbox_wake.clone(),
+            substrate_shutdown_rx.clone(),
+        ));
+        #[cfg(feature = "postgres")]
+        if use_fleet {
+            tokio::spawn(cloacina::delivery::run_pg_listener(
+                database_url.clone(),
+                crate::fleet_coordinator::RESULT_INBOX_CHANNEL.to_string(),
+                result_inbox_wake,
+                substrate_shutdown_rx.clone(),
+            ));
+        }
+    }
+
     // CLOACI-T-0862: the per-tenant schema-scoped `Database` cache. Hoisted here
     // (was inline in the AppState literal) so BOTH the routes (via AppState) and
     // the fleet secret resolver factory share ONE instance — they must resolve
     // the same tenant schemas so a secret written over HTTP is the one a fleet
     // task resolves.
     let tenant_database_cache = Arc::new(TenantDatabaseCache::new(database_url.clone()));
+
+    // CLOACINA-T-1024: alert webhook for finished runs. Off unless `main`
+    // gave settings with `alerts::install`. The sender reads the notice rows
+    // that the engine writes when a run ends, in each tenant schema.
+    if let Some(alert_config) = crate::alerts::installed() {
+        crate::alerts::spawn(
+            alert_config.clone(),
+            runner.database().clone(),
+            tenant_database_cache.clone(),
+            substrate_shutdown_rx.clone(),
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+    }
 
     // CLOACI-T-0862 / T-0861 handoff: the concrete fleet secret resolver factory.
     // Activates the `FleetExecutor` secret seam so a `$secret`-referencing fleet
@@ -1028,7 +1080,8 @@ pub async fn run(
                         result_handler,
                         runner.runtime(),
                     )
-                    .with_secret_resolver_factory(reg_secret_factory.clone());
+                    .with_secret_resolver_factory(reg_secret_factory.clone())
+                    .with_task_time_limits(fleet_task_time_limits);
                     if runner.register_executor("fleet", Arc::new(fleet_executor)) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
@@ -1167,6 +1220,10 @@ pub async fn run(
     // is subscribed.
     crate::ops_metrics::spawn(state.clone(), substrate_shutdown_rx.clone());
 
+    // Retention (CLOACINA-T-1023): removes finished runs and acked outbox rows
+    // past their periods, per schema, on one replica per tick.
+    crate::retention::spawn(state.clone(), retention, substrate_shutdown_rx.clone());
+
     // Fleet executor registration (CLOACI-I-0114 / T-0633, T-0640). Only wired
     // up when the operator opts into the fleet via `--default-executor fleet`;
     // otherwise all work stays on the in-process thread executor and there's no
@@ -1195,7 +1252,8 @@ pub async fn run(
             state.runner.runtime(),
         )
         // CLOACI-T-0862: activate the secret resolver seam on the global executor.
-        .with_secret_resolver_factory(secret_resolver_factory.clone());
+        .with_secret_resolver_factory(secret_resolver_factory.clone())
+        .with_task_time_limits(fleet_task_time_limits);
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))
@@ -1585,7 +1643,8 @@ pub async fn run(
 
     // Build router; CORS (when enabled) wraps everything, including
     // preflight OPTIONS for the /v1 nest.
-    let app = build_router(state);
+    let metrics_handle_for_listener = state.metrics_handle.clone();
+    let app = build_router_with(state, metrics_bind.is_none());
     let app = match cors_layer {
         Some(layer) => {
             info!("CORS enabled for origins: {:?}", cors.allowed_origins);
@@ -1598,12 +1657,28 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("Failed to bind to {}", bind))?;
+    // CLOACINA-T-1025: the metrics listener binds before the server reports
+    // itself running, so a bad `--metrics-bind` fails start-up.
+    let metrics_listener = match metrics_bind {
+        Some(addr) => Some(
+            tokio::net::TcpListener::bind(addr)
+                .await
+                .with_context(|| format!("Failed to bind the metrics listener to {}", addr))?,
+        ),
+        None => None,
+    };
 
     info!("");
     info!("API server is running on http://{}", bind);
     info!("  GET  /health     — liveness check");
     info!("  GET  /ready      — readiness check");
-    info!("  GET  /metrics    — Prometheus metrics");
+    match metrics_bind {
+        Some(addr) => info!(
+            "  GET  /metrics    — Prometheus metrics, only on http://{}",
+            addr
+        ),
+        None => info!("  GET  /metrics    — Prometheus metrics"),
+    }
     info!("  POST /v1/auth/keys      — create API key (auth required)");
     info!("  GET  /v1/auth/keys      — list API keys (auth required)");
     info!("  DEL  /v1/auth/keys/:id  — revoke key (auth required)");
@@ -1615,6 +1690,21 @@ pub async fn run(
     // Start supervision loop — auto-restart crashed accumulator/reactor tasks
     let _supervision_handle = scheduler_for_shutdown
         .start_supervision(shutdown_rx.clone(), std::time::Duration::from_secs(5));
+
+    if let Some(listener) = metrics_listener {
+        let mut rx = shutdown_rx.clone();
+        let router = metrics_router(metrics_handle_for_listener);
+        tokio::spawn(async move {
+            let served = axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.changed().await;
+                })
+                .await;
+            if let Err(e) = served {
+                warn!("metrics listener exited with error: {}", e);
+            }
+        });
+    }
 
     let scheduler_handle = {
         let scheduler = scheduler_for_shutdown.clone();
@@ -1851,7 +1941,32 @@ mod embedded_ui_tests {
     }
 }
 
+/// The main router with `/metrics` on it: the behaviour when no
+/// `--metrics-bind` is given.
+#[cfg(test)]
 fn build_router(state: AppState) -> Router {
+    build_router_with(state, true)
+}
+
+/// The router of the metrics listener (`--metrics-bind`, CLOACINA-T-1025):
+/// `/metrics` and nothing else. It needs no `AppState`, so no route here can
+/// reach the database or a tenant.
+fn metrics_router(handle: metrics_exporter_prometheus::PrometheusHandle) -> Router {
+    Router::new()
+        .route(
+            "/metrics",
+            get(move || {
+                let handle = handle.clone();
+                async move { render_metrics(&handle) }
+            }),
+        )
+        .fallback(fallback_404)
+}
+
+/// Build the main router. `serve_metrics` is false when a separate metrics
+/// listener is on: `/metrics` then answers 404 here (an explicit route, so the
+/// embedded UI fallback never answers for it).
+fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
     use axum::{
         extract::DefaultBodyLimit, middleware, routing::delete, routing::post, routing::put,
     };
@@ -1993,6 +2108,17 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/tenants/{tenant_id}/workflows/{name}/resume",
             post(crate::routes::workflows::resume_workflow),
+        )
+        // Versions of a package: list, and make an earlier one active
+        // (CLOACINA-T-1018). The static `versions` segment wins over the
+        // `{version}` wildcard of the delete route below.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/versions",
+            get(crate::routes::workflows::list_workflow_versions),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
+            post(crate::routes::workflows::activate_workflow_version),
         )
         // Named workflow instances (CLOACI-T-0894). Declared BEFORE the
         // `{version}` delete so the static `instances` segment is never
@@ -2229,7 +2355,14 @@ fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
-        .route("/metrics", get(metrics))
+        .route(
+            "/metrics",
+            if serve_metrics {
+                get(metrics)
+            } else {
+                axum::routing::any(fallback_404)
+            },
+        )
         // Machine-readable API contract (CLOACI-T-0643 / REQ-001). Same
         // document the `emit-openapi` subcommand writes to disk.
         .route(
@@ -2323,13 +2456,32 @@ async fn health() -> impl IntoResponse {
     tag = "operational",
     responses(
         (status = 200, description = "Ready — DB reachable and the embedded Python runtime is usable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."),
-        (status = 503, description = "Not ready — `reason` field explains (database unreachable, or the embedded Python runtime is wedged by a package import hang and this process must be restarted)"),
+        (status = 503, description = "Not ready — `reason` is one of two fixed strings: `database unreachable`, or `python runtime unavailable; restart required` (the embedded Python runtime is wedged and this process must be restarted). The package that wedged it is named in the server log only."),
     )
 )]
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
     let db_ready = state.database.get_postgres_connection().await.is_ok();
 
+    // PLATFORM predicate, not workload: this process's embedded interpreter is
+    // unusable and only a restart fixes it (CLOACI-T-0919).
+    let wedged = cloacina::python_runtime::python_runtime_wedged_reason();
+    ready_response(db_ready, wedged.as_deref())
+}
+
+/// The `reason` `/ready` gives when the embedded Python runtime is wedged.
+/// Fixed text: `/ready` has no auth, and the real reason names a tenant's
+/// package (CLOACINA-T-1025).
+const READY_REASON_PYTHON_WEDGED: &str = "python runtime unavailable; restart required";
+
+/// The `/ready` answer for a given platform state. `python_wedged` is the
+/// detailed reason from the runtime; it never goes into the body. The runtime
+/// logs it at error level when the wedge happens
+/// (`cloacina::python_runtime::mark_python_runtime_wedged`).
+fn ready_response(
+    db_ready: bool,
+    python_wedged: Option<&str>,
+) -> (StatusCode, Json<serde_json::Value>) {
     if !db_ready {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2337,12 +2489,11 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
 
-    // PLATFORM predicate, not workload: this process's embedded interpreter is
-    // unusable and only a restart fixes it (CLOACI-T-0919).
-    if let Some(reason) = cloacina::python_runtime::python_runtime_wedged_reason() {
+    if let Some(detail) = python_wedged {
+        tracing::debug!(detail = %detail, "/ready: not ready, python runtime wedged");
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"status": "not ready", "reason": reason})),
+            Json(serde_json::json!({"status": "not ready", "reason": READY_REASON_PYTHON_WEDGED})),
         );
     }
 
@@ -2351,7 +2502,15 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 
 /// GET /metrics — Prometheus metrics rendered from the recorder installed at startup.
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
-    let body = state.metrics_handle.render();
+    render_metrics(&state.metrics_handle)
+}
+
+/// The Prometheus text exposition, shared by the main listener's `/metrics`
+/// and the metrics listener.
+fn render_metrics(
+    handle: &metrics_exporter_prometheus::PrometheusHandle,
+) -> axum::response::Response {
+    let body = handle.render();
     (
         StatusCode::OK,
         [(
@@ -2360,6 +2519,7 @@ async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         )],
         body,
     )
+        .into_response()
 }
 
 /// Fallback for unmatched routes — returns the canonical `ApiError`
@@ -2874,10 +3034,138 @@ mod tests {
             "a wedged python runtime must fail readiness (body: {body})"
         );
         assert_eq!(body["status"], "not ready");
-        assert_eq!(
-            body["reason"], "python runtime wedged by package hostile-loop import hang",
-            "the reason must name the package that wedged the interpreter"
+        // CLOACINA-T-1025: `/ready` has no auth, so the package name stays in
+        // the server log and the body carries a fixed reason.
+        assert_eq!(body["reason"], READY_REASON_PYTHON_WEDGED);
+        assert!(
+            !body.to_string().contains("hostile-loop"),
+            "/ready must not name the package (body: {body})"
         );
+    }
+
+    // ── CLOACINA-T-1025: metrics listener, generic /ready reason ──────────
+
+    /// A recorder that is not installed globally: enough to render `/metrics`,
+    /// and it needs no database.
+    fn detached_metrics_handle() -> metrics_exporter_prometheus::PrometheusHandle {
+        metrics_exporter_prometheus::PrometheusBuilder::new()
+            .build_recorder()
+            .handle()
+    }
+
+    /// The metrics listener serves `/metrics` in the Prometheus text format.
+    /// No database.
+    #[tokio::test]
+    async fn metrics_listener_serves_metrics() {
+        let app = metrics_router(detached_metrics_handle());
+        let req = axum::http::Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        assert!(
+            content_type.starts_with("text/plain"),
+            "got content type {content_type}"
+        );
+    }
+
+    /// The metrics listener serves nothing but `/metrics`: the API, the probes
+    /// and the spec all answer 404 there. No database.
+    #[tokio::test]
+    async fn metrics_listener_serves_nothing_else() {
+        for path in [
+            "/",
+            "/health",
+            "/ready",
+            "/openapi.json",
+            "/v1/auth/keys",
+            "/v1/tenants/acme/workflows",
+            "/metrics/extra",
+        ] {
+            let app = metrics_router(detached_metrics_handle());
+            let req = axum::http::Request::builder()
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let (status, body) = send_request(app, req).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "path {path}");
+            assert_eq!(
+                body["error"], "no route matches this request",
+                "path {path}"
+            );
+        }
+    }
+
+    /// `/ready` gives a fixed reason when the Python runtime is wedged, and the
+    /// package name in the detail is not in the body. No database.
+    #[test]
+    fn ready_response_does_not_name_the_package() {
+        let (status, Json(body)) = ready_response(
+            true,
+            Some("python runtime wedged by package hostile-loop import hang"),
+        );
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"], "not ready");
+        assert_eq!(body["reason"], READY_REASON_PYTHON_WEDGED);
+        assert!(!body.to_string().contains("hostile-loop"), "body: {body}");
+    }
+
+    /// The other two `/ready` answers are unchanged. No database.
+    #[test]
+    fn ready_response_database_and_ready_cases() {
+        let (status, Json(body)) = ready_response(false, None);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["reason"], "database unreachable");
+
+        // The database is checked first, as before.
+        let (_, Json(body)) = ready_response(false, Some("detail"));
+        assert_eq!(body["reason"], "database unreachable");
+
+        let (status, Json(body)) = ready_response(true, None);
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ready");
+        assert!(body.get("reason").is_none());
+    }
+
+    /// With the metrics listener on, the main listener answers 404 for
+    /// `/metrics` and still serves `/health`. Needs Postgres (`test_state`).
+    #[tokio::test]
+    #[serial]
+    async fn main_listener_returns_404_for_metrics_when_metrics_listener_is_on() {
+        let state = test_state().await;
+
+        let req = axum::http::Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(build_router_with(state.clone(), false), req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "no route matches this request");
+
+        let req = axum::http::Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = send_request(build_router_with(state.clone(), false), req).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Without the metrics listener the main listener keeps `/metrics`.
+        let req = axum::http::Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let response = build_router_with(state, true)
+            .oneshot(req)
+            .await
+            .expect("request failed");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     // ── CLOACI-T-0916: multi-replica truthfulness ─────────────────────────
@@ -2888,6 +3176,138 @@ mod tests {
 
     fn second_replica_db() -> cloacina::database::Database {
         cloacina::database::Database::new(TEST_DB_URL, "cloacina", 2)
+    }
+
+    /// CLOACINA-T-1015: an agent's result POST that lands on a replica which
+    /// did not dispatch the task must resolve the wait of the replica that
+    /// did, so the task is not run again after the result-wait timeout.
+    ///
+    /// Replica A holds the wait and runs the inbox loop with its LISTEN
+    /// connection. The POST goes through the real handler on replica B (its
+    /// own coordinator and its own pool). The wait on A must resolve before
+    /// the loop's 5 s tick, which shows the NOTIFY path.
+    #[tokio::test]
+    #[serial]
+    async fn fleet_result_posted_to_another_replica_resolves_the_wait_of_the_dispatcher() {
+        use crate::fleet_coordinator::{
+            RESULT_INBOX_CHANNEL, run_result_inbox, sweep_result_inbox,
+        };
+        use cloacina::fleet::{AGENT_PROTOCOL_VERSION, AgentOutcome, AgentResultRequest};
+
+        let replica_a = test_state().await;
+        let mut replica_b = test_state().await;
+        replica_b.database = second_replica_db();
+        let inbox_a = cloacina::dal::DAL::new(replica_a.database.clone());
+
+        // Leftovers of an earlier run would be taken for this test's reports.
+        sweep_result_inbox(&inbox_a, std::time::Duration::ZERO)
+            .await
+            .expect("clear the inbox");
+
+        let wake = cloacina::delivery::WakeHandle::new();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let inbox_loop = tokio::spawn(run_result_inbox(
+            replica_a.fleet_coordinator.clone(),
+            inbox_a.clone(),
+            wake.clone(),
+            shutdown_rx.clone(),
+        ));
+        let listener = tokio::spawn(cloacina::delivery::run_pg_listener(
+            TEST_DB_URL.to_string(),
+            RESULT_INBOX_CHANNEL.to_string(),
+            wake,
+            shutdown_rx,
+        ));
+        // Let the listener connect and the loop take its first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+        let task_id = cloacina::UniversalUuid::new_v4();
+        let rx = replica_a
+            .fleet_coordinator
+            .register_dispatch(task_id, "dispatch-1".to_string());
+
+        let auth = crate::routes::auth::AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: "t1015-agent".to_string(),
+            permissions: "admin".to_string(),
+            tenant_id: None,
+            is_admin: true,
+        };
+        let report = AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: format!("t1015-agent-{}", uuid::Uuid::new_v4()),
+            task_execution_id: task_id.0.to_string(),
+            attempt: 1,
+            dispatch_id: Some("dispatch-1".to_string()),
+            duration_ms: 5,
+            outcome: AgentOutcome::Success {
+                context: serde_json::json!({"k": "v"}),
+            },
+        };
+
+        let posted = crate::routes::agent::report_result(
+            axum::extract::State(replica_b.clone()),
+            axum::Extension(auth.clone()),
+            axum::Json(report.clone()),
+        )
+        .await;
+        assert!(
+            posted.is_ok(),
+            "replica B accepts a report it has no wait for"
+        );
+        assert_eq!(
+            replica_b.fleet_coordinator.pending_count(),
+            0,
+            "replica B never had the wait"
+        );
+
+        let got = tokio::time::timeout(std::time::Duration::from_secs(4), rx)
+            .await
+            .expect("the NOTIFY wakes replica A before its slow tick")
+            .expect("the wait on replica A is resolved");
+        assert_eq!(got.dispatch_id.as_deref(), Some("dispatch-1"));
+        assert_eq!(got.agent_id, report.agent_id);
+        assert_eq!(replica_a.fleet_coordinator.pending_count(), 0);
+        assert!(
+            inbox_a
+                .fleet_result_inbox()
+                .list_for(&[task_id])
+                .await
+                .unwrap()
+                .is_empty(),
+            "the taken report leaves no row"
+        );
+
+        // A second copy of the report (an agent retry whose first POST did
+        // arrive) has no wait anywhere: stored, taken by nobody, gone by age.
+        let again = crate::routes::agent::report_result(
+            axum::extract::State(replica_b.clone()),
+            axum::Extension(auth),
+            axum::Json(report),
+        )
+        .await;
+        assert!(again.is_ok());
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(
+            inbox_a
+                .fleet_result_inbox()
+                .list_for(&[task_id])
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "a report nobody waits for stays stored and resolves nothing"
+        );
+        assert_eq!(
+            sweep_result_inbox(&inbox_a, std::time::Duration::ZERO)
+                .await
+                .unwrap(),
+            1
+        );
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inbox_loop).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), listener).await;
     }
 
     /// A WS ticket minted "on replica A" must redeem "on replica B" — and only
@@ -5777,6 +6197,70 @@ mod tests {
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
         assert!(body["package_id"].as_str().is_some());
+    }
+
+    /// CLOACINA-T-1018: the versions list and the activation route. No
+    /// compiler runs in this lane, so the uploaded version is not built: the
+    /// list shows it, and the activation refuses a version with no build.
+    #[tokio::test]
+    #[serial]
+    async fn test_workflow_versions_list_and_activate() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let call = |method: &'static str, uri: String| {
+            let (state, token) = (state.clone(), token.clone());
+            async move {
+                let req = axum::http::Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .unwrap();
+                send_request(build_router(state), req).await
+            }
+        };
+
+        let package_data = std::fs::read(fixture_path("python-workflow.cloacina"))
+            .expect("fixture file not found");
+        let (boundary, body_bytes) = multipart_file_body(&package_data);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/tenants/public/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body_bytes))
+            .unwrap();
+        let (status, body) = send_request(build_router(state.clone()), req).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+
+        let base = "/v1/tenants/public/workflows/test-fixture-python/versions";
+        let (status, body) = call("GET", base.to_string()).await;
+        assert_eq!(status, StatusCode::OK, "body: {:?}", body);
+        let items = body["items"].as_array().expect("items");
+        let row = items
+            .iter()
+            .find(|v| v["version"] == "1.0.0")
+            .expect("the uploaded version is listed");
+        assert_eq!(row["package_name"], "test-fixture-python");
+        let active = items.iter().filter(|v| v["active"] == true).count();
+        assert!(active <= 1, "at most one active version: {:?}", items);
+
+        // A version with no successful build cannot be made active.
+        if row["build_status"] != "success" {
+            let (status, body) = call("POST", format!("{base}/1.0.0/activate")).await;
+            assert_eq!(status, StatusCode::CONFLICT, "body: {:?}", body);
+        }
+        let (status, _) = call("POST", format!("{base}/9.9.9/activate")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = call(
+            "GET",
+            "/v1/tenants/public/workflows/no-such-package/versions".to_string(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

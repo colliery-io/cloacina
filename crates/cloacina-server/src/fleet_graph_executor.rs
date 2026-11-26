@@ -121,13 +121,18 @@ impl FleetGraphExecutor {
         // 2. Resolve the active artifact. Interpreted (Python) CGs stay
         //    in-process in v1 — their compiled graph fn is a live PyObject,
         //    not a shippable artifact.
-        let (primary_digest, language) = self
+        //    CLOACINA-T-1018: a graph fire has no workflow execution, so it
+        //    always runs on the active version; the per-target lookups below
+        //    are scoped to that version.
+        let active = self
             .dal
             .workflow_packages()
-            .get_active_dispatch_for_package(&package_name, None)
+            .get_active_dispatch(&package_name, None)
             .await
             .map_err(|e| format!("artifact digest lookup failed: {e}"))?
             .ok_or_else(|| format!("no active artifact for package '{package_name}'"))?;
+        let (primary_digest, language, package_version) =
+            (active.content_hash, active.language, active.version);
 
         // 3. Select a live agent with capacity + a runnable arch in the
         //    graph's tenant. An interpreted (Python) package runs from source
@@ -140,7 +145,7 @@ impl FleetGraphExecutor {
             let mut t = self
                 .dal
                 .workflow_packages()
-                .get_artifact_triples_for_package(&package_name)
+                .get_artifact_triples_for_package(&package_name, &package_version)
                 .await
                 .unwrap_or_default();
             t.push(host_target_triple().to_string());
@@ -173,7 +178,7 @@ impl FleetGraphExecutor {
             match self
                 .dal
                 .workflow_packages()
-                .get_artifact_digest_for_target(&package_name, &agent_triple)
+                .get_artifact_digest_for_target(&package_name, &package_version, &agent_triple)
                 .await
             {
                 Ok(Some(arch_digest)) => (arch_digest, agent_triple),

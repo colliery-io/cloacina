@@ -41,7 +41,7 @@ use cloacina_api_types::{
     TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse,
     WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceFile,
     WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
-    WsTicketResponse,
+    WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -123,6 +123,8 @@ impl Modify for SecurityAddon {
         crate::routes::workflows::pause_workflow,
         crate::routes::workflows::resume_workflow,
         crate::routes::workflows::delete_workflow,
+        crate::routes::workflows::list_workflow_versions,
+        crate::routes::workflows::activate_workflow_version,
         crate::routes::instances::create_instance,
         crate::routes::instances::list_instances,
         crate::routes::instances::get_instance,
@@ -190,6 +192,9 @@ impl Modify for SecurityAddon {
         DeclaredSurface,
         WorkflowDeletedResponse,
         TenantListResponse<WorkflowSummary>,
+        WorkflowVersionSummary,
+        WorkflowVersionActivatedResponse,
+        TenantListResponse<WorkflowVersionSummary>,
         TriggerScheduleSummary,
         TriggerScheduleInfo,
         TriggerExecution,

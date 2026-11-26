@@ -112,10 +112,20 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
     // scrapes /metrics from the same listener (T-0591).
     let http_shutdown = shutdown.clone();
     let http_registry = Arc::clone(&registry);
+    // CLOACINA-T-1025: with `--metrics-bind`, `/metrics` moves to its own
+    // listener and the health listener stops serving it.
+    if let Some(metrics_bind) = config.metrics_bind {
+        tokio::spawn(health::serve_metrics(
+            metrics_bind,
+            metrics_handle.clone(),
+            shutdown.clone(),
+        ));
+    }
     let http_handle = tokio::spawn(health::serve(
         config.bind,
         http_registry,
         metrics_handle,
+        config.metrics_bind.is_none(),
         http_shutdown,
     ));
 

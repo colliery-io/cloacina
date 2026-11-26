@@ -33,6 +33,7 @@ All parameters are keyword-only and optional
 - `retry_max_delay_ms` (int): Maximum delay between retries
 - `retry_condition` (str): When to retry: "never", "transient", or "all"
 - `retry_jitter` (bool): Add random jitter to retry delays
+- `timeout_seconds` (int): The task's own time limit in seconds (greater than 0; `0` raises `ValueError`). When set it replaces the executor's limit for this task: `task_timeout_seconds` in process, the server default on an execution-agent fleet, where the server maximum caps it. Default: no own limit. Python parity with Rust's `#[task(timeout_seconds = …)]`.
 - `on_success` (callable): Callback function called when task succeeds
 - `on_failure` (callable): Callback function called when task fails
 - `invokes` (ComputationGraphBuilder): A **trigger-less** computation graph this task invokes: after the task body succeeds, the engine executes the graph with the task's context. The referenced `with ComputationGraphBuilder(...)` block must run before the decorator, or the decorator raises `ValueError`. Python parity with Rust's `#[task(invokes = …)]`.

@@ -85,6 +85,8 @@ impl TaskRegistrar {
                     .unwrap_or_else(|_| "[]".to_string()),
                 trigger_rules_json: t.trigger_rules,
                 requires_handle: t.requires_handle,
+                retry_policy_json: t.retry_policy,
+                timeout_seconds: t.timeout_seconds,
             })
             .collect();
 

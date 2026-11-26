@@ -1,0 +1,88 @@
+---
+name: Fleet E2E
+
+# End-to-end tests of the execution-agent fleet against a live server:
+# Postgres, cloacina-server with every task sent to the fleet,
+# cloacina-compiler and a real cloacina-agent (CLOACINA-T-1017).
+#
+# These tests were run by hand only. The harness then went stale without
+# notice: its agent used a key with no tenant and got no work. So they run
+# here on each pull request that touches the fleet path, each night, and on
+# demand.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/cloacina-agent/**'
+      - 'crates/cloacina-server/src/fleet_*.rs'
+      - 'crates/cloacina-server/src/agent_registry.rs'
+      - 'crates/cloacina-server/src/delivery_sink.rs'
+      - 'crates/cloacina-server/src/routes/agent.rs'
+      - 'crates/cloacina-server/src/routes/delivery_ws.rs'
+      - 'crates/cloacina/src/fleet/**'
+      - 'crates/cloacina/src/delivery/**'
+      - 'crates/cloacina/src/dal/unified/delivery_outbox.rs'
+      - 'crates/cloacina/src/dal/unified/task_execution/**'
+      - 'crates/cloacina/src/executor/result_handler.rs'
+      - 'examples/fixtures/compiler-happy-rust/**'
+      - 'examples/fixtures/fleet-long-task-rust/**'
+      - '.angreal/test/e2e/fleet*.py'
+      - '.angreal/test/e2e/_fleet_stack.py'
+      - '.angreal/test/e2e/compiler.py'
+      - '.github/workflows/fleet-e2e.yml'
+  schedule:
+    # 4am UTC, after the nightly suite starts.
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: fleet-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_NET_RETRY: "10"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_HTTP_MULTIPLEXING: "false"
+
+jobs:
+  fleet-e2e:
+    name: Fleet E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/free-disk-space
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-fleet-e2e"
+
+      - name: Install libpq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      # Each task starts its own Postgres with docker compose and resets it.
+      - name: Fleet e2e (one task on the agent)
+        run: angreal test e2e fleet
+
+      - name: Fleet e2e (a task with no agent of its tenant waits)
+        run: angreal test e2e fleet-wait-for-agent
+
+      - name: Fleet e2e (a 150 s task runs one time)
+        run: angreal test e2e fleet-long-task

@@ -2077,6 +2077,10 @@ impl Task for ConstructorNode {
     fn requires_handle(&self) -> bool {
         self.inner.requires_handle()
     }
+
+    fn timeout(&self) -> Option<std::time::Duration> {
+        self.inner.timeout()
+    }
 }
 
 /// A single `#[config]` value resolved from a `constructor!(config = { … })`

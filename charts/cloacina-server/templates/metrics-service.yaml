@@ -1,0 +1,21 @@
+{{- if .Values.metrics.enabled }}
+# The metrics listener (CLOACINA-T-1025). A Service of its own, always
+# ClusterIP, so that a LoadBalancer or NodePort API Service does not publish
+# the metrics port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}-metrics
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "cloacina-server.selectorLabels" . | nindent 4 }}
+{{- end }}

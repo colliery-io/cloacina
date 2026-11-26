@@ -57,15 +57,32 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    same holds when the chosen agent is full by the time the packet arrives and
    refuses it. Waiting for capacity never fails a task; watch
    `cloacina_fleet_dispatch_deferred_total` to see it.
-3. **Resolve the artifact.** It looks up the active (built, non-superseded)
-   `.cloacina` cdylib digest for the task's package in that tenant.
+3. **Resolve the artifact.** For the first task of an execution it looks up
+   the active (built, non-superseded) version of the task's package in that
+   tenant and records it as the execution's **version pin**. For each later
+   task of the same execution it reads the pin. So an execution runs all its
+   tasks on the version it started with, also when a newer version becomes
+   active or an earlier one is made active again while it runs. The artifact
+   of a superseded version stays fetchable by digest. If the pinned version
+   was deleted, the task fails; it does not move to another version.
+   The per-architecture artifact is looked up for that same version.
+
+   Limits of the rule: the pin covers the artifact an agent runs. The server
+   still builds the task's dependency context from the workflow it has loaded,
+   which is the active version, so a new version that removes a task or changes
+   the edges between tasks can still affect an execution that is running. A
+   runner that executes tasks in its own process (no fleet) holds one loaded
+   version of a package and is not pinned. Computation graph fires have no
+   execution and always use the active version.
 4. **Inline the context.** It builds the merged dependency context with the same
    `TaskContextBuilder` the in-process path uses, so a fleet-run task sees
    byte-for-byte the input context it would running locally.
 5. **Enqueue + register a rendezvous.** It registers a one-shot keyed by the
    `task_execution_id`, then enqueues a **work packet** (task name, context,
-   artifact reference, timeout, tenant) into `delivery_outbox` addressed to the
-   chosen agent and wakes the delivery relay.
+   artifact reference, time limit, tenant) into `delivery_outbox` addressed to
+   the chosen agent and wakes the delivery relay. The time limit is the
+   task's own (see [time limits and retries](#time-limits-and-retries)) or the
+   server default.
 6. **Push.** The relay pushes the work packet over the agent's delivery
    WebSocket. (A LISTEN/NOTIFY wake keeps same-replica delivery prompt; a
    safety-net sweeper re-pushes anything that slips through.)
@@ -78,11 +95,19 @@ On the agent:
 8. **Fetch + cache.** It fetches the cdylib by digest over REST (skipped on a
    cache hit) and `dlopen`s it via [fidius](../../engine/ffi-system/).
 9. **Execute + report.** It resolves the task in the loaded library, runs it
-   under the packet's timeout with the inlined context, and POSTs the outcome
+   under the packet's time limit with the inlined context, and POSTs the outcome
    (`Success` / `Failure` / `Refused`) back to the server.
-   It acks the work packet only now, when the work has ended: until then the
-   open `delivery_outbox` row marks the work as in flight (see
-   [dead-agent reclaim](#liveness-and-dead-agent-reclaim)).
+   A POST that fails for a reason that can pass (a network error, a time
+   limit, a 5xx) is sent again with a backoff of 1 s, doubled up to 15 s, at
+   most 12 times, and not past the point where the server stops waiting. A
+   4xx that rejects the report itself (protocol mismatch, a key of another
+   tenant) is not sent again.
+   It acks the work packet only after that, when the work has ended and the
+   report is delivered or given up: until then the open `delivery_outbox` row
+   marks the work as in flight (see
+   [dead-agent reclaim](#liveness-and-dead-agent-reclaim)). When the retries
+   are used up the agent still acks; the server's result wait ends and its
+   retry policy starts the task again.
 10. **Reconcile.** The server hands the outcome to the **shared**
     `TaskResultHandler` — the same code the in-process executor uses — so state
     writes, retries, and context persistence are identical by construction
@@ -90,6 +115,26 @@ On the agent:
 
 The agent reporting wakes the rendezvous registered in step 5, so the original
 executor invocation resumes and finalizes the task.
+
+### A report can reach any server replica
+
+The rendezvous of step 5 lives in the memory of the replica that dispatched
+the task. The agent posts to the server's Service address, so with more than
+one replica the report can reach a different one. That replica has no wait for
+it: it stores the report in the `fleet_result_inbox` table and answers 200.
+The insert sends a Postgres `NOTIFY`; the replica that waits takes the row
+(a delete, so one replica gets it) and resolves its wait. Each replica also
+reads the inbox for its own waits every 5 s, which covers a missed
+notification. If the report can be neither forwarded nor stored (the database
+is down), the server answers with a 5xx and the agent sends it again.
+
+The rules below do not change: a stored report resolves only its own dispatch,
+the terminal write is still made by the executor that holds the claim, and a
+report that no replica waits for changes no state. Such a row is deleted after
+about 15 minutes and counted in `cloacina_fleet_orphan_results_total`.
+
+What this does not cover: a replica that stops takes its waits with it. The
+task is then picked up by the stale-claim sweep and runs again, as before.
 
 > **Wire format is always bincode.** fidius serializes with bincode in every
 > build profile — there is no debug/JSON split, so agents and packages don't
@@ -170,6 +215,35 @@ task completes on a survivor with no workflow-level failure. If no live agent is
 available, the rows stay put and the executor's own result-wait timeout drives a
 retry (degraded, not lost).
 
+## Time limits and retries
+
+A fleet task runs under a time limit, and the task's own retry policy decides
+what happens when an attempt fails.
+
+- **The time limit is per task.** A task sets it with
+  `#[task(timeout_seconds = N)]` (Rust) or `@task(timeout_seconds=N)`
+  (Python). A task that sets none gets the server default,
+  `--fleet-task-timeout-s` (`CLOACINA_FLEET_TASK_TIMEOUT_S`, default `300`).
+- **The server has a maximum.** No task gets more than
+  `--fleet-task-timeout-max-s` (`CLOACINA_FLEET_TASK_TIMEOUT_MAX_S`, default
+  `86400`, 24 hours). A task that asks for more gets the maximum, and the
+  server logs a warning on each dispatch. A default above the maximum stops
+  the server at start.
+- **The agent enforces the limit.** The work packet carries it. When the task
+  runs past it the agent reports a timeout and the attempt fails as a timeout,
+  the same as on the in-process executor. The server waits for the report for
+  the limit plus 30 seconds, then gives up on the dispatch.
+- **The retry policy is the task's own.** `retry_attempts`, `retry_condition`
+  and the backoff settings of the task apply on the fleet as they do in
+  process. `retry_attempts = 0` or `retry_condition = "never"` gives one
+  attempt.
+- **Retry conditions read the task's error text.** A failure arrives at the
+  server as `agent failure (<class>): <the task's error>`. An error pattern or
+  the `transient` condition tests that text, so it sees what the task wrote.
+
+A task that ran past its limit is not stopped (see the second point below):
+the agent stops waiting for it and frees the slot.
+
 Two things worth knowing about the recovery characteristics:
 
 - **It is failover, not checkpointing.** The survivor re-runs the task from the
@@ -183,7 +257,8 @@ Two things worth knowing about the recovery characteristics:
   time.
 - **A late report changes nothing.** A result counts only for the dispatch it
   belongs to, and only while the dispatching server holds the claim on the
-  task. A report that nobody waits for is logged and counted in
+  task. A report that no replica waits for is logged, deleted from the result
+  inbox after about 15 minutes, and counted then in
   `cloacina_fleet_orphan_results_total`.
 - **Detection latency is tunable.** Total time to recover ≈ (dead-after
   detection) + (re-run). The detection floor is `interval × misses`; lower both

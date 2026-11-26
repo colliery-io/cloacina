@@ -87,4 +87,5 @@ pub use triggers::{
 pub use workflows::{
     WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
     WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
+    WorkflowVersionActivatedResponse, WorkflowVersionSummary,
 };

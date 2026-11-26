@@ -39,10 +39,17 @@ affinity: {}
 # ---------------------------------------------------------------------------
 # High availability (CLOACI-T-0819)
 #
-# The server is safe to run with replicaCount>1: the autoscaler/reconciler
-# leader is gated by a Postgres advisory lock (ADR CLOACI-A-0008), so extra
-# replicas serve HTTP without double-driving the control loop. A
-# PodDisruptionBudget keeps a minimum available during voluntary disruptions
+# The server is safe to run with replicaCount>1:
+#   - the autoscaler/reconciler leader is gated by a Postgres advisory lock
+#     (ADR CLOACI-A-0008), so extra replicas serve HTTP without double-driving
+#     the control loop;
+#   - an execution agent may post a task result to any replica: a replica that
+#     did not dispatch the task stores the result in Postgres and the replica
+#     that waits for it takes it (CLOACINA-T-1015). No session affinity is
+#     needed on the Service.
+# A replica that stops loses the result waits it held; those tasks run again
+# (tasks on the fleet must be safe to run twice).
+# A PodDisruptionBudget keeps a minimum available during voluntary disruptions
 # (node drains, rolling updates).
 #
 # NOTE: there is deliberately NO HorizontalPodAutoscaler. The control-plane
@@ -344,7 +351,46 @@ compiler:
         - ALL
 
 # ---------------------------------------------------------------------------
+# Metrics listener (CLOACINA-T-1025)
+#
+# By default the server serves /metrics on the API port (8080) with no
+# authentication, so every client that can reach the API can read it. The
+# metric labels hold names that tenants choose (graphs, reactors, accumulators,
+# sources).
+#
+# metrics.enabled=true starts a second listener for /metrics on metrics.port
+# (the server's --metrics-bind). The API port then answers 404 for /metrics.
+# The chart adds a container port `metrics` and a ClusterIP Service
+# "<fullname>-metrics", and the ServiceMonitor (when enabled) scrapes that
+# Service instead of the API Service.
+# ---------------------------------------------------------------------------
+metrics:
+  enabled: false
+  port: 9090
+
+  # NetworkPolicy for the server pods. Needs metrics.enabled=true, and a CNI
+  # that enforces NetworkPolicy. When enabled:
+  #   - the API port stays open to every source, as without a policy;
+  #   - the metrics port is open only to the peers in `from`;
+  #   - every other ingress to the server pods is refused.
+  # `from` is a list of NetworkPolicy peers. An empty list admits nobody to the
+  # metrics port. Example, for a Prometheus in the namespace `monitoring`:
+  #   from:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: monitoring
+  #       podSelector:
+  #         matchLabels:
+  #           app.kubernetes.io/name: prometheus
+  networkPolicy:
+    enabled: false
+    from: []
+
+# ---------------------------------------------------------------------------
 # ServiceMonitor (Prometheus operator)
+#
+# Scrapes /metrics on the API Service, or on the metrics Service when
+# metrics.enabled=true.
 # ---------------------------------------------------------------------------
 serviceMonitor:
   enabled: false

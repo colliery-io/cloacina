@@ -194,10 +194,19 @@ cloacinactl server start [--bind <ADDR>] [--database-url <URL>]
 | `--reconcile-interval-s <N>` | | (runtime default) | Interval (seconds) between reconciler passes that sync the in-runner workflow registry with the DB. Increase for quiet prod; decrease for fast e2e tests. |
 | `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | LRU cap on cached per-tenant `DefaultRunner` instances. Each cached runner has its own scheduler loop, executor pool, and DB connection pool. Bump for high-cardinality SaaS deployments; drop for memory-tight ones. CLOACI-T-0580. |
 | `--tenant-deletion-drain-timeout-s <N>` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; any task that ignored cooperative cancellation errors on its next DB write once the schema is dropped. CLOACI-T-0581. |
-| `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. CLOACI-I-0109 / T-0592. |
+| `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. Log files only: database rows are covered by the retention settings below. CLOACI-I-0109 / T-0592. |
 
 This subcommand was renamed from `serve` in an earlier release; older
 docs may still mention the old name.
+
+Retention of run history in the database is set on the `cloacina-server`
+binary, by flag or environment variable (the wrapper passes the environment
+through): `--run-history-retention-days` /
+`CLOACINA_RUN_HISTORY_RETENTION_DAYS` (default `0`, off),
+`--outbox-acked-retention-s` / `CLOACINA_OUTBOX_ACKED_RETENTION_S` (default
+`3600`) and `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S`
+(default `300`). See
+[Run history retention](../../how-to/service/production-deployment/#run-history-retention).
 
 `server start` **execs the `cloacina-server` binary from `PATH`**
 (after writing `<home>/server.pid`). The install script installs only
@@ -229,6 +238,21 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 |---|---|---|---|
 | `--agent-heartbeat-interval-s <N>` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Heartbeat interval (seconds) advertised to agents and used as the liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, more heartbeat traffic. CLOACI-T-0639. |
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
+| `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. CLOACINA-T-1014. |
+| `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
+
+### Alert webhook (`cloacina-server`)
+
+These flags send a JSON `POST` when a run ends. They live on the `cloacina-server` binary directly (and via the env vars below); `cloacinactl server start` has no flags for them, but the server it starts reads the env vars. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/).
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--alert-webhook-url <URL>` | `CLOACINA_ALERT_WEBHOOK_URL` | — | URL that gets the `POST`. Not set = off. |
+| `--alert-webhook-events <LIST>` | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `failed` | Outcomes that send an alert, comma-separated: `failed`, `completed`, `cancelled`, or `all`. |
+| — | `CLOACINA_ALERT_WEBHOOK_SECRET` | — | Shared secret that signs each request (`X-Cloacina-Signature`). Environment only. |
+| `--alert-webhook-timeout-s <N>` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one request. |
+| `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
+| `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 
 ### `server stop` / `status` / `health`
 
@@ -368,6 +392,10 @@ Multipart POST of a `.cloacina` archive to
 the server was started with `--require-signatures`. Exit codes: 1
 (user error), 2 (network), 4 (auth), 5 (server reject).
 
+The version that is in service stays active until the build of the
+uploaded one succeeds. A failed build leaves it in service; see
+`package versions`.
+
 ### `package list [--filter <SUBSTRING>]`
 
 `GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
@@ -377,6 +405,27 @@ client-side as a substring match on the package name.
 
 `GET /v1/tenants/<tenant>/workflows/<id>`. Prints a single object
 respecting `--output`.
+
+### `package versions <NAME>`
+
+`GET /v1/tenants/<tenant>/workflows/<name>/versions`. Lists every stored
+version of a package, newest upload first, with a `STATE` column:
+`active`, `pending`, `building`, `failed`, `superseded` (was active
+earlier) or `abandoned` (replaced before it was built). `--output json`
+prints the raw rows.
+
+### `package activate <NAME> <VERSION>`
+
+`POST /v1/tenants/<tenant>/workflows/<name>/versions/<version>/activate`.
+Makes an earlier built version the active one, with no rebuild: this is
+the way back after a bad release. Executions that already run stay on
+the version they started with. Exit code 5 when the version does not
+exist or was never built.
+
+```bash
+cloacinactl package versions etl_pipeline
+cloacinactl package activate etl_pipeline 1.2.0
+```
 
 ### `package delete <ID> [--force]`
 

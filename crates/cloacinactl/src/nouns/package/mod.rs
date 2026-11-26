@@ -15,7 +15,7 @@
  */
 
 //! `cloacinactl package <verb>` — build / pack / publish / upload / list /
-//! inspect / delete.
+//! inspect / versions / activate / delete.
 
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
@@ -33,6 +33,7 @@ pub mod pack;
 pub mod publish;
 pub mod upload;
 pub mod validate;
+pub mod versions;
 
 #[derive(Args)]
 pub struct PackageCmd {
@@ -96,6 +97,20 @@ enum PackageVerb {
     },
     /// Fetch metadata for a single package.
     Inspect { id: String },
+    /// List every stored version of a package: the active one, versions that
+    /// wait for a build or failed, and superseded ones.
+    Versions {
+        /// Package name.
+        name: String,
+    },
+    /// Make an earlier built version of a package the active one. No rebuild.
+    /// Executions that already run stay on the version they started with.
+    Activate {
+        /// Package name.
+        name: String,
+        /// Version to make active (see `package versions`).
+        version: String,
+    },
     /// Uninstall a package.
     Delete {
         id: String,
@@ -124,6 +139,10 @@ impl PackageCmd {
             PackageVerb::Upload { file } => upload::run(globals, &file).await,
             PackageVerb::List { filter } => list::run(globals, filter.as_deref()).await,
             PackageVerb::Inspect { id } => inspect::run(globals, &id).await,
+            PackageVerb::Versions { name } => versions::list(globals, &name).await,
+            PackageVerb::Activate { name, version } => {
+                versions::activate(globals, &name, &version).await
+            }
             PackageVerb::Delete { id, force } => delete::run(globals, &id, force).await,
         }
     }

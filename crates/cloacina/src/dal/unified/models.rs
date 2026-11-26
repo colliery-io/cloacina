@@ -21,11 +21,12 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
-    package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
+    fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle, package_artifacts,
+    package_providers, package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
     schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
-    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys, workflow_executions,
-    workflow_packages, workflow_registry, ws_tickets,
+    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys,
+    workflow_execution_package_pins, workflow_executions, workflow_packages, workflow_registry,
+    ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -275,6 +276,31 @@ pub struct NewUnifiedDeliveryOutbox {
     pub payload: UniversalBinary,
     pub delivery_state: String,
     pub delivery_attempts: i32,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Fleet Result Inbox Models (CLOACINA-T-1015)
+// ============================================================================
+
+/// An agent report kept for the server replica that waits for it.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = fleet_result_inbox)]
+pub struct UnifiedFleetResultInbox {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub dispatch_id: Option<String>,
+    pub payload: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = fleet_result_inbox)]
+pub struct NewUnifiedFleetResultInbox {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub dispatch_id: Option<String>,
+    pub payload: UniversalBinary,
     pub created_at: UniversalTimestamp,
 }
 
@@ -575,6 +601,20 @@ pub struct NewPackageArtifact {
     pub target_triple: String,
     pub content_hash: String,
     pub compiled_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Execution version pins (CLOACINA-T-1018)
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = workflow_execution_package_pins)]
+pub struct WorkflowExecutionPackagePin {
+    pub workflow_execution_id: UniversalUuid,
+    pub package_name: String,
+    pub package_id: UniversalUuid,
+    pub version: String,
     pub created_at: UniversalTimestamp,
 }
 

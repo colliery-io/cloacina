@@ -41,7 +41,7 @@
             "description": "Ready — DB reachable and the embedded Python runtime is usable. Tenant-workload health (e.g. crashed computation graphs) does NOT affect readiness; see /v1/health/graphs."
           },
           "503": {
-            "description": "Not ready — `reason` field explains (database unreachable, or the embedded Python runtime is wedged by a package import hang and this process must be restarted)"
+            "description": "Not ready — `reason` is one of two fixed strings: `database unreachable`, or `python runtime unavailable; restart required` (the embedded Python runtime is wedged and this process must be restarted). The package that wedged it is named in the server log only."
           }
         }
       }
@@ -4110,6 +4110,199 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/workflows/{name}/versions": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name/versions — every stored version of\na package (CLOACINA-T-1018).",
+        "description": "Newest upload first. Includes the active version, versions that wait for a\nbuild or whose build failed, and superseded versions. `name` is the package\nname.",
+        "operationId": "list_workflow_versions",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Package name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versions of the package, newest upload first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_WorkflowVersionSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No version of this package exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate": {
+      "post": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/versions/:version/activate — make\nan earlier built version the active one (CLOACINA-T-1018).",
+        "description": "No rebuild: the stored build of that version is put back in service and the\nversion that was active is superseded. A version that waits for a build is\nabandoned. Executions that already run stay on the version they started\nwith. Idempotent for the version that is already active.",
+        "operationId": "activate_workflow_version",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Package name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Version to make active",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version is active",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowVersionActivatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version of the package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The version has no successful build",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/workflows/{name}/{version}": {
       "delete": {
         "tags": [
@@ -6564,6 +6757,86 @@
           }
         }
       },
+      "TenantListResponse_WorkflowVersionSummary": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One stored version of a package, in\n`GET /tenants/{tenant_id}/workflows/{name}/versions` (CLOACINA-T-1018).",
+              "required": [
+                "id",
+                "package_name",
+                "version",
+                "active",
+                "superseded",
+                "build_status",
+                "content_hash",
+                "created_at"
+              ],
+              "properties": {
+                "active": {
+                  "type": "boolean",
+                  "description": "`true` for the version in service: built and not superseded. At most\none version of a package is active."
+                },
+                "build_error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "build_status": {
+                  "type": "string",
+                  "description": "`pending`, `building`, `success` or `failed`."
+                },
+                "compiled_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Time the build succeeded (RFC 3339)."
+                },
+                "content_hash": {
+                  "type": "string",
+                  "description": "SHA-256 of the uploaded archive."
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "Upload time (RFC 3339)."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Package UUID of this version."
+                },
+                "package_name": {
+                  "type": "string"
+                },
+                "superseded": {
+                  "type": "boolean",
+                  "description": "`true` once another version replaced this one, or a newer upload\nreplaced it before it was built."
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "TenantRemovedResponse": {
         "type": "object",
         "description": "`DELETE /tenants/{schema_name}` response — orchestrated teardown report.",
@@ -7223,6 +7496,95 @@
             "description": "UUID of the registered package."
           },
           "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowVersionActivatedResponse": {
+        "type": "object",
+        "description": "`POST /tenants/{tenant_id}/workflows/{name}/versions/{version}/activate`\nresponse (CLOACINA-T-1018).",
+        "required": [
+          "tenant_id",
+          "id",
+          "package_name",
+          "version",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Package UUID of the version that is now active."
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"active\"`."
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowVersionSummary": {
+        "type": "object",
+        "description": "One stored version of a package, in\n`GET /tenants/{tenant_id}/workflows/{name}/versions` (CLOACINA-T-1018).",
+        "required": [
+          "id",
+          "package_name",
+          "version",
+          "active",
+          "superseded",
+          "build_status",
+          "content_hash",
+          "created_at"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "`true` for the version in service: built and not superseded. At most\none version of a package is active."
+          },
+          "build_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "build_status": {
+            "type": "string",
+            "description": "`pending`, `building`, `success` or `failed`."
+          },
+          "compiled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Time the build succeeded (RFC 3339)."
+          },
+          "content_hash": {
+            "type": "string",
+            "description": "SHA-256 of the uploaded archive."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Upload time (RFC 3339)."
+          },
+          "id": {
+            "type": "string",
+            "description": "Package UUID of this version."
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "superseded": {
+            "type": "boolean",
+            "description": "`true` once another version replaced this one, or a newer upload\nreplaced it before it was built."
+          },
+          "version": {
             "type": "string"
           }
         }

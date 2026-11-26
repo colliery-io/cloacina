@@ -101,6 +101,12 @@ from .tenant_list_response_workflow_summary import TenantListResponseWorkflowSum
 from .tenant_list_response_workflow_summary_items_item import (
     TenantListResponseWorkflowSummaryItemsItem,
 )
+from .tenant_list_response_workflow_version_summary import (
+    TenantListResponseWorkflowVersionSummary,
+)
+from .tenant_list_response_workflow_version_summary_items_item import (
+    TenantListResponseWorkflowVersionSummaryItemsItem,
+)
 from .tenant_removed_response import TenantRemovedResponse
 from .tenant_summary import TenantSummary
 from .trigger_detail_response import TriggerDetailResponse
@@ -118,6 +124,8 @@ from .workflow_source_response import WorkflowSourceResponse
 from .workflow_summary import WorkflowSummary
 from .workflow_task_node import WorkflowTaskNode
 from .workflow_uploaded_response import WorkflowUploadedResponse
+from .workflow_version_activated_response import WorkflowVersionActivatedResponse
+from .workflow_version_summary import WorkflowVersionSummary
 from .ws_ticket_response import WsTicketResponse
 
 __all__ = (
@@ -204,6 +212,8 @@ __all__ = (
     "TenantListResponseWorkflowInstanceSummaryItemsItem",
     "TenantListResponseWorkflowSummary",
     "TenantListResponseWorkflowSummaryItemsItem",
+    "TenantListResponseWorkflowVersionSummary",
+    "TenantListResponseWorkflowVersionSummaryItemsItem",
     "TenantRemovedResponse",
     "TenantSummary",
     "TriggerDetailResponse",
@@ -221,5 +231,7 @@ __all__ = (
     "WorkflowSummary",
     "WorkflowTaskNode",
     "WorkflowUploadedResponse",
+    "WorkflowVersionActivatedResponse",
+    "WorkflowVersionSummary",
     "WsTicketResponse",
 )

@@ -220,6 +220,24 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Fleet result inbox (CLOACINA-T-1015): an agent report that reached
+        /// a server replica with no wait for it, kept until the replica that
+        /// waits takes it. `task_execution_id` is the key of the wait (a task
+        /// execution id or a graph firing id). A row nobody takes is deleted
+        /// by age and changes no state.
+        fleet_result_inbox (id) {
+            id -> DbUuid,
+            task_execution_id -> DbUuid,
+            dispatch_id -> Nullable<Text>,
+            payload -> DbBinary,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         /// Execution-agent fleet roster (CLOACI-T-0916). DB-backed so
         /// register/heartbeat state, same-tenant selection, capacity views and
         /// dead-agent reclaim are correct across server replicas. Reads are
@@ -306,6 +324,21 @@ mod unified_schema {
             target_triple -> Text,
             content_hash -> Text,
             compiled_data -> DbBinary,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    // CLOACINA-T-1018: the package version an execution runs on. Written at the
+    // first dispatch of a task of the execution, read at each later one.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp};
+
+        workflow_execution_package_pins (workflow_execution_id, package_name) {
+            workflow_execution_id -> DbUuid,
+            package_name -> Text,
+            package_id -> DbUuid,
+            version -> Text,
             created_at -> DbTimestamp,
         }
     }

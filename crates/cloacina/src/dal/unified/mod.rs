@@ -54,6 +54,7 @@ pub mod context;
 pub mod delivery_outbox;
 pub mod execution_event;
 pub mod fleet_agents;
+pub mod fleet_result_inbox;
 #[cfg(feature = "postgres")]
 pub mod local_accounts;
 pub mod login_throttle;
@@ -65,6 +66,7 @@ pub mod oidc_sessions;
 pub mod reactor_owner_addresses;
 pub mod reactor_subscriptions;
 pub mod recovery_event;
+pub mod retention;
 pub mod schedule;
 pub mod schedule_execution;
 pub mod task_execution;
@@ -86,6 +88,7 @@ pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
 pub use execution_event::ExecutionEventDAL;
 pub use fleet_agents::{FleetAgent, FleetAgentDAL, FleetAgentRegistration};
+pub use fleet_result_inbox::{FleetResultInboxDAL, StoredFleetResult};
 #[cfg(feature = "postgres")]
 pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
 pub use login_throttle::{LoginThrottleDAL, ThrottlePolicy, ThrottleState};
@@ -98,6 +101,7 @@ pub use reactor_subscriptions::{
     compile_predicate, lint_predicate_variables, truncate_predicate_text,
 };
 pub use recovery_event::RecoveryEventDAL;
+pub use retention::{RetentionDAL, RunHistoryDeleted};
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{
     RecoveryClaimResult, RecoveryHeartbeatResult, ScheduleExecutionDAL, ScheduleExecutionStats,
@@ -203,6 +207,12 @@ impl DAL {
         LoginThrottleDAL::new(self)
     }
 
+    /// Returns the fleet result inbox DAL (CLOACINA-T-1015): agent reports
+    /// kept for the server replica that waits for them.
+    pub fn fleet_result_inbox(&self) -> FleetResultInboxDAL<'_> {
+        FleetResultInboxDAL::new(self)
+    }
+
     /// Returns the reactor owner-address DAL (CLOACI-T-0851 / A-0012
     /// Amendment 3). A routing hint only — the advisory lock is the sole
     /// ownership authority. Unified (both backends) so the takeover-race
@@ -263,6 +273,12 @@ impl DAL {
     /// Returns a recovery event DAL for recovery operations.
     pub fn recovery_event(&self) -> RecoveryEventDAL<'_> {
         RecoveryEventDAL::new(self)
+    }
+
+    /// Returns the run-history retention DAL (CLOACINA-T-1023): bounded
+    /// deletes of finished executions and their dependent rows.
+    pub fn retention(&self) -> RetentionDAL<'_> {
+        RetentionDAL::new(self)
     }
 
     /// Returns an execution event DAL for execution event operations.

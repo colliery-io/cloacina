@@ -21,6 +21,7 @@ pub mod delivery_relay;
 pub mod execution_events;
 pub mod reactor_subscriptions;
 pub mod reconciler_e2e_load;
+pub mod retention;
 pub mod sub_status;
 pub mod task_claiming;
 pub mod workflow_packages;

@@ -126,6 +126,40 @@ The chart emits a `ServiceMonitor` that scrapes `:8080/metrics` every
 30 seconds — picked up automatically by a Prometheus operator that
 watches your namespace.
 
+### Keep `/metrics` off the API port
+
+By default `/metrics` is on the API port with no authentication, so
+every client that can reach the API can read it, tenant agents
+included. To serve it on a port of its own and limit who can reach it:
+
+```yaml
+metrics:
+  enabled: true
+  port: 9090
+  networkPolicy:
+    enabled: true
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+serviceMonitor:
+  enabled: true
+```
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `metrics.enabled` | `false` | Starts the server with `--metrics-bind 0.0.0.0:<port>`. Adds the container port `metrics` and the ClusterIP Service `<fullname>-metrics`. `:8080/metrics` then answers 404, and the `ServiceMonitor` scrapes the metrics Service |
+| `metrics.port` | `9090` | Port of the metrics listener |
+| `metrics.networkPolicy.enabled` | `false` | Adds a NetworkPolicy for the server pods. Needs `metrics.enabled=true` and a CNI that enforces NetworkPolicy |
+| `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers that may reach the metrics port. Empty admits nobody |
+
+The NetworkPolicy keeps the API port open to every source, as without a
+policy. It refuses every other ingress to the server pods. With the
+fleet actuator's agent NetworkPolicy on (`fleet.networkPolicy.enabled`),
+agents can already reach only the API port, so `metrics.enabled=true`
+alone takes `/metrics` out of their reach; the server NetworkPolicy
+covers the other pods in the cluster.
+
 ## Fleet actuator (Kubernetes) + RBAC
 
 The server can provision and autoscale a per-tenant pool of `cloacina-agent`

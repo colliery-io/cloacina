@@ -32,6 +32,22 @@ pub struct InspectedPackage {
     pub build_error: Option<String>,
 }
 
+/// One stored version of a package, for the versions list (CLOACINA-T-1018).
+#[derive(Debug, Clone)]
+pub struct PackageVersion {
+    pub id: Uuid,
+    pub package_name: String,
+    pub version: String,
+    /// In service: not superseded and built.
+    pub active: bool,
+    pub superseded: bool,
+    pub build_status: String,
+    pub build_error: Option<String>,
+    pub content_hash: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub compiled_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// Build the task dependency graph (one node per task, with its upstream
 /// dependencies) from the persisted package metadata's task list, so the API
 /// and UI can render the full DAG. (CLOACI-T-0663)
@@ -65,8 +81,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     }
 
     /// Store package metadata in the database. Test-only helper; the
-    /// production write path is `supersede_and_insert_with_prebuilt`,
-    /// which deals with the active/superseded transition correctly.
+    /// production write path is `insert_candidate`, which deals with the
+    /// candidate/active/superseded transitions correctly.
     #[cfg(test)]
     pub(super) async fn store_package_metadata(
         &self,
@@ -328,65 +344,80 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         }
     }
 
-    /// Look up the active package row for `name`, returning (id, registry_id, content_hash).
-    ///
-    /// Returns `Ok(None)` if no active row exists. Superseded rows are ignored.
-    pub(super) async fn get_active_package_by_name(
+    /// The rows of `name` that are not superseded: the active row
+    /// (`build_status = 'success'`) and the candidates (pending / building /
+    /// failed). Returns `(id, content_hash, build_status)` for each.
+    /// (CLOACINA-T-1018)
+    pub(super) async fn get_live_rows_by_name(
         &self,
         package_name: &str,
-    ) -> Result<Option<(Uuid, String, String)>, RegistryError> {
-        use crate::dal::unified::models::UnifiedWorkflowPackage;
+    ) -> Result<Vec<(Uuid, String, String)>, RegistryError> {
         use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::UniversalBool;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
 
         let name = package_name.to_string();
         let dal = self.dal();
-        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+        let rows: Vec<(UniversalUuid, String, String)> = crate::interact_on_backend!(dal, |conn| {
             workflow_packages::table
                 .filter(workflow_packages::package_name.eq(&name))
                 .filter(workflow_packages::superseded.eq(UniversalBool(false)))
-                .first::<UnifiedWorkflowPackage>(conn)
-                .optional()
+                .select((
+                    workflow_packages::id,
+                    workflow_packages::content_hash,
+                    workflow_packages::build_status,
+                ))
+                .load(conn)
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-        Ok(record.map(|r| (r.id.0, r.registry_id.0.to_string(), r.content_hash)))
+        Ok(rows.into_iter().map(|(id, h, st)| (id.0, h, st)).collect())
     }
 
-    /// Supersede the current active row for `old_id` (if provided) and insert a new
-    /// active row in the same transaction. Returns the new package UUID.
+    /// Mark the candidates of `name` (not superseded, not built) superseded.
+    /// The active row is not touched. Returns the number of rows changed.
+    /// (CLOACINA-T-1018)
+    pub(super) async fn abandon_candidates(
+        &self,
+        package_name: &str,
+    ) -> Result<usize, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalTimestamp};
+
+        let name = package_name.to_string();
+        let now = UniversalTimestamp::now();
+        let dal = self.dal();
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::package_name.eq(&name))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                    .filter(workflow_packages::build_status.ne("success")),
+            )
+            .set((
+                workflow_packages::superseded.eq(UniversalBool(true)),
+                workflow_packages::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+    }
+
+    /// Insert an uploaded package as a candidate. Returns the new package UUID.
     ///
-    /// Used by tests to exercise the supersede-and-insert flow without the
-    /// prebuilt-artifact path. Production code calls
-    /// `supersede_and_insert_with_prebuilt` directly with a `None` artifact.
-    /// The partial unique index `(package_name) WHERE NOT superseded`
-    /// guarantees at most one active row per name even under concurrent
-    /// uploads.
-    #[cfg(test)]
-    pub(super) async fn supersede_and_insert(
+    /// One transaction (CLOACINA-T-1018):
+    /// - earlier candidates of the name (not superseded, not built) are marked
+    ///   superseded: a newer upload replaces an upload that is not in service;
+    /// - the new row is inserted `pending`. The active row is NOT touched: it
+    ///   stays in service until [`Self::mark_build_success_with_docs`] swaps
+    ///   the two, and stays for good when the build fails.
+    ///
+    /// With `prebuilt` (content-hash artifact reuse, T-0523) the new row is
+    /// born `success`, so the swap happens here: the active row is marked
+    /// superseded in the same transaction.
+    ///
+    /// The partial unique index `(package_name) WHERE NOT superseded AND
+    /// build_status = 'success'` keeps at most one active row per name.
+    pub(super) async fn insert_candidate(
         &self,
-        old_id: Option<Uuid>,
-        registry_id: &str,
-        package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
-        content_hash: &str,
-    ) -> Result<Uuid, RegistryError> {
-        self.supersede_and_insert_with_prebuilt(
-            old_id,
-            registry_id,
-            package_metadata,
-            content_hash,
-            None,
-        )
-        .await
-    }
-
-    /// Same as `supersede_and_insert` but optionally pre-populates
-    /// `compiled_data` + `build_status = 'success'` for the new row. Used by
-    /// the content-hash artifact reuse path (T-0523): when a prior row with
-    /// the same content_hash already has a compiled artifact, the new row
-    /// skips the build queue.
-    pub(super) async fn supersede_and_insert_with_prebuilt(
-        &self,
-        old_id: Option<Uuid>,
         registry_id: &str,
         package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
         content_hash: &str,
@@ -405,6 +436,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let new_id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
 
+        let born_active = prebuilt.is_some();
         let (build_status, compiled_data, compiled_at) = match prebuilt {
             Some(bytes) => (
                 "success".to_string(),
@@ -437,14 +469,29 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         let pkg_name = package_metadata.package_name.clone();
         let pkg_version = package_metadata.version.clone();
-        let old_uuid = old_id.map(UniversalUuid);
+        let name_in_tx = pkg_name.clone();
 
         let dal = self.dal();
         crate::interact_on_backend!(dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|tx| {
-                if let Some(id) = old_uuid {
-                    diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(id)))
-                        .set(workflow_packages::superseded.eq(UniversalBool(true)))
+                let live = workflow_packages::table
+                    .filter(workflow_packages::package_name.eq(&name_in_tx))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)));
+                if born_active {
+                    // Already built: this row is active at once, so every
+                    // other live row of the name is retired.
+                    diesel::update(live)
+                        .set((
+                            workflow_packages::superseded.eq(UniversalBool(true)),
+                            workflow_packages::updated_at.eq(now),
+                        ))
+                        .execute(tx)?;
+                } else {
+                    diesel::update(live.filter(workflow_packages::build_status.ne("success")))
+                        .set((
+                            workflow_packages::superseded.eq(UniversalBool(true)),
+                            workflow_packages::updated_at.eq(now),
+                        ))
                         .execute(tx)?;
                 }
                 diesel::insert_into(workflow_packages::table)
@@ -465,13 +512,198 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         })
     }
 
+    /// Every stored version of `package_name`, newest upload first, with its
+    /// build state and whether it is the active one. Superseded and failed
+    /// rows are included. Does not read the compiled bytes. (CLOACINA-T-1018)
+    pub async fn list_package_versions(
+        &self,
+        package_name: &str,
+    ) -> Result<Vec<PackageVersion>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+
+        type Row = (
+            UniversalUuid,
+            String,
+            String,
+            Option<String>,
+            UniversalBool,
+            String,
+            UniversalTimestamp,
+            Option<UniversalTimestamp>,
+        );
+
+        let name = package_name.to_string();
+        let dal = self.dal();
+        let rows: Vec<Row> = crate::interact_on_backend!(dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::package_name.eq(&name))
+                .order(workflow_packages::created_at.desc())
+                .select((
+                    workflow_packages::id,
+                    workflow_packages::version,
+                    workflow_packages::build_status,
+                    workflow_packages::build_error,
+                    workflow_packages::superseded,
+                    workflow_packages::content_hash,
+                    workflow_packages::created_at,
+                    workflow_packages::compiled_at,
+                ))
+                .load(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    version,
+                    build_status,
+                    build_error,
+                    superseded,
+                    content_hash,
+                    created,
+                    built,
+                )| {
+                    let superseded = superseded.is_true();
+                    PackageVersion {
+                        id: id.0,
+                        package_name: package_name.to_string(),
+                        version,
+                        active: !superseded && build_status == "success",
+                        superseded,
+                        build_status,
+                        build_error,
+                        content_hash,
+                        created_at: created.0,
+                        compiled_at: built.map(|t| t.0),
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Make an earlier built version of `package_name` the active one, with no
+    /// rebuild. Returns the id of the row that is now active.
+    ///
+    /// One transaction (CLOACINA-T-1018): the target must be
+    /// `build_status = 'success'`. The active row and any candidates of the
+    /// name are marked superseded, then the target is set `superseded = false`.
+    /// The target takes the paused flag of the row it replaces, so a paused
+    /// workflow stays paused. The reconciler loads the target on its next pass.
+    ///
+    /// Errors: `PackageNotFound` when the version does not exist,
+    /// `ValidationError` when it was never built.
+    pub async fn activate_package_version(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Uuid, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+
+        enum Outcome {
+            NotFound,
+            NotBuilt(String),
+            Active(Uuid),
+        }
+
+        let name = package_name.to_string();
+        let ver = version.to_string();
+        let now = UniversalTimestamp::now();
+        let dal = self.dal();
+        let outcome: Outcome = crate::interact_on_backend!(dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                let target: Option<(UniversalUuid, String, UniversalBool)> =
+                    workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(&name))
+                        .filter(workflow_packages::version.eq(&ver))
+                        .select((
+                            workflow_packages::id,
+                            workflow_packages::build_status,
+                            workflow_packages::superseded,
+                        ))
+                        .first(tx)
+                        .optional()?;
+                let Some((target_id, status, superseded)) = target else {
+                    return Ok(Outcome::NotFound);
+                };
+                if status != "success" {
+                    return Ok(Outcome::NotBuilt(status));
+                }
+                if !superseded.is_true() {
+                    // Already the active row. Nothing to do.
+                    return Ok(Outcome::Active(target_id.0));
+                }
+
+                let replaced: Option<(UniversalBool, Option<UniversalTimestamp>)> =
+                    workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(&name))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .select((workflow_packages::paused, workflow_packages::paused_at))
+                        .first(tx)
+                        .optional()?;
+
+                // Retire the active row and the candidates first: the unique
+                // index allows one active row per name.
+                diesel::update(
+                    workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(&name))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false))),
+                )
+                .set((
+                    workflow_packages::superseded.eq(UniversalBool(true)),
+                    workflow_packages::updated_at.eq(now),
+                ))
+                .execute(tx)?;
+
+                let target_row =
+                    workflow_packages::table.filter(workflow_packages::id.eq(target_id));
+                match replaced {
+                    Some((paused, paused_at)) => diesel::update(target_row)
+                        .set((
+                            workflow_packages::superseded.eq(UniversalBool(false)),
+                            workflow_packages::paused.eq(paused),
+                            workflow_packages::paused_at.eq(paused_at),
+                            workflow_packages::updated_at.eq(now),
+                        ))
+                        .execute(tx)?,
+                    None => diesel::update(target_row)
+                        .set((
+                            workflow_packages::superseded.eq(UniversalBool(false)),
+                            workflow_packages::updated_at.eq(now),
+                        ))
+                        .execute(tx)?,
+                };
+                Ok(Outcome::Active(target_id.0))
+            })
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+
+        match outcome {
+            Outcome::Active(id) => Ok(id),
+            Outcome::NotFound => Err(RegistryError::PackageNotFound {
+                package_name: package_name.to_string(),
+                version: version.to_string(),
+            }),
+            Outcome::NotBuilt(status) => Err(RegistryError::ValidationError {
+                reason: format!(
+                    "version {version} of {package_name} has build status '{status}': \
+                     only a version with a successful build can be made active"
+                ),
+            }),
+        }
+    }
+
     /// Inspect a package by ID — returns metadata plus `build_status` /
     /// `build_error` regardless of build outcome. Unlike `get_package_metadata_by_id`
     /// this does not filter by `build_status = 'success'`, so operators can
     /// surface pending / building / failed rows through `package inspect`.
     ///
-    /// Only `superseded = false` rows are returned — superseded history is
-    /// out of scope here.
+    /// Only `superseded = false` rows are returned: the active row or a
+    /// candidate. `list_package_versions` gives the superseded history.
     pub async fn inspect_package_by_id(
         &self,
         package_id: Uuid,
@@ -749,36 +981,80 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let bytes = UniversalBinary::new(compiled);
         let meta = merged_metadata_json;
         let dal = self.dal();
+        // CLOACINA-T-1018: the swap. One transaction retires the active row of
+        // the same name and makes this row `success`. Until here the old
+        // version was active and loaded; a failed build never gets here.
         let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use crate::database::universal_types::UniversalBool;
             use diesel::prelude::*;
-            let target = workflow_packages::table
-                .filter(workflow_packages::id.eq(pid))
-                .filter(workflow_packages::build_status.eq("building"));
-            match meta {
-                Some(meta) => diesel::update(target)
-                    .set((
-                        workflow_packages::build_status.eq("success"),
-                        workflow_packages::compiled_data.eq(Some(bytes)),
-                        workflow_packages::compiled_at.eq(Some(now)),
-                        workflow_packages::build_error.eq::<Option<String>>(None),
-                        workflow_packages::metadata.eq(meta),
-                    ))
-                    .execute(conn),
-                None => diesel::update(target)
-                    .set((
-                        workflow_packages::build_status.eq("success"),
-                        workflow_packages::compiled_data.eq(Some(bytes)),
-                        workflow_packages::compiled_at.eq(Some(now)),
-                        workflow_packages::build_error.eq::<Option<String>>(None),
-                    ))
-                    .execute(conn),
+            let swap = conn.transaction::<usize, diesel::result::Error, _>(|tx| {
+                // Only a live claim may swap: `building` and not superseded.
+                // A candidate that a newer upload or an activation replaced
+                // is superseded, so its late build cannot become active.
+                let name: Option<String> = workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("building"))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                    .select(workflow_packages::package_name)
+                    .first(tx)
+                    .optional()?;
+                let Some(name) = name else {
+                    return Ok(0);
+                };
+                // Retire the active row first: the unique index allows one
+                // active row per name.
+                diesel::update(
+                    workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(&name))
+                        .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                        .filter(workflow_packages::build_status.eq("success"))
+                        .filter(workflow_packages::id.ne(pid)),
+                )
+                .set((
+                    workflow_packages::superseded.eq(UniversalBool(true)),
+                    workflow_packages::updated_at.eq(now),
+                ))
+                .execute(tx)?;
+                let target = workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("building"))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)));
+                let n = match meta {
+                    Some(meta) => diesel::update(target)
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::compiled_data.eq(Some(bytes)),
+                            workflow_packages::compiled_at.eq(Some(now)),
+                            workflow_packages::build_error.eq::<Option<String>>(None),
+                            workflow_packages::metadata.eq(meta),
+                        ))
+                        .execute(tx)?,
+                    None => diesel::update(target)
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::compiled_data.eq(Some(bytes)),
+                            workflow_packages::compiled_at.eq(Some(now)),
+                            workflow_packages::build_error.eq::<Option<String>>(None),
+                        ))
+                        .execute(tx)?,
+                };
+                if n == 0 {
+                    // The claim was lost between the read and the write: undo
+                    // the retire so the old version stays active.
+                    return Err(diesel::result::Error::RollbackTransaction);
+                }
+                Ok(n)
+            });
+            match swap {
+                Err(diesel::result::Error::RollbackTransaction) => Ok(0),
+                other => other,
             }
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         if updated == 0 {
             return Err(RegistryError::Database(format!(
                 "stale build claim on package {pid}: row no longer in 'building' state \
-                 — another compiler must have raced this mark_build_success"
+                 or replaced by a newer upload — this build does not become active"
             )));
         }
         Ok(())
@@ -1805,67 +2081,135 @@ mod tests {
     // Package lifecycle tests (T-0497)
     // ========================================================================
 
+    /// Test helper: upload a candidate and run its build to `success`.
+    #[cfg(feature = "sqlite")]
+    async fn upload_and_build(
+        registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+        name: &str,
+        version: &str,
+        hash: &str,
+    ) -> Uuid {
+        let id = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata(name, version),
+                hash,
+                None,
+            )
+            .await
+            .unwrap();
+        let claimed = registry.claim_next_build().await.unwrap().expect("claim");
+        assert_eq!(claimed.id, id);
+        registry.mark_build_success(id, Vec::new()).await.unwrap();
+        id
+    }
+
+    /// Test helper: `(superseded, build_status)` of a row, read with no filter.
+    #[cfg(feature = "sqlite")]
+    async fn row_state(
+        registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+        name: &str,
+        id: Uuid,
+    ) -> (bool, String) {
+        let v = registry
+            .list_package_versions(name)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|v| v.id == id)
+            .expect("row exists");
+        (v.superseded, v.build_status)
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_supersede_and_insert_fresh_name() {
+    async fn test_insert_candidate_fresh_name() {
         let registry = create_test_registry().await;
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("pkg-a", "1");
 
         let pkg_id = registry
-            .supersede_and_insert(None, &reg_id, &meta, "hash-v1")
+            .insert_candidate(&reg_id, &meta, "hash-v1", None)
             .await
             .unwrap();
 
-        let active = registry
-            .get_active_package_by_name("pkg-a")
-            .await
-            .unwrap()
-            .expect("should have active row");
-        assert_eq!(active.0, pkg_id);
-        assert_eq!(active.2, "hash-v1");
+        let live = registry.get_live_rows_by_name("pkg-a").await.unwrap();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].0, pkg_id);
+        assert_eq!(live[0].1, "hash-v1");
+        assert_eq!(live[0].2, "pending");
+        // A candidate is not in service.
+        assert!(registry.list_all_packages().await.unwrap().is_empty());
     }
 
+    /// CLOACINA-T-1018: the old version stays active until the build of the
+    /// new one succeeds; the build success swaps the two.
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_supersede_and_insert_replaces_old_active() {
+    async fn test_old_version_stays_active_until_new_build_succeeds() {
         let registry = create_test_registry().await;
-        let reg_id_1 = Uuid::new_v4().to_string();
-        let reg_id_2 = Uuid::new_v4().to_string();
-        let meta_v1 = sample_metadata("pkg-b", "1");
-        let meta_v2 = sample_metadata("pkg-b", "2");
-
-        let id_v1 = registry
-            .supersede_and_insert(None, &reg_id_1, &meta_v1, "hash-v1")
-            .await
-            .unwrap();
-        registry.claim_next_build().await.unwrap();
-        registry
-            .mark_build_success(id_v1, Vec::new())
-            .await
-            .unwrap();
+        let id_v1 = upload_and_build(&registry, "pkg-b", "1", "hash-v1").await;
 
         let id_v2 = registry
-            .supersede_and_insert(Some(id_v1), &reg_id_2, &meta_v2, "hash-v2")
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pkg-b", "2"),
+                "hash-v2",
+                None,
+            )
             .await
             .unwrap();
         assert_ne!(id_v1, id_v2);
-        registry.claim_next_build().await.unwrap();
+
+        // Uploaded, not built: v1 is still the one the reconciler loads.
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v1);
+        assert_eq!(
+            row_state(&registry, "pkg-b", id_v1).await,
+            (false, "success".into())
+        );
+        assert_eq!(
+            row_state(&registry, "pkg-b", id_v2).await,
+            (false, "pending".into())
+        );
+
+        // Building: still v1.
+        let claimed = registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim v2");
+        assert_eq!(claimed.id, id_v2);
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v1);
+        assert!(
+            registry
+                .get_package_metadata("pkg-b", "1")
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Build success: the swap.
         registry
             .mark_build_success(id_v2, Vec::new())
             .await
             .unwrap();
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v2);
+        assert_eq!(
+            row_state(&registry, "pkg-b", id_v1).await,
+            (true, "success".into())
+        );
+        assert_eq!(
+            row_state(&registry, "pkg-b", id_v2).await,
+            (false, "success".into())
+        );
 
-        // Exactly one active row, and it's the new one.
-        let active = registry
-            .get_active_package_by_name("pkg-b")
-            .await
-            .unwrap()
-            .expect("should have active row");
-        assert_eq!(active.0, id_v2);
-        assert_eq!(active.2, "hash-v2");
-
-        // Old row is no longer visible through filtered reads.
+        // The old row is no longer visible through the active reads.
         assert!(
             registry
                 .get_package_metadata("pkg-b", "1")
@@ -1880,8 +2224,6 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-
-        // New row is visible.
         assert!(
             registry
                 .get_package_metadata("pkg-b", "2")
@@ -1889,39 +2231,278 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-
-        // list_all_packages returns only the active row.
-        let list = registry.list_all_packages().await.unwrap();
-        let names: Vec<_> = list.iter().filter(|w| w.package_name == "pkg-b").collect();
-        assert_eq!(names.len(), 1);
-        assert_eq!(names[0].id, id_v2);
     }
 
+    /// CLOACINA-T-1018: a failed build leaves the old version in service.
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_partial_unique_rejects_second_active_for_same_name() {
+    async fn test_failed_build_leaves_old_version_active() {
         let registry = create_test_registry().await;
-        let reg_id_1 = Uuid::new_v4().to_string();
-        let reg_id_2 = Uuid::new_v4().to_string();
-        let meta_v1 = sample_metadata("pkg-c", "1");
-        let meta_v2 = sample_metadata("pkg-c", "2");
+        let id_v1 = upload_and_build(&registry, "pkg-f", "1", "hash-v1").await;
 
+        let id_v2 = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pkg-f", "2"),
+                "hash-v2",
+                None,
+            )
+            .await
+            .unwrap();
         registry
-            .supersede_and_insert(None, &reg_id_1, &meta_v1, "hash-v1")
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim v2");
+        registry
+            .mark_build_failed(id_v2, "error[E0425]")
             .await
             .unwrap();
 
-        // Second insert without superseding the first must fail due to the
-        // partial unique index `(package_name) WHERE NOT superseded`.
-        let err = registry
-            .supersede_and_insert(None, &reg_id_2, &meta_v2, "hash-v2")
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v1);
+        assert_eq!(
+            row_state(&registry, "pkg-f", id_v1).await,
+            (false, "success".into())
+        );
+        assert_eq!(
+            row_state(&registry, "pkg-f", id_v2).await,
+            (false, "failed".into())
+        );
+        // The failed candidate can still be inspected by id.
+        let ins = registry
+            .inspect_package_by_id(id_v2)
             .await
-            .expect_err("second active insert should fail");
+            .unwrap()
+            .unwrap();
+        assert_eq!(ins.build_status, "failed");
+
+        // A fixed upload replaces the failed candidate and then swaps in.
+        let id_v3 = upload_and_build(&registry, "pkg-f", "3", "hash-v3").await;
+        assert_eq!(
+            row_state(&registry, "pkg-f", id_v2).await,
+            (true, "failed".into())
+        );
+        assert_eq!(
+            row_state(&registry, "pkg-f", id_v1).await,
+            (true, "success".into())
+        );
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v3);
+    }
+
+    /// CLOACINA-T-1018: a newer upload replaces a candidate that is not built,
+    /// and the late build of the replaced candidate cannot become active.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_newer_upload_abandons_candidate_and_its_late_build() {
+        let registry = create_test_registry().await;
+        let id_v1 = upload_and_build(&registry, "pkg-n", "1", "hash-v1").await;
+
+        let id_v2 = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pkg-n", "2"),
+                "hash-v2",
+                None,
+            )
+            .await
+            .unwrap();
+        // The compiler claims v2, then v3 arrives.
+        registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim v2");
+        let id_v3 = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pkg-n", "3"),
+                "hash-v3",
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            row_state(&registry, "pkg-n", id_v2).await,
+            (true, "building".into())
+        );
+
+        // The late success of v2 is refused, and v1 stays active.
+        let err = registry
+            .mark_build_success(id_v2, Vec::new())
+            .await
+            .expect_err("an abandoned build must not become active");
+        assert!(format!("{err}").contains("stale build claim"), "{err}");
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v1);
+
+        // v3 builds and swaps in.
+        let claimed = registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim v3");
+        assert_eq!(claimed.id, id_v3);
+        registry
+            .mark_build_success(id_v3, Vec::new())
+            .await
+            .unwrap();
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v3);
+    }
+
+    /// The partial unique index keeps one active row per name: a second
+    /// built row of a name cannot be made active beside the first.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_partial_unique_rejects_second_active_for_same_name() {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        let registry = create_test_registry().await;
+        let id_v1 = upload_and_build(&registry, "pkg-c", "1", "hash-v1").await;
+        let _id_v2 = upload_and_build(&registry, "pkg-c", "2", "hash-v2").await;
+
+        // Force v1 back to "not superseded" with no swap: the index refuses.
+        let dal = registry.dal();
+        let pid = UniversalUuid(id_v1);
+        let res: Result<usize, diesel::result::Error> = crate::interact_on_backend!(dal, |conn| {
+            Ok::<_, diesel::result::Error>(
+                diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                    .set(workflow_packages::superseded.eq(UniversalBool(false)))
+                    .execute(conn),
+            )
+        })
+        .unwrap();
+        assert!(
+            matches!(
+                res,
+                Err(diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation,
+                    _
+                ))
+            ),
+            "expected a unique violation, got {:?}",
+            res
+        );
+
+        // The same version number cannot be uploaded again.
+        let err = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pkg-c", "2"),
+                "hash-other",
+                None,
+            )
+            .await
+            .expect_err("version numbers are single-use");
         assert!(
             matches!(err, RegistryError::PackageExists { .. }),
-            "expected PackageExists, got {:?}",
-            err
+            "{err:?}"
         );
+    }
+
+    /// CLOACINA-T-1018: the versions list shows every row, and `activate`
+    /// makes an earlier built version the active one in one step.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_versions_and_activate_earlier_version() {
+        let registry = create_test_registry().await;
+        let id_v1 = upload_and_build(&registry, "pkg-r", "1", "hash-v1").await;
+        let id_v2 = upload_and_build(&registry, "pkg-r", "2", "hash-v2").await;
+        // A candidate that waits while the operator goes back.
+        let id_v3 = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pkg-r", "3"),
+                "hash-v3",
+                None,
+            )
+            .await
+            .unwrap();
+        // v2 is paused: the pause must survive the activation.
+        assert!(registry.set_package_paused(id_v2, true).await.unwrap());
+
+        let versions = registry.list_package_versions("pkg-r").await.unwrap();
+        assert_eq!(versions.len(), 3);
+        let by_id = |id: Uuid| versions.iter().find(|v| v.id == id).unwrap().clone();
+        assert!(!by_id(id_v1).active && by_id(id_v1).superseded);
+        assert!(by_id(id_v2).active && !by_id(id_v2).superseded);
+        assert!(!by_id(id_v3).active && by_id(id_v3).build_status == "pending");
+        assert!(
+            registry
+                .list_package_versions("no-such")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        // Go back to version 1.
+        let active = registry
+            .activate_package_version("pkg-r", "1")
+            .await
+            .unwrap();
+        assert_eq!(active, id_v1);
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id_v1);
+        assert!(
+            list[0].paused,
+            "the paused flag moves with the active version"
+        );
+        assert_eq!(
+            row_state(&registry, "pkg-r", id_v2).await,
+            (true, "success".into())
+        );
+        // The candidate was abandoned: its build cannot undo the activation.
+        assert_eq!(
+            row_state(&registry, "pkg-r", id_v3).await,
+            (true, "pending".into())
+        );
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+
+        // Activating the active version changes nothing.
+        let again = registry
+            .activate_package_version("pkg-r", "1")
+            .await
+            .unwrap();
+        assert_eq!(again, id_v1);
+
+        // And forward again to version 2.
+        let active = registry
+            .activate_package_version("pkg-r", "2")
+            .await
+            .unwrap();
+        assert_eq!(active, id_v2);
+        assert_eq!(
+            row_state(&registry, "pkg-r", id_v1).await,
+            (true, "success".into())
+        );
+
+        // A version that does not exist, and one that was never built.
+        let err = registry
+            .activate_package_version("pkg-r", "9")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, RegistryError::PackageNotFound { .. }),
+            "{err:?}"
+        );
+        let err = registry
+            .activate_package_version("pkg-r", "3")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, RegistryError::ValidationError { .. }),
+            "{err:?}"
+        );
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list[0].id, id_v2, "a refused activation changes nothing");
     }
 
     // ========================================================================
@@ -1935,7 +2516,7 @@ mod tests {
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("claim-pkg", "1");
         let pkg_id = registry
-            .supersede_and_insert(None, &reg_id, &meta, "hash-claim")
+            .insert_candidate(&reg_id, &meta, "hash-claim", None)
             .await
             .unwrap();
 
@@ -1954,7 +2535,7 @@ mod tests {
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("ok-pkg", "1");
         let pkg_id = registry
-            .supersede_and_insert(None, &reg_id, &meta, "hash-ok")
+            .insert_candidate(&reg_id, &meta, "hash-ok", None)
             .await
             .unwrap();
         registry.claim_next_build().await.unwrap();
@@ -1981,7 +2562,7 @@ mod tests {
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("bad-pkg", "1");
         let pkg_id = registry
-            .supersede_and_insert(None, &reg_id, &meta, "hash-bad")
+            .insert_candidate(&reg_id, &meta, "hash-bad", None)
             .await
             .unwrap();
         registry.claim_next_build().await.unwrap();
@@ -1998,7 +2579,7 @@ mod tests {
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("hb-pkg", "1");
         let pkg_id = registry
-            .supersede_and_insert(None, &reg_id, &meta, "hash-hb")
+            .insert_candidate(&reg_id, &meta, "hash-hb", None)
             .await
             .unwrap();
 
@@ -2021,7 +2602,7 @@ mod tests {
         let reg_id = Uuid::new_v4().to_string();
         let meta = sample_metadata("stale-pkg", "1");
         registry
-            .supersede_and_insert(None, &reg_id, &meta, "hash-stale")
+            .insert_candidate(&reg_id, &meta, "hash-stale", None)
             .await
             .unwrap();
         registry.claim_next_build().await.unwrap();
@@ -2055,7 +2636,7 @@ mod tests {
         );
 
         let pkg_id = registry
-            .supersede_and_insert(None, &reg_id, &meta, "abc")
+            .insert_candidate(&reg_id, &meta, "abc", None)
             .await
             .unwrap();
 
@@ -2085,7 +2666,7 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn test_supersede_and_insert_with_prebuilt_skips_queue() {
+    async fn test_insert_candidate_with_prebuilt_skips_queue() {
         let registry = create_test_registry().await;
         let reg_id_a = Uuid::new_v4().to_string();
         let reg_id_b = Uuid::new_v4().to_string();
@@ -2095,13 +2676,7 @@ mod tests {
         let prebuilt = vec![0xCA, 0xFE, 0xBA, 0xBE];
         // Insert package A as already-successful via the prebuilt path.
         registry
-            .supersede_and_insert_with_prebuilt(
-                None,
-                &reg_id_a,
-                &meta_a,
-                "shared-hash",
-                Some(prebuilt.clone()),
-            )
+            .insert_candidate(&reg_id_a, &meta_a, "shared-hash", Some(prebuilt.clone()))
             .await
             .unwrap();
 
@@ -2111,7 +2686,7 @@ mod tests {
         // Insert package B as pending (normal path) so we can confirm the
         // queue still works when no prebuilt is supplied.
         registry
-            .supersede_and_insert(None, &reg_id_b, &meta_b, "other-hash")
+            .insert_candidate(&reg_id_b, &meta_b, "other-hash", None)
             .await
             .unwrap();
         assert!(registry.claim_next_build().await.unwrap().is_some());
