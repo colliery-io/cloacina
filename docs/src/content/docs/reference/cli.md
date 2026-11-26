@@ -239,6 +239,19 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--agent-heartbeat-interval-s <N>` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Heartbeat interval (seconds) advertised to agents and used as the liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, more heartbeat traffic. CLOACI-T-0639. |
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
 
+### Alert webhook (`cloacina-server`)
+
+These flags send a JSON `POST` when a run ends. They live on the `cloacina-server` binary directly (and via the env vars below); `cloacinactl server start` has no flags for them, but the server it starts reads the env vars. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/).
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--alert-webhook-url <URL>` | `CLOACINA_ALERT_WEBHOOK_URL` | — | URL that gets the `POST`. Not set = off. |
+| `--alert-webhook-events <LIST>` | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `failed` | Outcomes that send an alert, comma-separated: `failed`, `completed`, `cancelled`, or `all`. |
+| — | `CLOACINA_ALERT_WEBHOOK_SECRET` | — | Shared secret that signs each request (`X-Cloacina-Signature`). Environment only. |
+| `--alert-webhook-timeout-s <N>` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one request. |
+| `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
+| `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
+
 ### `server stop` / `status` / `health`
 
 Same shape as the daemon equivalents, but use the server's PID file

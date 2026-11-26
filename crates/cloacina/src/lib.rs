@@ -534,6 +534,7 @@ pub mod packaging;
 pub mod python_runtime;
 pub mod registry;
 pub mod retry;
+pub mod run_alerts;
 pub mod runner;
 pub mod runtime;
 pub mod workflow_instance;
