@@ -120,12 +120,25 @@ cloacinactl package upload my-package-1.0.1.cloacina --tenant my-tenant
 mv my-package-1.0.1.cloacina ~/.cloacina/packages/
 ```
 
-In-flight executions of the old version continue to completion. New
-executions use the new version. The reconciler runs unload-then-load,
+In server mode the old version stays active and loaded while the new
+one is built. The swap happens when the build succeeds; if the build
+fails, the old version stays in service and
+`cloacinactl package versions my-package` shows the failed row with its
+error. With the agent fleet, an execution that is running finishes on
+the version it started with; new executions use the new version.
+
+When the reconciler sees the swap it runs unload-then-load in one pass,
 not a true atomic swap — there is a brief window where neither version
-serves new requests. For zero-downtime upgrades, run two
+serves new requests on that server. For zero-downtime upgrades, run two
 `cloacina-server` instances behind a load balancer and swap one at a
 time.
+
+To go back to an earlier version, with no rebuild:
+
+```bash
+cloacinactl package versions my-package --tenant my-tenant
+cloacinactl package activate my-package 1.0.0 --tenant my-tenant
+```
 
 ## Common Errors
 

@@ -24,8 +24,9 @@ use crate::database::schema::unified::{
     fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
     package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
     schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
-    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys, workflow_executions,
-    workflow_packages, workflow_registry, ws_tickets,
+    task_execution_metadata, task_executions, tenant_data_keys, trusted_keys,
+    workflow_execution_package_pins, workflow_executions, workflow_packages, workflow_registry,
+    ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -575,6 +576,20 @@ pub struct NewPackageArtifact {
     pub target_triple: String,
     pub content_hash: String,
     pub compiled_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Execution version pins (CLOACINA-T-1018)
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = workflow_execution_package_pins)]
+pub struct WorkflowExecutionPackagePin {
+    pub workflow_execution_id: UniversalUuid,
+    pub package_name: String,
+    pub package_id: UniversalUuid,
+    pub version: String,
     pub created_at: UniversalTimestamp,
 }
 

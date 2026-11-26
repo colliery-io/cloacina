@@ -434,13 +434,21 @@ impl TaskExecutor for FleetExecutor {
             // the language decides arch eligibility. CLOACI-T-0781: `self.dal` is
             // schema-scoped and tenant-schema packages carry tenant_id = NULL, so
             // look up by None (IS NULL).
-            let (primary_digest, language) = match self
+            //
+            // CLOACINA-T-1018: the lookup goes through the execution's version
+            // pin. The first task of an execution pins the active version; each
+            // later task gets that version, also after a newer one is active.
+            let (primary_digest, language, package_version) = match self
                 .dal
                 .workflow_packages()
-                .get_active_dispatch_for_package(&namespace.package_name, None)
+                .resolve_dispatch_for_execution(
+                    event.workflow_execution_id,
+                    &namespace.package_name,
+                    None,
+                )
                 .await
             {
-                Ok(Some(info)) => info,
+                Ok(Some(pkg)) => (pkg.content_hash, pkg.language, pkg.version),
                 Ok(None) => {
                     return Ok(self
                         .reconcile_error(
@@ -480,7 +488,7 @@ impl TaskExecutor for FleetExecutor {
                 let mut t = self
                     .dal
                     .workflow_packages()
-                    .get_artifact_triples_for_package(&namespace.package_name)
+                    .get_artifact_triples_for_package(&namespace.package_name, &package_version)
                     .await
                     .unwrap_or_default();
                 t.push(host_target_triple().to_string());
@@ -579,7 +587,11 @@ impl TaskExecutor for FleetExecutor {
                 match self
                     .dal
                     .workflow_packages()
-                    .get_artifact_digest_for_target(&namespace.package_name, &agent_triple)
+                    .get_artifact_digest_for_target(
+                        &namespace.package_name,
+                        &package_version,
+                        &agent_triple,
+                    )
                     .await
                 {
                     Ok(Some(arch_digest)) => {

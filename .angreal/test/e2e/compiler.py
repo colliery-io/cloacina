@@ -894,9 +894,10 @@ def compiler(version_deps=False):
         )
 
         # --- package lifecycle: upgrade (T-0497) ---------------------------
-        # Upload a new version of the same package. The upload handler
-        # should supersede the current active row and insert a new one
-        # with its own UUID. DB invariant: one active row per name.
+        # Upload a new version of the same package. The new row is a
+        # candidate with its own UUID; the old row stays active until the
+        # build of the new one succeeds, then the two are swapped
+        # (CLOACINA-T-1018). After the swap: one non-superseded row per name.
         upgrade_dir = _stage_fixture(
             home,
             "compiler-happy-rust",
