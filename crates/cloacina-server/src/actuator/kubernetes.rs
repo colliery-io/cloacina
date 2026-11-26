@@ -341,7 +341,8 @@ pub struct AgentDeployment {
     pub pod_labels: BTreeMap<String, String>,
     /// Annotations the pool adds to the pod template.
     pub pod_annotations: BTreeMap<String, String>,
-    /// The pod's `automountServiceAccountToken`. `None` leaves it out.
+    /// The pod's `automountServiceAccountToken`. `None` means `false`: the
+    /// pod mounts no token unless the pool asks for one (CLOACINA-T-1033).
     pub automount_service_account_token: Option<bool>,
     pub image: String,
     pub server_url: String,
@@ -1632,7 +1633,7 @@ mod tests {
     #[test]
     fn default_pool_manifest_is_unchanged_from_before_pools() {
         let m = agent_deployment_manifest(&default_spec());
-        let expected = serde_json::json!({
+        let mut expected = serde_json::json!({
             "apiVersion": "apps/v1",
             "kind": "Deployment",
             "metadata": {
@@ -1701,6 +1702,9 @@ mod tests {
                 }
             }
         });
+        // CLOACINA-T-1033: since pools were added, the pod mounts no service
+        // account token by default. That is the one change to this manifest.
+        expected["spec"]["template"]["spec"]["automountServiceAccountToken"] = false.into();
         assert_eq!(m, expected);
     }
 
@@ -1782,15 +1786,15 @@ mod tests {
         let m = agent_deployment_manifest(&default_spec());
         let pod = &m["spec"]["template"]["spec"];
         assert!(pod.get("serviceAccountName").is_none());
-        // Token mount is left to the cluster default, as before.
-        assert!(pod.get("automountServiceAccountToken").is_none());
+        // No token is mounted unless the pool asks (CLOACINA-T-1033).
+        assert_eq!(pod["automountServiceAccountToken"], false);
 
         let mut spec = default_spec();
         spec.service_account_name = Some("team-data".to_string());
         let m = agent_deployment_manifest(&spec);
         let pod = &m["spec"]["template"]["spec"];
         assert_eq!(pod["serviceAccountName"], "team-data");
-        assert!(pod.get("automountServiceAccountToken").is_none());
+        assert_eq!(pod["automountServiceAccountToken"], false);
     }
 
     fn string_map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -1848,7 +1852,7 @@ mod tests {
         assert_ne!(template(&annotated), base);
 
         let mut automount = default_spec();
-        automount.automount_service_account_token = Some(false);
+        automount.automount_service_account_token = Some(true);
         assert_ne!(template(&automount), base);
     }
 
@@ -1888,13 +1892,13 @@ mod tests {
     }
 
     #[test]
-    fn manifest_sets_automount_service_account_token_only_when_set() {
+    fn manifest_mounts_no_service_account_token_unless_the_pool_asks() {
         let pod = |v: Option<bool>| {
             let mut spec = default_spec();
             spec.automount_service_account_token = v;
             agent_deployment_manifest(&spec)["spec"]["template"]["spec"].clone()
         };
-        assert!(pod(None).get("automountServiceAccountToken").is_none());
+        assert_eq!(pod(None)["automountServiceAccountToken"], false);
         assert_eq!(pod(Some(false))["automountServiceAccountToken"], false);
         assert_eq!(pod(Some(true))["automountServiceAccountToken"], true);
     }

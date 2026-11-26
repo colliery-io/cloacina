@@ -507,8 +507,9 @@ identity:
   `cloacina.tenant`, `cloacina.pool`) cannot be set: the first is the
   Deployment's selector, which never changes.
 - `automount_service_account_token`: the pod's field of that name. Not set, it
-  is left out and the cluster default applies (the token is mounted). The agent
-  does not call the Kubernetes API and does not need that token. The identity
+  is `false`: the pod mounts no ServiceAccount token. The agent does not call
+  the Kubernetes API and does not need that token. Set it to `true` for a pool
+  whose identity system needs the token. The identity
   token that a workload identity system injects is a separate projected volume,
   so `false` is the tighter setting where the identity system allows it.
 

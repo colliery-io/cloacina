@@ -100,9 +100,9 @@ pub struct AgentPoolSettings {
     /// Deployment).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub pod_annotations: std::collections::BTreeMap<String, String>,
-    /// The pod's `automountServiceAccountToken`. Absent: the field is left
-    /// out and the cluster default applies. The agent does not call the
-    /// Kubernetes API, so `false` is the tighter setting.
+    /// The pod's `automountServiceAccountToken`. Absent means `false`: the
+    /// pod mounts no ServiceAccount token. The agent does not call the
+    /// Kubernetes API. Set `true` for a pool whose identity system needs it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub automount_service_account_token: Option<bool>,
     /// Extra egress rules for the pool's pods, added to the default (cluster
