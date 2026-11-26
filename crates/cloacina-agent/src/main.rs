@@ -44,9 +44,8 @@ use clap::Parser;
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, EphemeralKeyEntry,
-    GRAPH_PACKET_KIND, GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket,
-    host_target_triple,
+    AgentRegisterResponse, AgentResultRequest, EphemeralKeyEntry, GRAPH_PACKET_KIND,
+    GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket, host_target_triple,
 };
 use cloacina::security::{AgentKeyPool, InMemorySecretResolver};
 use futures_util::{SinkExt, StreamExt};
@@ -338,20 +337,52 @@ async fn mint_ws_ticket(http: &reqwest::Client, server: &str, api_key: &str) -> 
         .ok_or_else(|| anyhow!("ws-ticket response missing `ticket`: {}", resp))
 }
 
+/// Why one POST of a report failed (CLOACINA-T-1015).
+#[derive(Debug)]
+enum PostError {
+    /// The server will never accept this report: do not send it again.
+    Permanent(String),
+    /// The server could not be reached or could not take the report now.
+    Transient(String),
+}
+
+/// Whether a response status means "this report can never be accepted". A
+/// 4xx is the server's answer to the report itself: a protocol mismatch
+/// (400), a key of another tenant (403), a bad key (401). 408 and 429 are the
+/// two 4xx that ask the client to come back.
+fn is_permanent_status(status: reqwest::StatusCode) -> bool {
+    status.is_client_error()
+        && status != reqwest::StatusCode::REQUEST_TIMEOUT
+        && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+}
+
+/// POST one report, one time, with a time limit on the whole request.
 async fn post_result(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     req: &AgentResultRequest,
-) -> Result<AgentResultResponse> {
+    attempt_timeout: Duration,
+) -> std::result::Result<(), PostError> {
     let resp = http
         .post(format!("{}/v1/agent/result", server))
         .bearer_auth(api_key)
+        .timeout(attempt_timeout)
         .json(req)
         .send()
-        .await?
-        .error_for_status()?;
-    Ok(resp.json().await?)
+        .await
+        .map_err(|e| PostError::Transient(e.to_string()))?;
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = resp.text().await.unwrap_or_default();
+    let message = format!("HTTP {}: {}", status.as_u16(), short(&body));
+    if is_permanent_status(status) {
+        Err(PostError::Permanent(message))
+    } else {
+        Err(PostError::Transient(message))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -840,7 +871,9 @@ fn spawn_packet_worker(
             duration_ms,
             outcome,
         };
-        report_outcome(&http, &server, &api_key, &req).await;
+        // CLOACINA-T-1015: the ack waits for the report (see `report_outcome`).
+        let server_gives_up_at = server_wait_end(start, packet.timeout_seconds);
+        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
         finish_and_ack(&ack_tx, push_id);
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
@@ -1058,7 +1091,8 @@ fn spawn_graph_worker(
             duration_ms,
             outcome,
         };
-        report_outcome(&http, &server, &api_key, &req).await;
+        let server_gives_up_at = server_wait_end(start, packet.timeout_seconds);
+        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
         finish_and_ack(&ack_tx, push_id);
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
@@ -1091,7 +1125,8 @@ fn spawn_graph_refusal(
                 message,
             },
         };
-        report_outcome(&http, &server, &api_key, &req).await;
+        let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
+        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
         finish_and_ack(&ack_tx, push_id);
     });
 }
@@ -1223,30 +1258,160 @@ fn spawn_refusal(
                 duration_ms: 0,
                 outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
             };
-            report_outcome(&http, &server, &api_key, &req).await;
+            let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
+            report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
         }
         finish_and_ack(&ack_tx, push_id);
     });
 }
 
+/// How the agent retries the POST of a report (CLOACINA-T-1015).
+#[derive(Debug, Clone, Copy)]
+struct ReportPolicy {
+    /// Time limit of one POST.
+    attempt_timeout: Duration,
+    /// Wait before the second try; doubled after each failure.
+    backoff_min: Duration,
+    /// The longest wait between two tries.
+    backoff_max: Duration,
+    /// The most POSTs for one report.
+    max_attempts: u32,
+    /// The agent keeps trying at least this long after the first failure,
+    /// also when the server's wait should be over by then. A late report
+    /// costs nothing (the server drops it), and the server may wait longer
+    /// than the packet says.
+    min_window: Duration,
+}
+
+impl Default for ReportPolicy {
+    fn default() -> Self {
+        Self {
+            attempt_timeout: Duration::from_secs(15),
+            backoff_min: Duration::from_secs(1),
+            backoff_max: Duration::from_secs(15),
+            max_attempts: 12,
+            min_window: Duration::from_secs(30),
+        }
+    }
+}
+
+/// What became of a report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReportDelivery {
+    /// The server took it.
+    Delivered,
+    /// The server refused it for good (a 4xx). Not sent again.
+    Rejected,
+    /// Every try failed and the retries are used up.
+    GaveUp,
+}
+
+/// When the server most likely stops waiting for the report of a packet: the
+/// packet's own time limit after the agent got it. The server waits a fixed
+/// time from the dispatch, and the packet's `timeout_seconds` is that time or
+/// less. This is the agent's estimate; [`ReportPolicy::min_window`] is the
+/// floor under it.
+fn server_wait_end(received_at: Instant, timeout_seconds: u32) -> Instant {
+    received_at + Duration::from_secs(u64::from(timeout_seconds))
+}
+
+/// POST a report until the server takes it (CLOACINA-T-1015).
+///
+/// A failed POST used to be logged and the packet acked: a server restart, a
+/// database outage or a network error lost the result of work that had ended,
+/// and the task ran again after the server's result wait.
+///
+/// Now a failure that can pass (network error, time limit, 5xx, 408, 429) is
+/// tried again with a doubling backoff. The tries stop at
+/// [`ReportPolicy::max_attempts`], or when the next try would start after
+/// `server_gives_up_at` (and after the minimum window): past that point the
+/// server has run its own retry and a report changes nothing. A 4xx that
+/// rejects the report itself is not tried again.
+///
+/// The caller acks the packet after this returns, whatever the result. With
+/// the retries used up the ack is still right: the server's result wait ends,
+/// and its retry policy decides the next run. An unacked row would be pushed
+/// to this agent again and run again for a dispatch the server gave up on, on
+/// top of the server's own retry. While the tries go on the push id is still
+/// in work, so the heartbeat keeps its lease and a re-push is ignored.
 async fn report_outcome(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     req: &AgentResultRequest,
-) {
-    match post_result(http, server, api_key, req).await {
-        Ok(_) => debug!(
+    server_gives_up_at: Instant,
+) -> ReportDelivery {
+    report_with_policy(
+        http,
+        server,
+        api_key,
+        req,
+        server_gives_up_at,
+        &ReportPolicy::default(),
+    )
+    .await
+}
+
+async fn report_with_policy(
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    req: &AgentResultRequest,
+    server_gives_up_at: Instant,
+    policy: &ReportPolicy,
+) -> ReportDelivery {
+    let mut delay = policy.backoff_min;
+    let mut stop_at: Option<Instant> = None;
+    let mut attempt = 1u32;
+    loop {
+        let error = match post_result(http, server, api_key, req, policy.attempt_timeout).await {
+            Ok(()) => {
+                debug!(
+                    task_id = %req.task_execution_id,
+                    outcome = %summarize_outcome(&req.outcome),
+                    attempt,
+                    "result reported"
+                );
+                return ReportDelivery::Delivered;
+            }
+            Err(PostError::Permanent(e)) => {
+                error!(
+                    task_id = %req.task_execution_id,
+                    error = %e,
+                    "the server rejected the result; not sent again"
+                );
+                return ReportDelivery::Rejected;
+            }
+            Err(PostError::Transient(e)) => e,
+        };
+        let now = Instant::now();
+        let stop_at = *stop_at.get_or_insert(server_gives_up_at.max(now + policy.min_window));
+        if attempt >= policy.max_attempts || now + delay > stop_at {
+            error!(
+                task_id = %req.task_execution_id,
+                attempts = attempt,
+                error = %error,
+                "result not delivered and the retries are used up; \
+                 the server runs the task again after its result wait"
+            );
+            return ReportDelivery::GaveUp;
+        }
+        warn!(
             task_id = %req.task_execution_id,
-            outcome = %summarize_outcome(&req.outcome),
-            "result reported"
-        ),
-        Err(e) => warn!(
-            task_id = %req.task_execution_id,
-            error = %e,
-            "result POST failed (will be retried by FleetExecutor reconciliation when T-0633 lands)"
-        ),
+            attempt,
+            retry_in_ms = delay.as_millis() as u64,
+            error = %error,
+            "result POST failed; trying again"
+        );
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(policy.backoff_max);
+        attempt += 1;
     }
+}
+
+/// The start of a response body, short enough for one log line.
+fn short(s: &str) -> String {
+    s.chars().take(300).collect()
 }
 
 fn summarize_outcome(o: &cloacina::fleet::AgentOutcome) -> String {
@@ -1958,6 +2123,265 @@ const _: fn() = || {
 mod tests {
     use super::*;
     use cloacina::fleet::{AgentOutcome, ArtifactRef};
+
+    // ── CLOACINA-T-1015: the result POST is retried ──────────────────────
+
+    /// A local HTTP server that answers each request with the next status of
+    /// `statuses` (the last one repeats) and counts the requests.
+    async fn result_server(statuses: Vec<u16>) -> (String, Arc<AtomicU32>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicU32::new(0));
+        let counter = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
+                let n = counter.fetch_add(1, Ordering::SeqCst) as usize;
+                let status = statuses[n.min(statuses.len() - 1)];
+                tokio::spawn(async move {
+                    // Read the head and the body the head announces.
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    loop {
+                        let Ok(read) = sock.read(&mut chunk).await else {
+                            return;
+                        };
+                        if read == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&chunk[..read]);
+                        let text = String::from_utf8_lossy(&buf).to_ascii_lowercase();
+                        if let Some(head_end) = text.find("\r\n\r\n") {
+                            let want = text
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length:"))
+                                .and_then(|v| v.trim().parse::<usize>().ok())
+                                .unwrap_or(0);
+                            if buf.len() >= head_end + 4 + want {
+                                break;
+                            }
+                        }
+                    }
+                    let body = r#"{"protocol_version":1}"#;
+                    let resp = format!(
+                        "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\n\
+                         content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    fn a_report() -> AgentResultRequest {
+        AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: "agent-a".into(),
+            task_execution_id: "00000000-0000-0000-0000-000000000001".into(),
+            attempt: 1,
+            dispatch_id: Some("d1".into()),
+            duration_ms: 1,
+            outcome: cloacina::fleet::AgentOutcome::Success {
+                context: serde_json::json!({}),
+            },
+        }
+    }
+
+    /// The real policy with the waits cut to milliseconds.
+    fn fast_policy() -> ReportPolicy {
+        ReportPolicy {
+            attempt_timeout: Duration::from_secs(5),
+            backoff_min: Duration::from_millis(5),
+            backoff_max: Duration::from_millis(20),
+            max_attempts: 5,
+            min_window: Duration::from_secs(5),
+        }
+    }
+
+    #[tokio::test]
+    async fn result_post_is_retried_until_the_server_takes_it() {
+        let (server, hits) = result_server(vec![503, 500, 200]).await;
+        let http = reqwest::Client::new();
+        let got = report_with_policy(
+            &http,
+            &server,
+            "key",
+            &a_report(),
+            Instant::now() + Duration::from_secs(60),
+            &fast_policy(),
+        )
+        .await;
+        assert_eq!(got, ReportDelivery::Delivered);
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn result_post_is_retried_when_the_server_is_not_reachable_yet() {
+        // Nothing listens on the port at first: a connection error.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let http = reqwest::Client::new();
+        let got = report_with_policy(
+            &http,
+            &format!("http://{addr}"),
+            "key",
+            &a_report(),
+            Instant::now() + Duration::from_secs(60),
+            &ReportPolicy {
+                max_attempts: 3,
+                ..fast_policy()
+            },
+        )
+        .await;
+        assert_eq!(got, ReportDelivery::GaveUp, "3 tries, then it gives up");
+    }
+
+    #[tokio::test]
+    async fn result_post_rejected_for_good_is_sent_one_time() {
+        for status in [400u16, 401, 403] {
+            let (server, hits) = result_server(vec![status]).await;
+            let http = reqwest::Client::new();
+            let got = report_with_policy(
+                &http,
+                &server,
+                "key",
+                &a_report(),
+                Instant::now() + Duration::from_secs(60),
+                &fast_policy(),
+            )
+            .await;
+            assert_eq!(got, ReportDelivery::Rejected, "status {status}");
+            assert_eq!(hits.load(Ordering::SeqCst), 1, "status {status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn result_post_stops_at_the_attempt_limit() {
+        let (server, hits) = result_server(vec![503]).await;
+        let http = reqwest::Client::new();
+        let got = report_with_policy(
+            &http,
+            &server,
+            "key",
+            &a_report(),
+            Instant::now() + Duration::from_secs(60),
+            &fast_policy(),
+        )
+        .await;
+        assert_eq!(got, ReportDelivery::GaveUp);
+        assert_eq!(hits.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn result_post_stops_when_the_server_has_given_up() {
+        // The server's wait is over and the minimum window is shorter than
+        // the next backoff: one try, no more.
+        let (server, hits) = result_server(vec![503]).await;
+        let http = reqwest::Client::new();
+        let got = report_with_policy(
+            &http,
+            &server,
+            "key",
+            &a_report(),
+            Instant::now(),
+            &ReportPolicy {
+                backoff_min: Duration::from_millis(50),
+                min_window: Duration::from_millis(10),
+                ..fast_policy()
+            },
+        )
+        .await;
+        assert_eq!(got, ReportDelivery::GaveUp);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn result_post_keeps_trying_for_the_minimum_window_after_the_wait_ended() {
+        let (server, hits) = result_server(vec![503, 503, 200]).await;
+        let http = reqwest::Client::new();
+        let got = report_with_policy(
+            &http,
+            &server,
+            "key",
+            &a_report(),
+            Instant::now(),
+            &fast_policy(),
+        )
+        .await;
+        assert_eq!(got, ReportDelivery::Delivered);
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn the_ack_of_a_packet_waits_for_its_report() {
+        // The first POST fails; the real policy waits 1 s before the second.
+        let (server, hits) = result_server(vec![503, 200]).await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        spawn_refusal(
+            reqwest::Client::new(),
+            server,
+            "key".into(),
+            "agent-a".into(),
+            Ok(pkt("any-triple")),
+            RefusalReason::Shutdown,
+            "agent at max_concurrency".into(),
+            ack_tx,
+            991_015,
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert!(
+            ack_rx.try_recv().is_err(),
+            "no ack while the report is not delivered"
+        );
+        let ack = tokio::time::timeout(Duration::from_secs(10), ack_rx.recv())
+            .await
+            .expect("the ack comes after the report")
+            .expect("ack channel open");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        match ack {
+            Message::Text(t) => assert!(t.contains("991015"), "ack names the push id: {t}"),
+            other => panic!("unexpected frame: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_a_4xx_that_rejects_the_report_is_permanent() {
+        use reqwest::StatusCode;
+        for code in [400u16, 401, 403, 404, 409, 422] {
+            assert!(
+                is_permanent_status(StatusCode::from_u16(code).unwrap()),
+                "{code}"
+            );
+        }
+        for code in [408u16, 429, 500, 502, 503, 504] {
+            assert!(
+                !is_permanent_status(StatusCode::from_u16(code).unwrap()),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_report_policy_is_bounded() {
+        let p = ReportPolicy::default();
+        // The waits between the tries: 1, 2, 4, 8, then 15 s each.
+        let mut delay = p.backoff_min;
+        let mut total = Duration::ZERO;
+        for _ in 1..p.max_attempts {
+            total += delay;
+            delay = (delay * 2).min(p.backoff_max);
+        }
+        assert_eq!(total, Duration::from_secs(120));
+        assert!(server_wait_end(Instant::now(), 300) > Instant::now() + Duration::from_secs(299));
+    }
 
     #[test]
     fn push_registry_starts_one_worker_per_push_id() {

@@ -136,7 +136,28 @@ pub struct WakeHandle {
     notify: Arc<Notify>,
 }
 
+impl Default for WakeHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WakeHandle {
+    /// A wake handle that belongs to no relay (CLOACINA-T-1015). A loop other
+    /// than the relay waits on it with [`notified`](Self::notified) and gives
+    /// a clone to `run_pg_listener` for its own channel.
+    pub fn new() -> Self {
+        Self {
+            notify: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Wait for the next [`wake`](Self::wake). A wake sent while nobody waits
+    /// is kept as one permit.
+    pub async fn notified(&self) {
+        self.notify.notified().await;
+    }
+
     /// Wake the relay to drain. Coalesces: many wakes between drains collapse
     /// into a single drain (which reads all pending rows anyway). A wake that
     /// arrives with no waiter is retained as one permit, so a signal racing the
@@ -275,7 +296,7 @@ pub async fn run_pg_listener(
         match listen_once(&conn_str, &channel, &wake, &mut shutdown).await {
             Ok(()) => break, // clean shutdown
             Err(e) => {
-                warn!(error = %e, "delivery_outbox: LISTEN connection lost; reconnecting after backoff");
+                warn!(error = %e, channel = %channel, "LISTEN connection lost; reconnecting after backoff");
                 tokio::select! {
                     _ = tokio::time::sleep(BACKOFF) => {}
                     _ = shutdown.changed() => {}
@@ -283,7 +304,7 @@ pub async fn run_pg_listener(
             }
         }
     }
-    debug!("delivery_outbox: LISTEN loop stopped");
+    debug!(channel = %channel, "LISTEN loop stopped");
 }
 
 /// One LISTEN session. Returns `Ok(())` only on requested shutdown; any

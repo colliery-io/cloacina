@@ -703,10 +703,11 @@ pub async fn run(
     );
     metrics::describe_counter!(
         "cloacina_fleet_orphan_results_total",
-        "Agent reports that no dispatch waited for: the report of an older \
-         dispatch of a task, a second report, or a report that reached a \
-         replica which did not dispatch the task (CLOACINA-T-1013). The report \
-         changes no state. Each one is work that ran and was not used; \
+        "Agent reports that no dispatch on any replica waited for: the report \
+         of an older dispatch of a task, a second report, or a report whose \
+         replica stopped (CLOACINA-T-1013, CLOACINA-T-1015). Counted when the \
+         stored report is deleted by age, about 15 minutes after it came. The \
+         report changes no state. Each one is work that ran and was not used; \
          sustained non-zero means tasks time out or agents are declared dead \
          while they still run."
     );
@@ -972,6 +973,32 @@ pub async fn run(
         agent_liveness_window,
     ));
     let fleet_coordinator = Arc::new(crate::fleet_coordinator::FleetCoordinator::new());
+
+    // CLOACINA-T-1015: an agent posts its report to any replica. A replica
+    // with no wait for it stores it in `fleet_result_inbox` (admin schema);
+    // this loop gives the stored reports to the waits of THIS replica and
+    // deletes the reports nobody took. It runs on every server, because the
+    // result route stores on every server. The LISTEN connection for the
+    // insert NOTIFY is opened only where the fleet executor runs: only there
+    // can a wait exist. Without it the loop still reads on its slow tick.
+    {
+        let result_inbox_wake = cloacina::delivery::WakeHandle::new();
+        tokio::spawn(crate::fleet_coordinator::run_result_inbox(
+            fleet_coordinator.clone(),
+            unified_dal.clone(),
+            result_inbox_wake.clone(),
+            substrate_shutdown_rx.clone(),
+        ));
+        #[cfg(feature = "postgres")]
+        if use_fleet {
+            tokio::spawn(cloacina::delivery::run_pg_listener(
+                database_url.clone(),
+                crate::fleet_coordinator::RESULT_INBOX_CHANNEL.to_string(),
+                result_inbox_wake,
+                substrate_shutdown_rx.clone(),
+            ));
+        }
+    }
 
     // CLOACI-T-0862: the per-tenant schema-scoped `Database` cache. Hoisted here
     // (was inline in the AppState literal) so BOTH the routes (via AppState) and
@@ -3128,6 +3155,138 @@ mod tests {
 
     fn second_replica_db() -> cloacina::database::Database {
         cloacina::database::Database::new(TEST_DB_URL, "cloacina", 2)
+    }
+
+    /// CLOACINA-T-1015: an agent's result POST that lands on a replica which
+    /// did not dispatch the task must resolve the wait of the replica that
+    /// did, so the task is not run again after the result-wait timeout.
+    ///
+    /// Replica A holds the wait and runs the inbox loop with its LISTEN
+    /// connection. The POST goes through the real handler on replica B (its
+    /// own coordinator and its own pool). The wait on A must resolve before
+    /// the loop's 5 s tick, which shows the NOTIFY path.
+    #[tokio::test]
+    #[serial]
+    async fn fleet_result_posted_to_another_replica_resolves_the_wait_of_the_dispatcher() {
+        use crate::fleet_coordinator::{
+            RESULT_INBOX_CHANNEL, run_result_inbox, sweep_result_inbox,
+        };
+        use cloacina::fleet::{AGENT_PROTOCOL_VERSION, AgentOutcome, AgentResultRequest};
+
+        let replica_a = test_state().await;
+        let mut replica_b = test_state().await;
+        replica_b.database = second_replica_db();
+        let inbox_a = cloacina::dal::DAL::new(replica_a.database.clone());
+
+        // Leftovers of an earlier run would be taken for this test's reports.
+        sweep_result_inbox(&inbox_a, std::time::Duration::ZERO)
+            .await
+            .expect("clear the inbox");
+
+        let wake = cloacina::delivery::WakeHandle::new();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let inbox_loop = tokio::spawn(run_result_inbox(
+            replica_a.fleet_coordinator.clone(),
+            inbox_a.clone(),
+            wake.clone(),
+            shutdown_rx.clone(),
+        ));
+        let listener = tokio::spawn(cloacina::delivery::run_pg_listener(
+            TEST_DB_URL.to_string(),
+            RESULT_INBOX_CHANNEL.to_string(),
+            wake,
+            shutdown_rx,
+        ));
+        // Let the listener connect and the loop take its first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+        let task_id = cloacina::UniversalUuid::new_v4();
+        let rx = replica_a
+            .fleet_coordinator
+            .register_dispatch(task_id, "dispatch-1".to_string());
+
+        let auth = crate::routes::auth::AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: "t1015-agent".to_string(),
+            permissions: "admin".to_string(),
+            tenant_id: None,
+            is_admin: true,
+        };
+        let report = AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: format!("t1015-agent-{}", uuid::Uuid::new_v4()),
+            task_execution_id: task_id.0.to_string(),
+            attempt: 1,
+            dispatch_id: Some("dispatch-1".to_string()),
+            duration_ms: 5,
+            outcome: AgentOutcome::Success {
+                context: serde_json::json!({"k": "v"}),
+            },
+        };
+
+        let posted = crate::routes::agent::report_result(
+            axum::extract::State(replica_b.clone()),
+            axum::Extension(auth.clone()),
+            axum::Json(report.clone()),
+        )
+        .await;
+        assert!(
+            posted.is_ok(),
+            "replica B accepts a report it has no wait for"
+        );
+        assert_eq!(
+            replica_b.fleet_coordinator.pending_count(),
+            0,
+            "replica B never had the wait"
+        );
+
+        let got = tokio::time::timeout(std::time::Duration::from_secs(4), rx)
+            .await
+            .expect("the NOTIFY wakes replica A before its slow tick")
+            .expect("the wait on replica A is resolved");
+        assert_eq!(got.dispatch_id.as_deref(), Some("dispatch-1"));
+        assert_eq!(got.agent_id, report.agent_id);
+        assert_eq!(replica_a.fleet_coordinator.pending_count(), 0);
+        assert!(
+            inbox_a
+                .fleet_result_inbox()
+                .list_for(&[task_id])
+                .await
+                .unwrap()
+                .is_empty(),
+            "the taken report leaves no row"
+        );
+
+        // A second copy of the report (an agent retry whose first POST did
+        // arrive) has no wait anywhere: stored, taken by nobody, gone by age.
+        let again = crate::routes::agent::report_result(
+            axum::extract::State(replica_b.clone()),
+            axum::Extension(auth),
+            axum::Json(report),
+        )
+        .await;
+        assert!(again.is_ok());
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(
+            inbox_a
+                .fleet_result_inbox()
+                .list_for(&[task_id])
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "a report nobody waits for stays stored and resolves nothing"
+        );
+        assert_eq!(
+            sweep_result_inbox(&inbox_a, std::time::Duration::ZERO)
+                .await
+                .unwrap(),
+            1
+        );
+
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inbox_loop).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), listener).await;
     }
 
     /// A WS ticket minted "on replica A" must redeem "on replica B" — and only

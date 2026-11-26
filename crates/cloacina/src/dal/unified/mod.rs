@@ -54,6 +54,7 @@ pub mod context;
 pub mod delivery_outbox;
 pub mod execution_event;
 pub mod fleet_agents;
+pub mod fleet_result_inbox;
 #[cfg(feature = "postgres")]
 pub mod local_accounts;
 pub mod login_throttle;
@@ -87,6 +88,7 @@ pub use context::ContextDAL;
 pub use delivery_outbox::DeliveryOutboxDAL;
 pub use execution_event::ExecutionEventDAL;
 pub use fleet_agents::{FleetAgent, FleetAgentDAL, FleetAgentRegistration};
+pub use fleet_result_inbox::{FleetResultInboxDAL, StoredFleetResult};
 #[cfg(feature = "postgres")]
 pub use local_accounts::{LocalAccount, LocalAccountDAL, LoginOutcome};
 pub use login_throttle::{LoginThrottleDAL, ThrottlePolicy, ThrottleState};
@@ -203,6 +205,12 @@ impl DAL {
     /// Unified (both backends) so its semantics are testable without Postgres.
     pub fn login_throttle(&self) -> LoginThrottleDAL<'_> {
         LoginThrottleDAL::new(self)
+    }
+
+    /// Returns the fleet result inbox DAL (CLOACINA-T-1015): agent reports
+    /// kept for the server replica that waits for them.
+    pub fn fleet_result_inbox(&self) -> FleetResultInboxDAL<'_> {
+        FleetResultInboxDAL::new(self)
     }
 
     /// Returns the reactor owner-address DAL (CLOACI-T-0851 / A-0012
