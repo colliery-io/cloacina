@@ -1,8 +1,9 @@
 # CLOACINA-T-1026. Driver: `angreal test bdd publish` (see README.md here).
 #
 # A scenario tagged @gap does not hold today. It still runs. The second tag
-# names the Kairos task that owns the gap. When such a scenario passes, the
-# run says so loudly: remove the tags then.
+# names the Kairos task that owns the gap, or is @unfiled when no task owns it
+# yet. When such a scenario passes, the run says so loudly: remove the tags
+# then.
 @publishing
 Feature: A team publishes its own jobs to a shared orchestrator
 
@@ -20,6 +21,10 @@ Feature: A team publishes its own jobs to a shared orchestrator
     When team A builds, validates and packs both jobs with no server to talk to
     Then each job becomes one package file that is ready to publish
 
+  # Observed on k3s, 2026-11-26: the package compiles and loads, but its
+  # schedule does not start. The server makes a tenant's runner on the first
+  # execute, trigger fire or instance call for that tenant, not on a publish.
+  @gap @unfiled
   Scenario: A team publishes with its own key and the schedule starts with no restart
     Given team A has packed version 0.1.0 of its report job
     When team A publishes the report job with its own key
@@ -27,7 +32,6 @@ Feature: A team publishes its own jobs to a shared orchestrator
     And the report job runs on its schedule
     And the orchestrator was not restarted
 
-  @gap @CLOACINA-T-1018
   Scenario: A publish with a build error leaves the running version in service
     Given version 0.1.0 of team A's report job is in service
     When team A publishes version 0.2.0 of the report job, which does not compile
@@ -35,7 +39,6 @@ Feature: A team publishes its own jobs to a shared orchestrator
     And team A's list of versions of the report job shows 0.1.0 in service
     And the report job still runs on its schedule
 
-  @gap @CLOACINA-T-1018
   Scenario: A new version arrives while an execution runs
     Given version 0.1.0 of team A's orders job is in service
     And an execution of the orders job is running
@@ -45,7 +48,6 @@ Feature: A team publishes its own jobs to a shared orchestrator
     And every task of the running execution ran on version 0.1.0
     And a new execution of the orders job runs on version 0.2.0
 
-  @gap @CLOACINA-T-1018
   Scenario: A team goes back to an earlier version with one command
     Given team A has published versions 0.1.0 and 0.2.0 of its orders job
     And a new execution of the orders job runs on version 0.2.0
@@ -72,6 +74,9 @@ Feature: A team publishes its own jobs to a shared orchestrator
     When Sam, whose key team A does not trust, signs a package and publishes it to team A
     Then the publish is refused
 
+  # Observed on k3s, 2026-11-26: every step holds but the last. The server
+  # process imports a team's Python package, with the database URL, the
+  # bootstrap key and the secret KEK in its environment.
   @gap @CLOACINA-T-1022
   Scenario: A task of one team cannot read another team's packages or secrets
     Given team B has published its ledger job

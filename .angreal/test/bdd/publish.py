@@ -58,6 +58,7 @@ BOOTSTRAP_SECRET = "cloacina-bootstrap"
 # a throwaway test key, never a real one.
 SECRET_KEK = "YmRkLXB1Ymxpc2gta2VrLWJkZC1wdWJsaXNoLWsxMjM="
 FWD_PORT = 18099
+REUSE_PROJECT = "cloacina-k8s-bdd-publish-keep"
 
 
 def _load_feature():
@@ -93,8 +94,11 @@ def _dry_run(feature, registry):
     return 0
 
 
-def _server_values_with_fleet(tag, agent_ref):
+def _server_values_with_fleet(tag, agent_ref, chart_actuator):
     """The e2e server values, plus fleet executor + a secret KEK.
+
+    With `chart_actuator` false the server runs with `fleet.actuator=none` and
+    the driver applies the agents (`PublishWorld.deploy_agent`).
 
     The e2e harness runs the server with the default executor (no task reaches
     an agent) and no KEK (the secrets routes answer 503). The publishing spec
@@ -106,6 +110,9 @@ def _server_values_with_fleet(tag, agent_ref):
     zero = '{name: CLOACINA_INITIAL_AGENTS, value: "0"}'
     assert zero in base, "the e2e server values changed: CLOACINA_INITIAL_AGENTS not found"
     base = base.replace(zero, '{name: CLOACINA_INITIAL_AGENTS, value: "1"}')
+    if not chart_actuator:
+        assert "  actuator: kubernetes\n" in base, "the e2e server values changed: actuator not found"
+        base = base.replace("  actuator: kubernetes\n", "  actuator: none\n")
     extra = (
         '    - {name: CLOACINA_DEFAULT_EXECUTOR, value: "fleet"}\n'
         f'    - {{name: CLOACINA_SECRET_KEK, value: "{SECRET_KEK}"}}\n'
@@ -135,7 +142,12 @@ def _server_values_with_fleet(tag, agent_ref):
                   help="Run only these scenario numbers, comma-separated (e.g. 2,6)")
 @angreal.argument(name="tag", long="tag", default_value="bdd-publish",
                   help="Image tag pushed to the local registry")
-def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd-publish"):
+@angreal.argument(name="reuse_cluster", long="reuse-cluster", takes_value=False, is_flag=True,
+                  help="Use one named cluster and keep it: the first run makes it, later runs reuse it")
+@angreal.argument(name="chart_actuator", long="chart-actuator", takes_value=False, is_flag=True,
+                  help="Let the server's Kubernetes actuator make the agents (fleet.actuator=kubernetes)")
+def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd-publish",
+            reuse_cluster=False, chart_actuator=False):
     feature = _load_feature()
     registry = _build_registry()
 
@@ -159,8 +171,15 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
     k8s._check_tool("kubectl", "sudo port install kubectl")
     k8s._check_tool("helm", k8s.HELM_HINT)
 
-    project = f"cloacina-bdd-publish-{uuid.uuid4().hex[:8]}"
-    hostdir = Path(tempfile.mkdtemp(prefix="cloacina-bdd-publish-"))
+    if reuse_cluster:
+        # One named project and one known folder, so the next run finds them.
+        no_cleanup = True
+        project = REUSE_PROJECT
+        hostdir = Path(tempfile.gettempdir()) / REUSE_PROJECT
+        hostdir.mkdir(exist_ok=True)
+    else:
+        project = f"cloacina-k8s-bdd-publish-{uuid.uuid4().hex[:8]}"
+        hostdir = Path(tempfile.mkdtemp(prefix="cloacina-k8s-bdd-publish-"))
     kubeconfig = hostdir / "kubeconfig.host.yaml"
     print_section_header(f"cloacina publishing behaviour spec (project: {project})")
     print(f"host kubeconfig dir: {hostdir}")
@@ -180,7 +199,7 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
     fwd = None
     try:
         print("\n--- bring up k3s + registry ---\n")
-        k8s.bring_up_cluster(project, hostdir, compose_env, kubeconfig)
+        k8s.bring_up_cluster(project, hostdir, compose_env, kubeconfig, reuse=reuse_cluster)
 
         print("\n--- build/push server + agent images ---\n")
         _server_ref, agent_ref = k8s._prepare_images(tag, skip_build)
@@ -193,7 +212,8 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
             kubeconfig, hostdir, tag, agent_ref,
             release=RELEASE, ns=NS,
             bootstrap_secret=BOOTSTRAP_SECRET, bootstrap_key=BOOTSTRAP_KEY,
-            values_text=_server_values_with_fleet(tag, agent_ref),
+            values_text=_server_values_with_fleet(tag, agent_ref, chart_actuator),
+            reuse=reuse_cluster,
         )
 
         print("\n--- port-forward the server API ---\n")
@@ -204,7 +224,7 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
             raise AssertionError("server /ready never became healthy via port-forward")
 
         print("\n--- create the two tenants, their agents, keys and compilers ---\n")
-        world.provision_tenants(compiler_ref)
+        world.provision_tenants(compiler_ref, agent_ref=None if chart_actuator else agent_ref)
 
         print("\n--- build cloacinactl (host) ---\n")
         world.build_cloacinactl()
@@ -220,12 +240,17 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
         if gherkin.run_failed(results):
             sys.exit(1)
     finally:
+        # angreal's Python does not flush on sys.exit: a run that fails would
+        # lose its scenario lines.
+        sys.stdout.flush()
+        sys.stderr.flush()
         if fwd is not None and fwd.poll() is None:
             fwd.terminate()
         if no_cleanup:
             print(f"\n--no-cleanup: cluster left up.\n"
                   f"  KUBECONFIG={kubeconfig}\n"
-                  f"  teardown: docker compose -f {k8s.COMPOSE_FILE} -p {project} down -v")
+                  f"  teardown: CLOACINA_K8S_E2E_HOSTDIR={hostdir} "
+                  f"docker compose -f {k8s.COMPOSE_FILE} -p {project} down -v")
         else:
             print(f"\n--- cleanup: docker compose -p {project} down -v ---\n")
             k8s._compose(["down", "-v"], project, env=compose_env)

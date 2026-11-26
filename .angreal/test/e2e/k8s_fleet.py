@@ -343,16 +343,14 @@ def bring_up_cluster(project, hostdir, compose_env, kubeconfig, reuse=False):
 
 def helm_deploy_server(kubeconfig, hostdir, tag, agent_ref, *, release=RELEASE,
                        ns=NS, bootstrap_secret=BOOTSTRAP_SECRET,
-                       bootstrap_key=BOOTSTRAP_KEY, reuse=False, values_text=None,
-                       helm_args=()):
+                       bootstrap_key=BOOTSTRAP_KEY, reuse=False, values_text=None):
     """Create the server namespace + bootstrap secret and helm-install the
     server with `fleet.actuator=kubernetes` (real chart RBAC).
 
     With `reuse=True` an existing deployment is left in place (idempotent
     `helm upgrade --install`, namespace/secret creation tolerated-if-present).
 
-    `values_text` replaces the default values of this lane (`_server_values`);
-    `helm_args` are passed on to helm as they are (for example `--set k=v`).
+    `values_text` replaces the default values of this lane (`_server_values`).
     """
     if reuse:
         existing = _run(["helm", "status", release, "-n", ns],
@@ -376,7 +374,7 @@ def helm_deploy_server(kubeconfig, hostdir, tag, agent_ref, *, release=RELEASE,
     helm_verb = ["upgrade", "--install"] if reuse else ["install"]
     try:
         _run(["helm", *helm_verb, release, str(CHART_DIR), "-n", ns,
-              "-f", str(values), *helm_args, "--wait", "--timeout=8m"],
+              "-f", str(values), "--wait", "--timeout=8m"],
              env=_kube_env(kubeconfig))
     except subprocess.CalledProcessError:
         _dump_diag(kubeconfig, "helm install failed")

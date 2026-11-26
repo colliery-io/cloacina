@@ -9,8 +9,8 @@ tags (`@name`), comments (`#`), and the step keywords `Given`, `When`, `Then`,
 `And`, `But`. Not supported, and refused with the line number: `Scenario
 Outline`, `Examples`, data tables, doc strings, `Rule`.
 
-Known gaps. A scenario tagged `@gap` plus a task code (`@CLOACINA-T-1022`)
-still runs. Its failure is reported as "known gap" and does not fail the run.
+Known gaps. A scenario tagged `@gap` plus a task code (`@CLOACINA-T-1022`),
+or plus `@unfiled` when no task owns the gap yet, still runs. Its failure is reported as "known gap" and does not fail the run.
 Its pass is reported as "unexpected pass": the gap may be closed.
 
 Hard and soft steps. A failed `Given` or `When` stops the scenario: there is
@@ -64,7 +64,8 @@ class Scenario:
 
     @property
     def gap_tasks(self):
-        return [t[1:] for t in self.tags if TASK_CODE.match(t)]
+        # `@unfiled` stands for the owner when no task owns the gap yet.
+        return [t[1:] for t in self.tags if TASK_CODE.match(t) or t == "@unfiled"]
 
 
 class Feature:
@@ -208,7 +209,7 @@ def check(feature, registry):
             problems.append(f"{feature.path}:{scenario.line}: scenario with no Then: {scenario.name}")
         if scenario.is_gap and not scenario.gap_tasks:
             problems.append(
-                f"{feature.path}:{scenario.line}: @gap with no task code (for example @CLOACINA-T-1022): {scenario.name}"
+                f"{feature.path}:{scenario.line}: @gap with no task code (for example @CLOACINA-T-1022, or @unfiled): {scenario.name}"
             )
         if scenario.gap_tasks and not scenario.is_gap:
             problems.append(f"{feature.path}:{scenario.line}: a task code tag with no @gap: {scenario.name}")

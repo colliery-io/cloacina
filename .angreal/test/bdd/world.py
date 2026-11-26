@@ -52,6 +52,8 @@ class PublishWorld:
         )
         # Per-tenant write keys, filled by provision_tenants.
         self.keys = {}
+        # Per-tenant admin keys (a team's own admin), filled by provision_tenants.
+        self.admin_keys = {}
         # Per-scenario scratch, cleared by begin_scenario.
         self.scratch = {}
         self.result = None
@@ -233,9 +235,11 @@ class PublishWorld:
 
     def server_restart_count(self):
         data = self.kubectl_json("get", "pods", "-n", self.ns, "-l",
-                                 "app.kubernetes.io/component=server")
+                                 "app.kubernetes.io/name=cloacina-server")
+        pods = (data or {}).get("items", [])
+        assert pods, "no server pod found: the restart count would be a false zero"
         total = 0
-        for pod in (data or {}).get("items", []):
+        for pod in pods:
             for cs in pod.get("status", {}).get("containerStatuses", []):
                 total += cs.get("restartCount", 0)
         return total
@@ -246,6 +250,30 @@ class PublishWorld:
                             "app.kubernetes.io/name=cloacina-agent",
                             "--tail=500", "--all-containers=true", check=False)
         return (proc.stdout or "") + (proc.stderr or "")
+
+    def marked_lines(self, marker):
+        """Every log line that starts with `marker`, from the server pod, each
+        compiler pod and each agent pod: (where, parsed JSON). Says in which
+        processes a package's code ran."""
+        places = [("server", self.ns, f"deploy/{self.release}-cloacina-server")]
+        for tenant in TENANTS:
+            places.append((f"compiler of {tenant}", self.ns,
+                           "deploy/cloacina-compiler-" + tenant.replace("_", "-")))
+            places.append((f"agent of {tenant}", self.tenant_namespace(tenant),
+                           "deploy/cloacina-agent"))
+        found = []
+        for where, ns, target in places:
+            proc = self.kubectl("logs", "-n", ns, target, "--all-containers=true", check=False)
+            seen = set()
+            for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
+                line = line.strip()
+                if line.startswith(marker) and line not in seen:
+                    seen.add(line)
+                    try:
+                        found.append((where, json.loads(line[len(marker):].strip())))
+                    except json.JSONDecodeError:
+                        pass
+        return found
 
     # -- provisioning ------------------------------------------------------
 
@@ -282,20 +310,120 @@ class PublishWorld:
         from ..e2e.k8s_fleet import REGISTRY_K8S
         return REGISTRY_K8S
 
-    def provision_tenants(self, compiler_ref):
+    def provision_tenants(self, compiler_ref, agent_ref=None):
         """Create both tenants, mint a write key each, deploy a per-tenant
-        compiler, and wait for one agent of each tenant to register."""
+        compiler, and wait for one agent of each tenant to register.
+
+        With `agent_ref`, the driver applies the agent of each tenant itself
+        (`deploy_agent`). With none, the server's Kubernetes actuator makes
+        them (CLOACINA_INITIAL_AGENTS=1)."""
         for tenant in TENANTS:
-            code, _ = self.api("POST", "/v1/tenants", key=self.bootstrap_key,
-                               body={"name": tenant}, expect=(200, 201, 409))
+            code, body = self.api("POST", "/v1/tenants", key=self.bootstrap_key,
+                                  body={"name": tenant}, expect=None)
+            # A tenant that exists answers 400 with the SQL error, not 409.
+            if code not in (200, 201, 409) and "already exists" not in str(body):
+                raise AssertionError(f"creating tenant {tenant} -> {code}: {str(body)[:300]}")
             self.api("POST", f"/v1/tenants/{tenant}/limits", key=self.bootstrap_key,
                      body={"max_agents": 4}, expect=(200, 201))
             _, created = self.api("POST", f"/v1/tenants/{tenant}/keys", key=self.bootstrap_key,
                                   body={"name": f"{tenant}-publish", "role": "write"},
                                   expect=(200, 201))
             self.keys[tenant] = created["key"]
+            # The secrets routes need the tenant's admin role.
+            _, created = self.api("POST", f"/v1/tenants/{tenant}/keys", key=self.bootstrap_key,
+                                  body={"name": f"{tenant}-admin", "role": "admin"},
+                                  expect=(200, 201))
+            self.admin_keys[tenant] = created["key"]
             self.deploy_compiler(tenant, compiler_ref)
+            if agent_ref is not None:
+                self.deploy_agent(tenant, agent_ref)
         self.wait_for_agents()
+
+    def deploy_agent(self, tenant, agent_ref):
+        """Apply what the server's Kubernetes actuator would make for a tenant:
+        the namespace, the agent key Secret, the hardened agent Deployment and
+        the NetworkPolicy (egress to DNS and to the server pods only).
+
+        The manifests copy `crates/cloacina-server/src/actuator/kubernetes.rs`
+        (`agent_deployment_manifest`, `network_policy_manifest`) and the key
+        has the actuator's role (`read`, tenant-scoped). The driver does this
+        because the server does not start with `fleet.actuator=kubernetes`
+        today (see features/publishing/README.md). Keep the copy in step with
+        the actuator, or the probe scenario measures the wrong pod.
+        """
+        ns = self.tenant_namespace(tenant)
+        if self.kubectl_json("get", "deploy", "cloacina-agent", "-n", ns):
+            return
+        _, created = self.api("POST", f"/v1/tenants/{tenant}/keys", key=self.bootstrap_key,
+                              body={"name": f"agent:{tenant}:bdd-driver", "role": "read"},
+                              expect=(200, 201))
+        managed = {"cloacina.managed": "true"}
+        labels = {"app.kubernetes.io/name": "cloacina-agent", "cloacina.managed": "true",
+                  "cloacina.tenant": tenant}
+        server_url = f"http://{self.release}-cloacina-server.{self.ns}.svc.cluster.local:8080"
+        items = [
+            {"apiVersion": "v1", "kind": "Namespace",
+             "metadata": {"name": ns, "labels": managed}},
+            {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+             "metadata": {"name": "cloacina-agent-key", "namespace": ns, "labels": managed},
+             "stringData": {AGENT_SECRET_KEY: created["key"]}},
+            {"apiVersion": "apps/v1", "kind": "Deployment",
+             "metadata": {"name": "cloacina-agent", "namespace": ns, "labels": labels},
+             "spec": {
+                 "replicas": 1,
+                 "selector": {"matchLabels": {"app.kubernetes.io/name": "cloacina-agent"}},
+                 "template": {
+                     "metadata": {"labels": labels},
+                     "spec": {
+                         "securityContext": {
+                             "runAsNonRoot": True, "runAsUser": 10001, "runAsGroup": 10001,
+                             "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
+                         "containers": [{
+                             "name": "cloacina-agent",
+                             "image": agent_ref,
+                             "securityContext": {
+                                 "allowPrivilegeEscalation": False,
+                                 "readOnlyRootFilesystem": True,
+                                 "capabilities": {"drop": ["ALL"]}},
+                             "env": [
+                                 {"name": "CLOACINA_SERVER", "value": server_url},
+                                 {"name": "CLOACINA_API_KEY", "valueFrom": {"secretKeyRef": {
+                                     "name": "cloacina-agent-key", "key": AGENT_SECRET_KEY}}}],
+                             "resources": {
+                                 "requests": {"cpu": "250m", "memory": "256Mi"},
+                                 "limits": {"cpu": "1", "memory": "1Gi"}},
+                             "volumeMounts": [
+                                 {"name": "home", "mountPath": "/home/cloacina"},
+                                 {"name": "tmp", "mountPath": "/tmp"}],
+                         }],
+                         "volumes": [
+                             {"name": "home", "emptyDir": {"sizeLimit": "2Gi"}},
+                             {"name": "tmp", "emptyDir": {"sizeLimit": "1Gi"}}],
+                     }}}},
+            {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+             "metadata": {"name": "cloacina-agent-fleet", "namespace": ns, "labels": managed},
+             "spec": {
+                 "podSelector": {},
+                 "policyTypes": ["Ingress", "Egress"],
+                 "ingress": [],
+                 "egress": [
+                     {"to": [{"namespaceSelector": {"matchLabels": {
+                         "kubernetes.io/metadata.name": "kube-system"}}}],
+                      "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]},
+                     {"to": [{"namespaceSelector": {"matchLabels": {
+                         "kubernetes.io/metadata.name": self.ns}},
+                         "podSelector": {"matchLabels": {
+                             "app.kubernetes.io/name": "cloacina-server",
+                             "app.kubernetes.io/instance": self.release}}}],
+                      "ports": [{"protocol": "TCP", "port": 8080}]},
+                 ]}},
+        ]
+        # The key travels on stdin, never on a command line.
+        proc = subprocess.run(["kubectl", "apply", "-f", "-"],
+                              input=json.dumps({"apiVersion": "v1", "kind": "List", "items": items}),
+                              env=self._kube_env(), text=True, capture_output=True, check=False)
+        if proc.returncode != 0:
+            raise AssertionError(f"failed to apply the agent of {tenant}: {proc.stderr}")
 
     def deploy_compiler(self, tenant, compiler_ref):
         """kubectl apply a compiler Deployment scoped to the tenant's schema.
@@ -306,14 +434,16 @@ class PublishWorld:
         the fixtures' version deps against the baked /workspace, since the
         cloacina crates are not on crates.io.
         """
+        # A Kubernetes name allows no underscore; a schema name allows no hyphen.
+        name = "cloacina-compiler-" + tenant.replace("_", "-")
         manifest = {
             "apiVersion": "apps/v1", "kind": "Deployment",
-            "metadata": {"name": f"cloacina-compiler-{tenant}", "namespace": self.ns},
+            "metadata": {"name": name, "namespace": self.ns},
             "spec": {
                 "replicas": 1,
-                "selector": {"matchLabels": {"app": f"cloacina-compiler-{tenant}"}},
+                "selector": {"matchLabels": {"app": name}},
                 "template": {
-                    "metadata": {"labels": {"app": f"cloacina-compiler-{tenant}"}},
+                    "metadata": {"labels": {"app": name}},
                     "spec": {"containers": [{
                         "name": "compiler",
                         "image": compiler_ref,
@@ -355,30 +485,75 @@ class PublishWorld:
 
     # -- waits used by the steps ------------------------------------------
 
-    def wait_build_status(self, tenant, name, expected, *, key, timeout_s=900):
-        """Poll `package versions`/`inspect` until a version of `name` reaches
-        one of `expected` build states. Returns the matching row dict.
+    def schedules(self, tenant, workflow, *, key):
+        """The schedules the server holds for a workflow of a tenant."""
+        code, body = self.api("GET", f"/v1/tenants/{tenant}/triggers", key=key, expect=None)
+        if code != 200 or not isinstance(body, dict):
+            return []
+        return [t for t in body.get("items", []) if t.get("workflow_name") == workflow]
 
-        Uses the CLOACINA-T-1018 `package versions` route when it is present,
-        and falls back to the workflow-detail build_status otherwise.
-        """
+    def wake_tenant(self, tenant, workflow, *, key, timeout_s=60):
+        """Make the server start the tenant's runner, with one execute call.
+
+        The server makes a tenant's runner on the first execute, trigger fire
+        or instance call for that tenant, not when a package is published.
+        Until then no schedule of the tenant exists. The first call may answer
+        "workflow not found": the runner it just made has not loaded yet.
+        Returns the HTTP status of that first call."""
+        code, _ = self.api("POST", f"/v1/tenants/{tenant}/workflows/{workflow}/execute",
+                           key=key, body={"context": {}}, expect=None)
+        deadline = time.time() + timeout_s
+        while time.time() < deadline and not self.schedules(tenant, workflow, key=key):
+            time.sleep(2)
+        return code
+
+    def wait_build_status(self, tenant, name, expected, *, key, version=None, timeout_s=900):
+        """Poll the versions list until `version` of package `name` (or, with
+        no version, the newest upload) reaches one of `expected` build states.
+        Returns the row."""
         deadline = time.time() + timeout_s
         last = None
         while time.time() < deadline:
-            rows = self.list_versions(tenant, name, key=key)
-            if rows is not None:
-                for row in rows:
-                    if row.get("build_status") in expected:
-                        return row
-                last = rows
-            else:
-                _, detail = self.api("GET", f"/v1/tenants/{tenant}/workflows/{name}",
-                                     key=key, expect=None)
-                if isinstance(detail, dict) and detail.get("build_status") in expected:
-                    return detail
-                last = detail
+            rows = self.list_versions(tenant, name, key=key) or []
+            if version is not None:
+                rows = [r for r in rows if r.get("version") == version]
+            # Newest upload first: a version uploaded again has an old row too.
+            if rows:
+                last = rows[0]
+                if last.get("build_status") in expected:
+                    return last
             time.sleep(3)
-        raise AssertionError(f"no version of {name} reached {expected} within {timeout_s}s; last: {last}")
+        brief = {k: (last or {}).get(k) for k in ("version", "build_status", "active", "superseded")}
+        raise AssertionError(
+            f"{name} {version or '(newest)'} did not reach {sorted(expected)} within {timeout_s}s; "
+            f"last: {brief}; build_error: {str((last or {}).get('build_error'))[-600:]}")
+
+    def ensure_version(self, tenant, name, fixture, version, *, key, timeout_s=900):
+        """Make `version` of package `name` the one in service: publish it when
+        the tenant does not have a good build of it yet, else make that build
+        active again. Returns the row. For `Given` steps, so a scenario does
+        not depend on which scenarios ran before it."""
+        rows = self.list_versions(tenant, name, key=key) or []
+        good = next((r for r in rows if r.get("version") == version
+                     and r.get("build_status") == "success"), None)
+        if good is None:
+            archive = self.pack(self.stage_fixture(fixture, version=version))
+            code, out, err = self.publish_archive(archive, tenant=tenant, key=key)
+            assert code == 0, f"publishing {name} {version} failed: {err or out}"
+            good = self.wait_build_status(tenant, name, {"success", "failed"}, key=key,
+                                          version=version, timeout_s=timeout_s)
+            assert good.get("build_status") == "success", (
+                f"{name} {version} did not build: {str(good.get('build_error'))[-600:]}")
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            active = self.active_version(tenant, name, key=key)
+            if active and active.get("version") == version:
+                return active
+            if good.get("superseded"):
+                self.api("POST", f"/v1/tenants/{tenant}/workflows/{name}/versions/{version}/activate",
+                         key=key, body={}, expect=None)
+            time.sleep(2)
+        raise AssertionError(f"{name} {version} is built but did not come into service")
 
     def list_versions(self, tenant, name, *, key):
         """The CLOACINA-T-1018 versions list, or None when the route is absent."""

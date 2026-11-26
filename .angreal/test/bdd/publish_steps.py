@@ -25,6 +25,8 @@ REPORT_FIXTURE = "publish-report-rust"
 REPORT_BROKEN_FIXTURE = "publish-report-broken-rust"
 REPORT_PKG = "publish-report-rust"
 REPORT_WORKFLOW = "publish_report"
+# The name the broken 0.2.0 calls and does not define: rustc names it.
+BROKEN_ERROR_MARK = "publish_report_total_that_does_not_exist"
 
 ORDERS_FIXTURE = "publish-versions-py"
 ORDERS_PKG = "publish-versions-py"
@@ -182,7 +184,8 @@ def s1_files(world):
 
 @steps.given("team A has packed version 0.1.0 of its report job")
 def s2_packed(world):
-    directory = world.stage_fixture(REPORT_FIXTURE, patch_crates=True)
+    # As the team ships it: version deps, no patch. The compiler resolves them.
+    directory = world.stage_fixture(REPORT_FIXTURE)
     world.scratch["archive"] = world.pack(directory)
     world.scratch["restart_before"] = world.server_restart_count()
 
@@ -197,19 +200,40 @@ def s2_publish(world):
 
 @steps.then("the orchestrator compiles the report job")
 def s2_compiles(world):
+    started = time.time()
     row = world.wait_build_status(TEAM_A, REPORT_PKG, {"success", "failed"},
-                                  key=world.keys[TEAM_A])
+                                  key=world.keys[TEAM_A], version="0.1.0")
     status = row.get("build_status")
-    world.note(f"report job build_status={status}")
-    assert status == "success", f"expected a successful build, got {status}: {row.get('build_error')}"
+    world.note(f"report job 0.1.0 build_status={status} after {int(time.time() - started)}s, "
+               f"active={row.get('active')}")
+    assert status == "success", (
+        f"expected a successful build, got {status}: {str(row.get('build_error'))[-600:]}")
 
 
 @steps.then("the report job runs on its schedule")
-@steps.then("the report job still runs on its schedule")
 def s2_schedule(world):
+    key = world.keys[TEAM_A]
+    listed = len(world.schedules(TEAM_A, REPORT_WORKFLOW, key=key))
+    fired = _wait_schedule_fires(world, TEAM_A, REPORT_WORKFLOW, key=key)
+    count = _execution_count(world, TEAM_A, REPORT_WORKFLOW, key=key)
+    world.note(f"after the publish and the build, with no other call for the tenant: "
+               f"{listed} schedule(s) listed, {count} execution(s) in 90s (schedule fired: {fired})")
+    if not fired:
+        # Record what it takes to start it; the expectation above still failed.
+        first = world.wake_tenant(TEAM_A, REPORT_WORKFLOW, key=key)
+        after = _wait_schedule_fires(world, TEAM_A, REPORT_WORKFLOW, key=key, timeout_s=60)
+        world.note(f"then one `execute` call for the tenant answered {first}; after it "
+                   f"{len(world.schedules(TEAM_A, REPORT_WORKFLOW, key=key))} schedule(s) listed, "
+                   f"schedule fired within 60s: {after}")
+    assert fired, ("the report job's schedule did not start after the publish: no execution "
+                   "within 90s until another call made the server start the tenant's runner")
+
+
+@steps.then("the report job still runs on its schedule")
+def s3_schedule(world):
     fired = _wait_schedule_fires(world, TEAM_A, REPORT_WORKFLOW, key=world.keys[TEAM_A])
     count = _execution_count(world, TEAM_A, REPORT_WORKFLOW, key=world.keys[TEAM_A])
-    world.note(f"report job executions seen: {count} (schedule fired: {fired})")
+    world.note(f"report job executions seen: {count} (schedule fired after the failed build: {fired})")
     assert fired, "the report job's cron schedule produced no execution within the window"
 
 
@@ -225,12 +249,15 @@ def s2_norestart(world):
 
 @steps.given("version 0.1.0 of team A's report job is in service")
 def s3_v1(world):
-    directory = world.stage_fixture(REPORT_FIXTURE, patch_crates=True)
-    archive = world.pack(directory)
-    code, out, err = world.publish_archive(archive, tenant=TEAM_A, key=world.keys[TEAM_A])
-    assert code == 0, f"publishing 0.1.0 failed: {err or out}"
-    row = world.wait_build_status(TEAM_A, REPORT_PKG, {"success"}, key=world.keys[TEAM_A])
+    row = world.ensure_version(TEAM_A, REPORT_PKG, REPORT_FIXTURE, "0.1.0", key=world.keys[TEAM_A])
     world.scratch["v1_hash"] = row.get("content_hash")
+    # "In service" includes a running schedule. The server starts a tenant's
+    # schedules only after a first call for the tenant (scenario 2 records
+    # that), so make that call here.
+    if not world.schedules(TEAM_A, REPORT_WORKFLOW, key=world.keys[TEAM_A]):
+        world.wake_tenant(TEAM_A, REPORT_WORKFLOW, key=world.keys[TEAM_A])
+    assert _wait_schedule_fires(world, TEAM_A, REPORT_WORKFLOW, key=world.keys[TEAM_A]), (
+        "the report job 0.1.0 does not run on its schedule, so there is nothing to keep in service")
 
 
 @steps.when("team A publishes version 0.2.0 of the report job, which does not compile")
@@ -244,13 +271,18 @@ def s3_v2(world):
 
 @steps.then("team A sees that the build failed, with the compiler's error")
 def s3_failed(world):
-    rows = world.list_versions(TEAM_A, REPORT_PKG, key=world.keys[TEAM_A])
-    assert rows is not None, "no versions route (CLOACINA-T-1018 not deployed)"
-    v2 = next((r for r in rows if r.get("version") == "0.2.0"), None)
-    assert v2 is not None, "version 0.2.0 is not listed"
-    world.note(f"0.2.0 build_status={v2.get('build_status')}, error={bool(v2.get('build_error'))}")
+    v2 = world.wait_build_status(TEAM_A, REPORT_PKG, {"success", "failed"},
+                                 key=world.keys[TEAM_A], version="0.2.0")
+    error = v2.get("build_error") or ""
+    world.note(f"0.2.0 build_status={v2.get('build_status')}, active={v2.get('active')}, "
+               f"build_error is {len(error)} characters")
     assert v2.get("build_status") == "failed", f"expected failed, got {v2.get('build_status')}"
-    assert v2.get("build_error"), "no compiler error captured for the failed build"
+    assert BROKEN_ERROR_MARK in error, (
+        f"the build error does not carry the compiler's message ({BROKEN_ERROR_MARK}): {error[-400:]}")
+    code, out, err = world.ctl("package", "versions", REPORT_PKG, key=world.keys[TEAM_A],
+                               tenant=TEAM_A, check=False)
+    world.note(f"`package versions {REPORT_PKG}` exit {code}: " +
+               " | ".join(line.strip() for line in out.splitlines()[1:]))
 
 
 @steps.then("team A's list of versions of the report job shows 0.1.0 in service")
@@ -265,11 +297,7 @@ def s3_v1_active(world):
 
 @steps.given("version 0.1.0 of team A's orders job is in service")
 def s4_v1(world):
-    directory = world.stage_fixture(ORDERS_FIXTURE, version="0.1.0")
-    archive = world.pack(directory)
-    code, out, err = world.publish_archive(archive, tenant=TEAM_A, key=world.keys[TEAM_A])
-    assert code == 0, f"publishing orders 0.1.0 failed: {err or out}"
-    world.wait_build_status(TEAM_A, ORDERS_PKG, {"success"}, key=world.keys[TEAM_A])
+    world.ensure_version(TEAM_A, ORDERS_PKG, ORDERS_FIXTURE, "0.1.0", key=world.keys[TEAM_A])
 
 
 @steps.given("an execution of the orders job is running")
@@ -278,6 +306,7 @@ def s4_running(world):
     exec_id = _run_workflow(world, TEAM_A, ORDERS_WORKFLOW, key=world.keys[TEAM_A],
                             context={"hold_seconds": 45})
     world.scratch["running_exec"] = exec_id
+    world.scratch["running_since"] = time.time()
     world.note(f"orders execution {exec_id[:8]} started on 0.1.0, first task holding")
 
 
@@ -291,12 +320,17 @@ def s4_publish_v2(world):
 
 @steps.when("version 0.2.0 of the orders job comes into service")
 def s4_v2_active(world):
-    row = world.wait_build_status(TEAM_A, ORDERS_PKG, {"success"}, key=world.keys[TEAM_A])
-    # Python needs no compile, so 0.2.0 becomes active once built.
+    world.wait_build_status(TEAM_A, ORDERS_PKG, {"success"}, key=world.keys[TEAM_A],
+                            version="0.2.0", timeout_s=300)
     deadline = time.time() + 60
     while time.time() < deadline:
         active = world.active_version(TEAM_A, ORDERS_PKG, key=world.keys[TEAM_A])
         if active and active.get("version") == "0.2.0":
+            _, body = world.api("GET", f"/v1/tenants/{TEAM_A}/executions/{world.scratch['running_exec']}",
+                                key=world.keys[TEAM_A], expect=None)
+            world.note(f"0.2.0 came into service {int(time.time() - world.scratch['running_since'])}s "
+                       f"after the execution started; the execution was then "
+                       f"{body.get('status') if isinstance(body, dict) else body}")
             return
         time.sleep(3)
     raise AssertionError("version 0.2.0 never became the active version")
@@ -306,7 +340,9 @@ def s4_v2_active(world):
 def s4_finishes(world):
     status = _poll_execution_status(world, TEAM_A, world.scratch["running_exec"],
                                     {"Completed", "Failed", "Cancelled"}, key=world.keys[TEAM_A])
-    world.note(f"running execution finished in {status}")
+    world.note(f"running execution finished in {status}, about "
+               f"{int(time.time() - world.scratch['running_since'])}s after it started "
+               "(its first task holds for 45s)")
     assert status == "Completed", f"the running execution ended in {status}"
 
 
@@ -342,11 +378,7 @@ def s4_new_v2(world):
 @steps.given("team A has published versions 0.1.0 and 0.2.0 of its orders job")
 def s5_two_versions(world):
     for version in ("0.1.0", "0.2.0"):
-        directory = world.stage_fixture(ORDERS_FIXTURE, version=version)
-        archive = world.pack(directory)
-        code, out, err = world.publish_archive(archive, tenant=TEAM_A, key=world.keys[TEAM_A])
-        assert code == 0, f"publishing orders {version} failed: {err or out}"
-        world.wait_build_status(TEAM_A, ORDERS_PKG, {"success"}, key=world.keys[TEAM_A])
+        world.ensure_version(TEAM_A, ORDERS_PKG, ORDERS_FIXTURE, version, key=world.keys[TEAM_A])
 
 
 @steps.when("team A goes back to version 0.1.0 of the orders job with one command")
@@ -383,15 +415,10 @@ def s5_new_v1(world):
 def s6_ledger(world):
     if world.scratch.get("ledger_published"):
         return
-    directory = world.stage_fixture(LEDGER_FIXTURE)
-    archive = world.pack(directory)
-    code, out, err = world.publish_archive(archive, tenant=TEAM_B, key=world.keys[TEAM_B])
-    assert code == 0, f"team B publishing its ledger failed: {err or out}"
-    world.wait_build_status(TEAM_B, LEDGER_PKG, {"success"}, key=world.keys[TEAM_B])
+    active = world.ensure_version(TEAM_B, LEDGER_PKG, LEDGER_FIXTURE, "0.1.0",
+                                  key=world.keys[TEAM_B])
     # The digest team A will try to fetch in the probe scenario.
-    active = world.active_version(TEAM_B, LEDGER_PKG, key=world.keys[TEAM_B])
-    if active:
-        world.scratch["ledger_hash"] = active.get("content_hash")
+    world.scratch["ledger_hash"] = active.get("content_hash")
     world.scratch["ledger_published"] = True
 
 
@@ -404,41 +431,64 @@ def s6_crosskey(world):
 def s6_nopublish(world):
     directory = world.stage_fixture(ORDERS_FIXTURE)
     archive = world.pack(directory)
-    code, out, err = world.publish_archive(archive, tenant=TEAM_B, key=world.keys[TEAM_A])
-    world.note(f"team A key publishing into team B -> exit {code}: {(err or out).strip()[:120]}")
-    assert code != 0, "team A's key was allowed to publish into team B's tenant"
+    for role, key in (("write", world.keys[TEAM_A]), ("admin", world.admin_keys[TEAM_A])):
+        code, out, err = world.publish_archive(archive, tenant=TEAM_B, key=key)
+        world.note(f"team A {role} key publishing into team B -> exit {code}: "
+                   f"{(err or out).strip()[:120]}")
+        assert code != 0, f"team A's {role} key was allowed to publish into team B's tenant"
 
 
 @steps.then("Robin cannot read team B's packages, executions or secrets")
 def s6_noread(world):
-    a_key = world.keys[TEAM_A]
     checks = {
         "packages": f"/v1/tenants/{TEAM_B}/workflows",
         "executions": f"/v1/tenants/{TEAM_B}/executions",
         "secrets": f"/v1/tenants/{TEAM_B}/secrets",
+        "secret by name": f"/v1/tenants/{TEAM_B}/secrets/{LEDGER_SECRET}",
+        "package source": f"/v1/tenants/{TEAM_B}/workflows/{LEDGER_PKG}/source",
+        "keys": f"/v1/tenants/{TEAM_B}/keys",
     }
     allowed = []
-    for what, path in checks.items():
-        code, _ = world.api("GET", path, key=a_key, expect=None)
-        world.note(f"team A key GET team B {what} -> {code}")
-        if code not in (401, 403, 404):
-            allowed.append(f"{what}={code}")
-    assert not allowed, f"team A's key read team B's {', '.join(allowed)} (expected 401/403/404)"
+    # Team A's admin key too: the secrets routes refuse a write key in any tenant.
+    for role, key in (("write", world.keys[TEAM_A]), ("admin", world.admin_keys[TEAM_A])):
+        seen = []
+        for what, path in checks.items():
+            code, _ = world.api("GET", path, key=key, expect=None)
+            seen.append(f"{what} {code}")
+            if code not in (401, 403, 404):
+                allowed.append(f"{role} key: {what}={code}")
+        world.note(f"team A {role} key GET in team B: " + ", ".join(seen))
+    assert not allowed, f"team A read in team B: {', '.join(allowed)} (expected 401/403/404)"
 
 
 @steps.then("Robin cannot run team B's ledger job")
 def s6_norun(world):
-    code, body = world.api("POST", f"/v1/tenants/{TEAM_B}/workflows/{LEDGER_WORKFLOW}/execute",
-                           key=world.keys[TEAM_A], body={"context": {}}, expect=None)
-    world.note(f"team A key executing team B's ledger -> {code}")
-    assert code in (401, 403, 404), f"team A's key could run team B's workflow (got {code})"
+    for role, key in (("write", world.keys[TEAM_A]), ("admin", world.admin_keys[TEAM_A])):
+        code, body = world.api("POST", f"/v1/tenants/{TEAM_B}/workflows/{LEDGER_WORKFLOW}/execute",
+                               key=key, body={"context": {}}, expect=None)
+        world.note(f"team A {role} key executing team B's ledger -> {code}")
+        assert code in (401, 403, 404), f"team A's {role} key could run team B's workflow (got {code})"
 
 
 @steps.then("the same calls succeed with team B's key")
 def s6_bkey_ok(world):
-    code, _ = world.api("GET", f"/v1/tenants/{TEAM_B}/workflows", key=world.keys[TEAM_B], expect=None)
-    world.note(f"team B key GET its own packages -> {code}")
-    assert code == 200, f"team B's own key could not read its packages (got {code}) — the control failed"
+    # The controls: without them a 403 could be a broken route, not a wall.
+    key = world.admin_keys[TEAM_B]
+    seen = []
+    for what, path in (("packages", f"/v1/tenants/{TEAM_B}/workflows"),
+                       ("executions", f"/v1/tenants/{TEAM_B}/executions"),
+                       ("secrets", f"/v1/tenants/{TEAM_B}/secrets"),
+                       ("secret by name", f"/v1/tenants/{TEAM_B}/secrets/{LEDGER_SECRET}")):
+        code, _ = world.api("GET", path, key=key, expect=None)
+        seen.append((what, code))
+    world.note("team B admin key GET in team B: " + ", ".join(f"{w} {c}" for w, c in seen))
+    exec_id = _run_workflow(world, TEAM_B, LEDGER_WORKFLOW, key=world.keys[TEAM_B])
+    status = _poll_execution_status(world, TEAM_B, exec_id, {"Completed", "Failed", "Cancelled"},
+                                    key=world.keys[TEAM_B])
+    world.note(f"team B write key ran its ledger job -> {status}")
+    bad = [f"{w}={c}" for w, c in seen if c != 200]
+    assert not bad, f"team B's own key was refused in its own tenant: {', '.join(bad)}"
+    assert status == "Completed", f"team B's own run of the ledger job ended in {status}"
 
 
 # --- Scenario 7: signing (known gap, CLOACINA-T-1025) ----------------------
@@ -491,19 +541,15 @@ def s8_secret(world):
               body={"name": LEDGER_SECRET, "fields": {"token": "team-b-only"}}, expect=None)
     # Confirm it is there (metadata only).
     code, _ = world.api("GET", f"/v1/tenants/{TEAM_B}/secrets/{LEDGER_SECRET}",
-                        key=world.keys[TEAM_B], expect=None)
+                        key=world.admin_keys[TEAM_B], expect=None)
     assert code == 200, f"team B's secret is not present (got {code})"
 
 
 @steps.when("team A publishes a job whose task tries to read what belongs to team B")
 def s8_publish_probe(world):
-    directory = world.stage_fixture(PROBE_FIXTURE)
-    archive = world.pack(directory)
-    code, out, err = world.publish_archive(archive, tenant=TEAM_A, key=world.keys[TEAM_A])
-    assert code == 0, f"publishing the probe failed: {err or out}"
-    world.wait_build_status(TEAM_A, PROBE_FIXTURE, {"success"}, key=world.keys[TEAM_A])
-    own = world.active_version(TEAM_A, PROBE_FIXTURE, key=world.keys[TEAM_A])
-    world.scratch["probe_own_hash"] = own.get("content_hash") if own else ""
+    own = world.ensure_version(TEAM_A, PROBE_FIXTURE, PROBE_FIXTURE, "0.1.0",
+                               key=world.keys[TEAM_A])
+    world.scratch["probe_own_hash"] = own.get("content_hash") or ""
 
 
 @steps.when("that job runs")
@@ -515,6 +561,9 @@ def s8_run_probe(world):
         "other_secret": LEDGER_SECRET,
         "own_digest": world.scratch.get("probe_own_hash", ""),
         "own_secret": TEAM_A_SECRET,
+        # The probe declares its own secret; a declared secret is a required
+        # input, bound here by reference (no value travels in the context).
+        TEAM_A_SECRET: {"$secret": TEAM_A_SECRET},
         "own_tenant": TEAM_A,
         # The agent runs in its tenant's namespace: name the service in full.
         "database_host": f"{world.release}-postgresql.{world.ns}.svc.cluster.local",
@@ -528,9 +577,8 @@ def s8_run_probe(world):
     exec_id = _run_workflow(world, TEAM_A, PROBE_WORKFLOW, key=world.keys[TEAM_A], context=context)
     _poll_execution_status(world, TEAM_A, exec_id, {"Completed", "Failed", "Cancelled"},
                            key=world.keys[TEAM_A])
-    report, imp = _probe_report_from_log(world, TEAM_A)
+    report, _ = _probe_report_from_log(world, TEAM_A)
     world.scratch["probe_report"] = report
-    world.scratch["probe_import"] = imp
     world.note(f"probe control (own artifact fetch): {report.get('fetch_own_artifact')}")
     world.note(f"probe control (own secret read): {report.get('read_own_secret')}")
 
@@ -562,6 +610,14 @@ def s8_no_exec(world):
     report = world.scratch["probe_report"]
     ex = report.get("list_other_executions", {})
     world.note(f"team B executions list with the probe's key={ex}")
+    brief = ", ".join(
+        f"{label} {report.get(field, {}).get('status')}"
+        for label, field in (("own packages", "list_own_workflows"), ("own secrets", "list_own_secrets"),
+                             ("own keys", "list_own_keys"), ("all tenants", "list_all_tenants"),
+                             ("all agents", "list_all_agents"), ("compiler status", "compiler_status"),
+                             ("team B providers by digest", "fetch_other_providers")))
+    world.note(f"what else the task's key opens (the agent's key, present in the task's "
+               f"environment: {report.get('agent_key_present')}): {brief}")
     assert ex.get("status") in (403, 404, None), f"the task read team B's executions: {ex}"
 
 
@@ -570,6 +626,8 @@ def s8_no_trace(world):
     report = world.scratch["probe_report"]
     scan = report.get("scan", {})
     world.note(f"environment/disk scan for team B's names: {scan}")
+    world.note(f"names in the task's environment: {', '.join(report.get('environment_names', []))}")
+    world.note(f"the task's disk: {report.get('filesystem')}")
     assert not scan.get("environment_name_or_value_hits"), (
         f"team B's names were in the probe's environment: {scan.get('environment_name_or_value_hits')}")
     assert not scan.get("path_hits"), f"team B's names were on the probe's disk: {scan.get('path_hits')}"
@@ -580,18 +638,38 @@ def s8_no_db(world):
     report = world.scratch["probe_report"]
     db = report.get("reach_database", {})
     world.note(f"probe TCP connect to the orchestrator database: {db}")
+    net = report.get("network", {})
+    kube = net.get("kubernetes", {})
+    world.note(f"network from the task: server /metrics with no key -> "
+               f"{net.get('server_metrics', {}).get('status')} "
+               f"({net.get('server_metrics', {}).get('bytes')} bytes), server /health -> "
+               f"{net.get('server_health', {}).get('status')}, internet (1.1.1.1:443) -> "
+               f"{net.get('internet', {}).get('outcome')}")
+    world.note("Kubernetes API from the task: service account token readable="
+               f"{kube.get('token_readable')}, /version -> "
+               f"{kube.get('version_no_token', {}).get('status') or kube.get('version_no_token', {}).get('error')}, "
+               "secrets of team B's namespace -> "
+               f"{kube.get('other_namespace_secrets', {}).get('status') or kube.get('other_namespace_secrets', {}).get('error')}")
     assert db.get("outcome") != "connected", f"the task reached the orchestrator's database: {db}"
 
 
 @steps.then("team A's code never ran where the orchestrator keeps its own credentials")
 def s8_not_in_server(world):
     report = world.scratch["probe_report"]
-    imp = world.scratch.get("probe_import") or {}
     run = report.get("run", {})
-    world.note(f"probe ran in process={run.get('process')} on {run.get('hostname')}; "
-               f"imported in process={imp.get('process')}")
-    for where, facts in (("run", run), ("import", imp)):
+    world.note(f"the task ran in process={run.get('process')} on {run.get('hostname')}")
+    # The package's code runs at import in every process that loads it. Each
+    # import wrote one marked line to that pod's log: look in all of them.
+    imports = world.marked_lines(PROBE_IMPORT_MARKER)
+    assert imports, "no import line of the probe in any pod log: the check itself is broken"
+    bad = []
+    for where, facts in imports:
         creds = facts.get("orchestrator_credentials_in_environment") or []
-        assert not creds, f"team A's code saw the orchestrator's credentials at {where}: {creds}"
-        assert facts.get("process") not in ("cloacina-server", "cloacina-compiler"), (
-            f"team A's code ran inside the {facts.get('process')} process at {where}")
+        world.note(f"the probe package was imported in the {where} (process {facts.get('process')}); "
+                   f"credential names in that environment: {creds or 'none'}; "
+                   f"service account token readable: {facts.get('kubernetes_token_readable')}")
+        if creds or facts.get("process") in ("cloacina-server", "cloacina-compiler"):
+            bad.append(f"{where} ({', '.join(creds) or 'no credential names'})")
+    run_creds = run.get("orchestrator_credentials_in_environment") or []
+    assert not run_creds, f"the task saw the orchestrator's credentials where it ran: {run_creds}"
+    assert not bad, ("team A's package code ran at import inside: " + "; ".join(bad))
