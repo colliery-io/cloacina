@@ -214,13 +214,18 @@ impl FleetGraphExecutor {
             .live_agents()
             .await
             .map_err(|e| format!("fleet roster read failed: {e}"))?;
-        let agent =
-            select_fleet_agent(&snapshot, &fire.tenant_id, &runnable_triples).ok_or_else(|| {
-                format!(
-                    "no live agent with capacity + runnable arch in tenant {:?}",
-                    fire.tenant_id
-                )
-            })?;
+        let agent = select_fleet_agent(
+            &snapshot,
+            &fire.tenant_id,
+            &runnable_triples,
+            cloacina_api_types::DEFAULT_AGENT_POOL,
+        )
+        .ok_or_else(|| {
+            format!(
+                "no live agent with capacity + runnable arch in tenant {:?}",
+                fire.tenant_id
+            )
+        })?;
         let agent_id = agent.agent_id.clone();
         let agent_triple = agent.target_triple.clone();
 

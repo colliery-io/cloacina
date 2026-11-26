@@ -199,6 +199,49 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect(deleted.name).toBe(name);
   });
 
+  // ---- agent pools (CLOACINA-T-1021) ----
+
+  it("agent pool lifecycle: list → put → get → replace → delete", async () => {
+    const pool = `ts-${Date.now().toString(36)}`;
+
+    // Every tenant has the pool `default`.
+    const before = await client.listPools();
+    expect(before.items.map((p) => p.pool)).toContain("default");
+
+    const created = await client.putPool(pool, {
+      memory_limit: "2Gi",
+      max_concurrency: 1,
+      pod_labels: { team: "data" },
+      max_agents: 0,
+    });
+    expect(created.pool).toBe(pool);
+    expect(created.settings.memory_limit).toBe("2Gi");
+    expect(created.desired_agents).toBe(0);
+
+    const fetched = await client.getPool(pool);
+    expect(fetched.settings.max_concurrency).toBe(1);
+
+    const page = await client.listPools();
+    expect(page.items.map((p) => p.pool)).toContain(pool);
+    expect(page.total).toBe(page.items.length);
+
+    // PUT replaces the settings as a whole.
+    const replaced = await client.putPool(pool, { max_agents: 0 });
+    expect(replaced.settings.memory_limit).toBeUndefined();
+
+    // A malformed quantity is a 400 at the API.
+    const bad = await client
+      .putPool(pool, { memory_limit: "2GB", max_agents: 0 })
+      .catch((e) => e);
+    expect(bad).toBeInstanceOf(CloacinaApiError);
+    expect((bad as CloacinaApiError).status).toBe(400);
+
+    await client.deletePool(pool);
+    const gone = await client.getPool(pool).catch((e) => e);
+    expect(gone).toBeInstanceOf(CloacinaApiError);
+    expect((gone as CloacinaApiError).status).toBe(404);
+  });
+
   // ---- workflows ----
 
   it("POST /v1/tenants/{t}/workflows rejects a garbage package with the documented error shape", async () => {

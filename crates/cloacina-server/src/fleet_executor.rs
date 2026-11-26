@@ -653,7 +653,12 @@ impl TaskExecutor for FleetExecutor {
                         .await);
                 }
             };
-            let Some(agent) = select_fleet_agent(&snapshot, &task_tenant, &runnable_triples) else {
+            let Some(agent) = select_fleet_agent(
+                &snapshot,
+                &task_tenant,
+                &runnable_triples,
+                cloacina_api_types::DEFAULT_AGENT_POOL,
+            ) else {
                 // CLOACINA-T-1012: a wait for capacity, not a failure. The task
                 // stays Ready and keeps its attempt count.
                 debug!(
