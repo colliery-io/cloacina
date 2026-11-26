@@ -276,7 +276,7 @@ cloud's workload identity system is set up with them:
 | `service_account_name`, `service_account_annotations` | Creates the ServiceAccount in the tenant namespace with the annotations; the pool's pods run as it. |
 | `pod_labels` | Adds the labels to the pool's pods. |
 | `pod_annotations` | Adds the annotations to the pool's pods. |
-| `automount_service_account_token` | Sets the pod's field of that name. Not set: left out, the cluster default. |
+| `automount_service_account_token` | Sets the pod's field of that name. Not set: `false`, no ServiceAccount token is mounted. |
 
 The three recipes below are examples of those settings. The account ids, role
 names and addresses are placeholders. Each recipe shows the identity settings
@@ -338,9 +338,9 @@ How an `ipBlock` rule applies to a node-local address such as a metadata server
 depends on the cluster's network plugin: follow the plugin's documentation for
 that address. A missing rule fails closed: the task gets a network timeout.
 
-**The mounted Kubernetes token.** `--automount-service-account-token false`
-stops Kubernetes from mounting the ServiceAccount's own API token in the pod.
-The agent does not use it. The token a workload identity webhook injects is a
+**The mounted Kubernetes token.** A pool's pods mount no ServiceAccount API
+token unless the pool sets `--automount-service-account-token true`. The agent
+does not use that token. The token a workload identity webhook injects is a
 separate projected volume and still arrives.
 
 A changed label, annotation, ServiceAccount or automount setting changes the
