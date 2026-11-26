@@ -463,12 +463,27 @@ jobs:
             --set image.pullPolicy=Never \
             --set postgresql.enabled=true \
             --set postgresql.auth.password="${PASSWORD}" \
+            --set fleet.actuator=kubernetes \
             --wait --timeout=8m
 
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/cloacina-cloacina-server \
             -n cloacina-e2e --timeout=5m
+
+      # CLOACINA-T-1030: the install above turns the Kubernetes fleet actuator
+      # on, so the server builds its in-cluster kube client (TLS) at start. A
+      # server that cannot build it panics and never becomes ready. No tenant
+      # is made, so no agent image is pulled.
+      - name: The fleet actuator started
+        run: |
+          set -euo pipefail
+          kubectl logs deployment/cloacina-cloacina-server -n cloacina-e2e \
+            | tee /tmp/server.log | grep "fleet actuator initialized" | grep kubernetes
+          if grep -q "panicked" /tmp/server.log; then
+            echo "the server log has a panic" >&2
+            exit 1
+          fi
 
       - name: Curl /health from inside the cluster
         run: |
