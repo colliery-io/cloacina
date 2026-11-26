@@ -2533,7 +2533,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not ready — `reason` field explains (database unreachable, or the embedded Python runtime is wedged by a package import hang and this process must be restarted) */
+            /** @description Not ready — `reason` is one of two fixed strings: `database unreachable`, or `python runtime unavailable; restart required` (the embedded Python runtime is wedged and this process must be restarted). The package that wedged it is named in the server log only. */
             503: {
                 headers: {
                     [name: string]: unknown;
