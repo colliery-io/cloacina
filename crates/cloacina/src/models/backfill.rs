@@ -81,6 +81,47 @@ impl BackfillSpec {
     pub fn parse(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| format!("invalid backfill range: {}", e))
     }
+
+    /// The number of intervals after the position `last_run_at`: those the
+    /// scheduler has not taken yet.
+    ///
+    /// It is read from the position of the row, not from the schedule
+    /// execution rows: the retention job deletes those with their finished
+    /// runs, and the position stays.
+    pub fn remaining_after(
+        &self,
+        evaluator: &CronEvaluator,
+        last_run_at: DateTime<Utc>,
+    ) -> Result<u64, String> {
+        if let Some(times) = &self.fire_times {
+            let taken = times.partition_point(|t| *t <= last_run_at);
+            return Ok((times.len() - taken) as u64);
+        }
+        // The two usual positions need no walk: not started, and used up.
+        if last_run_at < self.first_fire
+            && evaluator
+                .next_execution(last_run_at)
+                .is_ok_and(|next| next == self.first_fire)
+        {
+            return Ok(self.total);
+        }
+        if last_run_at >= self.last_fire {
+            return Ok(0);
+        }
+        let mut remaining = 0u64;
+        let mut cursor = last_run_at;
+        while remaining < self.total {
+            let next = evaluator
+                .next_execution(cursor)
+                .map_err(|e| format!("cron evaluation error: {}", e))?;
+            if next > self.last_fire {
+                break;
+            }
+            remaining += 1;
+            cursor = next;
+        }
+        Ok(remaining)
+    }
 }
 
 /// A backfill to create: the values of its `schedules` row.
@@ -253,7 +294,9 @@ impl NewBackfill {
 /// rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BackfillCounts {
-    /// Intervals that the scheduler took: each has a schedule execution row.
+    /// Schedule execution rows of the backfill: one for each interval that
+    /// the scheduler took, until the retention job deletes the row with its
+    /// finished run.
     pub taken: u64,
     /// Runs that ended `Completed`.
     pub completed: u64,
@@ -299,14 +342,17 @@ impl BackfillStatus {
         }
     }
 
-    /// Reads the status from the row and the counts. Nothing else is stored:
-    /// a row that is disabled before every interval is taken was cancelled.
-    pub fn derive(enabled: bool, paused: bool, total: u64, counts: &BackfillCounts) -> Self {
-        let all_taken = counts.taken >= total;
-        if counts.running > 0 {
+    /// Reads the status from the row: nothing else is stored.
+    ///
+    /// `remaining` is the number of intervals not taken yet (see
+    /// [`BackfillSpec::remaining_after`]) and `running` the number of runs
+    /// that have not ended. A row that is disabled with intervals left was
+    /// cancelled.
+    pub fn derive(enabled: bool, paused: bool, remaining: u64, running: u64) -> Self {
+        if running > 0 {
             return BackfillStatus::Running;
         }
-        if all_taken {
+        if remaining == 0 {
             return BackfillStatus::Completed;
         }
         if !enabled {
@@ -487,47 +533,54 @@ mod tests {
     }
 
     #[test]
-    fn backfill_status_is_read_from_the_row_and_the_counts() {
-        let counts = |taken, completed, failed, running| BackfillCounts {
-            taken,
-            completed,
-            failed,
-            running,
-        };
+    fn backfill_status_is_read_from_the_row() {
         use BackfillStatus::*;
-        assert_eq!(
-            BackfillStatus::derive(true, false, 10, &counts(0, 0, 0, 0)),
-            Running
-        );
-        assert_eq!(
-            BackfillStatus::derive(true, false, 10, &counts(4, 2, 1, 1)),
-            Running
-        );
+        // (enabled, paused, remaining, running)
+        assert_eq!(BackfillStatus::derive(true, false, 10, 0), Running);
+        assert_eq!(BackfillStatus::derive(true, false, 6, 1), Running);
         // All taken, the last runs still active.
-        assert_eq!(
-            BackfillStatus::derive(false, false, 10, &counts(10, 8, 1, 1)),
-            Running
-        );
-        assert_eq!(
-            BackfillStatus::derive(false, false, 10, &counts(10, 9, 1, 0)),
-            Completed
-        );
-        assert_eq!(
-            BackfillStatus::derive(true, false, 10, &counts(10, 9, 1, 0)),
-            Completed
-        );
+        assert_eq!(BackfillStatus::derive(false, false, 0, 1), Running);
+        assert_eq!(BackfillStatus::derive(false, false, 0, 0), Completed);
+        assert_eq!(BackfillStatus::derive(true, false, 0, 0), Completed);
         // Cancelled with a run still active, then with none.
-        assert_eq!(
-            BackfillStatus::derive(false, false, 10, &counts(4, 3, 0, 1)),
-            Running
-        );
-        assert_eq!(
-            BackfillStatus::derive(false, false, 10, &counts(4, 3, 1, 0)),
-            Cancelled
-        );
-        assert_eq!(
-            BackfillStatus::derive(true, true, 10, &counts(4, 4, 0, 0)),
-            Paused
-        );
+        assert_eq!(BackfillStatus::derive(false, false, 6, 1), Running);
+        assert_eq!(BackfillStatus::derive(false, false, 6, 0), Cancelled);
+        assert_eq!(BackfillStatus::derive(true, true, 6, 0), Paused);
+    }
+
+    #[test]
+    fn backfill_remaining_is_read_from_the_position() {
+        let hourly = CronEvaluator::new("0 * * * *", "UTC").unwrap();
+        let range = NewBackfill::for_range(
+            "wf",
+            "0 * * * *",
+            "UTC",
+            at(2026, 1, 1, 0),
+            at(2026, 1, 1, 9),
+            None,
+            None,
+        )
+        .unwrap();
+        let remaining = |last| range.spec.remaining_after(&hourly, last).unwrap();
+        assert_eq!(remaining(range.seed_last_run_at), 10);
+        assert_eq!(remaining(at(2026, 1, 1, 0)), 9);
+        assert_eq!(remaining(at(2026, 1, 1, 8)), 1);
+        assert_eq!(remaining(at(2026, 1, 1, 9)), 0);
+
+        let list = NewBackfill::for_fire_times(
+            "wf",
+            "0 * * * *",
+            "UTC",
+            vec![at(2026, 1, 1, 2), at(2026, 1, 1, 7), at(2026, 1, 3, 0)],
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let remaining = |last| list.spec.remaining_after(&hourly, last).unwrap();
+        assert_eq!(remaining(list.seed_last_run_at), 3);
+        assert_eq!(remaining(at(2026, 1, 1, 2)), 2);
+        assert_eq!(remaining(at(2026, 1, 2, 0)), 1);
+        assert_eq!(remaining(at(2026, 1, 3, 0)), 0);
     }
 }

@@ -640,7 +640,15 @@ mod tests {
 
         fn status(row: &Schedule, counts: &BackfillCounts) -> BackfillStatus {
             let spec = BackfillSpec::parse(row.backfill.as_deref().unwrap()).unwrap();
-            BackfillStatus::derive(row.is_enabled(), row.is_paused(), spec.total, counts)
+            let evaluator = CronEvaluator::new(
+                row.cron_expression.as_deref().unwrap(),
+                row.timezone.as_deref().unwrap(),
+            )
+            .unwrap();
+            let remaining = spec
+                .remaining_after(&evaluator, row.last_run_at.unwrap().0)
+                .unwrap();
+            BackfillStatus::derive(row.is_enabled(), row.is_paused(), remaining, counts.running)
         }
 
         /// A backfill of 1,000 hourly intervals with a claim batch of 100
@@ -804,20 +812,24 @@ mod tests {
                 }
             );
             let retry_id = retry.id.to_string();
-            let reruns: Vec<SeenRun> = workflow
+            // Five of them run at once, so the order they ran in is not
+            // fixed: the set is. (The order is in the test with a limit of
+            // one.)
+            let mut reruns: Vec<SeenRun> = workflow
                 .seen
                 .lock()
                 .iter()
                 .filter(|run| run.backfill_id == retry_id)
                 .cloned()
                 .collect();
+            reruns.sort_by(|a, b| a.interval_end.cmp(&b.interval_end));
             assert_eq!(
                 reruns
                     .iter()
                     .map(|r| r.interval_end.clone())
                     .collect::<Vec<_>>(),
                 failing.iter().map(|t| t.to_rfc3339()).collect::<Vec<_>>(),
-                "the retry runs the failed intervals, oldest first"
+                "the retry runs the failed intervals, each once"
             );
             assert!(reruns.iter().all(|r| r.region == "eu"));
             // The source keeps its record.
@@ -897,14 +909,16 @@ mod tests {
             runner.notify_cron_change();
 
             // Two intervals are taken, the limit, and a run has started.
+            let two_taken = wait_until(Duration::from_secs(30), || async {
+                counts(&dal, backfill.id).await.taken == 2 && !workflow.seen.lock().is_empty()
+            })
+            .await;
+            let now_counts = counts(&dal, backfill.id).await;
             assert!(
-                wait_until(Duration::from_secs(30), || async {
-                    counts(&dal, backfill.id).await.taken == 2 && !workflow.seen.lock().is_empty()
-                })
-                .await,
+                two_taken,
                 "two intervals must be taken: seen {:?}, counts {:?}",
                 workflow.seen.lock(),
-                counts(&dal, backfill.id).await
+                now_counts
             );
             // Held at its limit: nothing more is taken.
             tokio::time::sleep(Duration::from_millis(1500)).await;
