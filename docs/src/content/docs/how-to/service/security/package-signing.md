@@ -152,7 +152,7 @@ let result = verify_package_offline(&package_path, &signature_path, &public_key_
 
 5. **After the transition, revoke the old trusted key:**
    ```rust
-   key_manager.revoke_trusted_key(old_trusted_key_id).await?;
+   key_manager.revoke_trusted_key(org_id, old_trusted_key_id).await?;
    ```
 
 6. **Optionally, revoke the old signing key** to prevent new signatures:
