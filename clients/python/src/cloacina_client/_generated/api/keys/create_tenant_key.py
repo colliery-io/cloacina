@@ -42,6 +42,11 @@ def _parse_response(
 
         return response_201
 
+    if response.status_code == 400:
+        response_400 = ErrorBody.from_dict(response.json())
+
+        return response_400
+
     if response.status_code == 401:
         response_401 = ErrorBody.from_dict(response.json())
 
@@ -81,7 +86,8 @@ def sync_detailed(
     body: CreateKeyRequest,
 ) -> Response[ErrorBody | KeyCreatedResponse]:
     """POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-    Admin-only: only is_admin keys can create tenant-scoped keys.
+    Needs `keys.manage` in the tenant: a tenant admin, or the platform admin.
+    The role is one of `read`, `write`, `admin`, `agent` and must be given.
 
     Args:
         tenant_id (str):
@@ -115,7 +121,8 @@ def sync(
     body: CreateKeyRequest,
 ) -> ErrorBody | KeyCreatedResponse | None:
     """POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-    Admin-only: only is_admin keys can create tenant-scoped keys.
+    Needs `keys.manage` in the tenant: a tenant admin, or the platform admin.
+    The role is one of `read`, `write`, `admin`, `agent` and must be given.
 
     Args:
         tenant_id (str):
@@ -144,7 +151,8 @@ async def asyncio_detailed(
     body: CreateKeyRequest,
 ) -> Response[ErrorBody | KeyCreatedResponse]:
     """POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-    Admin-only: only is_admin keys can create tenant-scoped keys.
+    Needs `keys.manage` in the tenant: a tenant admin, or the platform admin.
+    The role is one of `read`, `write`, `admin`, `agent` and must be given.
 
     Args:
         tenant_id (str):
@@ -176,7 +184,8 @@ async def asyncio(
     body: CreateKeyRequest,
 ) -> ErrorBody | KeyCreatedResponse | None:
     """POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-    Admin-only: only is_admin keys can create tenant-scoped keys.
+    Needs `keys.manage` in the tenant: a tenant admin, or the platform admin.
+    The role is one of `read`, `write`, `admin`, `agent` and must be given.
 
     Args:
         tenant_id (str):

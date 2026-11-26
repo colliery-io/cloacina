@@ -7,7 +7,6 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.key_role import KeyRole
-from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="CreateKeyRequest")
 
@@ -18,29 +17,32 @@ class CreateKeyRequest:
 
     Attributes:
         name (str):
-        role (KeyRole | Unset): Allowed roles for API keys.
+        role (KeyRole): The role of an API key: a named set of permissions, fixed in the server.
+
+            - `read`: list and inspect.
+            - `write`: `read`, plus upload, run and operate.
+            - `admin`: `write`, plus keys, accounts, secrets, the audit record and the
+              fleet size of its tenant.
+            - `agent`: act as an execution agent, and nothing else.
     """
 
     name: str
-    role: KeyRole | Unset = UNSET
+    role: KeyRole
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
 
-        role: str | Unset = UNSET
-        if not isinstance(self.role, Unset):
-            role = self.role.value
+        role = self.role.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "name": name,
+                "role": role,
             }
         )
-        if role is not UNSET:
-            field_dict["role"] = role
 
         return field_dict
 
@@ -49,12 +51,7 @@ class CreateKeyRequest:
         d = dict(src_dict)
         name = d.pop("name")
 
-        _role = d.pop("role", UNSET)
-        role: KeyRole | Unset
-        if isinstance(_role, Unset):
-            role = UNSET
-        else:
-            role = KeyRole(_role)
+        role = KeyRole(d.pop("role"))
 
         create_key_request = cls(
             name=name,

@@ -211,8 +211,14 @@ def auth_integration_test():
         print_section_header("Test group 3: Global key")
 
         s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
-                              data={"name": "global-key"})
+                              data={"name": "global-key", "role": "admin"})
         check("create global key", s == 201, f"got {s}")
+
+        # CLOACINA-T-1055: a key request names its role. With none it is
+        # refused; it made an admin key before.
+        s, _ = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
+                           data={"name": "no-role-key"})
+        check("key request with no role is refused", s == 400, f"got {s}")
         global_key = body.get("key", "")
 
         # Global key can access public tenant

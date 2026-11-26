@@ -3,6 +3,7 @@ from enum import StrEnum
 
 class KeyRole(StrEnum):
     ADMIN = "admin"
+    AGENT = "agent"
     READ = "read"
     WRITE = "write"
 

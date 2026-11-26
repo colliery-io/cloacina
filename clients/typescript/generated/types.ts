@@ -701,14 +701,15 @@ export interface paths {
         };
         /**
          * GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
-         *     Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+         *     Tenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the
          *     route-table middleware, so the caller is already confined to `tenant_id`.
          */
         get: operations["list_tenant_keys"];
         put?: never;
         /**
          * POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-         *     Admin-only: only is_admin keys can create tenant-scoped keys.
+         *     Needs `keys.manage` in the tenant: a tenant admin, or the platform admin.
+         *     The role is one of `read`, `write`, `admin`, `agent` and must be given.
          */
         post: operations["create_tenant_key"];
         delete?: never;
@@ -1558,7 +1559,11 @@ export interface components {
         /** @description Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`. */
         CreateKeyRequest: {
             name: string;
-            role?: components["schemas"]["KeyRole"];
+            /**
+             * @description Required. A request with no role is refused with 400: the server does
+             *     not choose a role for the caller.
+             */
+            role: components["schemas"]["KeyRole"];
         };
         /**
          * @description Request body for `POST /v1/tenants/{tenant_id}/secrets` — create a secret.
@@ -1886,7 +1891,7 @@ export interface components {
             /** @description One-time plaintext API key. */
             key: string;
             name: string;
-            /** @description Role string: `read` | `write` | `admin`. */
+            /** @description Role string: `read` | `write` | `admin` | `agent`. */
             permissions: string;
             /** @description Tenant scope; `null` for global keys. */
             tenant_id?: string | null;
@@ -1899,7 +1904,7 @@ export interface components {
             id: string;
             is_admin: boolean;
             name: string;
-            /** @description Role string: `read` | `write` | `admin`. */
+            /** @description Role string: `read` | `write` | `admin` | `agent`. */
             permissions: string;
             revoked: boolean;
             /** @description Tenant scope; `null` for global keys. */
@@ -1913,10 +1918,16 @@ export interface components {
             status: string;
         };
         /**
-         * @description Allowed roles for API keys.
+         * @description The role of an API key: a named set of permissions, fixed in the server.
+         *
+         *     - `read`: list and inspect.
+         *     - `write`: `read`, plus upload, run and operate.
+         *     - `admin`: `write`, plus keys, accounts, secrets, the audit record and the
+         *       fleet size of its tenant.
+         *     - `agent`: act as an execution agent, and nothing else.
          * @enum {string}
          */
-        KeyRole: "admin" | "write" | "read";
+        KeyRole: "admin" | "write" | "read" | "agent";
         /**
          * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
          *     returns `{items, total}`. `total` is best-effort — it equals the
@@ -2114,7 +2125,7 @@ export interface components {
                 id: string;
                 is_admin: boolean;
                 name: string;
-                /** @description Role string: `read` | `write` | `admin`. */
+                /** @description Role string: `read` | `write` | `admin` | `agent`. */
                 permissions: string;
                 revoked: boolean;
                 /** @description Tenant scope; `null` for global keys. */
@@ -3180,6 +3191,15 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
+            /** @description No role, an unknown role, or a body that is not a key request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Missing or invalid API key */
             401: {
                 headers: {
@@ -4132,6 +4152,15 @@ export interface operations {
                     "application/json": components["schemas"]["AccountInfo"];
                 };
             };
+            /** @description The role is not one of read, write, admin */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Missing or invalid API key */
             401: {
                 headers: {
@@ -4668,6 +4697,15 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
+            /** @description No role, an unknown role, or a body that is not a key request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Missing or invalid API key */
             401: {
                 headers: {
@@ -4677,7 +4715,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Admin (god-mode) key required */
+            /** @description Tenant access or admin role denied */
             403: {
                 headers: {
                     [name: string]: unknown;
