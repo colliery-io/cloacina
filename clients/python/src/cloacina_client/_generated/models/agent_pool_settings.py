@@ -30,10 +30,10 @@ class AgentPoolSettings:
     managed agent of the pool: a pool has one size of agent.
 
         Attributes:
-            automount_service_account_token (bool | None | Unset): The pod's `automountServiceAccountToken`. Absent: the
-                field is left
-                out and the cluster default applies. The agent does not call the
-                Kubernetes API, so `false` is the tighter setting.
+            automount_service_account_token (bool | None | Unset): The pod's `automountServiceAccountToken`. Absent means
+                `false`: the
+                pod mounts no ServiceAccount token. The agent does not call the
+                Kubernetes API. Set `true` for a pool whose identity system needs it.
             cpu_limit (None | str | Unset): CPU limit of the agent container, a Kubernetes quantity (`4`).
             cpu_request (None | str | Unset): CPU request of the agent container, a Kubernetes quantity (`500m`).
             extra_egress (list[AgentEgressRule] | Unset): Extra egress rules for the pool's pods, added to the default
