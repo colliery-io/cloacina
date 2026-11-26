@@ -290,8 +290,8 @@ curl -s http://127.0.0.1:8080/metrics | grep -E '^cloacina_(workflows|tasks)_tot
 Expected output (numbers vary):
 
 ```text
-cloacina_workflows_total{status="completed",reason="ok"} 1
-cloacina_tasks_total{status="completed",reason="ok"} 2
+cloacina_workflows_total{status="completed",reason="ok",workflow="hello_world",tenant="acme"} 1
+cloacina_tasks_total{status="completed",reason="ok",workflow="hello_world",tenant="acme"} 2
 ```
 
 The `1` counts your one execution; `2` counts the two tasks in

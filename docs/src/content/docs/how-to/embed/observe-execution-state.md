@@ -46,17 +46,22 @@ parseable by any Prometheus-compatible scraper.
 ### Counters
 
 ```text
-cloacina_workflows_total{status="completed",reason="ok"}
-cloacina_workflows_total{status="failed",reason="dependency_failed"}
-cloacina_tasks_total{status="completed",reason="ok"}
-cloacina_tasks_total{status="failed",reason="task_error"}
-cloacina_tasks_total{status="failed",reason="claim_lost"}
+cloacina_workflows_total{status="completed",reason="ok",workflow,tenant}
+cloacina_workflows_total{status="failed",reason="dependency_failed",workflow,tenant}
+cloacina_tasks_total{status="completed",reason="ok",workflow,tenant}
+cloacina_tasks_total{status="failed",reason="task_error",workflow,tenant}
+cloacina_tasks_total{status="retried",reason="timeout",workflow,tenant}
 cloacina_api_requests_total{method="POST",status="201"}
 ```
 
 Failure-reason labels for `cloacina_tasks_total`: `task_error`,
-`timeout`, `validation_failed`, `infrastructure`, `task_not_found`,
-`claim_lost`, `unknown`.
+`timeout`, `validation_failed`, `infrastructure`, `context_load_failed`,
+`task_not_found`, `claim_lost`, `unknown`. `status="retried"` is an attempt
+that failed and has a retry scheduled.
+
+`workflow` is the workflow name and `tenant` the tenant schema. Workflow
+names are capped at 100 per tenant (`other` after that); see the
+[Metrics Catalog](../../reference/metrics-catalog/).
 
 ### Histograms
 
@@ -71,22 +76,35 @@ cloacina_task_duration_seconds_bucket{le}
 ```text
 cloacina_active_workflows
 cloacina_active_tasks
+cloacina_waiting_tasks{tenant}
+cloacina_oldest_waiting_task_age_seconds{tenant}
+cloacina_schedule_lag_seconds{tenant}
 ```
 
 ### Useful Alert Queries
 
 ```promql
 # Task failure rate spike
-rate(cloacina_tasks_total{status="failed"}[5m])
-  / rate(cloacina_tasks_total[5m]) > 0.05
+sum(rate(cloacina_tasks_total{status="failed"}[5m]))
+  / sum(rate(cloacina_tasks_total[5m])) > 0.05
 
 # p99 task duration
 histogram_quantile(0.99,
     rate(cloacina_task_duration_seconds_bucket[5m]))
 
+# Failed runs, with the workflow and tenant to name in the alert
+sum by (tenant, workflow) (
+    increase(cloacina_workflows_total{status="failed"}[15m])) > 0
+
+# Backlog: a task has been due for more than 5 minutes
+cloacina_oldest_waiting_task_age_seconds > 300
+
+# A cron schedule is more than 2 minutes late
+cloacina_schedule_lag_seconds > 120
+
 # Stuck active workflows (no churn for 30 minutes)
 cloacina_active_workflows > 0
-  unless changes(cloacina_workflows_total[30m]) > 0
+  unless sum(changes(cloacina_workflows_total[30m])) > 0
 ```
 
 ### Scraping

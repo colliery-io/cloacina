@@ -528,6 +528,7 @@ pub mod graph;
 pub mod input_interface;
 pub mod inventory_entries;
 pub mod logging;
+pub mod metric_labels;
 pub mod models;
 pub mod packaging;
 pub mod python_runtime;

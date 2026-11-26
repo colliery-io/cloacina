@@ -81,6 +81,11 @@ async fn dispatch_one(dispatcher: &Arc<dyn Dispatcher>, task: TaskExecution) {
     }
 }
 
+/// How often the waiting-task gauges are read from the database
+/// (CLOACINA-T-1024). The loop ticks every `poll_interval` (100 ms by
+/// default); a count on each tick would be ten extra queries a second.
+const WAITING_GAUGE_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Number of consecutive errors before logging a circuit-open warning.
 const CIRCUIT_OPEN_THRESHOLD: u32 = 5;
 
@@ -96,6 +101,9 @@ pub struct SchedulerLoop<'a> {
     shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
     /// Consecutive error count for circuit breaker / backoff.
     consecutive_errors: u32,
+    /// When the waiting-task gauges were last read. `None` before the first
+    /// read. A mutex because `process_active_executions` takes `&self`.
+    waiting_gauge_read_at: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl<'a> SchedulerLoop<'a> {
@@ -115,6 +123,7 @@ impl<'a> SchedulerLoop<'a> {
             dispatcher,
             shutdown_rx: None,
             consecutive_errors: 0,
+            waiting_gauge_read_at: std::sync::Mutex::new(None),
         }
     }
 
@@ -196,6 +205,35 @@ impl<'a> SchedulerLoop<'a> {
         Ok(())
     }
 
+    /// Set `cloacina_waiting_tasks` and
+    /// `cloacina_oldest_waiting_task_age_seconds` from the database, at most
+    /// once per [`WAITING_GAUGE_INTERVAL`] (CLOACINA-T-1024). Best-effort: on
+    /// a query error the gauges keep their last value.
+    async fn refresh_waiting_task_gauges(&self) {
+        {
+            let mut read_at = self
+                .waiting_gauge_read_at
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if read_at.is_some_and(|at| at.elapsed() < WAITING_GAUGE_INTERVAL) {
+                return;
+            }
+            *read_at = Some(std::time::Instant::now());
+        }
+        match self.dal.task_execution().waiting_task_stats().await {
+            Ok(stats) => {
+                let tenant = self.dal.tenant_label().to_string();
+                metrics::gauge!("cloacina_waiting_tasks", "tenant" => tenant.clone())
+                    .set(stats.count as f64);
+                metrics::gauge!("cloacina_oldest_waiting_task_age_seconds", "tenant" => tenant)
+                    .set(stats.oldest_age_seconds(chrono::Utc::now()));
+            }
+            Err(e) => {
+                warn!("failed to read waiting tasks for gauges: {}", e);
+            }
+        }
+    }
+
     /// Processes all active workflow executions to update task readiness.
     pub async fn process_active_executions(&self) -> Result<(), ValidationError> {
         let active_executions = self
@@ -219,6 +257,7 @@ impl<'a> SchedulerLoop<'a> {
                 warn!("failed to count running tasks for gauge re-seed: {}", e);
             }
         }
+        self.refresh_waiting_task_gauges().await;
 
         if active_executions.is_empty() {
             // Even with no active workflow executions, dispatch any Ready tasks (e.g., retries)
@@ -446,6 +485,11 @@ impl<'a> SchedulerLoop<'a> {
                 "cloacina_workflows_total",
                 "status" => "failed",
                 "reason" => "dependency_failed",
+                "workflow" => crate::metric_labels::workflow_label(
+                    self.dal.tenant_label(),
+                    &execution.workflow_name,
+                ),
+                "tenant" => self.dal.tenant_label().to_string(),
             )
             .increment(1);
             info!(
@@ -461,6 +505,11 @@ impl<'a> SchedulerLoop<'a> {
                 "cloacina_workflows_total",
                 "status" => "completed",
                 "reason" => "ok",
+                "workflow" => crate::metric_labels::workflow_label(
+                    self.dal.tenant_label(),
+                    &execution.workflow_name,
+                ),
+                "tenant" => self.dal.tenant_label().to_string(),
             )
             .increment(1);
             info!(

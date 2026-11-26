@@ -49,36 +49,6 @@ use crate::error::ExecutorError;
 use crate::{Context, Database, Task, TaskRegistry, parse_namespace};
 use async_trait::async_trait;
 
-/// Bounded reason value for `cloacina_tasks_total{status="failed", reason=...}`.
-///
-/// Cardinality is closed: the set of returned values is fixed here so label
-/// explosion is impossible. Currently used only by the test that pins the
-/// label set; production code path that emitted these labels was removed
-/// in T-0563. Kept as a behavioral spec test.
-#[cfg(test)]
-fn failure_reason(err: &ExecutorError) -> &'static str {
-    match err {
-        ExecutorError::TaskTimeout => "timeout",
-        ExecutorError::TaskExecution(_) => "task_error",
-        ExecutorError::Validation(_) => "validation_failed",
-        ExecutorError::ClaimLost => "claim_lost",
-        ExecutorError::Database(_)
-        | ExecutorError::ConnectionPool(_)
-        | ExecutorError::Context(_) => "infrastructure",
-        // COR-11: ContextLoadFailed now reports as its own bounded
-        // reason value so operators can distinguish "task failed
-        // because we couldn't load its dependency context" from
-        // generic infrastructure issues.
-        ExecutorError::ContextLoadFailed(_) => "context_load_failed",
-        ExecutorError::TaskNotFound(_) | ExecutorError::WorkflowExecutionNotFound(_) => {
-            "task_not_found"
-        }
-        ExecutorError::Serialization(_)
-        | ExecutorError::InvalidScope(_)
-        | ExecutorError::Semaphore(_) => "unknown",
-    }
-}
-
 /// ThreadTaskExecutor is a thread-based implementation of task execution.
 ///
 /// This executor runs tasks in the current thread/process and manages:
@@ -557,6 +527,14 @@ impl TaskExecutor for ThreadTaskExecutor {
             Ok(ns) => ns,
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                // This exit does not reach `TaskResultHandler::handle_outcome`,
+                // so count the failed task here (CLOACINA-T-1024).
+                super::result_handler::record_task_outcome(
+                    &self.dal,
+                    &claimed_task.task_name,
+                    "failed",
+                    "validation_failed",
+                );
                 let error_msg = format!("Invalid namespace: {}", e);
                 self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
@@ -572,6 +550,14 @@ impl TaskExecutor for ThreadTaskExecutor {
             Some(t) => t,
             None => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                // This exit does not reach `TaskResultHandler::handle_outcome`,
+                // so count the failed task here (CLOACINA-T-1024).
+                super::result_handler::record_task_outcome(
+                    &self.dal,
+                    &claimed_task.task_name,
+                    "failed",
+                    "task_not_found",
+                );
                 let error_msg = format!("Task not found: {}", claimed_task.task_name);
                 self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
@@ -589,6 +575,14 @@ impl TaskExecutor for ThreadTaskExecutor {
             Ok(ctx) => ctx,
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
+                // This exit does not reach `TaskResultHandler::handle_outcome`,
+                // so count the failed task here (CLOACINA-T-1024).
+                super::result_handler::record_task_outcome(
+                    &self.dal,
+                    &claimed_task.task_name,
+                    "failed",
+                    "context_load_failed",
+                );
                 let error_msg = format!("Context build failed: {}", e);
                 self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
                     .await;
@@ -681,7 +675,9 @@ impl TaskExecutor for ThreadTaskExecutor {
         // post-execution state tidier for debugging.)
         drop(cancel_tx);
         let duration = start.elapsed();
-        metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
+        // `cloacina_task_duration_seconds` is recorded by the shared
+        // `TaskResultHandler::handle_outcome` below, so the fleet path records
+        // it too (CLOACINA-T-1024). Do not record it here as well.
         // No `cloacina_active_tasks.decrement()` — SQL-derived in the
         // scheduler tick. See CLOACI-T-0589.
 
@@ -758,6 +754,7 @@ impl TaskExecutor for ThreadTaskExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::executor::result_handler::failure_reason;
     use serde_json::json;
 
     // -----------------------------------------------------------------------

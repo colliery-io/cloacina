@@ -153,6 +153,15 @@ impl DAL {
         &self.database
     }
 
+    /// Value of the `tenant` metric label for this DAL (CLOACINA-T-1024): the
+    /// schema its database is bound to, or `public` when there is none (the
+    /// default Postgres schema, and SQLite). A server runs one runner per
+    /// tenant schema in one process, so a metric that a runner sets needs
+    /// this label to keep the tenants apart.
+    pub fn tenant_label(&self) -> &str {
+        self.database.schema().unwrap_or("public")
+    }
+
     /// Returns the connection pool.
     pub fn pool(&self) -> AnyPool {
         self.database.pool()
