@@ -31,21 +31,40 @@ impl<'a> TaskExecutionDAL<'a> {
     // and capped via `reset_task_for_recovery` / `mark_abandoned` below.
 
     /// Resets a task from "Running" to "Ready" state for recovery.
+    ///
+    /// `waiting_since` (CLOACINA-T-1036): a task that was still `Ready` (its
+    /// runner died between the claim and the start) keeps the value it has,
+    /// so its wait does not restart. Any other task waits from now.
     pub async fn reset_task_for_recovery(
         &self,
         task_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let now = UniversalTimestamp::now();
         crate::interact_on_backend!(self.dal, |conn| {
-            diesel::update(task_executions::table.find(task_id))
-                .set((
-                    task_executions::status.eq("Ready"),
-                    task_executions::started_at.eq(None::<UniversalTimestamp>),
-                    task_executions::recovery_attempts.eq(task_executions::recovery_attempts + 1),
-                    task_executions::last_recovery_at.eq(Some(now)),
-                    task_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let (status, waiting_since): (String, Option<UniversalTimestamp>) =
+                    task_executions::table
+                        .find(task_id)
+                        .select((task_executions::status, task_executions::waiting_since))
+                        .first(conn)?;
+                let waiting_since = match waiting_since {
+                    Some(since) if status == "Ready" => since,
+                    _ => now,
+                };
+                diesel::update(task_executions::table.find(task_id))
+                    .set((
+                        task_executions::status.eq("Ready"),
+                        task_executions::started_at.eq(None::<UniversalTimestamp>),
+                        task_executions::waiting_since.eq(Some(waiting_since)),
+                        task_executions::recovery_attempts
+                            .eq(task_executions::recovery_attempts + 1),
+                        task_executions::last_recovery_at.eq(Some(now)),
+                        task_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            })
         })?;
 
         Ok(())

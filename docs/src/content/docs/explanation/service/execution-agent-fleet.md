@@ -56,7 +56,9 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    stays `Ready`, keeps its attempt count, and is tried again after 2 s. The
    same holds when the chosen agent is full by the time the packet arrives and
    refuses it. Waiting for capacity never fails a task; watch
-   `cloacina_fleet_dispatch_deferred_total` to see it.
+   `cloacina_fleet_dispatch_deferred_total` to see it. The task is in
+   `cloacina_waiting_tasks` for as long as it waits, and
+   `cloacina_oldest_waiting_task_age_seconds` grows.
 3. **Resolve the artifact.** For the first task of an execution it looks up
    the active (built, non-superseded) version of the task's package in that
    tenant and records it as the execution's **version pin**. For each later

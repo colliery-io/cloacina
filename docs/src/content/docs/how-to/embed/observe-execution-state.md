@@ -74,8 +74,8 @@ cloacina_task_duration_seconds_bucket{le}
 ### Gauges
 
 ```text
-cloacina_active_workflows
-cloacina_active_tasks
+cloacina_active_workflows{tenant}
+cloacina_active_tasks{tenant}
 cloacina_waiting_tasks{tenant}
 cloacina_oldest_waiting_task_age_seconds{tenant}
 cloacina_schedule_lag_seconds{tenant}
@@ -96,15 +96,15 @@ histogram_quantile(0.99,
 sum by (tenant, workflow) (
     increase(cloacina_workflows_total{status="failed"}[15m])) > 0
 
-# Backlog: a task has been due for more than 5 minutes
+# Backlog: a task has waited for capacity for more than 5 minutes
 cloacina_oldest_waiting_task_age_seconds > 300
 
 # A cron schedule is more than 2 minutes late
 cloacina_schedule_lag_seconds > 120
 
 # Stuck active workflows (no churn for 30 minutes)
-cloacina_active_workflows > 0
-  unless sum(changes(cloacina_workflows_total[30m])) > 0
+sum by (tenant) (cloacina_active_workflows) > 0
+  unless sum by (tenant) (changes(cloacina_workflows_total[30m])) > 0
 ```
 
 ### Scraping

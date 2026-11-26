@@ -291,9 +291,9 @@ The top-of-mind metrics for operators:
 - `cloacina_api_requests_total` (counter, by `method` + `status`).
 - `cloacina_workflow_duration_seconds` (histogram).
 - `cloacina_task_duration_seconds` (histogram).
-- `cloacina_active_workflows` (gauge, SQL-derived re-seed).
-- `cloacina_active_tasks` (gauge, SQL-derived re-seed).
-- `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` (gauges, by `tenant`) — the backlog of due tasks and the age of the oldest.
+- `cloacina_active_workflows` (gauge, by `tenant`, SQL-derived re-seed).
+- `cloacina_active_tasks` (gauge, by `tenant`, SQL-derived re-seed).
+- `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` (gauges, by `tenant`) — the tasks that wait for capacity and the age of the oldest.
 - `cloacina_schedule_lag_seconds` (gauge, by `tenant`) — how late the most overdue cron schedule is.
 
 The legacy `cloacina_pipeline*` names (used in pre-2026 docs) are gone — emission was renamed to `workflow*` to match the user-facing primitive. See the metrics catalog for the full namespace.

@@ -47,7 +47,7 @@ This works for steady-state but leaks on every failure path. Panics between `inc
 
 ### SQL-derived gauges (Cloacina's choice)
 
-`cloacina_active_tasks` (and its sibling `cloacina_active_workflows`) are **re-seeded every scheduler tick from a `SELECT count(*)` against the DAL**:
+`cloacina_active_tasks` (and its sibling `cloacina_active_workflows`) are **re-seeded every scheduler tick from a `SELECT count(*)` against the DAL**, one series per tenant (label `tenant`):
 
 ```rust
 let active = dal.task_executions().count_where(status = 'Running').await?;
@@ -118,7 +118,7 @@ A few choices Cloacina explicitly made the opposite way from common defaults:
 
 - **`/metrics` is unauthenticated.** Per ADR-0005, the server's `/metrics` and `/health` probes are public — Prometheus scrapes them without credentials. The trade-off: metric values leak as observable side channels (you can tell from `cloacina_workflows_total` whether a tenant is active). The benefit: no credential management on the scraper path. Metric labels also hold names that tenants choose (graphs, reactors, accumulators, sources), and by default every client that can reach the API port — a tenant's agent included — can read them. For deployments where this is unacceptable, set `--metrics-bind` so `/metrics` is served only on a separate address (the main listener then answers 404 for it), and limit who can reach that address; the Helm chart does both with `metrics.enabled` and `metrics.networkPolicy`. Cloacina still does not authenticate the scrape.
 - **No built-in alert rules.** Cloacina ships metrics with bounded labels and stable names but does not ship a Prometheus alert-rule file. The rationale: alert thresholds depend on operator SLOs (a CG-fire p99 of 100ms is fine for batch use cases and a disaster for tick-by-tick trading); the metrics are uniform but the alerts can't be.
-- **No metric for "current backlog of pending workflows".** The `*_active_*` gauges count Running/Pending state; for true queue depth, operators wire their own gauge against `workflow_executions` directly. The avoidance is deliberate — a separate "pending only" gauge would double-count with `cloacina_active_workflows` and create a measurement-coupling bug. The task backlog does have gauges: `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` count the tasks that are ready and due and not yet dispatched, and `cloacina_schedule_lag_seconds` says how late the most overdue cron schedule is. Alert on the last two.
+- **No metric for "current backlog of pending workflows".** The `*_active_*` gauges count Running/Pending state; for true queue depth, operators wire their own gauge against `workflow_executions` directly. The avoidance is deliberate — a separate "pending only" gauge would double-count with `cloacina_active_workflows` and create a measurement-coupling bug. The task backlog does have gauges: `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds` count the tasks that are ready and wait for capacity (a task with no free agent is counted for as long as it waits), and `cloacina_schedule_lag_seconds` says how late the most overdue cron schedule is. Alert on the last two.
 
 ## See also
 

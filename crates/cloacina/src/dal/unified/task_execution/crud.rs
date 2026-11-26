@@ -59,9 +59,16 @@ impl<'a> TaskExecutionDAL<'a> {
                     updated_at: now,
                 };
 
+                // A task created `Ready` waits for capacity from now
+                // (CLOACINA-T-1036).
+                let waiting_since = (new_unified_task.status == "Ready").then_some(now);
+
                 // Insert task record
                 let task: UnifiedTaskExecution = diesel::insert_into(task_executions::table)
-                    .values(&new_unified_task)
+                    .values((
+                        &new_unified_task,
+                        task_executions::waiting_since.eq(waiting_since),
+                    ))
                     .get_result(conn)?;
 
                 // Insert execution event for task creation

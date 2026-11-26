@@ -544,19 +544,29 @@ pub async fn run(
          for the in-process and the fleet executor. A fleet task includes \
          the hand-off to the agent and the wait for its report."
     );
-    metrics::describe_gauge!("cloacina_active_workflows", "Currently active workflows");
-    metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
+    metrics::describe_gauge!(
+        "cloacina_active_workflows",
+        "Workflow executions in Pending or Running state, by tenant. Read \
+         from the database on each scheduler tick."
+    );
+    metrics::describe_gauge!(
+        "cloacina_active_tasks",
+        "Task executions in Running state, by tenant. Read from the database \
+         on each scheduler tick."
+    );
     metrics::describe_gauge!(
         "cloacina_waiting_tasks",
-        "Tasks that wait to be dispatched, by tenant: status Ready, due \
-         (`retry_at` empty or in the past) and not claimed. Read from the \
-         database every 5 seconds. A task in a retry backoff, or put off \
-         because no agent had a free slot, is not counted until it is due again."
+        "Tasks that wait for capacity, by tenant: status Ready and past \
+         their `waiting_since`. Read from the database every 5 seconds. A \
+         task that is put off because no agent had a free slot is counted \
+         the whole time. A task in a retry backoff is not counted until the \
+         retry is due."
     );
     metrics::describe_gauge!(
         "cloacina_oldest_waiting_task_age_seconds",
-        "Seconds since the oldest waiting task became due, by tenant; 0 when \
-         no task waits. Read with `cloacina_waiting_tasks`."
+        "Seconds since the oldest waiting task began to wait \
+         (`waiting_since`), by tenant; 0 when no task waits. Read with \
+         `cloacina_waiting_tasks`."
     );
     metrics::describe_gauge!(
         "cloacina_schedule_lag_seconds",

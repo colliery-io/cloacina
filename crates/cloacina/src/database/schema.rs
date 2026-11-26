@@ -81,6 +81,7 @@ mod unified_schema {
             sub_status -> Nullable<Text>,
             claimed_by -> Nullable<DbUuid>,
             heartbeat_at -> Nullable<DbTimestamp>,
+            waiting_since -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
