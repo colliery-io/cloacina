@@ -266,10 +266,12 @@ pub async fn replenish_keys(
 /// Routes the agent's outcome to the `FleetCoordinator` so the
 /// `FleetExecutor::execute` call that's awaiting this `task_execution_id`
 /// can wake up and reconcile through `TaskResultHandler::handle_outcome`.
-/// If no executor is waiting (orphan — most likely from a server restart
-/// between dispatch and report, or a stale duplicate after a retry), the
-/// request is accepted + logged; the substrate's at-least-once retry path
-/// is what keeps the system convergent.
+/// If no executor waits on this replica, the report is stored in the fleet
+/// result inbox and the replica that dispatched the task takes it
+/// (CLOACINA-T-1015). A report nobody waits for (a stale duplicate after a
+/// retry, or a report whose replica stopped) changes no state. A report that
+/// can be neither forwarded nor stored is answered with a 5xx, so the agent
+/// sends it again.
 pub async fn report_result(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
@@ -316,24 +318,37 @@ pub async fn report_result(
         }
     };
 
-    match state.fleet_coordinator.forward(task_id, req) {
-        Ok(()) => {}
-        Err(orphan) => {
-            // CLOACINA-T-1013, CLOACINA-A-0017: a report nobody waits for changes no state. It
-            // is the report of an older dispatch of the task (the server
-            // retried, or gave the work to another agent), a second report for
-            // a dispatch already resolved, or a report that reached a replica
-            // which did not dispatch the task. Counted and logged at info, so
-            // work that ran and was not used is visible.
-            metrics::counter!("cloacina_fleet_orphan_results_total").increment(1);
+    // CLOACINA-T-1015: a wait on this replica gets the report at once. With
+    // no wait here the report is stored for the replica that dispatched the
+    // task: the agent posts to the Service, so any replica can get it. The
+    // rules of CLOACINA-A-0017 are the same on both paths: a report resolves
+    // only its own dispatch, and one that no replica waits for changes no
+    // state (it is deleted by age and counted in
+    // `cloacina_fleet_orphan_results_total`).
+    let agent_id = req.agent_id.clone();
+    let attempt = req.attempt;
+    let dispatch_id = req.dispatch_id.clone();
+    let duration_ms = req.duration_ms;
+    let inbox = cloacina::dal::DAL::new(state.database.clone());
+    match state.fleet_coordinator.accept(&inbox, task_id, req).await {
+        Ok(crate::fleet_coordinator::Accepted::Local) => {}
+        Ok(crate::fleet_coordinator::Accepted::Stored) => {
             tracing::info!(
                 task_id = %task_id,
-                agent_id = %orphan.agent_id,
-                attempt = orphan.attempt,
-                dispatch_id = ?orphan.dispatch_id,
-                duration_ms = orphan.duration_ms,
-                "agent result is for no pending dispatch (orphan): accepted, no state changed"
+                agent_id = %agent_id,
+                attempt,
+                dispatch_id = ?dispatch_id,
+                duration_ms,
+                "agent result is for no dispatch this replica waits for: stored for the replica \
+                 that does"
             );
+        }
+        Err(e) => {
+            // Neither forwarded nor stored. A 5xx makes the agent send the
+            // report again (it retries with backoff).
+            return Err(ApiError::internal(format!(
+                "agent result not accepted: {e}"
+            )));
         }
     }
 

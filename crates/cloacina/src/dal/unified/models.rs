@@ -21,8 +21,8 @@
 
 use crate::database::schema::unified::{
     accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
-    package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
+    fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle, package_artifacts,
+    package_providers, package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
     schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
     task_execution_metadata, task_executions, tenant_data_keys, trusted_keys, workflow_executions,
     workflow_packages, workflow_registry, ws_tickets,
@@ -275,6 +275,31 @@ pub struct NewUnifiedDeliveryOutbox {
     pub payload: UniversalBinary,
     pub delivery_state: String,
     pub delivery_attempts: i32,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Fleet Result Inbox Models (CLOACINA-T-1015)
+// ============================================================================
+
+/// An agent report kept for the server replica that waits for it.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = fleet_result_inbox)]
+pub struct UnifiedFleetResultInbox {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub dispatch_id: Option<String>,
+    pub payload: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = fleet_result_inbox)]
+pub struct NewUnifiedFleetResultInbox {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub dispatch_id: Option<String>,
+    pub payload: UniversalBinary,
     pub created_at: UniversalTimestamp,
 }
 
