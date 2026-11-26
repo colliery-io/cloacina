@@ -1847,8 +1847,8 @@ been removed.
 
 - **Per-tenant runner instances.** Each tenant has its own
   `DefaultRunner` (with its own scheduler loop, executor pool, and
-  per-tenant DB pool), cached in `TenantRunnerCache` up to the
-  `--tenant-runner-cache-size` cap (default 256).
+  per-tenant DB pool), held in `TenantRunnerCache` from server start
+  until the tenant is deleted.
   Workflow execution lands in the tenant's schema, not in `public`.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers`
   routes through the tenant-scoped `Database` from

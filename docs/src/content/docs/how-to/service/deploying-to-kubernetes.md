@@ -108,7 +108,7 @@ cert-manager users can wire issuance via the standard
 | `livenessProbe`, `readinessProbe`, `startupProbe` | `/health` (liveness/startup) and `/ready` (readiness) HTTP | Override per-probe; set to `null` to disable |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
 | `server.verificationOrgId` | `""` | Trusted org UUID (required when signatures are required) |
-| `server.tenantRunnerCacheSize` | `256` | LRU cap on per-tenant `DefaultRunner` instances |
+| `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant `DefaultRunner` instances; none is stopped at the limit |
 
 See `values.yaml` for the full reference.
 

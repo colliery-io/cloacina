@@ -24,29 +24,46 @@
  *      http://www.apache.org/licenses/LICENSE-2.0
  */
 
-//! Per-tenant `DefaultRunner` cache with LRU eviction. CLOACI-T-0580.
+//! The live `DefaultRunner` of each tenant. CLOACI-T-0580, CLOACINA-T-1031.
 //!
-//! Each cached entry is a fully-constructed runner with its own scheduler
+//! Each entry is a fully-constructed runner with its own scheduler
 //! loop, executor pool, and heartbeat — bound to the tenant's `Database`
 //! from `TenantDatabaseCache` so workflow execution writes land in the
 //! correct tenant schema.
+//!
+//! A tenant's runner is that tenant's engine: its reconciler loads the
+//! tenant's packages and registers their schedules, and its schedulers fire
+//! them and move its executions on. With no runner, nothing of the tenant
+//! runs. So every tenant has a runner from server start until the tenant is
+//! deleted (CLOACINA-T-1031):
+//!
+//! - [`spawn`] starts a loop that lists the tenant schemas at start and then
+//!   every [`RUNNER_PASS_INTERVAL`], and makes a runner for each tenant that
+//!   has none. That covers a restart and a tenant made through another
+//!   replica. It also stops the runner of a schema that is gone.
+//! - The tenant create route and the package upload route call
+//!   [`ensure_runner`], so a new tenant and a first publish do not wait for
+//!   the loop.
+//! - A runner is never stopped to make room. Stopping it stops the tenant's
+//!   schedules and its running work, and closes the connection pool that the
+//!   tenant's routes use. The size the cache is built with is a warning
+//!   limit only.
 //!
 //! `Runtime` inventory (`TaskRegistry`, `WorkflowRegistry`,
 //! `TriggerRegistry`, `ReactorRegistry`, `GraphRegistry`) is shared by
 //! `Arc` across all per-tenant runners — they're inventory-seeded at
 //! process start (post-T-0506) and have no per-tenant state.
 //!
-//! Eviction is graceful: when an entry is dropped from the LRU, its
-//! `shutdown()` is awaited so background tasks join cleanly before the
-//! next cache lookup.
+//! A runner leaves the cache when its tenant is deleted, when its schema is
+//! gone, and at server shutdown. Its `shutdown()` is awaited so background
+//! tasks join cleanly.
 
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use lru::LruCache;
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use cloacina::Database;
 use cloacina::Runtime;
@@ -85,9 +102,21 @@ impl EvictOutcome {
 /// under the "fleet" key.
 pub type FleetRegistrar = Arc<dyn Fn(&DefaultRunner) + Send + Sync>;
 
-/// LRU-bounded cache of per-tenant `DefaultRunner` instances.
+/// How often the server looks for tenants with no runner (CLOACINA-T-1031).
+/// A tenant made through another replica gets its runner on this replica
+/// within this time.
+pub const RUNNER_PASS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The live per-tenant `DefaultRunner` instances, one for each tenant.
 pub struct TenantRunnerCache {
-    cache: Mutex<LruCache<String, Arc<DefaultRunner>>>,
+    cache: Mutex<HashMap<String, Arc<DefaultRunner>>>,
+    /// Held while a runner is built, so two callers cannot build two runners
+    /// for one tenant. A runner that lost such a race could not be shut down:
+    /// its `shutdown()` closes the pool it shares with the winner.
+    build_lock: Mutex<()>,
+    /// The server warns when it holds more runners than this
+    /// (`--tenant-runner-cache-size`). It stops none of them.
+    warn_above: NonZeroUsize,
     /// Shared `Runtime` for every per-tenant runner — inventory-seeded
     /// once at process start, never mutated.
     shared_runtime: Arc<Runtime>,
@@ -107,12 +136,15 @@ pub struct TenantRunnerCache {
 }
 
 impl TenantRunnerCache {
-    /// Build a new cache with the given LRU cap. The shared runtime is
-    /// constructed from inventory at this call site; callers shouldn't
-    /// construct it separately.
-    pub fn new(capacity: NonZeroUsize, base_config: DefaultRunnerConfig) -> Self {
+    /// Build a new cache. `warn_above` is the number of runners above which
+    /// the server logs a warning; no runner is stopped to stay under it. The
+    /// shared runtime is constructed from inventory at this call site;
+    /// callers shouldn't construct it separately.
+    pub fn new(warn_above: NonZeroUsize, base_config: DefaultRunnerConfig) -> Self {
         Self {
-            cache: Mutex::new(LruCache::new(capacity)),
+            cache: Mutex::new(HashMap::new()),
+            build_lock: Mutex::new(()),
+            warn_above,
             shared_runtime: Arc::new(Runtime::new()),
             base_config,
             graph_scheduler: None,
@@ -153,24 +185,25 @@ impl TenantRunnerCache {
     /// calling — this cache only owns runner lifecycle.
     ///
     /// On cache miss: construct a new `DefaultRunner` via
-    /// `DefaultRunner::with_database`, sharing the cache's `Runtime`.
-    /// On cache fill past capacity: the LRU evicts the least-recently-used
-    /// runner; its `shutdown()` is awaited before the new entry is
-    /// installed.
+    /// `DefaultRunner::with_database`, sharing the cache's `Runtime`. One
+    /// runner is built at a time. No runner is stopped to make room
+    /// (CLOACINA-T-1031); above the warning limit the server logs a warning.
     pub async fn get_or_create(
         &self,
         tenant_id: &str,
         tenant_database: Database,
     ) -> Result<Arc<DefaultRunner>, cloacina::WorkflowExecutionError> {
         // Fast path: cached?
-        {
-            let mut cache = self.cache.lock().await;
-            if let Some(runner) = cache.get(tenant_id) {
-                return Ok(runner.clone());
-            }
+        if let Some(runner) = self.cache.lock().await.get(tenant_id) {
+            return Ok(runner.clone());
         }
 
-        // Slow path: build a new runner with the shared Runtime.
+        // Slow path: build a new runner with the shared Runtime. One build at
+        // a time; a caller that waited here finds the runner the other made.
+        let _build = self.build_lock.lock().await;
+        if let Some(runner) = self.cache.lock().await.get(tenant_id) {
+            return Ok(runner.clone());
+        }
         info!(
             tenant_id = %tenant_id,
             "constructing per-tenant DefaultRunner (CLOACI-T-0580)"
@@ -205,37 +238,19 @@ impl TenantRunnerCache {
         }
         let runner = Arc::new(runner);
 
-        // Install — evicting the LRU entry if we're at cap, with a
-        // graceful shutdown of the evicted runner.
-        let evicted = {
+        let held = {
             let mut cache = self.cache.lock().await;
-            // Double-check: another task may have raced to insert.
-            if let Some(existing) = cache.get(tenant_id) {
-                return Ok(existing.clone());
-            }
-            // `lru::LruCache::push` returns the evicted entry (if any).
-            cache.push(tenant_id.to_string(), runner.clone())
+            cache.insert(tenant_id.to_string(), runner.clone());
+            cache.len()
         };
-        if let Some((evicted_id, evicted_runner)) = evicted {
-            if evicted_id == tenant_id {
-                // Edge case: cap=1 and the entry we just pushed kicked
-                // out the same slot — shouldn't happen given the
-                // double-check above, but guard anyway.
-            } else {
-                tokio::spawn(async move {
-                    info!(
-                        tenant_id = %evicted_id,
-                        "evicting LRU tenant runner; shutting down gracefully"
-                    );
-                    if let Err(e) = evicted_runner.shutdown().await {
-                        warn!(
-                            tenant_id = %evicted_id,
-                            %e,
-                            "evicted runner shutdown returned error"
-                        );
-                    }
-                });
-            }
+        if held > self.warn_above.get() {
+            warn!(
+                tenant_runners = held,
+                limit = self.warn_above.get(),
+                "more tenant runners than --tenant-runner-cache-size; none is stopped. \
+                 Each tenant uses up to 2 database connections on each replica: check \
+                 Postgres max_connections, then raise the limit"
+            );
         }
 
         Ok(runner)
@@ -248,7 +263,7 @@ impl TenantRunnerCache {
     pub async fn evict(&self, tenant_id: &str) -> Result<bool, cloacina::WorkflowExecutionError> {
         let runner = {
             let mut cache = self.cache.lock().await;
-            cache.pop(tenant_id)
+            cache.remove(tenant_id)
         };
         match runner {
             Some(r) => {
@@ -274,7 +289,7 @@ impl TenantRunnerCache {
     ) -> EvictOutcome {
         let runner = {
             let mut cache = self.cache.lock().await;
-            cache.pop(tenant_id)
+            cache.remove(tenant_id)
         };
         match runner {
             None => EvictOutcome::Missing,
@@ -315,11 +330,7 @@ impl TenantRunnerCache {
     pub async fn shutdown_all(&self) -> HashMap<String, Result<(), String>> {
         let runners: Vec<(String, Arc<DefaultRunner>)> = {
             let mut cache = self.cache.lock().await;
-            let mut drained = Vec::with_capacity(cache.len());
-            while let Some((k, v)) = cache.pop_lru() {
-                drained.push((k, v));
-            }
-            drained
+            cache.drain().collect()
         };
         let mut results = HashMap::with_capacity(runners.len());
         for (tenant_id, runner) in runners {
@@ -327,6 +338,16 @@ impl TenantRunnerCache {
             results.insert(tenant_id, r);
         }
         results
+    }
+
+    /// The tenants that have a runner here.
+    pub async fn tenant_ids(&self) -> Vec<String> {
+        self.cache.lock().await.keys().cloned().collect()
+    }
+
+    /// `true` if `tenant_id` has a runner here.
+    pub async fn contains(&self, tenant_id: &str) -> bool {
+        self.cache.lock().await.contains_key(tenant_id)
     }
 
     /// Current number of cached runners. Test/observability helper.
@@ -338,6 +359,121 @@ impl TenantRunnerCache {
     pub async fn is_empty(&self) -> bool {
         self.len().await == 0
     }
+}
+
+/// Make sure `tenant_id` has a live runner on this replica (CLOACINA-T-1031).
+/// The `public` tenant is served by the global runner and needs none.
+pub async fn ensure_runner(state: &crate::AppState, tenant_id: &str) -> Result<(), String> {
+    if tenant_id == "public" {
+        return Ok(());
+    }
+    let database = state
+        .tenant_databases
+        .resolve(tenant_id, &state.database)
+        .await
+        .map_err(|e| format!("tenant database: {e}"))?;
+    state
+        .tenant_runners
+        .get_or_create(tenant_id, database)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("tenant runner: {e}"))
+}
+
+/// [`ensure_runner`] for each of `tenants`. A tenant that fails is logged and
+/// the others go on. Returns how many runners were made.
+pub async fn ensure_runners(state: &crate::AppState, tenants: &[String]) -> usize {
+    let mut made = 0;
+    for tenant in tenants {
+        if tenant == "public" || state.tenant_runners.contains(tenant).await {
+            continue;
+        }
+        match ensure_runner(state, tenant).await {
+            Ok(()) => made += 1,
+            Err(e) => warn!(
+                tenant_id = %tenant,
+                error = %e,
+                "tenant runner not started; its schedules do not fire until the next pass"
+            ),
+        }
+    }
+    made
+}
+
+/// One pass (CLOACINA-T-1031): a runner for each tenant schema that has
+/// none, and no runner for a schema that is gone (a tenant deleted through
+/// another replica).
+pub async fn run_pass(state: &crate::AppState) {
+    // Read the held set before the list: a tenant made after the list was
+    // read is then not taken for a deleted one.
+    let held_before = state.tenant_runners.tenant_ids().await;
+    let tenants = match cloacina::database::DatabaseAdmin::new(state.database.clone())
+        .list_tenant_schemas()
+        .await
+    {
+        Ok(tenants) => tenants,
+        Err(e) => {
+            warn!(error = %e, "tenant runners: could not list tenant schemas; retrying next pass");
+            return;
+        }
+    };
+    let (made, stopped) = apply_tenant_list(state, &held_before, &tenants).await;
+    if made > 0 || stopped > 0 {
+        info!(
+            made,
+            stopped,
+            tenants = tenants.len(),
+            "tenant runners brought in line with the tenant schemas"
+        );
+    } else {
+        debug!(tenants = tenants.len(), "tenant runners: nothing to do");
+    }
+}
+
+/// Bring the runners in line with `tenants`, the tenant schemas that exist.
+/// A tenant of `held_before` (the tenants that had a runner before the list
+/// was read) that is not in `tenants` loses its runner and its cached
+/// database. Each tenant in `tenants` with no runner gets one. Returns the
+/// runners made and the runners stopped.
+pub async fn apply_tenant_list(
+    state: &crate::AppState,
+    held_before: &[String],
+    tenants: &[String],
+) -> (usize, usize) {
+    let mut stopped = 0;
+    for gone in held_before.iter().filter(|held| !tenants.contains(held)) {
+        let outcome = state
+            .tenant_runners
+            .evict_with_timeout(gone, state.tenant_deletion_drain_timeout)
+            .await;
+        state.tenant_databases.evict(gone).await;
+        if outcome.was_present() {
+            stopped += 1;
+            info!(tenant_id = %gone, "tenant schema is gone; its runner is stopped");
+        }
+    }
+    (ensure_runners(state, tenants).await, stopped)
+}
+
+/// Start the loop that keeps a runner for every tenant (CLOACINA-T-1031).
+/// The first pass runs at once, so after a restart each tenant's schedules
+/// fire again with no call for that tenant. Every replica runs it: each
+/// replica holds its own runner for each tenant.
+pub fn spawn(state: crate::AppState, mut shutdown: tokio::sync::watch::Receiver<bool>) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(RUNNER_PASS_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => run_pass(&state).await,
+                res = shutdown.changed() => {
+                    if res.is_err() || *shutdown.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
 }
 
 #[cfg(test)]

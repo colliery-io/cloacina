@@ -49,7 +49,7 @@ The chart fails fast if you don't configure exactly one of:
 | `postgresql.enabled` | `false` | Install Bitnami's Postgres in-cluster |
 | `apiKeySecretRef.name` | `""` | Secret for `CLOACINA_BOOTSTRAP_KEY` |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
-| `server.tenantRunnerCacheSize` | `256` | LRU cap on per-tenant runners |
+| `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant runners; none is stopped at the limit |
 | `service.type` | `ClusterIP` | Service type |
 | `ingress.enabled` | `false` | Provision an Ingress |
 | `serviceMonitor.enabled` | `false` | Emit a Prometheus operator `ServiceMonitor` |

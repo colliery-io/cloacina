@@ -39,7 +39,7 @@ The rest of this document discusses both. Where the two diverge, sections are ta
 Earlier server releases had known "isolation gaps"; current releases have closed them. The current state in server mode:
 
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, **not** a silent fall-through to `public`. Closes the cross-tenant data-leak risk that existed in earlier releases.
-- **Per-tenant `DefaultRunner` instances.** Each tenant has its own runner — its own scheduler loop, executor pool, and per-tenant DB connection pool — cached in `TenantRunnerCache` (LRU, default 256 entries, controlled by `--tenant-runner-cache-size`). Workflow execution lands in the tenant's schema, not in a shared global runner.
+- **Per-tenant `DefaultRunner` instances.** Each tenant has its own runner — its own scheduler loop, executor pool, and per-tenant DB connection pool — held in `TenantRunnerCache`. Workflow execution lands in the tenant's schema, not in a shared global runner. Every tenant has a live runner from server start until the tenant is deleted; see [A tenant's runner is always live](#a-tenants-runner-is-always-live).
 - **Per-tenant trigger / graph / accumulator filtering.** `GET /v1/tenants/{id}/triggers` (and the graph/accumulator health endpoints) route through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
 - **4-step teardown orchestration on `DELETE /v1/tenants/{name}`:**
   1. Revoke every still-active API key for the tenant (close the auth surface).
@@ -50,6 +50,21 @@ Earlier server releases had known "isolation gaps"; current releases have closed
   Each step emits a structured audit event with duration. Per-step failures bail out; earlier steps stay committed and are idempotent, so a retry resumes from the failure point.
 
 The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in earlier releases is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
+
+### A tenant's runner is always live
+
+A tenant's runner is that tenant's engine. Its reconciler loads the tenant's packages and registers their schedules. Its schedulers fire the cron schedules and poll the triggers, and move the tenant's executions on. A tenant with no runner runs nothing. So the server keeps one runner for every tenant, on every replica:
+
+- **At start.** The server lists the tenant schemas and makes a runner for each. After a restart every tenant's schedules fire again with no call for that tenant.
+- **Every 30 seconds.** The same pass runs again. A tenant created through another replica gets its runner on this replica within that time. A runner whose schema is gone (the tenant was deleted through another replica) is stopped.
+- **On tenant create and on package upload.** `POST /v1/tenants` and `POST /v1/tenants/{tenant}/workflows` make the tenant's runner on the replica that serves the request. After a publish the tenant's reconciler loads the package and registers its schedules, and they fire, with no other call.
+- **Never stopped to make room.** A runner stops only when its tenant is deleted, when its schema is gone, or when the server shuts down. `--tenant-runner-cache-size` (default 256) is a warning limit: when a replica holds more runners than that, it logs a warning and stops none.
+
+The `public` tenant is served by the server's global runner, which starts with the server.
+
+**What a tenant costs on each replica.** The runner uses the tenant's connection pool, which holds at most 2 connections and is shared with the tenant's API requests. It runs five background loops: the task scheduler (every 100 ms), the cron and trigger scheduler (a 1 s tick), cron recovery (every 5 minutes), the reconciler (every 5 s, or `--reconcile-interval-s`) and the stale-claim sweeper (every 30 s). Size Postgres `max_connections` for at least `replicas × (2 × tenants + 10)`; 10 is the pool of the global runner.
+
+**More than one replica.** Each replica holds a runner for each tenant, so each tenant has one scheduler per replica. A cron fire is taken with a conditional update of the schedule row, so one replica takes each fire; see [Horizontal Scaling](../horizontal-scaling/#api-server-replicas-shared-state-and-readiness).
 
 For the operational mechanics (how to actually decommission a tenant), see [Decommission a Tenant](../../../how-to/service/decommission-a-tenant/). For the trust-model implications of multi-tenancy and what it does *not* protect against (CPU side-channels, privileged-key compromise, Postgres-level RLS), see [Security Model](../security-model/).
 
