@@ -94,7 +94,7 @@ def _dry_run(feature, registry):
     return 0
 
 
-def _server_values_with_fleet(tag, agent_ref, chart_actuator):
+def _server_values_with_fleet(tag, agent_ref, chart_actuator, compiler_ref=None):
     """The e2e server values, plus fleet executor + a secret KEK.
 
     With `chart_actuator` false the server runs with `fleet.actuator=none` and
@@ -110,9 +110,31 @@ def _server_values_with_fleet(tag, agent_ref, chart_actuator):
     zero = '{name: CLOACINA_INITIAL_AGENTS, value: "0"}'
     assert zero in base, "the e2e server values changed: CLOACINA_INITIAL_AGENTS not found"
     base = base.replace(zero, '{name: CLOACINA_INITIAL_AGENTS, value: "1"}')
+    assert "  actuator: kubernetes\n" in base, "the e2e server values changed: actuator not found"
     if not chart_actuator:
-        assert "  actuator: kubernetes\n" in base, "the e2e server values changed: actuator not found"
         base = base.replace("  actuator: kubernetes\n", "  actuator: none\n")
+    else:
+        # The server's actuator makes each tenant's compiler (CLOACINA-T-1034),
+        # with what the driver's own manifest gave it: the test image as it is
+        # built (it carries the workspace and a warm target directory, and
+        # runs as root, so not hardened), a release build, the workspace for
+        # the unpublished crates. The long cooldown keeps the compiler pod,
+        # and its log, for the whole run.
+        base = base.replace(
+            "  actuator: kubernetes\n",
+            "  actuator: kubernetes\n"
+            "  compiler:\n"
+            "    enabled: true\n"
+            "    image:\n"
+            f"      repository: {compiler_ref.rsplit(':', 1)[0]}\n"
+            f"      tag: {compiler_ref.rsplit(':', 1)[1]}\n"
+            "    cargoFlags: [build, --release, --lib]\n"
+            "    devWorkspace: /workspace\n"
+            "    targetDir: /workspace/target\n"
+            "    hardened: false\n"
+            "    egress: all\n"
+            "    cooldownSeconds: 86400\n",
+        )
     extra = (
         '    - {name: CLOACINA_DEFAULT_EXECUTOR, value: "fleet"}\n'
         f'    - {{name: CLOACINA_SECRET_KEK, value: "{SECRET_KEK}"}}\n'
@@ -212,7 +234,7 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
             kubeconfig, hostdir, tag, agent_ref,
             release=RELEASE, ns=NS,
             bootstrap_secret=BOOTSTRAP_SECRET, bootstrap_key=BOOTSTRAP_KEY,
-            values_text=_server_values_with_fleet(tag, agent_ref, chart_actuator),
+            values_text=_server_values_with_fleet(tag, agent_ref, chart_actuator, compiler_ref),
             reuse=reuse_cluster,
         )
 
@@ -224,6 +246,8 @@ def publish(dry_run=False, no_cleanup=False, skip_build=False, only="", tag="bdd
             raise AssertionError("server /ready never became healthy via port-forward")
 
         print("\n--- create the two tenants, their agents, keys and compilers ---\n")
+        # With the chart's actuator the driver applies no compiler manifest.
+        world.chart_compilers = chart_actuator
         world.provision_tenants(compiler_ref, agent_ref=None if chart_actuator else agent_ref)
 
         print("\n--- build cloacinactl (host) ---\n")

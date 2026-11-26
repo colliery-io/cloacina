@@ -206,6 +206,77 @@ fleet:
     # Namespace the cluster DNS service runs in (DNS egress is allowed there).
     dnsNamespace: kube-system
 
+  # A compiler per tenant (CLOACINA-T-1034). Used only with
+  # actuator=kubernetes. The chart's own compiler (`compiler.*` below) serves
+  # the `public` schema. For every other tenant the server runs one
+  # `cloacina-compiler` Deployment in the tenant's namespace, with
+  # `--tenant-schema <tenant>`: it starts it when the tenant's build queue has
+  # a package, and scales it to 0 when the queue has been empty for
+  # `cooldownSeconds`. A tenant that never publishes a package gets none.
+  compiler:
+    enabled: true
+    image:
+      # Empty: the image of the chart's own compiler (`compiler.image`).
+      repository: ""
+      tag: ""
+    # The whole cargo flag list of a build (the compiler's
+    # `--cargo-flags-replace`). The default builds online, as the chart's own
+    # compiler does. An empty list keeps the compiler's own default,
+    # `build --release --lib --frozen --offline`, which needs `vendorDir`.
+    cargoFlags:
+      - build
+      - --lib
+    # `--vendor-dir`: a cargo home inside the compiler image that holds every
+    # crate a build may use. For an install with no route to a registry.
+    vendorDir: ""
+    # `--dev-workspace`: a cloacina workspace inside the image. Development only.
+    devWorkspace: ""
+    # `--cargo-target-dir`. A hardened pod mounts an emptyDir here.
+    targetDir: /workspace/target
+    # `--build-timeout-s`. 0: the compiler's default (600).
+    buildTimeoutSeconds: 0
+    pollIntervalMs: 1000
+    # How long a tenant's build queue must be empty before its compiler is
+    # scaled to 0.
+    cooldownSeconds: 300
+    # Size limit of each of the two cache volumes (cargo home, target
+    # directory). They are emptyDirs: a compiler that starts has empty caches.
+    cacheSize: 8Gi
+    # Pod hardening: not root (uid 10001), read-only root filesystem, no
+    # capabilities, the writable paths on emptyDir volumes. false runs the
+    # image as it is built, with its own filesystem: for a development image
+    # that carries its caches.
+    hardened: true
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    # The database URL the tenant compilers connect with, from a Secret in the
+    # release namespace. Empty: the server's own DATABASE_URL (with
+    # postgresql.enabled, the bundled database by its full Service name). The
+    # server copies the URL into a Secret `cloacina-compiler-db` in each
+    # tenant namespace that has a compiler. The host of the URL must resolve
+    # from the tenant namespaces: a short Service name does not.
+    databaseUrlSecretRef:
+      name: ""
+      key: database-url
+    # Egress of the compiler pods (their NetworkPolicy; written when
+    # fleet.networkPolicy.enabled). DNS and the database port are always
+    # allowed. `egress` says where crates come from:
+    #   internet - TCP 443 to every public IPv4 address; private and
+    #              link-local ranges are left out (the default)
+    #   all      - every destination and port
+    #   none     - nothing more (builds from vendorDir, or from egressCidrs)
+    egress: internet
+    # More destinations, every port: a registry mirror, a git host, a proxy.
+    egressCidrs: []
+    # CIDRs of the database. Empty: the database port of the URL is allowed
+    # to every destination.
+    databaseCidrs: []
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------

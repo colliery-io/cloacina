@@ -70,6 +70,16 @@ server repo with `-compiler` swapped in, and the tag to .Chart.AppVersion.
 {{- end -}}
 
 {{/*
+Image of the per-tenant compilers (CLOACINA-T-1034). Defaults to the image of
+the chart's own compiler.
+*/}}
+{{- define "cloacina-server.tenantCompilerImage" -}}
+{{- $repo := .Values.fleet.compiler.image.repository | default .Values.compiler.image.repository | default (.Values.image.repository | replace "cloacina-server" "cloacina-compiler") -}}
+{{- $tag := .Values.fleet.compiler.image.tag | default .Values.compiler.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%v" $repo $tag -}}
+{{- end -}}
+
+{{/*
 Fleet-actuator ServiceAccount name. Defaults to "<fullname>-fleet".
 */}}
 {{- define "cloacina-server.fleetServiceAccountName" -}}
