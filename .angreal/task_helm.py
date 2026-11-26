@@ -5,7 +5,8 @@ CLOACI-I-0111 / T-0605.
 
 Two surfaces:
   - `angreal helm lint`       — fast: helm lint + helm template variants.
-                                Mirrors the .github/workflows/ci.yml job.
+                                The "Helm chart lint" job of
+                                .github/workflows/ci.yml runs this task.
   - `angreal helm test`       — slow: builds the cloacina-server image,
                                 spins up a kind cluster, loads the image,
                                 helm-installs the chart with bundled
@@ -103,6 +104,11 @@ def helm_lint():
         "--set", "serviceMonitor.enabled=true",
     ], stdout=subprocess.DEVNULL)
 
+    # Variant 3: bundled Postgres subchart.
+    out = _render(["--set", "postgresql.enabled=true",
+                   "--set", "postgresql.auth.password=test"])
+    _expect(out, "bundled Postgres", present=["postgresql"])
+
     # Metrics variants (CLOACINA-T-1025, CLOACINA-T-1032). Each one is
     # rendered and its text is checked.
     db = ["--set", "database.url=postgres://u:p@h:5432/d"]
@@ -155,6 +161,10 @@ def helm_lint():
         print("error: expected a NetworkPolicy and --metrics-bind for both the "
               "server and the compiler", file=sys.stderr)
         sys.exit(1)
+    if out.count("kind: ServiceMonitor") != 2:
+        print("error: expected a ServiceMonitor for both the server and the "
+              "compiler", file=sys.stderr)
+        sys.exit(1)
 
     # NetworkPolicy off: the listener and its Service stay.
     out = _render(db + ["--set", "metrics.networkPolicy.enabled=false"])
@@ -163,7 +173,7 @@ def helm_lint():
         "name: cloacina-cloacina-server-metrics",
     ], absent=["kind: NetworkPolicy"])
 
-    # Variant 3: validateDatabase fail-fast — must error.
+    # Variant 4: validateDatabase fail-fast — must error.
     rc = subprocess.run(
         ["helm", "template", "cloacina", str(CHART_DIR)],
         capture_output=True, text=True,
