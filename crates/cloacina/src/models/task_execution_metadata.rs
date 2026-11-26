@@ -30,6 +30,9 @@ pub struct TaskExecutionMetadata {
     pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub context_id: Option<UniversalUuid>,
+    /// The serialized size in bytes of the context the task returned
+    /// (CLOACINA-T-1047). `None` for a row written before the column existed.
+    pub context_size_bytes: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -41,4 +44,6 @@ pub struct NewTaskExecutionMetadata {
     pub workflow_execution_id: UniversalUuid,
     pub task_name: String,
     pub context_id: Option<UniversalUuid>,
+    /// The serialized size in bytes of the context (CLOACINA-T-1047).
+    pub context_size_bytes: Option<i64>,
 }

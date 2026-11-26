@@ -75,6 +75,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
+| `CLOACINA_CONTEXT_WARN_BYTES` | `--context-warn-bytes` | `1048576` (1 MiB) | Size in bytes above which a task context (the one a task returns, or the one built for a task) is logged as a warning with the task, the size and the largest keys, and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. |
+| `CLOACINA_CONTEXT_MAX_BYTES` | `--context-max-bytes` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. The context is not saved. One setting for the whole server. `0` turns the limit off. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
 | `CLOACINA_CORS_ALLOWED_METHODS` | `--cors-allowed-methods` | `GET,POST,DELETE,OPTIONS` | Comma-separated allowed methods. |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | `--cors-allowed-headers` | `authorization,content-type` | Comma-separated allowed request headers. |
@@ -448,6 +450,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | Server | Longest time limit a fleet task can get (default `86400`) |
+| `CLOACINA_CONTEXT_WARN_BYTES` | Server | Size above which a task context is logged and counted (default `1048576`; `0` = off) |
+| `CLOACINA_CONTEXT_MAX_BYTES` | Server | Largest size of a task context; a larger one fails its task (default `16777216`; `0` = off) |
 | `CLOACINA_DEFAULT_MAX_AGENTS` | Server | Platform-wide default per-tenant agent limit (default `4`) |
 | `CLOACINA_INITIAL_AGENTS` | Server | Agents auto-provisioned on tenant create (default `1`; `0` disables) |
 | `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` / `kubernetes` (default `none`) |

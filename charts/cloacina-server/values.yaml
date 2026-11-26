@@ -147,6 +147,22 @@ server:
   extraEnv: []
 
 # ---------------------------------------------------------------------------
+# Task context size limits (CLOACINA-T-1047)
+#
+# The size is the number of bytes of a context as JSON text. The limits apply
+# to the context a task returns and to the input context built for a task,
+# for every tenant of the server. 0 turns a limit off.
+# ---------------------------------------------------------------------------
+context:
+  # Above this size a context is logged as a warning and counted in
+  # cloacina_context_size_warnings_total (CLOACINA_CONTEXT_WARN_BYTES).
+  # Default 1 MiB.
+  warnBytes: 1048576
+  # Above this size the task fails and is not retried
+  # (CLOACINA_CONTEXT_MAX_BYTES). Default 16 MiB.
+  maxBytes: 16777216
+
+# ---------------------------------------------------------------------------
 # Fleet actuator (CLOACI-I-0127 / T-0814)
 #
 # The server can auto-scale a per-tenant pool of cloacina-agent workloads.

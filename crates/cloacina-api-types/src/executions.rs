@@ -133,6 +133,10 @@ pub struct TaskExecutionDetail {
     pub last_error: Option<String>,
     /// Structured error details, when present.
     pub error_details: Option<String>,
+    /// Serialized size in bytes of the context the task returned; `null`
+    /// when the task has saved no context.
+    #[serde(default)]
+    pub context_size_bytes: Option<i64>,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}/tasks` response.

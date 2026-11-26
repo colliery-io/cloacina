@@ -239,32 +239,61 @@ Rather than trying to solve this with technical means, we provide a simple, well
 
 ### Context Size and Data Transfer
 
-Contexts are not designed for transferring large datasets between tasks. Instead:
+A context is stored as JSON text. One full copy is written for each completed task, each task gets the merge of its dependencies' contexts, and on an execution-agent fleet the whole context is sent to the agent in the work packet and comes back in the result. A large value in a context is carried by every later task of the run.
 
-- Use contexts to pass small, essential metadata and control information
-- For large data transfers, store the data externally (files, databases, object storage) and pass references
-- Keep context payloads small to maintain efficient serialization and database operations
+Contexts are for small metadata and control information. For large data:
 
-Example of good practice:
+1. Write the data to storage in the task: a file on a shared volume, an object store, a database table.
+2. Put the reference in the context: a path, a URI, a row id.
+3. Read the data from storage in the task that needs it.
+
 ```rust
-// Instead of storing large data in context:
+// Do not put the data in the context:
 {
     "image_data": "base64_encoded_10mb_image...",
     "document_content": "very_long_text..."
 }
 
-// Store externally and reference:
+// Store the data and pass the reference:
 {
     "image_uri": "s3://bucket/images/123.jpg",
     "document_id": "doc_456"
 }
 ```
 
-This approach:
-- Keeps context operations fast and efficient
-- Reduces memory pressure
-- Maintains good database performance
-- Allows for better error handling of large data transfers
+Cloacina has no artifact store. The task reads and writes the storage with its own client.
+
+### Context Size Limits
+
+The size of a context is the number of bytes of its JSON text. Two limits apply to it:
+
+| Limit | Default | Server flag | Environment variable | `DefaultRunnerConfig` |
+|---|---|---|---|---|
+| Warning | 1 MiB (`1048576`) | `--context-warn-bytes` | `CLOACINA_CONTEXT_WARN_BYTES` | `context_warn_bytes` |
+| Hard limit | 16 MiB (`16777216`) | `--context-max-bytes` | `CLOACINA_CONTEXT_MAX_BYTES` | `context_max_bytes` |
+
+A value of `0` turns that limit off. On a server the two settings apply to every tenant.
+
+The size is checked in two places:
+
+- **The context a task returns**, where the result is written. This is the same code for a task run in process and a task run by a fleet agent; for a fleet task the check is on the server, after the agent reports.
+- **The input context built for a task** from the contexts of its dependencies (or the first context of the run), before the task runs or is put in a work packet for an agent. Two contexts that are each under the limit can merge into one that is over it.
+
+Over the warning limit and not over the hard limit, the server writes a warn log with the task, the size and the largest top-level keys, and counts it in `cloacina_context_size_warnings_total`. The task is not affected.
+
+Over the hard limit, the task fails:
+
+```text
+Context too large: the result context of task 'public::etl::orders::load' is 20971632 bytes, over the limit of 16777216 bytes. Largest keys: rows (20971522 bytes), summary (64 bytes), run_date (12 bytes). Write large data to storage in the task and pass a reference in the context.
+```
+
+- The error names the size, the limit and up to five of the largest top-level keys with the size of each value.
+- The task is not retried, whatever its retry policy says. The next attempt would build the same context.
+- The context is not saved.
+- The run fails as it does for any failed task.
+- In `cloacina_tasks_total` the attempt has `status="failed"` and `reason="context_too_large"`.
+
+Every measured size is recorded in the histogram `cloacina_context_size_bytes` (labels `kind` and `tenant`). The size of each saved result context is stored with the task and returned as `context_size_bytes` by `GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks`, which shows the task where a context grew.
 
 ## Conclusion
 

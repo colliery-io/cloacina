@@ -256,7 +256,10 @@ impl FleetExecutor {
         result_handler: TaskResultHandler,
         runtime: Arc<cloacina::Runtime>,
     ) -> Self {
-        let context_builder = TaskContextBuilder::new(dal.clone());
+        // CLOACINA-T-1047: the input context has the same size limits as the
+        // result context.
+        let context_builder = TaskContextBuilder::new(dal.clone())
+            .with_context_limits(result_handler.context_limits());
         let instance_id = UniversalUuid::new_v4();
         Self {
             dal,
@@ -704,6 +707,21 @@ impl TaskExecutor for FleetExecutor {
                 .await
             {
                 Ok(c) => c,
+                // CLOACINA-T-1047: an input context over the size limit goes
+                // to the handler as itself, so it is not retried. Nothing is
+                // put in a work packet.
+                Err(e @ ExecutorError::ContextTooLarge { .. }) => {
+                    return Ok(self
+                        .result_handler
+                        .handle_outcome(
+                            &event,
+                            &claimed_task,
+                            Err(e),
+                            &retry_policy,
+                            start.elapsed(),
+                        )
+                        .await);
+                }
                 Err(e) => {
                     return Ok(self
                         .reconcile_error(
@@ -1273,6 +1291,45 @@ mod tests {
             &RetryPolicy::default(),
             1,
             &error
+        ));
+    }
+
+    #[test]
+    fn an_input_context_over_the_size_limit_is_not_retried() {
+        // CLOACINA-T-1047: the executor passes this error from the context
+        // build to the shared handler as itself. No retry policy allows a
+        // retry of it, so the task fails once and no work packet is built.
+        use cloacina::retry::RetryCondition;
+        let error = ExecutorError::ContextTooLarge {
+            kind: "input",
+            task: "public::pkg::wf::t".to_string(),
+            size_bytes: 20_000_000,
+            limit_bytes: 16_777_216,
+            largest_keys: "rows (19999000 bytes)".to_string(),
+        };
+        for condition in [
+            RetryCondition::AllErrors,
+            RetryCondition::TransientOnly,
+            RetryCondition::ErrorPattern {
+                patterns: vec!["context too large".to_string()],
+            },
+        ] {
+            assert!(
+                !TaskResultHandler::retry_allowed(&policy(3, condition.clone()), 1, &error),
+                "retried under {condition:?}"
+            );
+        }
+        // The same text wrapped as a task error, which is what the other
+        // context build failures become, would be retried.
+        let wrapped = ExecutorError::TaskExecution(TaskError::ExecutionFailed {
+            message: format!("dependency context build failed: {error}"),
+            task_id: "public::pkg::wf::t".to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+        assert!(TaskResultHandler::retry_allowed(
+            &policy(3, RetryCondition::AllErrors),
+            1,
+            &wrapped
         ));
     }
 

@@ -410,6 +410,7 @@ mod tests {
                 workflow_execution_id: wf,
                 task_name: "t1".into(),
                 context_id: Some(task_ctx),
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -656,6 +657,7 @@ mod tests {
                 workflow_execution_id: live,
                 task_name: "t1".into(),
                 context_id: old_task_ctx,
+                context_size_bytes: None,
             })
             .await
             .unwrap();

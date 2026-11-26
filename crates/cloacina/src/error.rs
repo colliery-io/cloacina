@@ -312,6 +312,28 @@ pub enum ExecutorError {
 
     #[error("Context load failed: {0}")]
     ContextLoadFailed(String),
+
+    /// A task context is over the hard size limit (CLOACINA-T-1047). The
+    /// task fails and is not retried, whatever its retry policy says: the
+    /// next attempt would build the same context.
+    #[error(
+        "Context too large: the {kind} context of task '{task}' is {size_bytes} bytes, \
+         over the limit of {limit_bytes} bytes. Largest keys: {largest_keys}. \
+         Write large data to storage in the task and pass a reference in the context."
+    )]
+    ContextTooLarge {
+        /// `result` (the context the task returned) or `input` (the context
+        /// built for the task from its dependencies).
+        kind: &'static str,
+        /// The task's full name.
+        task: String,
+        /// The serialized size of the context.
+        size_bytes: u64,
+        /// The hard limit it is over.
+        limit_bytes: u64,
+        /// The largest top-level keys with their sizes, largest first.
+        largest_keys: String,
+    },
 }
 
 impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ExecutorError {

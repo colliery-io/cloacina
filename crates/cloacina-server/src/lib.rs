@@ -302,9 +302,14 @@ pub struct AppState {
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
     default_executor: &str,
+    context_limits: cloacina::executor::ContextSizeLimits,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
+    // CLOACINA-T-1047: one server-wide limit on the size of a task context.
+    builder = builder
+        .context_warn_bytes(context_limits.warn_bytes)
+        .context_max_bytes(context_limits.max_bytes);
     if let Some(interval) = reconcile_interval {
         builder = builder.registry_reconcile_interval(interval);
     }
@@ -373,6 +378,9 @@ pub async fn run(
     // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
     // A task with a limit of its own gets that limit, capped at the maximum.
     fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
+    // CLOACINA-T-1047: the warning and the hard limit on the size of a task
+    // context, for every runner and the fleet executor of this server.
+    context_limits: cloacina::executor::ContextSizeLimits,
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
@@ -507,7 +515,8 @@ pub async fn run(
          executor. status is `completed`, `failed` or `retried`. \
          reason is `ok` on success, or one of the bounded failure categories: \
          `task_error`, `timeout`, `validation_failed`, `infrastructure`, \
-         `context_load_failed`, `task_not_found`, `claim_lost`, `unknown`. \
+         `context_load_failed`, `context_too_large`, `task_not_found`, \
+         `claim_lost`, `unknown`. \
          workflow and tenant are as on `cloacina_workflows_total`."
     );
     metrics::describe_counter!(
@@ -768,6 +777,23 @@ pub async fn run(
          Replaces the silent `let _ = persist_*` patterns flagged as OPS-15."
     );
     metrics::describe_counter!(
+        "cloacina_context_size_warnings_total",
+        "Total task contexts over the warning size (`--context-warn-bytes`, \
+         default 1 MiB) and not over the hard limit, by tenant \
+         (CLOACINA-T-1047). Counted for the context a task returns and for \
+         the input context built for a task. Each one also writes a warn log \
+         with the task, the size and the largest keys."
+    );
+    metrics::describe_histogram!(
+        "cloacina_context_size_bytes",
+        "Serialized size in bytes of a task context, by kind and tenant \
+         (CLOACINA-T-1047). kind is `result` (the context a task returned, \
+         measured where the result is written, for the in-process and the \
+         fleet executor) or `input` (the context built for a task from its \
+         dependencies, measured before the task runs or is sent to an \
+         agent). A context over the hard limit is recorded too."
+    );
+    metrics::describe_counter!(
         "cloacina_context_merge_failures_total",
         "Total failures merging dependency contexts into a task's input \
          context. `kind` ∈ `parse` (dependency context JSON failed to \
@@ -779,6 +805,10 @@ pub async fn run(
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
     runner_builder = runner_builder.registry_storage_backend("database");
+    // CLOACINA-T-1047: one server-wide limit on the size of a task context.
+    runner_builder = runner_builder
+        .context_warn_bytes(context_limits.warn_bytes)
+        .context_max_bytes(context_limits.max_bytes);
     if let Some(interval) = reconcile_interval {
         runner_builder = runner_builder.registry_reconcile_interval(interval);
     }
@@ -1085,7 +1115,7 @@ pub async fn run(
         let cache = crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
                 .expect("max(1) is non-zero"),
-            runner_config_for_tenant_cache(reconcile_interval, &default_executor),
+            runner_config_for_tenant_cache(reconcile_interval, &default_executor, context_limits),
         )
         // CLOACI-T-0581 follow-up: per-tenant runners share the global graph
         // scheduler so their reconcilers can route packaged CGs. The scheduler
@@ -1109,7 +1139,8 @@ pub async fn run(
                         Arc::new(std::sync::atomic::AtomicU64::new(0)),
                         Arc::new(std::sync::atomic::AtomicU64::new(0)),
                         None,
-                    );
+                    )
+                    .with_context_limits(context_limits);
                     let fleet_executor = crate::fleet_executor::FleetExecutor::new(
                         dal,
                         reg_outbox_dal.clone(),
@@ -1282,7 +1313,8 @@ pub async fn run(
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
             None,
-        );
+        )
+        .with_context_limits(context_limits);
         let fleet_executor = crate::fleet_executor::FleetExecutor::new(
             unified_dal.clone(),
             // Global runner: outbox == its own (admin) DAL (CLOACI-T-0781).
@@ -2852,7 +2884,7 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None, "default"),
+                runner_config_for_tenant_cache(None, "default", Default::default()),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -5720,7 +5752,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, "default"),
+            runner_config_for_tenant_cache(None, "default", Default::default()),
         ));
 
         let schema_a = format!(

@@ -306,6 +306,7 @@ mod unified_schema {
             context_id -> Nullable<DbUuid>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            context_size_bytes -> Nullable<BigInt>,
         }
     }
 
@@ -827,6 +828,7 @@ mod postgres_schema {
             context_id -> Nullable<Uuid>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
+            context_size_bytes -> Nullable<Int8>,
         }
     }
 
@@ -1271,6 +1273,7 @@ mod sqlite_schema {
             context_id -> Nullable<Binary>,
             created_at -> Text,
             updated_at -> Text,
+            context_size_bytes -> Nullable<BigInt>,
         }
     }
 

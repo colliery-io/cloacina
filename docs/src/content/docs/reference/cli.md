@@ -243,6 +243,8 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
 | `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. CLOACINA-T-1014. |
 | `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
+| `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
+| `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |
 
 ### Alert webhook (`cloacina-server`)
 

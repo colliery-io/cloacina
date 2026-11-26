@@ -169,7 +169,8 @@ impl ThreadTaskExecutor {
             total_executed.clone(),
             total_failed.clone(),
             runner_id,
-        );
+        )
+        .with_context_limits(config.context_limits);
 
         Self {
             database,
@@ -229,6 +230,7 @@ impl ThreadTaskExecutor {
         // identically (same drift-elimination pattern as TaskResultHandler).
         crate::executor::TaskContextBuilder::new(self.dal.clone())
             .with_secret_resolver(self.secret_resolver.clone())
+            .with_context_limits(self.config.context_limits)
             .build(claimed_task, dependencies)
             .await
     }
@@ -579,12 +581,18 @@ impl TaskExecutor for ThreadTaskExecutor {
             Err(e) => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 // This exit does not reach `TaskResultHandler::handle_outcome`,
-                // so count the failed task here (CLOACINA-T-1024).
+                // so count the failed task here (CLOACINA-T-1024). The task is
+                // marked failed with no retry, which is also what an input
+                // context over the size limit needs (CLOACINA-T-1047).
+                let reason = match &e {
+                    ExecutorError::ContextTooLarge { .. } => "context_too_large",
+                    _ => "context_load_failed",
+                };
                 super::result_handler::record_task_outcome(
                     &self.dal,
                     &claimed_task.task_name,
                     "failed",
-                    "context_load_failed",
+                    reason,
                 );
                 let error_msg = format!("Context build failed: {}", e);
                 self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
@@ -990,6 +998,7 @@ mod tests {
                 task_timeout: std::time::Duration::from_secs(60),
                 enable_claiming: false,
                 heartbeat_interval: std::time::Duration::from_secs(5),
+                ..ExecutorConfig::default()
             };
             let exec = ThreadTaskExecutor::new(db, registry, config);
             let metrics = exec.metrics();

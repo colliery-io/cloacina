@@ -35,6 +35,8 @@ command-line flags (most also accept an environment variable). The
 | `--agent-liveness-misses` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Missed heartbeats before an agent is considered dead (dead-after = interval × misses). |
 | `--fleet-task-timeout-s` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
 | `--fleet-task-timeout-max-s` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get; a task that asks for more gets this value. |
+| `--context-warn-bytes` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` (1 MiB) | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` = no warning. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
+| `--context-max-bytes` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails and is not retried. One setting for the whole server, not per tenant. `0` = no limit. |
 | `--cors-allowed-origins` | `CLOACINA_CORS_ALLOWED_ORIGINS` | unset | Comma-separated origins (`*` allowed). Unset means **CORS is disabled** — browser clients on other origins are blocked. |
 | `--cors-allowed-methods` | `CLOACINA_CORS_ALLOWED_METHODS` | `GET,POST,DELETE,OPTIONS` | Applies only when CORS is enabled. |
 | `--cors-allowed-headers` | `CLOACINA_CORS_ALLOWED_HEADERS` | `authorization,content-type` | Applies only when CORS is enabled. |
@@ -149,6 +151,15 @@ Task claiming enables horizontal scaling by allowing multiple runner instances t
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `default_executor` | `String` | `"default"` | Executor key every task is dispatched to. `"default"` is the in-process thread executor; the server registers `"fleet"` for the agent fleet. |
+
+### Context Size
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `context_warn_bytes` | `u64` | `1048576` (1 MiB) | Serialized size above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` = no warning. |
+| `context_max_bytes` | `u64` | `16777216` (16 MiB) | Largest serialized size of a task context. A task whose result or input context is larger fails with `ExecutorError::ContextTooLarge` and is not retried, whatever its retry policy. `0` = no limit. |
+
+Both have a getter and a builder setter of the same name. `context_limits()` returns both as a `ContextSizeLimits`. The server sets them from `--context-warn-bytes` and `--context-max-bytes`. The daemon and the Python `DefaultRunnerConfig` use the defaults. See [Context size limits](../../explanation/engine/context-management/#context-size-limits).
 
 ### Tenant
 

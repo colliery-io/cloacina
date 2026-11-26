@@ -109,6 +109,8 @@ cert-manager users can wire issuance via the standard
 | `server.requireSignatures` | `false` | Reject unsigned packages |
 | `server.verificationOrgId` | `""` | Trusted org UUID (required when signatures are required) |
 | `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant `DefaultRunner` instances; none is stopped at the limit |
+| `context.warnBytes` | `1048576` | Size in bytes above which a task context is logged as a warning and counted (`0` = off) |
+| `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
 
 See `values.yaml` for the full reference.
 
