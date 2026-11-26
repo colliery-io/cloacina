@@ -57,7 +57,7 @@ A `read` or `write` key cannot read the audit record.
 | `actor_key_name` | Name of that key. |
 | `actor_identity` | Who the key was minted for at login: `oidc:<issuer>:<sub>` or `local:<account_id>`. `null` for a manually created key. |
 | `action` | One of the fixed strings below. |
-| `target_kind` | What the action applied to: `package`, `workflow`, `trigger`, `instance`, `key`, `tenant`, `secret`, `fleet`, `limit`, `account`. |
+| `target_kind` | What the action applied to: `package`, `workflow`, `trigger`, `instance`, `key`, `tenant`, `secret`, `fleet`, `limit`, `pool`, `account`. |
 | `target` | Name or id of the target. `null` on a `denied` row. |
 | `outcome` | `ok`, or `denied` when authorization refused the request. |
 | `detail` | A small JSON object with facts of the action. |
@@ -91,6 +91,8 @@ or an execution context. A secret action records the secret's name only.
 | `fleet.deprovision` | `POST /v1/tenants/{t}/fleet/deprovision` | tenant name | `desired_count` |
 | `limit.set` | `POST /v1/tenants/{t}/limits` | tenant name | `max_agents` |
 | `limit.clear` | `DELETE /v1/tenants/{t}/limits` | tenant name | — |
+| `pool.set` | `PUT /v1/tenants/{t}/pools/{pool}` | pool name | `settings` (the names of the settings given, not their values) |
+| `pool.delete` | `DELETE /v1/tenants/{t}/pools/{pool}` | pool name | — |
 | `account.create` | `POST /v1/tenants/{t}/accounts` | account id | `username`, `role` |
 | `account.disable` | `DELETE /v1/tenants/{t}/accounts/{id}` | account id | — |
 | `account.password_reset` | `POST /v1/tenants/{t}/accounts/{id}/password` | account id | — |

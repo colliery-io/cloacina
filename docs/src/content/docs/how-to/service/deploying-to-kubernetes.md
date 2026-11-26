@@ -206,11 +206,25 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 ### Per-tenant namespaces
 
 The actuator gives each tenant its **own** namespace, `cloacina-tenant-<t>`
-(the tenant id is sanitized to a DNS-1123 label), and manages exactly one
-`cloacina-agent` Deployment plus one agent-key Secret inside it. Scaling a
-tenant's fleet patches that Deployment's `replicas`. Tenant isolation is the
-namespace boundary — the actuator only ever touches the requesting tenant's
-namespace.
+(the tenant id is sanitized to a DNS-1123 label). Inside it the actuator manages
+one Deployment per [agent pool](../../../explanation/service/execution-agent-fleet/#agent-pools)
+and one agent-key Secret. The pool `default` is the Deployment `cloacina-agent`,
+as before pools; another pool is `cloacina-agent-<pool>`. Scaling a pool patches
+its Deployment's `replicas`. Tenant isolation is the namespace boundary — the
+actuator only ever touches the requesting tenant's namespace.
+
+`fleet.agentImage` and `fleet.agentResources` are the server-wide defaults. A
+pool's settings override them for that pool: resources, max concurrency, image,
+a ServiceAccount with annotations, pod labels and annotations and the
+`automountServiceAccountToken` switch (for a cloud workload identity; see
+[Give a pool a cloud identity](../deploy-an-execution-agent-fleet/#give-a-pool-a-cloud-identity)),
+and extra egress rules. A platform admin sets them through the
+[pool API](../../../reference/http-api/#agent-pools) or
+`cloacinactl tenant pool set`; see
+[Size the agents: pools](../deploy-an-execution-agent-fleet/#size-the-agents-pools).
+The actuator applies them on its next tick, and a changed setting rolls the
+pool's Deployment. An upgrade to a version with pools does not roll the
+existing Deployment: with no settings the manifest is unchanged.
 
 ### The exact RBAC the chart grants
 
@@ -222,9 +236,17 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | API group | Resource | Verbs | Why |
 |---|---|---|---|
 | (core) | `namespaces` | `create`, `patch` | Ensure each tenant's namespace via server-side apply (a single create-or-update call, authorized as `create`+`patch`). No `get`/`list`/`delete`. |
-| `apps` | `deployments` | `create`, `get`, `patch` | Ensure the per-tenant agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. No `list`/`delete` — scale-to-zero replaces deletion. |
+| `apps` | `deployments` | `create`, `delete`, `get`, `patch` | Ensure each pool's agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. `delete` removes the Deployment of a pool that an admin removes, by name, after the server checked that the pool has no agents; a tenant's deprovision still scales to zero. No `list`. |
+| (core) | `serviceaccounts` | `create`, `patch` | Ensure the ServiceAccount a pool names, with the pool's annotations (server-side apply). No `get`/`list`/`delete`: the ServiceAccount stays when its pool is removed. |
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
-| `networking.k8s.io` | `networkpolicies` | `create`, `patch` | Ensure the per-tenant agent NetworkPolicy (server-side apply). Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`/`delete`. |
+| `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
+
+The ClusterRole is cluster-wide, so the `serviceaccounts` rule lets the server
+write a ServiceAccount's annotations in any namespace, as the `secrets` rule
+lets it write Secrets. The actuator writes only in tenant namespaces. If you
+upgrade the chart from a version before pools, the new verbs come with it; a
+server that runs with the old ClusterRole fails the reconcile of a pool that
+names a ServiceAccount, and cannot remove a pool.
 
 ### Hardened agent pods + NetworkPolicy
 
@@ -252,6 +274,11 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
   `CLOACINA_SERVER_POD_SELECTOR` (the server's pod labels), both rendered by the
   chart. Set `fleet.networkPolicy.enabled=false` to skip the policy (the RBAC
   verb stays granted, so you can re-enable without a redeploy of RBAC).
+- **Extra egress per pool.** Each pool has its own NetworkPolicy,
+  `cloacina-agent-pool-<pool>`, that selects the pool's pods and allows the
+  CIDR blocks of the pool's `extra_egress` setting (for object storage, a
+  catalog, a cloud API). With no rules it allows nothing more, so the default
+  stays DNS and the server only. It is written only when the tenant policy is.
 
 > **Restricted clusters.** Because the agent pods are already `restricted`-clean,
 > you can safely label tenant namespaces `pod-security.kubernetes.io/enforce: restricted`.
