@@ -21,3 +21,25 @@ spec:
       interval: {{ .Values.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
 {{- end }}
+{{- if and .Values.serviceMonitor.enabled .Values.metrics.enabled .Values.compiler.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}-compiler
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: compiler-metrics
+  endpoints:
+    - port: cmp-metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+{{- end }}

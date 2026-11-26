@@ -58,6 +58,23 @@ def _run(cmd, **kwargs):
     return subprocess.run(cmd, check=check, **kwargs)
 
 
+def _render(args):
+    """`helm template` of the server chart with `args`; return the manifests."""
+    cmd = ["helm", "template", "cloacina", str(CHART_DIR), *args]
+    print(f"$ {' '.join(cmd)}", flush=True)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+
+
+def _expect(text, what, present=(), absent=()):
+    """Exit 1 unless each `present` string is in `text` and no `absent` one is."""
+    problems = [f"missing: {p!r}" for p in present if p not in text]
+    problems += [f"not expected: {a!r}" for a in absent if a in text]
+    if problems:
+        print(f"error: helm template ({what}):\n  " + "\n  ".join(problems),
+              file=sys.stderr)
+        sys.exit(1)
+
+
 # ---------------------------------------------------------------------------
 # helm lint  (fast)
 # ---------------------------------------------------------------------------
@@ -86,16 +103,65 @@ def helm_lint():
         "--set", "serviceMonitor.enabled=true",
     ], stdout=subprocess.DEVNULL)
 
-    # Variant: metrics listener, its Service, ServiceMonitor and NetworkPolicy
-    # (CLOACINA-T-1025).
-    _run([
-        "helm", "template", "cloacina", str(CHART_DIR),
-        "--set", "database.url=postgres://u:p@h:5432/d",
-        "--set", "metrics.enabled=true",
-        "--set", "metrics.networkPolicy.enabled=true",
-        "--set", "metrics.networkPolicy.from[0].namespaceSelector.matchLabels.team=monitoring",
-        "--set", "serviceMonitor.enabled=true",
-    ], stdout=subprocess.DEVNULL)
+    # Metrics variants (CLOACINA-T-1025, CLOACINA-T-1032). Each one is
+    # rendered and its text is checked.
+    db = ["--set", "database.url=postgres://u:p@h:5432/d"]
+    monitoring = (
+        "metrics.networkPolicy.from[0].namespaceSelector.matchLabels."
+        "kubernetes\\.io/metadata\\.name=monitoring"
+    )
+
+    # Default values: the metrics listener is on, /metrics is off the API
+    # port, and the NetworkPolicy opens the metrics port to nobody.
+    out = _render(db)
+    _expect(out, "default values", present=[
+        '- "--metrics-bind"\n            - "0.0.0.0:9090"',
+        "name: cloacina-cloacina-server-metrics",
+        "kind: NetworkPolicy",
+    ], absent=[
+        "kind: ServiceMonitor",
+        "          port: 9090",  # no NetworkPolicy rule for the metrics port
+    ])
+
+    # Metrics off: one value brings back /metrics on the API port, with no
+    # metrics Service and no NetworkPolicy.
+    out = _render(db + ["--set", "metrics.enabled=false",
+                        "--set", "serviceMonitor.enabled=true"])
+    _expect(out, "metrics.enabled=false", present=[
+        "kind: ServiceMonitor",
+        "- port: http",
+    ], absent=[
+        "--metrics-bind",
+        "kind: NetworkPolicy",
+        "-metrics",
+    ])
+
+    # A named Prometheus namespace, the ServiceMonitor and the compiler.
+    out = _render(db + ["--set", monitoring,
+                        "--set", "serviceMonitor.enabled=true",
+                        "--set", "compiler.enabled=true"])
+    _expect(out, "metrics with a scraper and the compiler", present=[
+        "kubernetes.io/metadata.name: monitoring",
+        "          port: 9090",
+        "- port: metrics",
+        "- port: cmp-metrics",
+        "name: cloacina-cloacina-server-compiler-metrics",
+        "name: cmp-metrics\n              containerPort: 9090",
+        "app.kubernetes.io/component: compiler-metrics",
+    ], absent=[
+        "- port: http\n      path: /metrics",
+    ])
+    if out.count("kind: NetworkPolicy") != 2 or out.count('- "--metrics-bind"') != 2:
+        print("error: expected a NetworkPolicy and --metrics-bind for both the "
+              "server and the compiler", file=sys.stderr)
+        sys.exit(1)
+
+    # NetworkPolicy off: the listener and its Service stay.
+    out = _render(db + ["--set", "metrics.networkPolicy.enabled=false"])
+    _expect(out, "metrics.networkPolicy.enabled=false", present=[
+        '- "--metrics-bind"',
+        "name: cloacina-cloacina-server-metrics",
+    ], absent=["kind: NetworkPolicy"])
 
     # Variant 3: validateDatabase fail-fast — must error.
     rc = subprocess.run(

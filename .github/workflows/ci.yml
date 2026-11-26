@@ -362,6 +362,33 @@ jobs:
             > /tmp/render-extras.yaml
           test -s /tmp/render-extras.yaml
 
+      - name: helm template (metrics defaults — /metrics off the API port)
+        run: |
+          helm template cloacina charts/cloacina-server \
+            --set database.url=postgres://u:p@h:5432/d \
+            > /tmp/render-metrics-default.yaml
+          grep -q -- '--metrics-bind' /tmp/render-metrics-default.yaml
+          grep -q 'kind: NetworkPolicy' /tmp/render-metrics-default.yaml
+          grep -q 'name: cloacina-cloacina-server-metrics' /tmp/render-metrics-default.yaml
+
+      - name: helm template (metrics off, and with the compiler)
+        run: |
+          helm template cloacina charts/cloacina-server \
+            --set database.url=postgres://u:p@h:5432/d \
+            --set metrics.enabled=false \
+            > /tmp/render-metrics-off.yaml
+          if grep -q -e '--metrics-bind' -e 'kind: NetworkPolicy' /tmp/render-metrics-off.yaml; then
+            echo "metrics.enabled=false must render no --metrics-bind and no NetworkPolicy" >&2
+            exit 1
+          fi
+          helm template cloacina charts/cloacina-server \
+            --set database.url=postgres://u:p@h:5432/d \
+            --set compiler.enabled=true \
+            --set serviceMonitor.enabled=true \
+            > /tmp/render-metrics-compiler.yaml
+          test "$(grep -c -- '- "--metrics-bind"' /tmp/render-metrics-compiler.yaml)" = 2
+          test "$(grep -c 'kind: ServiceMonitor' /tmp/render-metrics-compiler.yaml)" = 2
+
       - name: Validate fail-fast on missing database wiring
         run: |
           set +e

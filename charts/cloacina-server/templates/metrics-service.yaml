@@ -19,3 +19,24 @@ spec:
   selector:
     {{- include "cloacina-server.selectorLabels" . | nindent 4 }}
 {{- end }}
+{{- if and .Values.metrics.enabled .Values.compiler.enabled }}
+---
+# The compiler's metrics listener (CLOACINA-T-1032).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}-compiler-metrics
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: compiler-metrics
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.metrics.port }}
+      targetPort: cmp-metrics
+      protocol: TCP
+      name: cmp-metrics
+  selector:
+    {{- include "cloacina-server.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: compiler
+{{- end }}

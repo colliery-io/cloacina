@@ -34,6 +34,25 @@ Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
    Then `curl http://localhost:8080/v1/health` should return 200.
 {{- end }}
 
+{{- if .Values.metrics.enabled }}
+
+4. /metrics is not on the API port. It is on port {{ .Values.metrics.port }}, Service
+   {{ include "cloacina-server.fullname" . }}-metrics.
+{{- if .Values.metrics.networkPolicy.enabled }}
+{{- if .Values.metrics.networkPolicy.from }}
+   A NetworkPolicy opens that port only to the peers in
+   `metrics.networkPolicy.from`.
+{{- else }}
+   A NetworkPolicy closes that port to every pod: `metrics.networkPolicy.from`
+   is empty. List your Prometheus there to let it scrape.
+{{- end }}
+{{- end }}
+{{- else }}
+
+4. WARNING: metrics.enabled=false. /metrics is on the API port with no
+   authentication: every client that can reach the API, each tenant's agents
+   included, can read every tenant's names in the metric labels.
+{{- end }}
 {{- if .Values.postgresql.enabled }}
 
 NOTE: Bundled Postgres is installed in this release. The default

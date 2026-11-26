@@ -1,10 +1,9 @@
-{{- if .Values.metrics.networkPolicy.enabled }}
-{{- if not .Values.metrics.enabled }}
-{{- fail "metrics.networkPolicy.enabled needs metrics.enabled=true: without the metrics listener, /metrics is on the API port and a NetworkPolicy cannot separate it." }}
-{{- end }}
-# Ingress to the server pods (CLOACINA-T-1025). The API port stays open to
-# every source. The metrics port is open only to the peers in
+{{- if and .Values.metrics.enabled .Values.metrics.networkPolicy.enabled }}
+# Ingress to the server pods (CLOACINA-T-1025, CLOACINA-T-1032). The API port
+# stays open to every source. The metrics port is open only to the peers in
 # metrics.networkPolicy.from; with an empty list it is open to nobody.
+# Not rendered with metrics.enabled=false: /metrics is then on the API port,
+# and a NetworkPolicy cannot separate it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,7 +11,8 @@ metadata:
   labels:
     {{- include "cloacina-server.labels" . | nindent 4 }}
 spec:
-  # The compiler pods carry the same name and instance labels; leave them out.
+  # The compiler pods carry the same name and instance labels; they have a
+  # policy of their own below.
   podSelector:
     matchLabels:
       {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
@@ -34,4 +34,35 @@ spec:
         - protocol: TCP
           port: {{ $.Values.metrics.port }}
     {{- end }}
+{{- if .Values.compiler.enabled }}
+---
+# Ingress to the compiler pods (CLOACINA-T-1032): the bind port (/health and
+# /v1/status) stays open to every source, the metrics port only to the peers
+# in metrics.networkPolicy.from.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cloacina-server.fullname" . }}-compiler
+  labels:
+    {{- include "cloacina-server.labels" . | nindent 4 }}
+    app.kubernetes.io/component: compiler
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cloacina-server.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: compiler
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ splitList ":" .Values.compiler.bind | last | int }}
+    {{- with .Values.metrics.networkPolicy.from }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.metrics.port }}
+    {{- end }}
+{{- end }}
 {{- end }}

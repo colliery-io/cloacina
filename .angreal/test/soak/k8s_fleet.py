@@ -112,6 +112,9 @@ RUNS_DIR = Path(__file__).resolve().parent / "runs"
 
 # Distinct from the e2e port-forward (18092) so a stray e2e forward can't clash.
 FWD_PORT = 18094
+# The chart serves /metrics on its own port and Service (CLOACINA-T-1032), so
+# the soak forwards that Service too.
+METRICS_FWD_PORT = 18095
 TAG = "k8s-soak"
 
 # Advisory-lock key the fleet control loop leader-elects on
@@ -193,6 +196,17 @@ def _ready_code(base):
             return r.status
     except Exception as exc:  # HTTPError carries .code
         return getattr(exc, "code", 0)
+
+
+def _start_metrics_port_forward():
+    """`kubectl port-forward` to the chart's metrics Service; return (proc, base_url)."""
+    proc = subprocess.Popen(
+        ["kubectl", "port-forward", f"svc/{RELEASE}-cloacina-server-metrics",
+         f"{METRICS_FWD_PORT}:9090", "-n", NS],
+        env=_kube_env(KUBECONFIG),
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return proc, f"http://127.0.0.1:{METRICS_FWD_PORT}"
 
 
 def _metrics(base):
@@ -454,6 +468,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
     compose_env["CLOACINA_K8S_E2E_HOSTDIR"] = str(PLATFORM_DIR)
 
     fwd = None
+    metrics_fwd = None
     base = None
     verdict = {}
     aborted = False
@@ -470,6 +485,9 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
             print(_server_logs(KUBECONFIG))
             raise RuntimeError("server /ready never became healthy via port-forward")
         print("  server /ready healthy ✓ (actuator=kubernetes, fleet RBAC)")
+        metrics_fwd, metrics_base = _start_metrics_port_forward()
+        if not _wait_http(f"{metrics_base}/metrics", timeout_s=30, proc=metrics_fwd):
+            raise RuntimeError("the metrics Service never answered via port-forward")
 
         # --- seed tenants + provision the steady fleets --------------------
         print_section_header("Step 3: seed tenants + provision steady fleets")
@@ -493,7 +511,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
             print(f"    {t}: desired={d} actual={a}")
 
         # --- baselines -----------------------------------------------------
-        m0 = _metrics(base)
+        m0 = _metrics(metrics_base)
         evicted0 = _metric(m0, "cloacina_fleet_agents_evicted_total")
         reassigned0 = _metric(m0, "cloacina_fleet_work_reassigned_total")
         keys0 = _api_key_count()
@@ -544,7 +562,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
             k8s = {t: _tenant_k8s(t) for t in ALL_TENANTS}
             tenant_ns = _tenant_namespaces()
             max_ns = max(max_ns, len(tenant_ns))
-            mtext = _metrics(base)
+            mtext = _metrics(metrics_base)
             evicted = _metric(mtext, "cloacina_fleet_agents_evicted_total")
             reassigned = _metric(mtext, "cloacina_fleet_work_reassigned_total")
             keys = _api_key_count()
@@ -612,7 +630,7 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
         sum_desired = sum((_fleet(base, t)[0] or 0) for t in ALL_TENANTS)
         sum_replicas = sum(_tenant_k8s(t)["deploy_spec"] for t in ALL_TENANTS)
         tenant_ns = _tenant_namespaces()
-        mf = _metrics(base)
+        mf = _metrics(metrics_base)
         evicted_f = _metric(mf, "cloacina_fleet_agents_evicted_total")
         reassigned_f = _metric(mf, "cloacina_fleet_work_reassigned_total")
         keys_f = _api_key_count()
@@ -723,6 +741,8 @@ def k8s_fleet(duration=None, snapshot_interval=None, reuse_cluster=False,
             _scale_all_to_zero(base)
         if fwd is not None and fwd.poll() is None:
             fwd.terminate()
+        if metrics_fwd is not None and metrics_fwd.poll() is None:
+            metrics_fwd.terminate()
 
         force_td = _ABORT["force_teardown"]
         if force_td:
