@@ -94,10 +94,10 @@ label at scrape time with a `metric_relabel_configs` `labeldrop` rule.
 
 | Name | Labels | Description |
 |------|--------|-------------|
-| `cloacina_active_workflows` | — | Workflow executions in `Pending` or `Running` state. SQL-derived — re-seeded every scheduler tick from `workflow_executions` row count, so the value is correct by construction across crashes, claim loss, and finalize-path errors. Lags real DB state by at most one scheduler `poll_interval`. |
-| `cloacina_active_tasks` | — | Task executions in the `Running` state. SQL-derived — re-seeded every scheduler tick from a `task_executions WHERE status = 'Running'` count, so the value is correct by construction across crashes, claim loss, and panic-between-inc-and-dec paths. Lags real DB state by at most one scheduler `poll_interval`. |
-| `cloacina_waiting_tasks` | `tenant` | Tasks that wait to be dispatched: status `Ready`, due (`retry_at` empty or in the past) and not claimed. The same set the scheduler reads to dispatch. SQL-derived, read every 5 seconds. A task in a retry backoff is not counted until its `retry_at` passes. In fleet mode a task that found no free agent is put off for 2 s at a time and is counted only between those waits: use `cloacina_fleet_dispatch_deferred_total` for that case. |
-| `cloacina_oldest_waiting_task_age_seconds` | `tenant` | Seconds since the oldest waiting task became due (`retry_at`, or the time it was marked `Ready`); `0` when no task waits. Read with `cloacina_waiting_tasks`. Grows when tasks are ready and nothing dispatches them. |
+| `cloacina_active_workflows` | `tenant` | Workflow executions in `Pending` or `Running` state, per tenant. SQL-derived — re-seeded every scheduler tick from `workflow_executions` row count, so the value is correct by construction across crashes, claim loss, and finalize-path errors. Lags real DB state by at most one scheduler `poll_interval`. A server runs one scheduler per tenant, so each tenant has its own series; sum them for the server total. |
+| `cloacina_active_tasks` | `tenant` | Task executions in the `Running` state, per tenant. SQL-derived — re-seeded every scheduler tick from a `task_executions WHERE status = 'Running'` count, so the value is correct by construction across crashes, claim loss, and panic-between-inc-and-dec paths. Lags real DB state by at most one scheduler `poll_interval`. One series per tenant; sum them for the server total. |
+| `cloacina_waiting_tasks` | `tenant` | Tasks that wait for capacity: status `Ready` and past their `waiting_since`. `waiting_since` is a column of `task_executions`: it is set when the task becomes `Ready` and cleared when the task starts or ends. SQL-derived, read every 5 seconds. In fleet mode a task that found no free agent is put off for 2 s at a time; it is counted the whole time, also while the server holds it for a dispatch try. In process, a task that waits for a free executor slot is counted. A task in a retry backoff is not counted until the retry is due: its `waiting_since` is the retry's due time. `cloacina_fleet_dispatch_deferred_total` counts the dispatch tries that were put off. |
+| `cloacina_oldest_waiting_task_age_seconds` | `tenant` | Seconds since the oldest waiting task began to wait: now minus the earliest `waiting_since` (the time the task became `Ready`, or the due time of a retry); `0` when no task waits. A deferral for capacity does not restart it. Read with `cloacina_waiting_tasks`. Grows when tasks are ready and nothing runs them. |
 | `cloacina_schedule_lag_seconds` | `tenant` | Seconds since the oldest `next_run_at` of the enabled, not paused cron schedules; `0` when no schedule is due. Set every second by the cron scheduler from the next-due time it holds, which it reads again after each cron check and at least once per cron poll interval. A due schedule that is not picked up keeps its `next_run_at`, so the value grows until it runs. An enabled schedule past its `end_date` also keeps a past `next_run_at` and shows as lag: disable it. |
 | `cloacina_component_health` | `graph`, `component`, `state` | One-of indicator for a computation-graph component's current health. For each `(graph, component)` tuple the gauge is `1` on the current state and `0` on every other state. `state` is bounded: `healthy`, `degraded`, `starting`, `stopped`, `crashed`. Re-emitted every supervisor tick. |
 | `cloacina_accumulator_buffer_depth` | `graph`, `accumulator` | Current internal buffer size for buffered accumulators. Meaningful for `batch` and stateful `stream` kinds; `passthrough` and `polling` emit `0` from runtime startup so dashboards see a stable series per (graph, accumulator). |
@@ -142,8 +142,15 @@ histogram_quantile(
 ### Currently in-flight work
 
 ```promql
-cloacina_active_workflows
-cloacina_active_tasks
+sum(cloacina_active_workflows)
+sum(cloacina_active_tasks)
+```
+
+Per tenant:
+
+```promql
+sum by (tenant) (cloacina_active_workflows)
+sum by (tenant) (cloacina_active_tasks)
 ```
 
 ### Failed runs, by workflow and tenant
@@ -156,7 +163,7 @@ sum by (tenant, workflow) (
 
 ### Backlog: tasks wait and nothing takes them
 
-Alert when tasks have been due for more than 5 minutes.
+Alert when a task has waited for capacity for more than 5 minutes.
 
 ```promql
 cloacina_oldest_waiting_task_age_seconds > 300

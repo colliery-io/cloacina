@@ -425,12 +425,12 @@ Cloacina emits the following metrics via the `metrics` crate:
 |--------|------|--------|-------------------|
 | `cloacina_tasks_total` | Counter | `status`, `reason`, `workflow`, `tenant` | Task completion rates |
 | `cloacina_workflows_total` | Counter | `status`, `reason`, `workflow`, `tenant` | Workflow completion rates |
-| `cloacina_waiting_tasks` | Gauge | `tenant` | Tasks that are ready and due, and not yet dispatched |
+| `cloacina_waiting_tasks` | Gauge | `tenant` | Tasks that are ready and wait for capacity (an agent or an executor slot) |
 | `cloacina_oldest_waiting_task_age_seconds` | Gauge | `tenant` | How long the oldest of them has waited |
 | `cloacina_schedule_lag_seconds` | Gauge | `tenant` | How late the most overdue cron schedule is |
 
 Monitor these alongside system metrics:
-- **Queue depth**: `cloacina_waiting_tasks` for tasks in `Ready` state that are due; workflows in `Pending` (query the database)
+- **Queue depth**: `cloacina_waiting_tasks` for tasks in `Ready` state that wait for capacity; workflows in `Pending` (query the database)
 - **Execution latency**: Time from workflow submission to completion
 - **Pool utilization**: Connection pool wait times (available via deadpool metrics)
 - **Scheduler loop duration**: Time spent in each poll cycle (visible at `debug` log level)

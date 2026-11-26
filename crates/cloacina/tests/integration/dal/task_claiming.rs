@@ -365,6 +365,17 @@ async fn test_defer_dispatch_keeps_attempt_and_delays_the_task() {
             "[{}] a Ready task is in the ready query",
             backend
         );
+        let waiting_since = dal
+            .task_execution()
+            .get_by_id(task_id)
+            .await
+            .unwrap()
+            .waiting_since;
+        assert!(
+            waiting_since.is_some(),
+            "[{}] mark_ready sets waiting_since",
+            backend
+        );
 
         // Deferred to the future: out of the ready query, attempt unchanged.
         let changed = dal
@@ -386,6 +397,22 @@ async fn test_defer_dispatch_keeps_attempt_and_delays_the_task() {
             backend
         );
         assert_eq!(task.status, "Ready", "[{}]", backend);
+
+        // CLOACINA-T-1036: the deferral does not move waiting_since, and the
+        // task is still counted as waiting, with its age.
+        assert_eq!(
+            task.waiting_since, waiting_since,
+            "[{}] a deferral keeps waiting_since",
+            backend
+        );
+        let stats = dal.task_execution().waiting_task_stats().await.unwrap();
+        assert_eq!(stats.count, 1, "[{}] a deferred task waits", backend);
+        assert_eq!(
+            stats.oldest_waiting_since,
+            waiting_since.map(|t| t.0),
+            "[{}]",
+            backend
+        );
 
         // Deferred to the past: ready again.
         let past = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(1));

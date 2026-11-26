@@ -43,6 +43,13 @@ pub struct TaskExecution {
     pub sub_status: Option<String>,
     pub claimed_by: Option<UniversalUuid>,
     pub heartbeat_at: Option<UniversalTimestamp>,
+    /// The time from which the task waits for capacity (CLOACINA-T-1036).
+    /// Set when the task becomes `Ready`; a retry gets its due time, so a
+    /// retry in backoff has a value in the future. A dispatch that is put
+    /// off for capacity does not move it. `None` once the task starts or
+    /// ends.
+    #[serde(default)]
+    pub waiting_since: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
