@@ -60,6 +60,23 @@ pub struct TaskMetadataEntry {
     /// is correct: they could not have used a handle anyway.
     #[serde(default)]
     pub requires_handle: bool,
+    /// CLOACINA-T-1014: the task's `RetryPolicy`, as JSON.
+    ///
+    /// The policy is built by `#[task(retry_attempts = .., ..)]` inside the
+    /// package. Without it here the host's `DynamicLibraryTask` gave every
+    /// packaged task the default policy (3 attempts, all errors), so
+    /// `retry_attempts = 0` and `retry_condition = "never"` did nothing.
+    /// Kept as a JSON string, like `trigger_rules`: the policy's enums are
+    /// tagged, which the positional wire format cannot carry.
+    ///
+    /// Empty means "the default policy".
+    #[serde(default)]
+    pub retry_policy: String,
+    /// CLOACINA-T-1014: the task's own time limit in seconds, from
+    /// `#[task(timeout_seconds = N)]`. `None` means the task has no limit of
+    /// its own and the executor's limit applies.
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
 }
 
 /// Default trigger-rules JSON (`Always`) for back-compat deserialization of
@@ -590,12 +607,16 @@ mod tests {
             source_location: "src/lib.rs".to_string(),
             trigger_rules: "{\"type\":\"Always\"}".to_string(),
             requires_handle: false,
+            retry_policy: "{\"max_attempts\":0}".to_string(),
+            timeout_seconds: Some(600),
         };
 
         let json = serde_json::to_string(&entry).unwrap();
         let roundtrip: TaskMetadataEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip.id, "extract_data");
         assert_eq!(roundtrip.index, 0);
+        assert_eq!(roundtrip.retry_policy, "{\"max_attempts\":0}");
+        assert_eq!(roundtrip.timeout_seconds, Some(600));
     }
 
     #[test]
@@ -616,6 +637,8 @@ mod tests {
                 source_location: "src/lib.rs".to_string(),
                 trigger_rules: "{\"type\":\"Always\"}".to_string(),
                 requires_handle: false,
+                retry_policy: String::new(),
+                timeout_seconds: None,
             }],
             triggers: Vec::new(),
         };

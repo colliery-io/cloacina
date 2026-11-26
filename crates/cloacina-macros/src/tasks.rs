@@ -39,6 +39,7 @@ use crate::registry::{TaskInfo, get_registry};
 /// * `retry_max_delay_ms` - Maximum delay between retries in milliseconds (default: 30000)
 /// * `retry_condition` - Condition for retrying: "never", "all", "transient", or error patterns
 /// * `retry_jitter` - Whether to add random jitter to retry delays (default: true)
+/// * `timeout_seconds` - The task's own time limit in seconds (default: none, the executor's limit applies)
 /// * `trigger_rules` - Rules that determine when the task should be executed
 /// * `on_success` - Function to call on successful task completion: `async fn(&str, &Context<Value>)`
 /// * `on_failure` - Function to call on task failure: `async fn(&str, &TaskError, &Context<Value>)`
@@ -52,6 +53,9 @@ pub struct TaskAttributes {
     pub retry_max_delay_ms: Option<i32>,
     pub retry_condition: Option<String>,
     pub retry_jitter: Option<bool>,
+    /// The task's own time limit in seconds (CLOACINA-T-1014). `None` = the
+    /// executor's limit applies.
+    pub timeout_seconds: Option<u64>,
     pub trigger_rules: Option<Expr>,
     pub on_success: Option<Expr>,
     pub on_failure: Option<Expr>,
@@ -82,6 +86,7 @@ impl Parse for TaskAttributes {
         let mut retry_max_delay_ms = None;
         let mut retry_condition = None;
         let mut retry_jitter = None;
+        let mut timeout_seconds = None;
         let mut trigger_rules = None;
         let mut on_success = None;
         let mut on_failure = None;
@@ -134,6 +139,17 @@ impl Parse for TaskAttributes {
                 "retry_jitter" => {
                     let lit: syn::LitBool = input.parse()?;
                     retry_jitter = Some(lit.value);
+                }
+                "timeout_seconds" => {
+                    let lit: syn::LitInt = input.parse()?;
+                    let seconds: u64 = lit.base10_parse()?;
+                    if seconds == 0 {
+                        return Err(syn::Error::new(
+                            lit.span(),
+                            "timeout_seconds must be greater than 0",
+                        ));
+                    }
+                    timeout_seconds = Some(seconds);
                 }
                 "trigger_rules" => {
                     let expr: Expr = input.parse()?;
@@ -218,6 +234,7 @@ impl Parse for TaskAttributes {
             retry_max_delay_ms,
             retry_condition,
             retry_jitter,
+            timeout_seconds,
             trigger_rules,
             on_success,
             on_failure,
@@ -731,6 +748,11 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
     // Generate retry policy creation code
     let generate_retry_policy = generate_retry_policy_code(&attrs);
+    // CLOACINA-T-1014: the task's own time limit, `None` when not set.
+    let timeout_code = match attrs.timeout_seconds {
+        Some(seconds) => quote! { Some(std::time::Duration::from_secs(#seconds)) },
+        None => quote! { None },
+    };
 
     // Generate trigger rules JSON code
     let generate_trigger_rules = generate_trigger_rules_code(&attrs);
@@ -1039,6 +1061,10 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
             fn requires_handle(&self) -> bool {
                 #has_handle_param
             }
+
+            fn timeout(&self) -> Option<std::time::Duration> {
+                #timeout_code
+            }
         }
 
         // Provide a convenience function to create the task
@@ -1140,4 +1166,47 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
 
     // PHASE 3: Generate the task implementation
     generate_task_impl(attrs, input_fn).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // CLOACINA-T-1014: `timeout_seconds` is a valid `#[task]` attribute.
+    #[test]
+    fn timeout_seconds_is_parsed() {
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "long", timeout_seconds = 600"#).expect("attributes parse");
+        assert_eq!(attrs.timeout_seconds, Some(600));
+    }
+
+    #[test]
+    fn timeout_seconds_defaults_to_none() {
+        let attrs: TaskAttributes = syn::parse_str(r#"id = "plain""#).expect("attributes parse");
+        assert_eq!(attrs.timeout_seconds, None);
+    }
+
+    #[test]
+    fn timeout_seconds_of_zero_is_refused() {
+        let err = syn::parse_str::<TaskAttributes>("timeout_seconds = 0")
+            .err()
+            .expect("zero is refused");
+        assert!(err.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn the_generated_task_returns_its_time_limit() {
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "long", timeout_seconds = 600"#).expect("attributes parse");
+        let func: ItemFn = syn::parse_str(
+            "async fn long(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }",
+        )
+        .expect("fn parses");
+        let code = generate_task_impl(attrs, func).to_string();
+        let compact: String = code.split_whitespace().collect();
+        assert!(
+            compact.contains("fntimeout(&self)->Option<std::time::Duration>{Some(std::time::Duration::from_secs(600u64))}"),
+            "generated code: {code}"
+        );
+    }
 }

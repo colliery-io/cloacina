@@ -212,6 +212,15 @@ macro_rules! package {
                             // path on this, and cannot see the packaged Task
                             // impl to ask. Read straight off the task here.
                             requires_handle: cloacina_workflow::Task::requires_handle(&*task),
+                            // CLOACINA-T-1014: the retry policy and the time
+                            // limit live in the packaged Task impl too. Carry
+                            // them, or the host applies its defaults.
+                            retry_policy: $crate::serde_json::to_string(
+                                &cloacina_workflow::Task::retry_policy(&*task),
+                            )
+                            .unwrap_or_default(),
+                            timeout_seconds: cloacina_workflow::Task::timeout(&*task)
+                                .map(|limit| limit.as_secs()),
                         });
                     }
                     // Look up WorkflowDescriptorEntry for description / author /
@@ -1017,6 +1026,11 @@ pub trait CloacinaHost: Send + Sync {
 // `catchup_policy` and then `max_active_runs` at the end. Version 8 is not
 // released yet, so the new fields ride it; a plugin built from an earlier
 // commit of version 8 must be rebuilt.
+// version 8 also covers (CLOACINA-T-1014): `TaskMetadataEntry` gained
+// `retry_policy` and `timeout_seconds` at its end, so the host applies a
+// packaged task's own retry policy and time limit. No release shipped version 8
+// before these fields, so they did not need a new version. A package built
+// from a commit between the two changes must be built again.
 #[fidius::plugin_interface(version = 8, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.

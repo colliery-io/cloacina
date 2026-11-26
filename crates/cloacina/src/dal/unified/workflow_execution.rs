@@ -23,11 +23,12 @@ use super::DAL;
 use super::models::{
     NewUnifiedExecutionEvent, NewUnifiedWorkflowExecution, UnifiedWorkflowExecution,
 };
-use crate::database::schema::unified::{execution_events, workflow_executions};
+use crate::database::schema::unified::{delivery_outbox, execution_events, workflow_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
 use crate::models::workflow_execution::{NewWorkflowExecution, WorkflowExecutionRecord};
+use crate::run_alerts::{self, RunOutcome};
 use diesel::prelude::*;
 
 /// Filter for `WorkflowExecutionDAL::list_filtered`. CLOACI-T-0594 /
@@ -182,9 +183,22 @@ impl<'a> WorkflowExecutionDAL<'a> {
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
+    ///
+    /// When the server switched on run-finished notices for completed runs
+    /// ([`run_alerts`]), the same transaction also writes the notice row.
     pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        self.mark_completed_with_notice(id, run_alerts::is_enabled(RunOutcome::Completed))
+            .await
+    }
+
+    async fn mark_completed_with_notice(
+        &self,
+        id: UniversalUuid,
+        notice: bool,
+    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
+        let tenant = self.dal.database.schema().map(str::to_string);
         crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
@@ -220,6 +234,16 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     diesel::insert_into(execution_events::table)
                         .values(&event)
                         .execute(conn)?;
+                    if notice {
+                        diesel::insert_into(delivery_outbox::table)
+                            .values(&run_alerts::outbox_row(
+                                id,
+                                RunOutcome::Completed,
+                                tenant,
+                                now,
+                            ))
+                            .execute(conn)?;
+                    }
                 }
 
                 Ok(())
@@ -250,14 +274,28 @@ impl<'a> WorkflowExecutionDAL<'a> {
     ///
     /// This operation is transactional: the status update and execution event
     /// are written atomically.
+    ///
+    /// When the server switched on run-finished notices for failed runs
+    /// ([`run_alerts`]), the same transaction also writes the notice row.
     pub async fn mark_failed(
         &self,
         id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
+        self.mark_failed_with_notice(id, reason, run_alerts::is_enabled(RunOutcome::Failed))
+            .await
+    }
+
+    async fn mark_failed_with_notice(
+        &self,
+        id: UniversalUuid,
+        reason: &str,
+        notice: bool,
+    ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
         let reason = reason.to_string();
+        let tenant = self.dal.database.schema().map(str::to_string);
         crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
@@ -295,6 +333,11 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     diesel::insert_into(execution_events::table)
                         .values(&event)
                         .execute(conn)?;
+                    if notice {
+                        diesel::insert_into(delivery_outbox::table)
+                            .values(&run_alerts::outbox_row(id, RunOutcome::Failed, tenant, now))
+                            .execute(conn)?;
+                    }
                 }
 
                 Ok(())
@@ -304,16 +347,63 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Marks a workflow execution as cancelled.
+    ///
+    /// When the server switched on run-finished notices for cancelled runs
+    /// ([`run_alerts`]), the same transaction also writes the notice row, but
+    /// only for a run that had not already ended.
     pub async fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        self.cancel_with_notice(id, run_alerts::is_enabled(RunOutcome::Cancelled))
+            .await
+    }
+
+    async fn cancel_with_notice(
+        &self,
+        id: UniversalUuid,
+        notice: bool,
+    ) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let now = UniversalTimestamp::now();
+        let tenant = self.dal.database.schema().map(str::to_string);
         crate::interact_on_backend!(self.dal, |conn| {
-            diesel::update(workflow_executions::table.find(id))
-                .set((
-                    workflow_executions::status.eq("Cancelled"),
-                    workflow_executions::completed_at.eq(Some(now)),
-                    workflow_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                // Read the status only when a notice may be written: with the
+                // notices off this is the one UPDATE it always was.
+                let was_open = if notice {
+                    let status: Option<String> = workflow_executions::table
+                        .find(id)
+                        .select(workflow_executions::status)
+                        .first(conn)
+                        .optional()?;
+                    status.is_some_and(|s| {
+                        !matches!(s.as_str(), "Completed" | "Failed" | "Cancelled")
+                    })
+                } else {
+                    false
+                };
+
+                diesel::update(workflow_executions::table.find(id))
+                    .set((
+                        workflow_executions::status.eq("Cancelled"),
+                        workflow_executions::completed_at.eq(Some(now)),
+                        workflow_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                if was_open {
+                    diesel::insert_into(delivery_outbox::table)
+                        .values(&run_alerts::outbox_row(
+                            id,
+                            RunOutcome::Cancelled,
+                            tenant,
+                            now,
+                        ))
+                        .execute(conn)?;
+                }
+
+                Ok(())
+            })
         })?;
 
         Ok(())
@@ -479,5 +569,142 @@ impl<'a> WorkflowExecutionDAL<'a> {
             })?;
 
         Ok(executions.into_iter().map(Into::into).collect())
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod run_alert_notice_tests {
+    use super::*;
+    use crate::database::Database;
+    use crate::run_alerts::{KIND, RECIPIENT, RunFinishedNotice};
+
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "file:run_alert_notice_test_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    async fn running_execution(dal: &DAL) -> UniversalUuid {
+        dal.workflow_execution()
+            .create(NewWorkflowExecution {
+                workflow_name: "run-alert-notice-test".into(),
+                workflow_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap()
+            .id
+    }
+
+    async fn notices(dal: &DAL) -> Vec<RunFinishedNotice> {
+        dal.delivery_outbox()
+            .list_open_for_recipient(RECIPIENT, 10)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                assert_eq!(row.kind, KIND);
+                assert_eq!(row.delivery_state, "pending");
+                RunFinishedNotice::from_bytes(&row.payload).unwrap()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn run_alert_notice_written_once_when_a_run_fails() {
+        let dal = unique_dal().await;
+        let id = running_execution(&dal).await;
+
+        dal.workflow_execution()
+            .mark_failed_with_notice(id, "1 task(s) failed", true)
+            .await
+            .unwrap();
+        // The second call changes no row, so it writes no second notice.
+        dal.workflow_execution()
+            .mark_failed_with_notice(id, "1 task(s) failed", true)
+            .await
+            .unwrap();
+
+        let found = notices(&dal).await;
+        assert_eq!(
+            found,
+            vec![RunFinishedNotice::new(id.0, RunOutcome::Failed)]
+        );
+    }
+
+    #[tokio::test]
+    async fn run_alert_notice_written_when_a_run_completes() {
+        let dal = unique_dal().await;
+        let id = running_execution(&dal).await;
+
+        dal.workflow_execution()
+            .mark_completed_with_notice(id, true)
+            .await
+            .unwrap();
+
+        let found = notices(&dal).await;
+        assert_eq!(
+            found,
+            vec![RunFinishedNotice::new(id.0, RunOutcome::Completed)]
+        );
+    }
+
+    #[tokio::test]
+    async fn run_alert_notice_written_for_a_cancel_of_an_open_run_only() {
+        let dal = unique_dal().await;
+        let open = running_execution(&dal).await;
+        let ended = running_execution(&dal).await;
+        dal.workflow_execution()
+            .mark_failed_with_notice(ended, "failed first", false)
+            .await
+            .unwrap();
+
+        dal.workflow_execution()
+            .cancel_with_notice(open, true)
+            .await
+            .unwrap();
+        dal.workflow_execution()
+            .cancel_with_notice(ended, true)
+            .await
+            .unwrap();
+
+        let found = notices(&dal).await;
+        assert_eq!(
+            found,
+            vec![RunFinishedNotice::new(open.0, RunOutcome::Cancelled)]
+        );
+        let record = dal.workflow_execution().get_by_id(open).await.unwrap();
+        assert_eq!(record.status, "Cancelled");
+    }
+
+    #[tokio::test]
+    async fn run_alert_notice_not_written_when_off() {
+        let dal = unique_dal().await;
+        let failed = running_execution(&dal).await;
+        let completed = running_execution(&dal).await;
+        let cancelled = running_execution(&dal).await;
+
+        dal.workflow_execution()
+            .mark_failed_with_notice(failed, "1 task(s) failed", false)
+            .await
+            .unwrap();
+        dal.workflow_execution()
+            .mark_completed_with_notice(completed, false)
+            .await
+            .unwrap();
+        dal.workflow_execution()
+            .cancel_with_notice(cancelled, false)
+            .await
+            .unwrap();
+
+        assert!(notices(&dal).await.is_empty());
+        assert_eq!(dal.delivery_outbox().count_open().await.unwrap(), 0);
     }
 }

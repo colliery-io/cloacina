@@ -33,6 +33,7 @@ Applied to an `async fn` to define a task with retry policies, dependency declar
     retry_max_delay_ms = 30000,
     retry_condition = "all",
     retry_jitter = true,
+    timeout_seconds = 600,
     trigger_rules = always,
     on_success = my_success_handler,
     on_failure = my_failure_handler,
@@ -54,6 +55,7 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `retry_max_delay_ms` | integer | no | `30000` | Maximum delay between retries in milliseconds (caps exponential/linear growth). |
 | `retry_condition` | string literal | no | `"all"` | When to retry. See [Retry Conditions](#retry-conditions). |
 | `retry_jitter` | boolean | no | `true` | Whether to add random jitter to retry delays to avoid thundering herd. |
+| `timeout_seconds` | integer (> 0) | no | -- | The task's own time limit in seconds. When set it replaces the executor's limit for this task: `task_timeout` in process, the server default (`--fleet-task-timeout-s`) on an [execution-agent fleet](../../explanation/service/execution-agent-fleet/#time-limits-and-retries), where the server maximum caps it. An attempt that runs past the limit fails as a timeout. |
 | `trigger_rules` | expression | no | `always` | Trigger rule expression controlling when the task should execute. See [Trigger Rules](#trigger-rules). |
 | `on_success` | expression (path) | no | -- | Async callback on success. Signature: `async fn(&str, &Context<Value>) -> Result<(), E>` |
 | `on_failure` | expression (path) | no | -- | Async callback on failure. Signature: `async fn(&str, &TaskError, &Context<Value>) -> Result<(), E>` |

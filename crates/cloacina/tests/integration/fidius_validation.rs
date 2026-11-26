@@ -144,6 +144,27 @@ fn test_metadata_fidelity() {
         "Should have extract_data task, got: {:?}",
         task_ids
     );
+
+    // CLOACINA-T-1014: the task's own retry policy and time limit cross the
+    // boundary. `validate_data` is `#[task(retry_attempts = 2, retry_backoff =
+    // "linear")]`; `generate_reports` is `#[task(.., timeout_seconds = 600)]`.
+    let by_id = |id: &str| {
+        metadata
+            .tasks
+            .iter()
+            .find(|t| t.id == id)
+            .unwrap_or_else(|| panic!("task {id} is in the metadata"))
+    };
+    let validate: cloacina::retry::RetryPolicy =
+        serde_json::from_str(&by_id("validate_data").retry_policy)
+            .expect("the retry policy is JSON of RetryPolicy");
+    assert_eq!(validate.max_attempts, 2);
+    assert_eq!(
+        validate.backoff_strategy,
+        cloacina::retry::BackoffStrategy::Linear { multiplier: 1.0 }
+    );
+    assert_eq!(by_id("validate_data").timeout_seconds, None);
+    assert_eq!(by_id("generate_reports").timeout_seconds, Some(600));
 }
 
 #[test]
@@ -265,6 +286,8 @@ fn test_plugin_info_populated() {
     //   6 — T-0897 `task_execution_id` on TaskExecutionRequest
     //   7 — T-0897 `requires_handle` on TaskMetadataEntry
     //   8 — CLOACINA-T-1019 `timezone` on TriggerPackageMetadata
+    //       and CLOACINA-T-1014 `retry_policy` + `timeout_seconds` on
+    //       TaskMetadataEntry (same version: no release shipped 8 between)
     assert_eq!(
         plugin.info.interface_version, 8,
         "Interface version should be 8 (CLOACINA-T-1019 timezone on TriggerPackageMetadata)"

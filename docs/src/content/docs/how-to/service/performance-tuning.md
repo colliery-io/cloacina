@@ -186,6 +186,22 @@ let config = DefaultRunnerConfig::builder()
     .build();
 ```
 
+One task can set a time limit of its own, which replaces `task_timeout` for
+that task:
+
+```rust
+#[task(timeout_seconds = 1800)] // 30 minutes for this task only
+async fn train_model(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // ...
+    Ok(())
+}
+```
+
+In Python: `@cloaca.task(timeout_seconds=1800)`. On an
+[execution-agent fleet](../../../explanation/service/execution-agent-fleet/#time-limits-and-retries)
+the limit of a task that sets none is the server's `--fleet-task-timeout-s`
+(default 300), and `--fleet-task-timeout-max-s` caps every task.
+
 ### Pipeline timeout
 
 The `workflow_timeout` (default: **Some(3600 seconds / 1 hour)**) is the maximum time for an entire workflow execution from start to finish. Set to `None` to disable.

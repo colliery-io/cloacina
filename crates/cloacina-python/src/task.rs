@@ -224,6 +224,9 @@ pub struct PythonTaskWrapper {
     /// Authored trigger rule as canonical TriggerRule JSON (CLOACI-T-0763).
     /// `{"type":"Always"}` when the task declares no rule.
     trigger_rules: serde_json::Value,
+    /// The task's own time limit, from `@task(timeout_seconds=N)`
+    /// (CLOACINA-T-1014). `None` = the executor's limit applies.
+    timeout: Option<std::time::Duration>,
 }
 
 impl PythonTaskWrapper {
@@ -570,6 +573,10 @@ impl cloacina::Task for PythonTaskWrapper {
         self.requires_handle
     }
 
+    fn timeout(&self) -> Option<std::time::Duration> {
+        self.timeout
+    }
+
     fn checkpoint(
         &self,
         _context: &cloacina::Context<serde_json::Value>,
@@ -677,6 +684,8 @@ pub struct TaskDecorator {
     post_invocation: Option<Py<PyAny>>,
     /// `trigger_rules=...` — canonical TriggerRule JSON (CLOACI-T-0763).
     trigger_rules: serde_json::Value,
+    /// `timeout_seconds=N` — the task's own time limit (CLOACINA-T-1014).
+    timeout: Option<std::time::Duration>,
 }
 
 #[pymethods]
@@ -713,6 +722,7 @@ impl TaskDecorator {
         };
         let policy = self.retry_policy.clone();
         let trigger_rules = self.trigger_rules.clone();
+        let timeout = self.timeout;
         let function = func.clone_ref(py);
         let on_success_cb = self.on_success.as_ref().map(|f| f.clone_ref(py));
         let on_failure_cb = self.on_failure.as_ref().map(|f| f.clone_ref(py));
@@ -809,6 +819,7 @@ impl TaskDecorator {
                         requires_handle: has_handle,
                         cg_invocation: cg_invocation_clone,
                         trigger_rules: trigger_rules_clone.clone(),
+                        timeout,
                     }) as Arc<dyn cloacina::Task>
                 }
             });
@@ -893,7 +904,8 @@ impl TaskDecorator {
     on_failure = None,
     invokes = None,
     post_invocation = None,
-    trigger_rules = None
+    trigger_rules = None,
+    timeout_seconds = None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn task(
@@ -912,6 +924,7 @@ pub fn task(
     invokes: Option<Py<PyAny>>,
     post_invocation: Option<Py<PyAny>>,
     trigger_rules: Option<Py<PyAny>>,
+    timeout_seconds: Option<u64>,
 ) -> PyResult<TaskDecorator> {
     // CLOACI-T-0882: two retry-authoring surfaces exist — the `retry_*` kwargs
     // and a `RetryPolicy` value object. Accept either, never both: silently
@@ -959,6 +972,15 @@ pub fn task(
         None => serde_json::json!({ "type": "Always" }),
     };
 
+    // CLOACINA-T-1014: the task's own time limit. Zero is refused: a task
+    // that can never finish in time is an authoring mistake.
+    if timeout_seconds == Some(0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "@task(timeout_seconds=...) must be greater than 0",
+        ));
+    }
+    let timeout = timeout_seconds.map(std::time::Duration::from_secs);
+
     Ok(TaskDecorator {
         id,
         dependencies: dependencies.unwrap_or_default(),
@@ -968,6 +990,7 @@ pub fn task(
         invokes,
         post_invocation,
         trigger_rules,
+        timeout,
     })
 }
 
@@ -1057,6 +1080,7 @@ with score_graph:
                 Some(score_graph.unbind()),
                 None,
                 None,
+                None,
             )
             .unwrap();
 
@@ -1134,6 +1158,7 @@ def post(ctx):
                 Some(g.unbind()),
                 Some(post.unbind()),
                 None,
+                None,
             )
             .unwrap();
 
@@ -1156,6 +1181,93 @@ def post(ctx):
             out_ctx.get("post_ran").expect("post_invocation ran"),
             &serde_json::json!(true)
         );
+    }
+
+    // CLOACINA-T-1014: `@task(timeout_seconds=N)` gives the task a time limit
+    // of its own, which the executors read through `Task::timeout()`.
+    #[test]
+    #[serial]
+    fn test_task_timeout_seconds_reaches_the_task() {
+        Python::initialize();
+        let rt = Arc::new(cloacina::Runtime::empty());
+        let _scope = ScopedRuntime::new(rt.clone()).unwrap();
+
+        Python::attach(|py| {
+            super::push_workflow_context(super::PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "t1014_timeout",
+            ));
+            for (id, limit) in [("long", Some(600u64)), ("plain", None)] {
+                let decorator = task(
+                    py,
+                    Some(id.to_string()),
+                    None,
+                    None,
+                    Some(0),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    limit,
+                )
+                .unwrap();
+                let user_fn = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
+                decorator.__call__(py, user_fn.into()).unwrap();
+            }
+            super::pop_workflow_context();
+        });
+
+        let get = |id: &str| {
+            rt.get_task(&cloacina::TaskNamespace::new(
+                "public",
+                "embedded",
+                "t1014_timeout",
+                id,
+            ))
+            .expect("the task is registered")
+        };
+        assert_eq!(
+            get("long").timeout(),
+            Some(std::time::Duration::from_secs(600))
+        );
+        assert_eq!(get("long").retry_policy().max_attempts, 0);
+        assert_eq!(get("plain").timeout(), None);
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_timeout_seconds_of_zero_is_refused() {
+        Python::initialize();
+        Python::attach(|py| {
+            let err = task(
+                py,
+                Some("zero".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(0),
+            )
+            .err()
+            .expect("zero is refused");
+            assert!(err.to_string().contains("greater than 0"));
+        });
     }
 
     #[test]
@@ -1187,6 +1299,7 @@ def post(ctx):
                 None,
                 None,
                 Some(post.unbind()),
+                None,
                 None,
             )
             .unwrap();
@@ -1249,6 +1362,7 @@ with g:
                 None,
                 None,
                 Some(g.unbind()),
+                None,
                 None,
                 None,
             )
