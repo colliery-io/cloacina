@@ -30,6 +30,7 @@ pub mod keys;
 pub mod limits;
 pub mod local_auth;
 pub mod oidc_auth;
+pub mod pools;
 pub mod secrets;
 pub mod session;
 pub mod tenants;

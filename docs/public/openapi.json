@@ -2201,6 +2201,341 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/pools": {
+      "get": {
+        "tags": [
+          "fleet"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/pools` — the tenant's agent pools. Always\nincludes `default`. Tenant-scoped read.",
+        "operationId": "list_pools",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's agent pools, `default` first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_AgentPoolInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/pools/{pool}": {
+      "get": {
+        "tags": [
+          "fleet"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/pools/{pool}` — one agent pool. Tenant-scoped\nread.",
+        "operationId": "get_pool",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pool",
+            "in": "path",
+            "description": "Pool name; every tenant has `default`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant has no such pool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "fleet"
+        ],
+        "summary": "`PUT /v1/tenants/{tenant_id}/pools/{pool}` — create a pool, or replace its\nsettings as a whole. God-only. The actuator applies the settings on its\nnext reconcile; a changed setting rolls the pool's agents.",
+        "operationId": "put_pool",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pool",
+            "in": "path",
+            "description": "Pool name: lowercase letters, digits and `-`, 40 characters at most",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentPoolSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings stored; returns the pool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPoolInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A setting or the pool name is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Platform-admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "fleet"
+        ],
+        "summary": "`DELETE /v1/tenants/{tenant_id}/pools/{pool}` — remove a pool. God-only.",
+        "description": "A pool is removed only when it has no agents: its `max_agents` is 0 and no\nagent of it is alive (`409` otherwise). Then its Deployment and its\nNetworkPolicy are deleted and its row is removed. For `default` the call\nclears the pool's settings (back to the server-wide defaults); the pool\nitself stays.",
+        "operationId": "delete_pool",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pool",
+            "in": "path",
+            "description": "Pool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Pool removed (for `default`: settings cleared)"
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Platform-admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The tenant has no such pool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The pool still has agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/secrets": {
       "get": {
         "tags": [
@@ -4532,6 +4867,50 @@
           }
         }
       },
+      "AgentEgressPort": {
+        "type": "object",
+        "description": "One port of an [`AgentEgressRule`].",
+        "required": [
+          "port"
+        ],
+        "properties": {
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Port number, 1 to 65535.",
+            "minimum": 0
+          },
+          "protocol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`TCP` (the default), `UDP` or `SCTP`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentEgressRule": {
+        "type": "object",
+        "description": "One extra egress rule: a CIDR block the agent pods may reach, on the listed\nports. No ports means every port.",
+        "required": [
+          "cidr"
+        ],
+        "properties": {
+          "cidr": {
+            "type": "string",
+            "description": "IPv4 or IPv6 CIDR block, with no host bits set (`198.51.100.0/24`)."
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEgressPort"
+            },
+            "description": "Ports the rule allows. Empty: every port."
+          }
+        },
+        "additionalProperties": false
+      },
       "AgentInfo": {
         "type": "object",
         "description": "One registered execution agent in the in-memory fleet roster.",
@@ -4586,6 +4965,135 @@
             "description": "Tenant scope the agent registered under, if any."
           }
         }
+      },
+      "AgentPoolInfo": {
+        "type": "object",
+        "description": "One agent pool of a tenant, as the pool routes return it.",
+        "required": [
+          "tenant_id",
+          "pool",
+          "settings",
+          "desired_agents",
+          "live_agents"
+        ],
+        "properties": {
+          "desired_agents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many agents the server keeps for the pool: the tenant's desired\ncount for `default`, the pool's `max_agents` for another pool.",
+            "minimum": 0
+          },
+          "live_agents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many agents of the pool are registered and alive now.",
+            "minimum": 0
+          },
+          "pool": {
+            "type": "string",
+            "description": "Pool name. Every tenant has `default`."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/AgentPoolSettings",
+            "description": "The pool's settings as stored. A field that is absent means the\nserver-wide default."
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentPoolSettings": {
+        "type": "object",
+        "description": "Settings of one agent pool of a tenant (CLOACINA-T-1021).\n\nEach field is optional. A field that is absent means the server-wide\ndefault (`CLOACINA_AGENT_*` on the server). The settings apply to every\nmanaged agent of the pool: a pool has one size of agent.",
+        "properties": {
+          "cpu_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU limit of the agent container, a Kubernetes quantity (`4`)."
+          },
+          "cpu_request": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU request of the agent container, a Kubernetes quantity (`500m`)."
+          },
+          "extra_egress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEgressRule"
+            },
+            "description": "Extra egress rules for the pool's pods, added to the default (cluster\nDNS and the server only)."
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`."
+          },
+          "max_agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other\nthan `default` runs exactly this many agents.",
+            "minimum": 0
+          },
+          "max_concurrency": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many tasks one agent runs at the same time (the agent's\n`--max-concurrency`). Absent: the agent's own default.",
+            "minimum": 0
+          },
+          "memory_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory limit of the agent container, a Kubernetes quantity (`32Gi`)."
+          },
+          "memory_request": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory request of the agent container, a Kubernetes quantity (`8Gi`)."
+          },
+          "min_agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Fewest agents of the pool. Not for the pool `default` (its floor is\nthe server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than\n`default` is not autoscaled yet: set it equal to `max_agents`.",
+            "minimum": 0
+          },
+          "service_account_annotations": {
+            "type": "object",
+            "description": "Annotations the actuator puts on that ServiceAccount (for a cloud\nworkload identity). Needs `service_account_name`.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "service_account_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the Kubernetes ServiceAccount the agent pods run as. The\nactuator creates it in the tenant namespace. Absent: the namespace's\n`default` ServiceAccount."
+          }
+        },
+        "additionalProperties": false
       },
       "CompilerStatus": {
         "type": "object",
@@ -5654,6 +6162,59 @@
                     "null"
                   ],
                   "description": "Tenant scope the agent registered under, if any."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_AgentPoolInfo": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One agent pool of a tenant, as the pool routes return it.",
+              "required": [
+                "tenant_id",
+                "pool",
+                "settings",
+                "desired_agents",
+                "live_agents"
+              ],
+              "properties": {
+                "desired_agents": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "How many agents the server keeps for the pool: the tenant's desired\ncount for `default`, the pool's `max_agents` for another pool.",
+                  "minimum": 0
+                },
+                "live_agents": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "How many agents of the pool are registered and alive now.",
+                  "minimum": 0
+                },
+                "pool": {
+                  "type": "string",
+                  "description": "Pool name. Every tenant has `default`."
+                },
+                "settings": {
+                  "$ref": "#/components/schemas/AgentPoolSettings",
+                  "description": "The pool's settings as stored. A field that is absent means the\nserver-wide default."
+                },
+                "tenant_id": {
+                  "type": "string"
                 }
               }
             }

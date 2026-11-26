@@ -20,9 +20,9 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    accumulator_boundaries, accumulator_checkpoints, contexts, delivery_outbox, execution_events,
-    fleet_agents, key_trust_acls, login_throttle, package_artifacts, package_providers,
-    package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
+    accumulator_boundaries, accumulator_checkpoints, agent_pools, contexts, delivery_outbox,
+    execution_events, fleet_agents, key_trust_acls, login_throttle, package_artifacts,
+    package_providers, package_signatures, reactor_owner_addresses, reactor_state, recovery_events,
     schedule_executions, schedules, secrets, signing_keys, state_accumulator_buffers,
     task_execution_metadata, task_executions, tenant_data_keys, trusted_keys,
     workflow_execution_package_pins, workflow_executions, workflow_packages, workflow_registry,
@@ -377,6 +377,28 @@ pub struct NewUnifiedFleetAgent {
     pub available_capacity: i32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+}
+
+/// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;
+/// the server owns its shape.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = agent_pools)]
+pub struct UnifiedAgentPool {
+    pub tenant_id: String,
+    pub pool: String,
+    pub settings: String,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = agent_pools)]
+pub struct NewUnifiedAgentPool {
+    pub tenant_id: String,
+    pub pool: String,
+    pub settings: String,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
 }
 
 // ============================================================================

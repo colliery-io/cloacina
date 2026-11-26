@@ -29,6 +29,8 @@ pub struct TenantCmd {
     verb: TenantVerb,
 }
 
+// Parsed once per run; the size of the largest variant does not matter.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum TenantVerb {
     Create {
@@ -47,6 +49,173 @@ enum TenantVerb {
         #[arg(long)]
         force: bool,
     },
+    /// Agent pools of a tenant: the size, image, concurrency, cloud identity
+    /// and network reach of its managed agents (CLOACINA-T-1021).
+    Pool {
+        #[command(subcommand)]
+        verb: PoolVerb,
+    },
+}
+
+// Parsed once per run; the size of the largest variant does not matter.
+#[allow(clippy::large_enum_variant)]
+#[derive(Subcommand)]
+enum PoolVerb {
+    /// List a tenant's agent pools. Every tenant has `default`.
+    List { tenant: String },
+    /// Show one agent pool.
+    Get { tenant: String, pool: String },
+    /// Create a pool, or replace its settings with exactly what is given.
+    /// A setting that is not given goes back to the server-wide default.
+    Set {
+        tenant: String,
+        pool: String,
+        #[command(flatten)]
+        settings: PoolSettingsArgs,
+    },
+    /// Remove a pool (for `default`: clear its settings). The server refuses
+    /// while the pool has agents: set `--agents 0` first.
+    Delete {
+        tenant: String,
+        pool: String,
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+/// The settings of an agent pool, as flags or as a JSON file.
+#[derive(Args, Default)]
+struct PoolSettingsArgs {
+    /// Read the settings from a JSON file (`-` for stdin) instead of the
+    /// other flags. The object is the body of `PUT .../pools/<pool>`.
+    #[arg(long, conflicts_with_all = [
+        "cpu_request", "memory_request", "cpu_limit", "memory_limit", "max_concurrency",
+        "image", "service_account", "service_account_annotation", "egress", "agents",
+    ])]
+    file: Option<String>,
+    /// CPU request of each agent, a Kubernetes quantity (`500m`).
+    #[arg(long)]
+    cpu_request: Option<String>,
+    /// Memory request of each agent, a Kubernetes quantity (`8Gi`).
+    #[arg(long)]
+    memory_request: Option<String>,
+    /// CPU limit of each agent, a Kubernetes quantity (`4`).
+    #[arg(long)]
+    cpu_limit: Option<String>,
+    /// Memory limit of each agent, a Kubernetes quantity (`32Gi`).
+    #[arg(long)]
+    memory_limit: Option<String>,
+    /// How many tasks one agent runs at the same time.
+    #[arg(long)]
+    max_concurrency: Option<u32>,
+    /// Agent image.
+    #[arg(long)]
+    image: Option<String>,
+    /// Kubernetes ServiceAccount the agents run as.
+    #[arg(long)]
+    service_account: Option<String>,
+    /// Annotation for that ServiceAccount, `KEY=VALUE`. Repeat for more.
+    #[arg(long, value_name = "KEY=VALUE")]
+    service_account_annotation: Vec<String>,
+    /// Extra egress rule, `CIDR` or `CIDR=PORT[/PROTOCOL][,PORT...]`
+    /// (`198.51.100.0/24=443,53/UDP`). Repeat for more.
+    #[arg(long, value_name = "CIDR[=PORTS]")]
+    egress: Vec<String>,
+    /// How many agents the pool runs. Needed for a pool other than `default`;
+    /// not for `default`.
+    #[arg(long)]
+    agents: Option<u32>,
+}
+
+impl PoolSettingsArgs {
+    /// The request body: the file's JSON object, or one built from the flags.
+    fn into_body(self) -> Result<serde_json::Value, CliError> {
+        if let Some(src) = &self.file {
+            let text = if src == "-" {
+                use std::io::Read;
+                let mut s = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut s)
+                    .map_err(CliError::Io)?;
+                s
+            } else {
+                std::fs::read_to_string(src).map_err(CliError::Io)?
+            };
+            let body: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| CliError::UserError(format!("--file is not JSON: {e}")))?;
+            if !body.is_object() {
+                return Err(CliError::UserError(
+                    "--file must hold a JSON object".to_string(),
+                ));
+            }
+            return Ok(body);
+        }
+
+        let mut body = serde_json::Map::new();
+        let mut put = |key: &str, value: Option<serde_json::Value>| {
+            if let Some(v) = value {
+                body.insert(key.to_string(), v);
+            }
+        };
+        put("cpu_request", self.cpu_request.map(Into::into));
+        put("memory_request", self.memory_request.map(Into::into));
+        put("cpu_limit", self.cpu_limit.map(Into::into));
+        put("memory_limit", self.memory_limit.map(Into::into));
+        put("max_concurrency", self.max_concurrency.map(Into::into));
+        put("image", self.image.map(Into::into));
+        put("service_account_name", self.service_account.map(Into::into));
+        put("max_agents", self.agents.map(Into::into));
+        if !self.service_account_annotation.is_empty() {
+            let mut annotations = serde_json::Map::new();
+            for raw in &self.service_account_annotation {
+                let (key, value) = raw.split_once('=').ok_or_else(|| {
+                    CliError::UserError(format!(
+                        "--service-account-annotation '{raw}' is not KEY=VALUE"
+                    ))
+                })?;
+                annotations.insert(key.to_string(), value.into());
+            }
+            put("service_account_annotations", Some(annotations.into()));
+        }
+        if !self.egress.is_empty() {
+            let rules = self
+                .egress
+                .iter()
+                .map(|raw| parse_egress(raw))
+                .collect::<Result<Vec<_>, _>>()?;
+            put("extra_egress", Some(rules.into()));
+        }
+        Ok(body.into())
+    }
+}
+
+/// Parse one `--egress` value: `CIDR` or `CIDR=PORT[/PROTOCOL][,PORT...]`.
+/// The server checks the CIDR block and the protocol.
+fn parse_egress(raw: &str) -> Result<serde_json::Value, CliError> {
+    let (cidr, ports) = match raw.split_once('=') {
+        Some((cidr, ports)) => (cidr, Some(ports)),
+        None => (raw, None),
+    };
+    let mut rule = serde_json::json!({ "cidr": cidr });
+    if let Some(ports) = ports {
+        let mut list = Vec::new();
+        for part in ports.split(',') {
+            let (port, protocol) = match part.split_once('/') {
+                Some((port, protocol)) => (port, Some(protocol)),
+                None => (part, None),
+            };
+            let port: u16 = port.parse().map_err(|_| {
+                CliError::UserError(format!("--egress '{raw}': '{port}' is not a port"))
+            })?;
+            let mut entry = serde_json::json!({ "port": port });
+            if let Some(protocol) = protocol {
+                entry["protocol"] = protocol.to_ascii_uppercase().into();
+            }
+            list.push(entry);
+        }
+        rule["ports"] = list.into();
+    }
+    Ok(rule)
 }
 
 impl TenantCmd {
@@ -81,6 +250,114 @@ impl TenantCmd {
                 println!("deleted tenant {name}");
                 Ok(())
             }
+            TenantVerb::Pool { verb } => match verb {
+                PoolVerb::List { tenant } => {
+                    let body: serde_json::Value =
+                        client.get(&format!("/v1/tenants/{tenant}/pools")).await?;
+                    render::list(&body, output)
+                }
+                PoolVerb::Get { tenant, pool } => {
+                    let body: serde_json::Value = client
+                        .get(&format!("/v1/tenants/{tenant}/pools/{pool}"))
+                        .await?;
+                    render::object(&body, output)
+                }
+                PoolVerb::Set {
+                    tenant,
+                    pool,
+                    settings,
+                } => {
+                    let body = settings.into_body()?;
+                    let resp: serde_json::Value = client
+                        .put(&format!("/v1/tenants/{tenant}/pools/{pool}"), &body)
+                        .await?;
+                    render::object(&resp, output)
+                }
+                PoolVerb::Delete {
+                    tenant,
+                    pool,
+                    force,
+                } => {
+                    if !force {
+                        crate::shared::client::confirm_destructive(&format!(
+                            "remove agent pool {pool} of tenant {tenant}"
+                        ))?;
+                    }
+                    client
+                        .delete(&format!("/v1/tenants/{tenant}/pools/{pool}"))
+                        .await?;
+                    println!("removed agent pool {pool} of tenant {tenant}");
+                    Ok(())
+                }
+            },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pool_flags_build_the_request_body() {
+        let body = PoolSettingsArgs {
+            memory_limit: Some("32Gi".into()),
+            memory_request: Some("16Gi".into()),
+            max_concurrency: Some(1),
+            service_account: Some("team-data".into()),
+            service_account_annotation: vec!["example.com/role=team-data".into()],
+            egress: vec!["198.51.100.0/24=443,53/udp".into(), "192.0.2.7/32".into()],
+            agents: Some(2),
+            ..Default::default()
+        }
+        .into_body()
+        .unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "memory_limit": "32Gi",
+                "memory_request": "16Gi",
+                "max_concurrency": 1,
+                "service_account_name": "team-data",
+                "service_account_annotations": { "example.com/role": "team-data" },
+                "extra_egress": [
+                    {
+                        "cidr": "198.51.100.0/24",
+                        "ports": [{ "port": 443 }, { "port": 53, "protocol": "UDP" }],
+                    },
+                    { "cidr": "192.0.2.7/32" },
+                ],
+                "max_agents": 2,
+            })
+        );
+    }
+
+    #[test]
+    fn no_pool_flags_build_an_empty_object() {
+        assert_eq!(
+            PoolSettingsArgs::default().into_body().unwrap(),
+            serde_json::json!({})
+        );
+    }
+
+    #[test]
+    fn bad_pool_flags_are_user_errors() {
+        assert!(matches!(
+            parse_egress("198.51.100.0/24=https"),
+            Err(CliError::UserError(_))
+        ));
+        assert!(matches!(
+            PoolSettingsArgs {
+                service_account_annotation: vec!["no-equals".into()],
+                ..Default::default()
+            }
+            .into_body(),
+            Err(CliError::UserError(_))
+        ));
+        // An IPv6 block keeps its colons.
+        assert_eq!(
+            parse_egress("2001:db8::/32=443").unwrap(),
+            serde_json::json!({ "cidr": "2001:db8::/32", "ports": [{ "port": 443 }] })
+        );
     }
 }
