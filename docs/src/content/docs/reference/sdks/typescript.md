@@ -56,6 +56,18 @@ for await (const execution of client.iterateExecutions({ status: "Failed" })) {
 }
 ```
 
+**Read the audit record** (`listTenantAudit` for one tenant with a tenant admin key; `listAudit` for every tenant with a platform admin key):
+
+```ts
+let page = await client.listTenantAudit({ action: "package.upload", limit: 50 });
+while (page.next_cursor != null) {
+  page = await client.listTenantAudit({ action: "package.upload", limit: 50, cursor: page.next_cursor });
+}
+const everyTenant = await client.listAudit({ tenant: "acme", since: "2026-11-01T00:00:00Z" });
+```
+
+The filters are `action`, `actor`, `since`, `until`, `limit` and `cursor`; see [Read the Audit Record](../../../how-to/service/security/audit-record/).
+
 **Handle errors** — `CloacinaApiError` carries the canonical envelope:
 
 ```ts

@@ -64,6 +64,25 @@ let page = client
     .await?;
 ```
 
+**Read the audit record** (`list_tenant_audit` for one tenant with a tenant admin key; `list_audit` for every tenant with a platform admin key):
+
+```rust
+use cloacina_client::types::ListAuditQuery;
+
+let page = client
+    .list_tenant_audit(
+        &ListAuditQuery { action: Some("package.upload".into()), limit: Some(50), ..Default::default() },
+        None,
+    )
+    .await?;
+// page.next_cursor is the `cursor` of the next (older) page.
+let every_tenant = client
+    .list_audit(&ListAuditQuery { tenant: Some("acme".into()), ..Default::default() })
+    .await?;
+```
+
+The filters are `action`, `actor`, `since`, `until`, `limit` and `cursor`; see [Read the Audit Record](../../../how-to/service/security/audit-record/).
+
 **Handle errors by kind** — `ClientError` maps the canonical `{error, code}` envelope:
 
 ```rust

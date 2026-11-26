@@ -123,6 +123,33 @@ def test_tenant_listed(client: Client, tenant_name: str) -> None:
     assert tenant_name in [t.name for t in page.items]
 
 
+# ---- audit record (CLOACINA-T-1024) ----
+
+
+def test_tenant_audit_has_the_tenant_create(client: Client, tenant_name: str) -> None:
+    page = client.list_tenant_audit(action="tenant.create")
+    assert page.total == len(page.items)
+    rows = [r for r in page.items if r.target == tenant_name]
+    assert rows, "the tenant create is in the tenant's audit record"
+    assert rows[0].tenant_id == tenant_name
+    assert rows[0].outcome == "ok"
+    assert rows[0].actor_key_id
+
+
+def test_audit_filters_by_tenant_and_pages(client: Client, tenant_name: str) -> None:
+    page = client.list_audit(tenant=tenant_name, limit=1)
+    assert len(page.items) == 1
+    assert page.items[0].tenant_id == tenant_name
+    assert page.next_cursor == page.items[0].id
+
+    older = client.list_audit(tenant=tenant_name, limit=1, cursor=page.next_cursor)
+    assert all(r.id < page.items[0].id for r in older.items)
+
+    with pytest.raises(CloacinaApiError) as exc:
+        client.list_audit(limit=0)
+    assert exc.value.status == 400
+
+
 # ---- secrets (CLOACI-I-0133 / T-0862) ----
 
 

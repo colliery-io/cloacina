@@ -134,6 +134,38 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
 
   // (create/remove are exercised in beforeAll/afterAll)
 
+  // ---- audit record (CLOACINA-T-1024) ----
+
+  it("GET /v1/tenants/{tenant_id}/audit has the row of the tenant create", async () => {
+    const page = await client.listTenantAudit({ action: "tenant.create" });
+    expect(page.total).toBe(page.items.length);
+    const row = page.items.find((r) => r.target === TENANT);
+    expect(row).toBeDefined();
+    expect(row?.tenant_id).toBe(TENANT);
+    expect(row?.outcome).toBe("ok");
+    expect(row?.actor_key_id).toBeTruthy();
+  });
+
+  it("GET /v1/audit filters by tenant and pages with the cursor", async () => {
+    const page = await client.listAudit({ tenant: TENANT, limit: 1 });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].tenant_id).toBe(TENANT);
+    expect(page.next_cursor).toBe(page.items[0].id);
+
+    const older = await client.listAudit({
+      tenant: TENANT,
+      limit: 1,
+      cursor: page.next_cursor as number,
+    });
+    for (const row of older.items) {
+      expect(row.id).toBeLessThan(page.items[0].id);
+    }
+
+    const bad = await client.listAudit({ limit: 0 }).catch((e) => e);
+    expect(bad).toBeInstanceOf(CloacinaApiError);
+    expect((bad as CloacinaApiError).status).toBe(400);
+  });
+
   // ---- secrets (CLOACI-I-0133 / T-0862) ----
 
   it("secrets lifecycle: create → list → get → rotate → delete, metadata only", async () => {

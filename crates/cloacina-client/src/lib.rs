@@ -492,6 +492,62 @@ impl Client {
         Self::parse(response).await
     }
 
+    // ---- audit record (CLOACINA-T-1024) ----
+
+    /// Audit rows of every tenant and of platform actions, newest first
+    /// (platform admin key). `query.tenant` narrows to one tenant. Pass a
+    /// page's `next_cursor` as `query.cursor` to read the next page.
+    pub async fn list_audit(
+        &self,
+        query: &cloacina_api_types::ListAuditQuery,
+    ) -> Result<cloacina_api_types::AuditListResponse, ClientError> {
+        let mut path = "/v1/audit".to_string();
+        path.push_str(&Self::audit_query(query, true));
+        self.get_json(&path).await
+    }
+
+    /// Audit rows of one tenant, newest first (tenant admin key). The tenant
+    /// is the path's; `query.tenant` is not sent.
+    pub async fn list_tenant_audit(
+        &self,
+        query: &cloacina_api_types::ListAuditQuery,
+        tenant: Option<&str>,
+    ) -> Result<cloacina_api_types::AuditListResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        let mut path = format!("/v1/tenants/{t}/audit");
+        path.push_str(&Self::audit_query(query, false));
+        self.get_json(&path).await
+    }
+
+    /// The query string of an audit list, each value percent-encoded.
+    fn audit_query(query: &cloacina_api_types::ListAuditQuery, with_tenant: bool) -> String {
+        let mut pairs: Vec<(&str, String)> = Vec::new();
+        let text = [
+            ("tenant", query.tenant.as_ref().filter(|_| with_tenant)),
+            ("action", query.action.as_ref()),
+            ("actor", query.actor.as_ref()),
+            ("since", query.since.as_ref()),
+            ("until", query.until.as_ref()),
+        ];
+        for (name, value) in text {
+            if let Some(v) = value {
+                pairs.push((name, urlencoding::encode(v).into_owned()));
+            }
+        }
+        if let Some(l) = query.limit {
+            pairs.push(("limit", l.to_string()));
+        }
+        if let Some(c) = query.cursor {
+            pairs.push(("cursor", c.to_string()));
+        }
+        let mut out = String::new();
+        for (i, (name, value)) in pairs.iter().enumerate() {
+            out.push(if i == 0 { '?' } else { '&' });
+            out.push_str(&format!("{name}={value}"));
+        }
+        out
+    }
+
     // ---- secrets (CLOACI-I-0133 / T-0862) ----
     //
     // Reads return metadata only — never a plaintext or ciphertext value.

@@ -83,6 +83,44 @@ async fn full_rest_surface_contract() {
     let tenants = client.list_tenants().await.expect("list_tenants");
     assert!(tenants.items.iter().any(|t| t.name == tenant));
 
+    // ---- audit record (CLOACINA-T-1024) ----
+    let created_rows = client
+        .list_tenant_audit(
+            &types::ListAuditQuery {
+                action: Some("tenant.create".into()),
+                ..Default::default()
+            },
+            Some(&tenant),
+        )
+        .await
+        .expect("list_tenant_audit");
+    assert_eq!(created_rows.total, created_rows.items.len());
+    let row = created_rows
+        .items
+        .iter()
+        .find(|r| r.target.as_deref() == Some(tenant.as_str()))
+        .expect("the tenant create is in the tenant's audit record");
+    assert_eq!(row.tenant_id.as_deref(), Some(tenant.as_str()));
+    assert_eq!(row.outcome, "ok");
+
+    let audit_page = client
+        .list_audit(&types::ListAuditQuery {
+            tenant: Some(tenant.clone()),
+            limit: Some(1),
+            ..Default::default()
+        })
+        .await
+        .expect("list_audit");
+    assert_eq!(audit_page.items.len(), 1);
+    assert_eq!(audit_page.next_cursor, Some(audit_page.items[0].id));
+    let bad_limit = client
+        .list_audit(&types::ListAuditQuery {
+            limit: Some(0),
+            ..Default::default()
+        })
+        .await;
+    assert!(matches!(bad_limit, Err(ClientError::InvalidRequest(_))));
+
     // ---- keys ----
     let created = client
         .create_key(&format!("rs-contract-{tenant}"), types::KeyRole::Read)

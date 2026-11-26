@@ -653,7 +653,13 @@ pub async fn authz_mw(State(state): State<AppState>, request: Request, next: Nex
     let principal = Principal::from_key(&key);
     // CLOACINA-T-1024: a denial on an audited route is written to the audit
     // record (`deny`), with the URL path (names and ids only).
-    let request_path = request.uri().path().to_string();
+    // Inside the `/v1` nest `request.uri()` has the prefix stripped; the
+    // path the client called is in `OriginalUri`.
+    let request_path = request
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .map(|u| u.0.path().to_string())
+        .unwrap_or_else(|| request.uri().path().to_string());
     let deny = async |tenant: Option<&str>, reason: &'static str| {
         crate::routes::audit::record_denied(
             &state,
