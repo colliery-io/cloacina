@@ -3508,8 +3508,10 @@ mod tests {
                     target_triple: "aarch64-apple-darwin".to_string(),
                     capabilities: vec![],
                     max_concurrency: 4,
-                    cpu_millis: None,
-                    memory_bytes: None,
+                    // CLOACINA-T-1027: the agent's totals are on the roster
+                    // row, so every replica packs against the same size.
+                    cpu_millis: Some(4000),
+                    memory_bytes: Some(32 << 30),
                 },
                 cloacina::security::ServerKeyPool::new(),
             )
@@ -3523,6 +3525,8 @@ mod tests {
             .find(|a| a.agent_id == agent_id)
             .expect("agent registered via replica A must be live on replica B");
         assert_eq!(seen.tenant_id.as_deref(), Some(tenant.as_str()));
+        assert_eq!(seen.cpu_millis, Some(4000));
+        assert_eq!(seen.memory_bytes, Some(32 << 30));
         assert_eq!(
             registry_b.agent_tenant(&agent_id).await.expect("lookup"),
             Some(Some(tenant.clone())),

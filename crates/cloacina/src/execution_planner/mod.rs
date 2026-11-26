@@ -666,3 +666,105 @@ impl TaskScheduler {
         serde_json::json!({})
     }
 }
+
+#[cfg(all(test, feature = "sqlite"))]
+mod placement_row_tests {
+    //! CLOACINA-T-1027: the planner writes a task's agent pool and requests
+    //! on its row when it creates the rows of a workflow execution. The fleet
+    //! packs by the requests, and the waiting gauges group by the pool.
+
+    use super::*;
+    use crate::{Task, TaskError};
+    use cloacina_workflow::TaskPlacement;
+
+    struct PlacedStub {
+        id: String,
+        placement: TaskPlacement,
+    }
+
+    #[async_trait::async_trait]
+    impl Task for PlacedStub {
+        async fn execute(
+            &self,
+            context: Context<serde_json::Value>,
+        ) -> Result<Context<serde_json::Value>, TaskError> {
+            Ok(context)
+        }
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn dependencies(&self) -> &[TaskNamespace] {
+            &[]
+        }
+        fn placement(&self) -> TaskPlacement {
+            self.placement.clone()
+        }
+    }
+
+    fn stub(id: &str, placement: TaskPlacement) -> Arc<dyn Task> {
+        Arc::new(PlacedStub {
+            id: id.to_string(),
+            placement,
+        })
+    }
+
+    #[tokio::test]
+    async fn the_planner_writes_the_pool_and_requests_on_the_task_rows() {
+        let url = format!(
+            "file:placement_rows_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let database = Database::new(&url, "", 5);
+        database.run_migrations().await.expect("migrations");
+
+        let build = || {
+            Workflow::builder("placement_rows_workflow")
+                .add_task(stub(
+                    "big",
+                    TaskPlacement {
+                        pool: Some("large".to_string()),
+                        cpu: Some("500m".to_string()),
+                        memory: Some("32Gi".to_string()),
+                        inline: false,
+                    },
+                ))
+                .expect("add big")
+                .add_task(stub("plain", TaskPlacement::default()))
+                .expect("add plain")
+                .build()
+                .expect("build")
+        };
+        let runtime = Arc::new(Runtime::empty());
+        runtime.register_workflow("placement_rows_workflow".to_string(), build);
+
+        let scheduler =
+            TaskScheduler::with_poll_interval_sync(database.clone(), Duration::from_millis(100))
+                .with_runtime(runtime);
+        let execution_id = scheduler
+            .schedule_workflow_execution("placement_rows_workflow", Context::new())
+            .await
+            .expect("schedule");
+
+        let dal = DAL::new(database);
+        let rows = dal
+            .task_execution()
+            .get_all_tasks_for_workflow(UniversalUuid(execution_id))
+            .await
+            .expect("task rows");
+        assert_eq!(rows.len(), 2);
+        let row = |suffix: &str| {
+            rows.iter()
+                .find(|t| t.task_name.ends_with(suffix))
+                .unwrap_or_else(|| panic!("a row for {suffix}: {rows:?}"))
+        };
+        let big = row("::big");
+        assert_eq!(big.pool.as_deref(), Some("large"));
+        assert_eq!(big.cpu_request_millis, Some(500));
+        assert_eq!(big.memory_request_bytes, Some(32 << 30));
+        assert_eq!(big.fleet_agent_id, None);
+        let plain = row("::plain");
+        assert_eq!(plain.pool, None);
+        assert_eq!(plain.cpu_request_millis, None);
+        assert_eq!(plain.memory_request_bytes, None);
+    }
+}

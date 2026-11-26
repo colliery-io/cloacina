@@ -396,7 +396,7 @@ pub fn over_committed(agent: &FleetAgent, load: &AgentLoad) -> bool {
 fn can_run_package(agent: &FleetAgent, runnable_triples: &Option<Vec<String>>) -> bool {
     runnable_triples
         .as_ref()
-        .map_or(true, |ts| ts.iter().any(|t| t == &agent.target_triple))
+        .is_none_or(|ts| ts.iter().any(|t| t == &agent.target_triple))
 }
 
 /// Select a live fleet agent for a task: same tenant as the work, in the pool
@@ -1073,13 +1073,13 @@ mod tests {
         let b = placed("big-1", Some(1), Some(24));
 
         // Replica A wrote and read before B wrote: A keeps the agent.
-        let seen_by_a = fleet_load(&roster, &[a.clone()]);
+        let seen_by_a = fleet_load(&roster, std::slice::from_ref(&a));
         assert!(!over_committed(agent, &seen_by_a["big-1"]));
         // Replica B wrote second: it sees both placements and withdraws.
         let seen_by_b = fleet_load(&roster, &[a.clone(), b.clone()]);
         assert!(over_committed(agent, &seen_by_b["big-1"]));
         // After B took its placement back, the agent holds one 24 Gi task.
-        let after = fleet_load(&roster, &[a.clone()]);
+        let after = fleet_load(&roster, std::slice::from_ref(&a));
         assert_eq!(after["big-1"].memory_bytes, 24 * GI);
         assert!(!over_committed(agent, &after["big-1"]));
 

@@ -57,11 +57,18 @@ Each `TaskMetadataEntry` carries, in this order (the wire is positional):
 `index`, `id`, `namespaced_id_template`, `dependencies`, `description`,
 `source_location`, `trigger_rules` (JSON), `requires_handle`,
 `retry_policy` (JSON of the task's `RetryPolicy`; empty means the default
-policy) and `timeout_seconds` (`Option<u64>`, the task's own time limit).
-The last two were added under interface version 8 (CLOACINA-T-1014): the
-host's `DynamicLibraryTask` answers `retry_policy()` and `timeout()` from
-them, so a packaged task's `retry_attempts`, `retry_condition` and
-`timeout_seconds` apply on the server.
+policy), `timeout_seconds` (`Option<u64>`, the task's own time limit),
+`pool` (`Option<String>`, the task's agent pool), `cpu` and `memory`
+(`Option<String>`, the task's requests as Kubernetes quantities) and `inline`
+(`bool`).
+`retry_policy` and `timeout_seconds` were added under interface version 8
+(CLOACINA-T-1014): the host's `DynamicLibraryTask` answers `retry_policy()`
+and `timeout()` from them, so a packaged task's `retry_attempts`,
+`retry_condition` and `timeout_seconds` apply on the server.
+`pool`, `cpu`, `memory` and `inline` were added at the end under the same
+version 8 (CLOACINA-T-1027): the host's `DynamicLibraryTask` answers
+`placement()` from them, so a packaged task's pool and requests reach the
+fleet's placement.
 
 ## Method Index 1 — `execute_task`
 
@@ -298,6 +305,10 @@ language-neutral.
     layout changes under the one version 8, which no release shipped
     in between. A package built against version 7 fails the gate and
     must be rebuilt.
+  - **8, no bump** (CLOACINA-T-1027): `TaskMetadataEntry` gained `pool`,
+    `cpu`, `memory` and `inline` at its end, still under version 8, which
+    no release has shipped. A package built from an earlier commit of
+    version 8 must be rebuilt.
 - Method-additive bumps are backward-compatible: methods 4–8 are
   `#[optional(since = 2)]`, 9 is `#[optional(since = 3)]`, 10 is
   `#[optional(since = 4)]`; older plugins return

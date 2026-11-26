@@ -1432,7 +1432,13 @@ def post(ctx):
             let eval = |code: &std::ffi::CStr| -> Option<Py<PyAny>> {
                 Some(py.eval(code, None, None).unwrap().unbind())
             };
-            let cases: Vec<(Option<&str>, Option<Py<PyAny>>, Option<Py<PyAny>>, &str)> = vec![
+            type Case<'a> = (
+                Option<&'a str>,
+                Option<Py<PyAny>>,
+                Option<Py<PyAny>>,
+                &'a str,
+            );
+            let cases: Vec<Case<'_>> = vec![
                 (Some("Large_Pool"), None, None, "pool:"),
                 (None, text("lots"), None, "cpu:"),
                 (None, text("0"), None, "cpu:"),

@@ -84,7 +84,8 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    byte-for-byte the input context it would running locally.
 5. **Enqueue + register a rendezvous.** It registers a one-shot keyed by the
    `task_execution_id`, then enqueues a **work packet** (task name, context,
-   artifact reference, time limit, tenant) into `delivery_outbox` addressed to
+   artifact reference, time limit, tenant, and the task's pool, requests and
+   `inline` mark) into `delivery_outbox` addressed to
    the chosen agent and wakes the delivery relay. The time limit is the
    task's own (see [time limits and retries](#time-limits-and-retries)) or the
    server default.

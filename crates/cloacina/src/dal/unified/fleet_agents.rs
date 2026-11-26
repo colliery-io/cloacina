@@ -340,6 +340,75 @@ mod tests {
         assert_eq!(live[0].available_capacity, 1);
     }
 
+    /// CLOACINA-T-1027: the totals an agent reports are stored on its row,
+    /// read back by another handle, kept across heartbeats and replaced by a
+    /// new registration. An agent that reports none has none.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn agent_totals_are_stored_and_read_back() {
+        let url = shared_url();
+        let dal_a = dal_for(&url).await;
+        let dal_b = DAL::new(Database::new(&url, "", 5));
+        let gi: u64 = 1 << 30;
+
+        let mut sized = reg("sized", Some("acme"), 8);
+        sized.cpu_millis = Some(4000);
+        sized.memory_bytes = Some(32 * gi);
+        dal_a
+            .fleet_agents()
+            .upsert_registration(sized)
+            .await
+            .unwrap();
+        dal_a
+            .fleet_agents()
+            .upsert_registration(reg("by-hand", Some("acme"), 4))
+            .await
+            .unwrap();
+
+        let live = dal_b
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let get = |id: &str| live.iter().find(|a| a.agent_id == id).unwrap().clone();
+        assert_eq!(get("sized").cpu_millis, Some(4000));
+        assert_eq!(get("sized").memory_bytes, Some(32 * gi));
+        assert_eq!(get("by-hand").cpu_millis, None);
+        assert_eq!(get("by-hand").memory_bytes, None);
+
+        // A heartbeat does not touch the totals.
+        assert!(
+            dal_b
+                .fleet_agents()
+                .record_heartbeat("sized", 3, 5)
+                .await
+                .unwrap()
+        );
+        let live = dal_a
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let sized = live.iter().find(|a| a.agent_id == "sized").unwrap();
+        assert_eq!(sized.memory_bytes, Some(32 * gi));
+        assert_eq!(sized.available_capacity, 5);
+
+        // The agent comes back with no totals (started by hand this time).
+        dal_a
+            .fleet_agents()
+            .upsert_registration(reg("sized", Some("acme"), 8))
+            .await
+            .unwrap();
+        let live = dal_a
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let sized = live.iter().find(|a| a.agent_id == "sized").unwrap();
+        assert_eq!(sized.cpu_millis, None);
+        assert_eq!(sized.memory_bytes, None);
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn heartbeat_on_unknown_agent_reports_not_registered() {
