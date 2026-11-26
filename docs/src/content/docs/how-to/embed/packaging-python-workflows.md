@@ -298,6 +298,11 @@ An upload over the limit is refused with status 413 and an error that names the
 size of the upload and the limit. Each platform adds its own copy of the
 dependencies; `--arch` vendors for one architecture.
 
+An archive is also limited in what it unpacks to: 500 MiB, 10,000 files and
+folders, and 10 times its own size. These limits are fixed. `package validate`
+and `package pack` refuse a package source over the first two, and the server
+refuses an archive over any of them.
+
 ### A `vendor/` folder filled by hand
 
 A package with a `vendor/` folder and no `[metadata.vendored]` table still
