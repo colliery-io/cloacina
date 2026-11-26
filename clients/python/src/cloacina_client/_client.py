@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from ._generated import AuthenticatedClient
+from ._generated.api.audit import list_audit, list_tenant_audit
 from ._generated.api.auth import (
     create_account,
     disable_account,
@@ -315,6 +316,61 @@ class Client(_Base):
 
     def remove_tenant(self, schema_name: str):
         return _unwrap(remove_tenant.sync_detailed(schema_name, client=self._gen))
+
+    # ---- audit record (CLOACINA-T-1024) ----
+
+    def list_audit(
+        self,
+        *,
+        tenant: str | None = None,
+        action: str | None = None,
+        actor: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int | None = None,
+        cursor: int | None = None,
+    ):
+        """Audit rows of every tenant and of platform actions, newest first
+        (platform admin key). ``tenant`` narrows to one tenant. Pass a page's
+        ``next_cursor`` as ``cursor`` to read the next page."""
+        return _unwrap(
+            list_audit.sync_detailed(
+                client=self._gen,
+                tenant=tenant if tenant is not None else UNSET,
+                action=action if action is not None else UNSET,
+                actor=actor if actor is not None else UNSET,
+                since=since if since is not None else UNSET,
+                until=until if until is not None else UNSET,
+                limit=limit if limit is not None else UNSET,
+                cursor=cursor if cursor is not None else UNSET,
+            )
+        )
+
+    def list_tenant_audit(
+        self,
+        *,
+        action: str | None = None,
+        actor: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int | None = None,
+        cursor: int | None = None,
+        tenant: str | None = None,
+    ):
+        """Audit rows of one tenant, newest first (tenant admin key).
+        ``tenant`` picks the tenant of the path; default is the client's."""
+        return _unwrap(
+            list_tenant_audit.sync_detailed(
+                self.tenant_segment(tenant),
+                client=self._gen,
+                action=action if action is not None else UNSET,
+                actor=actor if actor is not None else UNSET,
+                since=since if since is not None else UNSET,
+                until=until if until is not None else UNSET,
+                limit=limit if limit is not None else UNSET,
+                cursor=cursor if cursor is not None else UNSET,
+            )
+        )
 
     # ---- secrets (CLOACI-I-0133 / T-0862) ----
     #
@@ -708,6 +764,61 @@ class AsyncClient(_Base):
 
     async def list_tenants(self):
         return _unwrap(await list_tenants.asyncio_detailed(client=self._gen))
+
+    # ---- audit record (CLOACINA-T-1024) ----
+
+    async def list_audit(
+        self,
+        *,
+        tenant: str | None = None,
+        action: str | None = None,
+        actor: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int | None = None,
+        cursor: int | None = None,
+    ):
+        """Audit rows of every tenant and of platform actions, newest first
+        (platform admin key). ``tenant`` narrows to one tenant. Pass a page's
+        ``next_cursor`` as ``cursor`` to read the next page."""
+        return _unwrap(
+            await list_audit.asyncio_detailed(
+                client=self._gen,
+                tenant=tenant if tenant is not None else UNSET,
+                action=action if action is not None else UNSET,
+                actor=actor if actor is not None else UNSET,
+                since=since if since is not None else UNSET,
+                until=until if until is not None else UNSET,
+                limit=limit if limit is not None else UNSET,
+                cursor=cursor if cursor is not None else UNSET,
+            )
+        )
+
+    async def list_tenant_audit(
+        self,
+        *,
+        action: str | None = None,
+        actor: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int | None = None,
+        cursor: int | None = None,
+        tenant: str | None = None,
+    ):
+        """Audit rows of one tenant, newest first (tenant admin key).
+        ``tenant`` picks the tenant of the path; default is the client's."""
+        return _unwrap(
+            await list_tenant_audit.asyncio_detailed(
+                self.tenant_segment(tenant),
+                client=self._gen,
+                action=action if action is not None else UNSET,
+                actor=actor if actor is not None else UNSET,
+                since=since if since is not None else UNSET,
+                until=until if until is not None else UNSET,
+                limit=limit if limit is not None else UNSET,
+                cursor=cursor if cursor is not None else UNSET,
+            )
+        )
 
     # ---- executions ----
 

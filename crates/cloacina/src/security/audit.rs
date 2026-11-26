@@ -26,6 +26,16 @@
 
 use crate::database::universal_types::UniversalUuid;
 
+/// SHA-256 of a package archive, as lowercase hex: the content hash the
+/// registry stores for a package. The audit record of an upload carries it
+/// (CLOACINA-T-1024).
+pub fn package_content_hash(package_data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(package_data);
+    hex::encode(hasher.finalize())
+}
+
 /// Event types for package operations.
 pub mod events {
     /// Package load success event type.
@@ -470,6 +480,14 @@ pub fn log_login_lockout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_content_hash_is_sha256_hex() {
+        assert_eq!(
+            package_content_hash(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::fmt::MakeWriter;
 

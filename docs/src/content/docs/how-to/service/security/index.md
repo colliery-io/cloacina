@@ -9,3 +9,4 @@ Guides for securing your Cloacina deployment.
 
 - [Package Signing](package-signing/)
 - [Local Development](local-development/)
+- [Audit Record](audit-record/)

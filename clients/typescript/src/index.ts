@@ -17,7 +17,10 @@
 export {
   CloacinaApiError,
   CloacinaClient,
+  type AuditEvent,
+  type AuditListResponse,
   type CloacinaClientOptions,
+  type ListAuditQuery,
   type CreateSecretBody,
   type ErrorBody,
   type RotateSecretBody,
