@@ -58,11 +58,29 @@ server — API-key and local-account auth keep working, and the OIDC routes retu
 - `domain:<example.com>` — the identity's email is in this domain,
 - `sub:<subject>` — an exact subject match.
 
-`<tenant>` may be `_` for a global principal; `<role>` is `read` / `write` / `admin`.
+`<tenant>` is a tenant name; `<role>` is `read` / `write` / `admin`.
 
 ```
-CLOACINA_OIDC_MAP="group:platform-admins=_:admin;group:acme-eng=acme:write;domain:acme.com=acme:read"
+CLOACINA_OIDC_MAP="group:acme-admins=acme:admin;group:acme-eng=acme:write;domain:acme.com=acme:read"
 ```
+
+### What a `_` rule grants
+
+`<tenant>` may be `_`. Such a rule mints a key with **no tenant**. It does not
+make a platform admin: no OIDC rule sets `is_admin`, and "no tenant" grants
+nothing by itself. Whatever its role, that key:
+
+- can sign in, read `GET /v1/auth/whoami`, refresh and log out;
+- reaches no tenant route (`/v1/tenants/{tenant}/...`) and no platform route;
+- sees no computation graph, reactor or accumulator, and cannot inject, fire,
+  pause or resume one;
+- is refused by the delivery WebSocket (`403`), so it gets no operations stream
+  and no execution events.
+
+To give a person access to a tenant's work, map them to that tenant. To give
+one the `public` tenant, write `public`, not `_`. Platform administration uses
+the bootstrap key. See
+[A key with no tenant](../../../explanation/service/security-model/#a-key-with-no-tenant).
 
 An identity matching **no** rule is denied (`403`). Rules are evaluated in order;
 **the first match per tenant wins**, and an identity that matches rules for

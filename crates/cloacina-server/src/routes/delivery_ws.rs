@@ -53,19 +53,40 @@ pub async fn delivery_ws(
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     let auth = authenticate_substrate_ws(&state, &headers, &query).await?;
+    let tenant = connection_tenant(&auth)?;
     info!(
         recipient = %recipient,
         key = %auth.name,
         tenant = ?auth.tenant_id,
         "delivery WebSocket upgrade accepted"
     );
-    let tenant = auth.tenant_id.clone();
     let dal = DAL::new(state.database.clone());
     let sink = state.delivery_sink.clone();
     let wake = state.delivery_wake.clone();
     Ok(ws.on_upgrade(move |socket| {
         handle_delivery_socket(socket, recipient, tenant, dal, sink, wake)
     }))
+}
+
+/// The tenant a delivery connection is registered under (CLOACINA-T-1053).
+///
+/// The sink matches `(recipient, tenant)` exactly, and a connection with no
+/// tenant is the admin view: it gets the rows with no tenant and the
+/// all-tenant snapshot of `ops_metrics:global`. So "no tenant" on the
+/// connection must mean "admin", never only "the key has no tenant":
+///
+/// - a key with a tenant: that tenant;
+/// - an admin key with no tenant: no tenant, the admin view;
+/// - a key with no tenant that is not an admin (an OIDC `_` rule): refused.
+fn connection_tenant(auth: &AuthenticatedKey) -> Result<Option<String>, ApiError> {
+    match (&auth.tenant_id, auth.is_admin) {
+        (Some(tenant), _) => Ok(Some(tenant.clone())),
+        (None, true) => Ok(None),
+        (None, false) => Err(ApiError::forbidden(
+            "tenant_access_denied",
+            "key has no tenant",
+        )),
+    }
 }
 
 /// Token extraction + validation. Bearer header preferred; falls back to the
@@ -272,4 +293,48 @@ async fn handle_client_frame(text: &str, dal: &DAL) -> FrameOutcome {
         }
     }
     FrameOutcome::Ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(tenant: Option<&str>, is_admin: bool, role: &str) -> AuthenticatedKey {
+        AuthenticatedKey {
+            key_id: uuid::Uuid::new_v4(),
+            name: "t".into(),
+            permissions: role.into(),
+            tenant_id: tenant.map(str::to_string),
+            is_admin,
+        }
+    }
+
+    // CLOACINA-T-1053: a connection with no tenant is the admin view, so only
+    // an admin key gets one.
+    #[test]
+    fn admin_key_connects_with_no_tenant() {
+        assert_eq!(connection_tenant(&key(None, true, "admin")).unwrap(), None);
+    }
+
+    #[test]
+    fn tenant_key_connects_under_its_tenant() {
+        for tenant in ["acme", "public"] {
+            assert_eq!(
+                connection_tenant(&key(Some(tenant), false, "read")).unwrap(),
+                Some(tenant.to_string())
+            );
+        }
+    }
+
+    /// The key an OIDC `_` rule makes is refused, whatever its role: it would
+    /// otherwise subscribe as the admin view and receive the operations
+    /// stream of all tenants.
+    #[test]
+    fn no_tenant_non_admin_key_is_refused() {
+        for role in ["read", "write", "admin"] {
+            let err = connection_tenant(&key(None, false, role)).unwrap_err();
+            assert_eq!(err.status, axum::http::StatusCode::FORBIDDEN);
+            assert_eq!(err.code, "tenant_access_denied");
+        }
+    }
 }

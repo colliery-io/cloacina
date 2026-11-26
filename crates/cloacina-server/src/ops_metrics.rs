@@ -38,7 +38,9 @@ use crate::AppState;
 /// Recipient the Operations UI subscribes to. The delivery sink matches
 /// `(recipient, tenant)` exactly; CLOACI-T-0779 publishes a SEPARATE snapshot per
 /// tenant under this recipient, so each connection (admin = `None`, a scoped key
-/// = its tenant) receives its OWN tenant-scoped operational state.
+/// = its tenant) receives its OWN tenant-scoped operational state. A connection
+/// with no tenant is an admin's: the delivery socket refuses a key with no
+/// tenant that is not an admin (CLOACINA-T-1053).
 const OPS_RECIPIENT: &str = "ops_metrics:global";
 
 /// Publish cadence.
@@ -74,7 +76,7 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
                     }
                 }
                 _ = ticker.tick() => {
-                    // Candidate views: admin (None), the public realm, and every
+                    // Candidate views: admin (None), the `public` tenant, and every
                     // tenant schema. We only gather for views with a live
                     // subscriber, so the cost is a single list query + one
                     // has_recipient check per candidate when nobody's watching.
@@ -135,14 +137,16 @@ pub fn spawn(state: AppState, mut shutdown: watch::Receiver<bool>) {
 /// pollers: `/health`+`/ready`, `GET /v1/compiler/status`, `GET /v1/agents`,
 /// and the reconciler/package-availability counts.
 /// Does an item owned by `item_tenant` belong to the ops view scoped to
-/// `view`? CLOACI-T-0779: `None` view = admin (sees everything); `"public"` view
-/// = the null-tenant realm (public tasks/agents/graphs carry tenant_id = None);
-/// any other view = exact tenant match. So a tenant sees only its own
-/// operational state.
+/// `view`? CLOACI-T-0779: `None` view = admin (sees everything); any other
+/// view = exact tenant match. So a tenant sees only its own operational state.
+///
+/// CLOACINA-T-1053: `public` is a tenant like any other. Its agents and graphs
+/// carry `Some("public")` (CLOACI-T-0817), so the `public` view matches them
+/// exactly. An item with no tenant (an agent that a key with no tenant
+/// registered) is in the admin view only.
 fn in_view(item_tenant: Option<&str>, view: Option<&str>) -> bool {
     match view {
         None => true,
-        Some("public") => item_tenant.is_none(),
         Some(t) => item_tenant == Some(t),
     }
 }
@@ -281,7 +285,32 @@ async fn gather(state: &AppState, view: Option<&str>) -> OpsMetricsEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::OPS_RECIPIENT;
+    use super::{OPS_RECIPIENT, in_view};
+
+    // CLOACINA-T-1053: only the admin view (`None`) sees every tenant.
+    #[test]
+    fn admin_view_sees_every_item() {
+        assert!(in_view(Some("acme"), None));
+        assert!(in_view(Some("public"), None));
+        assert!(in_view(None, None));
+    }
+
+    #[test]
+    fn tenant_view_sees_its_own_items_only() {
+        assert!(in_view(Some("acme"), Some("acme")));
+        assert!(!in_view(Some("globex"), Some("acme")));
+        assert!(!in_view(Some("public"), Some("acme")));
+        assert!(!in_view(None, Some("acme")));
+    }
+
+    // `public` is a tenant: its view holds the items that carry `public`, not
+    // the items with no tenant.
+    #[test]
+    fn public_view_is_the_public_tenant_not_the_items_with_no_tenant() {
+        assert!(in_view(Some("public"), Some("public")));
+        assert!(!in_view(None, Some("public")));
+        assert!(!in_view(Some("acme"), Some("public")));
+    }
 
     // CLOACINA-T-0952: the ops stream must fan out to every tab on a tenant.
     #[test]

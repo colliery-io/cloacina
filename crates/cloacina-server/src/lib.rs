@@ -847,7 +847,11 @@ pub async fn run(
 
     info!("Connected to Postgres, migrations applied");
 
-    let endpoint_registry = EndpointRegistry::new();
+    // CLOACINA-T-1053: the server's registry requires a tenant on every
+    // graph endpoint. The reconciler of each runner stamps its tenant
+    // (`public` for the admin runner), so no graph loads with the allow-all
+    // policy of embedded use, and a key reaches its own tenant's graphs only.
+    let endpoint_registry = EndpointRegistry::requiring_tenants();
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
     let mut graph_scheduler_inner =
         ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone());
@@ -2832,8 +2836,10 @@ mod tests {
             database: database.clone(),
             runner,
             key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
-            endpoint_registry: EndpointRegistry::new(),
-            graph_scheduler: Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new())),
+            endpoint_registry: EndpointRegistry::requiring_tenants(),
+            graph_scheduler: Arc::new(ComputationGraphScheduler::new(
+                EndpointRegistry::requiring_tenants(),
+            )),
             delivery_sink: _test_delivery_sink,
             delivery_wake: _test_delivery_wake,
             agent_registry: Arc::new(crate::agent_registry::AgentRegistry::new(
@@ -3725,6 +3731,216 @@ mod tests {
             items.iter().any(|g| g["name"] == "t0916_crash_graph"),
             "the crashed graph must remain visible via /v1/health/graphs: {body}"
         );
+    }
+
+    /// CLOACINA-T-1053: on a server a graph of the `public` tenant carries the
+    /// tenant `public`, and "no tenant" on a key grants nothing.
+    ///
+    /// - A graph with no tenant is refused at load.
+    /// - A key of another tenant and a key with no tenant that is not an admin
+    ///   (an OIDC `_` rule) do not see the `public` graph, and cannot inject
+    ///   into or fire it.
+    /// - The key with no tenant still reads `whoami`.
+    /// - A `public` key and the admin key see the graph.
+    #[tokio::test]
+    #[serial]
+    async fn t1053_public_graph_is_closed_to_other_tenants_and_no_tenant_keys() {
+        use cloacina::computation_graph::reactor::{
+            CompiledGraphFn, InputStrategy, ReactionCriteria,
+        };
+        use cloacina::computation_graph::scheduler::{
+            AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
+            ComputationGraphDeclaration, ReactorDeclaration,
+        };
+        use cloacina::computation_graph::types::GraphResult;
+        use cloacina::computation_graph::{InputCache, SourceName};
+        use tokio::sync::{mpsc, watch};
+
+        /// An accumulator that reads its socket and emits nothing.
+        struct DrainFactory;
+        impl AccumulatorFactory for DrainFactory {
+            fn spawn(
+                &self,
+                _name: String,
+                _boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+                mut shutdown_rx: watch::Receiver<bool>,
+                _config: AccumulatorSpawnConfig,
+            ) -> (mpsc::Sender<Vec<u8>>, tokio::task::JoinHandle<()>) {
+                let (socket_tx, mut socket_rx) = mpsc::channel::<Vec<u8>>(64);
+                let handle = tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            changed = shutdown_rx.changed() => {
+                                if changed.is_err() || *shutdown_rx.borrow() {
+                                    break;
+                                }
+                            }
+                            event = socket_rx.recv() => {
+                                if event.is_none() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+                (socket_tx, handle)
+            }
+        }
+
+        fn decl(tenant: Option<&str>) -> ComputationGraphDeclaration {
+            let graph_fn: CompiledGraphFn =
+                Arc::new(|_cache: InputCache| Box::pin(async { GraphResult::completed(vec![]) }));
+            ComputationGraphDeclaration {
+                name: "t1053_public_graph".to_string(),
+                accumulators: vec![AccumulatorDeclaration {
+                    name: "t1053_public_acc".to_string(),
+                    factory: Arc::new(DrainFactory),
+                }],
+                reactor: ReactorDeclaration {
+                    criteria: ReactionCriteria::WhenAny,
+                    strategy: InputStrategy::Latest,
+                    graph_fn,
+                    constructor: None,
+                },
+                tenant_id: tenant.map(str::to_string),
+                reactor_name: Some("t1053_public_rx".to_string()),
+                topology: None,
+            }
+        }
+
+        // The registry and the scheduler as `run` builds them.
+        let mut state = test_state().await;
+        let registry = EndpointRegistry::requiring_tenants();
+        state.endpoint_registry = registry.clone();
+        state.graph_scheduler = Arc::new(ComputationGraphScheduler::new(registry.clone()));
+
+        let err = state
+            .graph_scheduler
+            .load_graph(decl(None))
+            .await
+            .expect_err("the server refuses a graph with no tenant");
+        assert!(err.contains("has no tenant"), "{err}");
+        state
+            .graph_scheduler
+            .load_graph(decl(Some("public")))
+            .await
+            .expect("the public graph loads");
+
+        let admin_key = create_test_api_key(&state).await;
+        let public_key = create_tenant_api_key(&state, "public", "admin").await;
+        let acme_key = create_tenant_api_key(&state, "t1053_acme", "admin").await;
+        // The key an OIDC `_` rule mints: no tenant, not a platform admin.
+        let no_tenant_key = {
+            let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+            cloacina::dal::DAL::new(state.database.clone())
+                .api_keys()
+                .create_key(&hash, "t1053-no-tenant", None, false, "admin")
+                .await
+                .expect("create the no-tenant key");
+            plaintext
+        };
+        let scheduler = state.graph_scheduler.clone();
+        let app = build_router(state);
+
+        let get = |uri: &str, key: &str| {
+            axum::http::Request::builder()
+                .uri(uri)
+                .header("Authorization", format!("Bearer {key}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let post = |uri: &str, key: &str, body: serde_json::Value| {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Authorization", format!("Bearer {key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let names = |body: &serde_json::Value| -> Vec<String> {
+            body["items"]
+                .as_array()
+                .expect("items array")
+                .iter()
+                .filter_map(|i| i["name"].as_str().map(str::to_string))
+                .collect()
+        };
+
+        for (who, key) in [("another tenant", &acme_key), ("no tenant", &no_tenant_key)] {
+            for uri in [
+                "/v1/health/graphs",
+                "/v1/health/reactors",
+                "/v1/health/accumulators",
+            ] {
+                let (status, body) = send_request(app.clone(), get(uri, key)).await;
+                assert_eq!(status, StatusCode::OK, "{who}: GET {uri}: {body}");
+                assert!(
+                    !names(&body).iter().any(|n| n.starts_with("t1053_public_")),
+                    "{who}: GET {uri} must not list the public graph: {body}"
+                );
+            }
+            let (status, _) = send_request(
+                app.clone(),
+                get("/v1/health/graphs/t1053_public_graph", key),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{who}: graph detail");
+            let (status, _) = send_request(
+                app.clone(),
+                get("/v1/health/reactors/t1053_public_rx/fires", key),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{who}: reactor fires");
+
+            let (status, body) = send_request(
+                app.clone(),
+                post(
+                    "/v1/health/accumulators/t1053_public_acc/inject",
+                    key,
+                    serde_json::json!({ "event": { "v": 1 } }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{who}: inject: {body}");
+            let (status, body) = send_request(
+                app.clone(),
+                post(
+                    "/v1/health/reactors/t1053_public_rx/fire",
+                    key,
+                    serde_json::json!({ "mode": "force_fire" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{who}: fire: {body}");
+        }
+
+        // What the key with no tenant keeps: its own session routes.
+        let (status, body) =
+            send_request(app.clone(), get("/v1/auth/whoami", &no_tenant_key)).await;
+        assert_eq!(status, StatusCode::OK, "whoami: {body}");
+
+        // The public tenant's own key and the platform admin see the graph.
+        for (who, key) in [("public", &public_key), ("admin", &admin_key)] {
+            let (status, body) = send_request(app.clone(), get("/v1/health/graphs", key)).await;
+            assert_eq!(status, StatusCode::OK, "{who}: {body}");
+            assert!(
+                names(&body).contains(&"t1053_public_graph".to_string()),
+                "{who} must see the public graph: {body}"
+            );
+        }
+        let (status, body) = send_request(
+            app.clone(),
+            post(
+                "/v1/health/accumulators/t1053_public_acc/inject",
+                &public_key,
+                serde_json::json!({ "event": { "v": 1 } }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "public inject: {body}");
+
+        scheduler.shutdown_all().await;
     }
 
     #[tokio::test]

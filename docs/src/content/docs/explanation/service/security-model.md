@@ -85,6 +85,25 @@ Cloacina keys carry two pieces of authority: a **tenant-scoped role** (`admin` /
 
 The `is_admin = false` + `role = admin` combination — i.e., "I'm admin within my own tenant" — is the expected production posture for tenant operators. Reserve `is_admin = true` for the operations team running the platform.
 
+### A key with no tenant
+
+"No tenant" is not "admin". The all-tenant view comes from the `is_admin` flag only.
+
+- The **bootstrap key** has no tenant and `is_admin = true`. It passes every check.
+- `public` is a **tenant** like any other. A key of `public` carries the tenant `public`.
+- A key with **no tenant and `is_admin = false`** is made only by an OIDC mapping rule for the tenant `_` (see [Configure OIDC SSO](../../../how-to/service/configure-oidc-sso/#what-a-_-rule-grants)). It has its session and no tenant's data:
+
+| It can | It cannot |
+|---|---|
+| `GET /v1/auth/whoami` | reach a tenant route or a platform route |
+| `POST /v1/auth/refresh`, `POST /v1/auth/logout` | see a computation graph, reactor or accumulator |
+| `POST /v1/auth/ws-ticket` (the ticket carries the same scope) | inject into an accumulator; fire, pause or resume a reactor, over REST or WebSocket |
+| | open the delivery WebSocket: `403`, so no operations stream (`ops_metrics:global`) and no execution events |
+
+Its role (`read` / `write` / `admin`) does not change this. The agent routes (`/v1/agent/*`) take the tenant from the key: an agent registered with such a key has no tenant and is given no tenant's work, and the package fetch routes refuse the key.
+
+On the delivery WebSocket a connection belongs to the key's tenant. Only an `is_admin` key connects with no tenant, and only that connection receives the all-tenant operations snapshot.
+
 ### Authorization: the ABAC route table
 
 As of CLOACI-I-0118, authorization is a single, fail-closed middleware layer that lives in **`cloacina-server` only** — the embedded library and the daemon have no such layer because they have no multi-tenant surface to gate. Every `/v1/*` route is classified once, at startup, into a declarative table keyed by `(method, path)` and mapping to a required **scope** (platform / tenant / any) and **level** (read / write / admin). A small, total matcher — `evaluate(principal, scope, level) -> Permit | Deny` — runs on every request after authentication:
@@ -249,6 +268,8 @@ CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier ser
 - **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
 - **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
+
+- **Computation graphs carry their tenant.** The server stamps every graph, reactor and accumulator with the tenant of the runner that loads it: `public` for the packages of the `public` tenant, the tenant's name for the others. The server refuses to load a graph with no tenant. A key sees, injects into, fires and pauses the graphs of its own tenant only; a key of another tenant cannot reach the graphs of `public`. Reactor ownership and the owner-address table use the same `(tenant, name)` pair. Graphs with no tenant, open to every caller, exist in embedded use only (a `ComputationGraphScheduler` in your own process, no server, no tenants).
 
 What multi-tenant isolation **does not** guarantee:
 
