@@ -351,6 +351,31 @@ pub fn build_authz_table() -> AuthzTable {
         Access::tenant(Level::Read),
     );
 
+    // CLOACINA-T-1021: agent pools. Creating, changing or removing a pool is
+    // god-only (platform + admin), as the agent limit is: a pool sets the size,
+    // the cloud identity and the network reach of a tenant's agents. Reading is
+    // tenant-scoped.
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/pools",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/pools/{pool}",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::PUT,
+        "/tenants/{tenant_id}/pools/{pool}",
+        Access::platform(Level::Admin),
+    );
+    add(
+        Method::DELETE,
+        "/tenants/{tenant_id}/pools/{pool}",
+        Access::platform(Level::Admin),
+    );
+
     // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
     // Provision/deprovision is tenant self-service (tenant-admin on its OWN
     // tenant; god bypasses; cross-tenant denied); reading the fleet view is a
@@ -997,7 +1022,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            72,
+            76,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
@@ -1041,6 +1066,23 @@ mod tests {
         assert_eq!(
             get(Method::GET, "/tenants/{tenant_id}/limits"),
             Some(Access::tenant(Level::Read))
+        );
+        // CLOACINA-T-1021: agent pools — put/delete god-only, read tenant-scoped.
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/pools"),
+            Some(Access::tenant(Level::Read))
+        );
+        assert_eq!(
+            get(Method::GET, "/tenants/{tenant_id}/pools/{pool}"),
+            Some(Access::tenant(Level::Read))
+        );
+        assert_eq!(
+            get(Method::PUT, "/tenants/{tenant_id}/pools/{pool}"),
+            Some(Access::platform(Level::Admin))
+        );
+        assert_eq!(
+            get(Method::DELETE, "/tenants/{tenant_id}/pools/{pool}"),
+            Some(Access::platform(Level::Admin))
         );
         // CLOACI-T-0809: fleet scaling — provision/deprovision tenant-admin, read tenant-scoped.
         assert_eq!(

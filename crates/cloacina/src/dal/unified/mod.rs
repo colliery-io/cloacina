@@ -47,6 +47,7 @@ use crate::database::{AnyPool, BackendType, Database};
 pub mod agent_desired;
 #[cfg(feature = "postgres")]
 pub mod agent_limits;
+pub mod agent_pools;
 #[cfg(feature = "postgres")]
 pub mod api_keys;
 pub mod audit_events;
@@ -82,6 +83,7 @@ pub mod ws_tickets;
 pub use agent_desired::AgentDesiredDAL;
 #[cfg(feature = "postgres")]
 pub use agent_limits::AgentLimitsDAL;
+pub use agent_pools::AgentPoolsDAL;
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use audit_events::{AuditEvent, AuditEventDAL, AuditEventFilter, NewAuditEvent};
@@ -270,6 +272,13 @@ impl DAL {
     /// for multi-replica selection, capacity views and reclaim). CLOACI-T-0916.
     pub fn fleet_agents(&self) -> FleetAgentDAL<'_> {
         FleetAgentDAL::new(self)
+    }
+
+    /// Returns the agent-pools DAL: the settings of each pool of a tenant
+    /// (resources, concurrency, image, service account, extra egress, agent
+    /// count). CLOACINA-T-1021.
+    pub fn agent_pools(&self) -> AgentPoolsDAL<'_> {
+        AgentPoolsDAL::new(self)
     }
 
     /// Returns a single-use WebSocket-ticket DAL (DB-backed so a ticket

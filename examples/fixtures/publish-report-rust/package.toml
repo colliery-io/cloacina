@@ -1,0 +1,17 @@
+# Fixture of the publishing behaviour spec (CLOACINA-T-1026,
+# features/publishing/independent_publish.feature): team A's "report job",
+# version 0.1.0. A Rust package with one task and a cron trigger. It carries
+# version deps, the form a team ships, so the compiler in the cluster can
+# build it.
+[package]
+name = "publish-report-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "publish_report"
+language = "rust"
+description = "publishing spec fixture: report job on a schedule"
+author = "team-a"

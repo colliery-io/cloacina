@@ -40,7 +40,13 @@ from ._generated.api.executions import (
     get_execution_tasks,
     list_executions,
 )
-from ._generated.api.fleet import list_agents
+from ._generated.api.fleet import (
+    delete_pool,
+    get_pool,
+    list_agents,
+    list_pools,
+    put_pool,
+)
 from ._generated.api.graph_health import (
     fire_reactor,
     get_accumulator_interface,
@@ -97,6 +103,7 @@ from ._generated.api.workflows import (
     upload_workflow,
 )
 from ._generated.models import (
+    AgentPoolSettings,
     CreateAccountRequest,
     CreateInstanceRequest,
     CreateKeyRequest,
@@ -731,6 +738,48 @@ class Client(_Base):
     def list_agents(self):
         return _unwrap(list_agents.sync_detailed(client=self._gen))
 
+    # ---- agent pools ----
+
+    def list_pools(self, tenant: str | None = None):
+        """List the tenant's agent pools. Every tenant has `default`."""
+        return _unwrap(
+            list_pools.sync_detailed(self.tenant_segment(tenant), client=self._gen)
+        )
+
+    def get_pool(self, pool: str, tenant: str | None = None):
+        """Get one agent pool."""
+        return _unwrap(
+            get_pool.sync_detailed(self.tenant_segment(tenant), pool, client=self._gen)
+        )
+
+    def put_pool(
+        self, pool: str, settings: dict[str, Any], tenant: str | None = None
+    ):
+        """Create an agent pool, or replace its settings as a whole.
+
+        `settings` is the settings object as a dict. Needs a platform-admin key.
+        """
+        return _unwrap(
+            put_pool.sync_detailed(
+                self.tenant_segment(tenant),
+                pool,
+                client=self._gen,
+                body=AgentPoolSettings.from_dict(settings),
+            )
+        )
+
+    def delete_pool(self, pool: str, tenant: str | None = None) -> None:
+        """Remove an agent pool (for `default`: clear its settings).
+
+        The server answers 409 while the pool has agents. Needs a
+        platform-admin key.
+        """
+        _unwrap(
+            delete_pool.sync_detailed(
+                self.tenant_segment(tenant), pool, client=self._gen
+            )
+        )
+
     # ---- compiler ----
 
     def compiler_status(self):
@@ -909,6 +958,52 @@ class AsyncClient(_Base):
 
     async def list_agents(self):
         return _unwrap(await list_agents.asyncio_detailed(client=self._gen))
+
+    # ---- agent pools ----
+
+    async def list_pools(self, tenant: str | None = None):
+        """List the tenant's agent pools. Every tenant has `default`."""
+        return _unwrap(
+            await list_pools.asyncio_detailed(
+                self.tenant_segment(tenant), client=self._gen
+            )
+        )
+
+    async def get_pool(self, pool: str, tenant: str | None = None):
+        """Get one agent pool."""
+        return _unwrap(
+            await get_pool.asyncio_detailed(
+                self.tenant_segment(tenant), pool, client=self._gen
+            )
+        )
+
+    async def put_pool(
+        self, pool: str, settings: dict[str, Any], tenant: str | None = None
+    ):
+        """Create an agent pool, or replace its settings as a whole.
+
+        `settings` is the settings object as a dict. Needs a platform-admin key.
+        """
+        return _unwrap(
+            await put_pool.asyncio_detailed(
+                self.tenant_segment(tenant),
+                pool,
+                client=self._gen,
+                body=AgentPoolSettings.from_dict(settings),
+            )
+        )
+
+    async def delete_pool(self, pool: str, tenant: str | None = None) -> None:
+        """Remove an agent pool (for `default`: clear its settings).
+
+        The server answers 409 while the pool has agents. Needs a
+        platform-admin key.
+        """
+        _unwrap(
+            await delete_pool.asyncio_detailed(
+                self.tenant_segment(tenant), pool, client=self._gen
+            )
+        )
 
     # ---- compiler ----
 
