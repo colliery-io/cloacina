@@ -238,6 +238,8 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 |---|---|---|---|
 | `--agent-heartbeat-interval-s <N>` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Heartbeat interval (seconds) advertised to agents and used as the liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, more heartbeat traffic. CLOACI-T-0639. |
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
+| `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. CLOACINA-T-1014. |
+| `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
 
 ### Alert webhook (`cloacina-server`)
 

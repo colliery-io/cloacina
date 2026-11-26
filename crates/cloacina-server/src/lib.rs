@@ -368,6 +368,9 @@ pub async fn run(
     // the prior hardcoded 15s/45s.
     agent_heartbeat_interval_s: u32,
     agent_liveness_misses: u32,
+    // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
+    // A task with a limit of its own gets that limit, capped at the maximum.
+    fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
@@ -1077,7 +1080,8 @@ pub async fn run(
                         result_handler,
                         runner.runtime(),
                     )
-                    .with_secret_resolver_factory(reg_secret_factory.clone());
+                    .with_secret_resolver_factory(reg_secret_factory.clone())
+                    .with_task_time_limits(fleet_task_time_limits);
                     if runner.register_executor("fleet", Arc::new(fleet_executor)) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
@@ -1248,7 +1252,8 @@ pub async fn run(
             state.runner.runtime(),
         )
         // CLOACI-T-0862: activate the secret resolver seam on the global executor.
-        .with_secret_resolver_factory(secret_resolver_factory.clone());
+        .with_secret_resolver_factory(secret_resolver_factory.clone())
+        .with_task_time_limits(fleet_task_time_limits);
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))

@@ -72,6 +72,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
 | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `--outbox-acked-retention-s` | `3600` | Seconds to keep a `delivery_outbox` row after its ack. `0` turns it off. |
 | `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
+| `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. |
+| `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
 | `CLOACINA_CORS_ALLOWED_METHODS` | `--cors-allowed-methods` | `GET,POST,DELETE,OPTIONS` | Comma-separated allowed methods. |
 | `CLOACINA_CORS_ALLOWED_HEADERS` | `--cors-allowed-headers` | `authorization,content-type` | Comma-separated allowed request headers. |
@@ -439,6 +441,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
+| `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |
+| `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | Server | Longest time limit a fleet task can get (default `86400`) |
 | `CLOACINA_DEFAULT_MAX_AGENTS` | Server | Platform-wide default per-tenant agent limit (default `4`) |
 | `CLOACINA_INITIAL_AGENTS` | Server | Agents auto-provisioned on tenant create (default `1`; `0` disables) |
 | `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` / `kubernetes` (default `none`) |

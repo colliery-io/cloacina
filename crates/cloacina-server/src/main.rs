@@ -149,6 +149,28 @@ struct Cli {
     #[arg(long, env = "CLOACINA_AGENT_LIVENESS_MISSES", default_value_t = 3)]
     agent_liveness_misses: u32,
 
+    /// Time limit (seconds) of a fleet task that sets none of its own. The
+    /// agent stops waiting for the task after this long and the attempt fails
+    /// as a timeout. A task sets its own limit with
+    /// `#[task(timeout_seconds = N)]` or `@task(timeout_seconds=N)`.
+    /// Default 300. CLOACINA-T-1014.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_TASK_TIMEOUT_S",
+        default_value_t = cloacina_server::fleet_executor::FleetTaskTimeLimits::DEFAULT_SECONDS
+    )]
+    fleet_task_timeout_s: u64,
+
+    /// Longest time limit (seconds) a fleet task can get. A task that asks
+    /// for more gets this value, with a warning in the log. Must not be below
+    /// `--fleet-task-timeout-s`. Default 86400 (24 hours). CLOACINA-T-1014.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_TASK_TIMEOUT_MAX_S",
+        default_value_t = cloacina_server::fleet_executor::FleetTaskTimeLimits::DEFAULT_MAX_SECONDS
+    )]
+    fleet_task_timeout_max_s: u64,
+
     /// CORS allowed origins, comma-separated (e.g.
     /// `https://ops.example.com,https://ui.example.com`, or `*` for any).
     /// CORS is DISABLED unless this is set — browser consumers require an
@@ -279,6 +301,14 @@ async fn main() -> Result<()> {
         cloacina_server::alerts::install(config);
     }
 
+    // Fail at start on limits the server cannot run with (CLOACINA-T-1014).
+    let fleet_task_time_limits =
+        cloacina_server::fleet_executor::FleetTaskTimeLimits::from_seconds(
+            cli.fleet_task_timeout_s,
+            cli.fleet_task_timeout_max_s,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+
     cloacina_server::run(
         cli.home,
         cli.bind,
@@ -295,6 +325,7 @@ async fn main() -> Result<()> {
         cli.default_executor,
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
+        fleet_task_time_limits,
         cloacina_server::CorsConfig {
             allowed_origins: cli.cors_allowed_origins,
             allowed_methods: cli.cors_allowed_methods,

@@ -471,20 +471,7 @@ impl TaskResultHandler {
             return Ok(false);
         }
 
-        let should_retry = retry_policy
-            .retry_conditions
-            .iter()
-            .all(|condition| match condition {
-                RetryCondition::Never => false,
-                RetryCondition::AllErrors => true,
-                RetryCondition::TransientOnly => self.is_transient_error(error),
-                RetryCondition::ErrorPattern { patterns } => {
-                    let error_msg = error.to_string().to_lowercase();
-                    patterns
-                        .iter()
-                        .any(|pattern| error_msg.contains(&pattern.to_lowercase()))
-                }
-            });
+        let should_retry = Self::retry_allowed(retry_policy, claimed_task.attempt, error);
 
         debug!(
             "Retry decision for task {}: {} (conditions: {:?}, error: {})",
@@ -494,11 +481,47 @@ impl TaskResultHandler {
         Ok(should_retry)
     }
 
+    /// The retry decision for one failed attempt, with no I/O: `true` when the
+    /// policy allows another attempt after `attempt` failed with `error`.
+    ///
+    /// Public so the fleet executor's tests can show that the error it builds
+    /// from an agent's report reaches the retry conditions (CLOACINA-T-1014).
+    /// A condition is a test on the error text, so the text is part of the
+    /// contract.
+    pub fn retry_allowed(retry_policy: &RetryPolicy, attempt: i32, error: &ExecutorError) -> bool {
+        if matches!(error, ExecutorError::ClaimLost) {
+            return false;
+        }
+        if attempt >= retry_policy.max_attempts {
+            return false;
+        }
+        retry_policy
+            .retry_conditions
+            .iter()
+            .all(|condition| match condition {
+                RetryCondition::Never => false,
+                RetryCondition::AllErrors => true,
+                RetryCondition::TransientOnly => Self::error_is_transient(error),
+                RetryCondition::ErrorPattern { patterns } => {
+                    let error_msg = error.to_string().to_lowercase();
+                    patterns
+                        .iter()
+                        .any(|pattern| error_msg.contains(&pattern.to_lowercase()))
+                }
+            })
+    }
+
     /// Classifies whether an error looks transient enough to retry under
     /// `RetryCondition::TransientOnly`. Public so the unit tests that pin the
     /// classification (moved here from ThreadTaskExecutor in T-0630) can
     /// exercise it directly.
     pub fn is_transient_error(&self, error: &ExecutorError) -> bool {
+        Self::error_is_transient(error)
+    }
+
+    /// [`Self::is_transient_error`] with no handler: the classification reads
+    /// only the error.
+    pub fn error_is_transient(error: &ExecutorError) -> bool {
         match error {
             ExecutorError::TaskTimeout => true,
             ExecutorError::Database(_) => true,
