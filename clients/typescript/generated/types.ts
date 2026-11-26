@@ -1365,9 +1365,9 @@ export interface components {
          */
         AgentPoolSettings: {
             /**
-             * @description The pod's `automountServiceAccountToken`. Absent: the field is left
-             *     out and the cluster default applies. The agent does not call the
-             *     Kubernetes API, so `false` is the tighter setting.
+             * @description The pod's `automountServiceAccountToken`. Absent means `false`: the
+             *     pod mounts no ServiceAccount token. The agent does not call the
+             *     Kubernetes API. Set `true` for a pool whose identity system needs it.
              */
             automount_service_account_token?: boolean | null;
             /** @description CPU limit of the agent container, a Kubernetes quantity (`4`). */
