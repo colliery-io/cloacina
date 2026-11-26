@@ -748,6 +748,60 @@ export class CloacinaClient {
     return unwrap(await this.api.GET("/v1/compiler/status"));
   }
 
+  // ---- agent pools ----
+
+  /** List the tenant's agent pools. Every tenant has `default`. */
+  async listPools(
+    tenant?: string,
+  ): Promise<schemas["ListResponse_AgentPoolInfo"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/pools", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+      }),
+    );
+  }
+
+  /** Get one agent pool. */
+  async getPool(
+    pool: string,
+    tenant?: string,
+  ): Promise<schemas["AgentPoolInfo"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/pools/{pool}", {
+        params: { path: { tenant_id: this.#tenant(tenant), pool } },
+      }),
+    );
+  }
+
+  /**
+   * Create an agent pool, or replace its settings as a whole. Needs a
+   * platform-admin key.
+   */
+  async putPool(
+    pool: string,
+    settings: schemas["AgentPoolSettings"],
+    tenant?: string,
+  ): Promise<schemas["AgentPoolInfo"]> {
+    return unwrap(
+      await this.api.PUT("/v1/tenants/{tenant_id}/pools/{pool}", {
+        params: { path: { tenant_id: this.#tenant(tenant), pool } },
+        body: settings,
+      }),
+    );
+  }
+
+  /**
+   * Remove an agent pool (for `default`: clear its settings). The server
+   * answers 409 while the pool has agents. Needs a platform-admin key.
+   */
+  async deletePool(pool: string, tenant?: string): Promise<void> {
+    unwrap(
+      await this.api.DELETE("/v1/tenants/{tenant_id}/pools/{pool}", {
+        params: { path: { tenant_id: this.#tenant(tenant), pool } },
+      }),
+    );
+  }
+
   // ---- computation-graph health ----
 
   async listAccumulators(): Promise<schemas["ListResponse_AccumulatorStatus"]> {

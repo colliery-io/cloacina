@@ -740,6 +740,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/pools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/tenants/{tenant_id}/pools` — the tenant's agent pools. Always
+         *     includes `default`. Tenant-scoped read.
+         */
+        get: operations["list_pools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/pools/{pool}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/tenants/{tenant_id}/pools/{pool}` — one agent pool. Tenant-scoped
+         *     read.
+         */
+        get: operations["get_pool"];
+        /**
+         * `PUT /v1/tenants/{tenant_id}/pools/{pool}` — create a pool, or replace its
+         *     settings as a whole. God-only. The actuator applies the settings on its
+         *     next reconcile; a changed setting rolls the pool's agents.
+         */
+        put: operations["put_pool"];
+        post?: never;
+        /**
+         * `DELETE /v1/tenants/{tenant_id}/pools/{pool}` — remove a pool. God-only.
+         * @description A pool is removed only when it has no agents: its `max_agents` is 0 and no
+         *     agent of it is alive (`409` otherwise). Then its Deployment and its
+         *     NetworkPolicy are deleted and its row is removed. For `default` the call
+         *     clears the pool's settings (back to the server-wide defaults); the pool
+         *     itself stays.
+         */
+        delete: operations["delete_pool"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/secrets": {
         parameters: {
             query?: never;
@@ -1240,6 +1293,26 @@ export interface components {
             /** @description Owning tenant, or `None` for untagged single-tenant graphs. */
             tenant_id?: string | null;
         };
+        /** @description One port of an [`AgentEgressRule`]. */
+        AgentEgressPort: {
+            /**
+             * Format: int32
+             * @description Port number, 1 to 65535.
+             */
+            port: number;
+            /** @description `TCP` (the default), `UDP` or `SCTP`. */
+            protocol?: string | null;
+        };
+        /**
+         * @description One extra egress rule: a CIDR block the agent pods may reach, on the listed
+         *     ports. No ports means every port.
+         */
+        AgentEgressRule: {
+            /** @description IPv4 or IPv6 CIDR block, with no host bits set (`198.51.100.0/24`). */
+            cidr: string;
+            /** @description Ports the rule allows. Empty: every port. */
+            ports?: components["schemas"]["AgentEgressPort"][];
+        };
         /** @description One registered execution agent in the in-memory fleet roster. */
         AgentInfo: {
             agent_id: string;
@@ -1260,6 +1333,106 @@ export interface components {
             target_triple: string;
             /** @description Tenant scope the agent registered under, if any. */
             tenant_id?: string | null;
+        };
+        /** @description One agent pool of a tenant, as the pool routes return it. */
+        AgentPoolInfo: {
+            /**
+             * Format: int32
+             * @description How many agents the server keeps for the pool: the tenant's desired
+             *     count for `default`, the pool's `max_agents` for another pool.
+             */
+            desired_agents: number;
+            /**
+             * Format: int32
+             * @description How many agents of the pool are registered and alive now.
+             */
+            live_agents: number;
+            /** @description Pool name. Every tenant has `default`. */
+            pool: string;
+            /**
+             * @description The pool's settings as stored. A field that is absent means the
+             *     server-wide default.
+             */
+            settings: components["schemas"]["AgentPoolSettings"];
+            tenant_id: string;
+        };
+        /**
+         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021).
+         *
+         *     Each field is optional. A field that is absent means the server-wide
+         *     default (`CLOACINA_AGENT_*` on the server). The settings apply to every
+         *     managed agent of the pool: a pool has one size of agent.
+         */
+        AgentPoolSettings: {
+            /**
+             * @description The pod's `automountServiceAccountToken`. Absent: the field is left
+             *     out and the cluster default applies. The agent does not call the
+             *     Kubernetes API, so `false` is the tighter setting.
+             */
+            automount_service_account_token?: boolean | null;
+            /** @description CPU limit of the agent container, a Kubernetes quantity (`4`). */
+            cpu_limit?: string | null;
+            /** @description CPU request of the agent container, a Kubernetes quantity (`500m`). */
+            cpu_request?: string | null;
+            /**
+             * @description Extra egress rules for the pool's pods, added to the default (cluster
+             *     DNS and the server only).
+             */
+            extra_egress?: components["schemas"]["AgentEgressRule"][];
+            /** @description Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`. */
+            image?: string | null;
+            /**
+             * Format: int32
+             * @description Most agents of the pool. Not for the pool `default` (its max is the
+             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
+             *     than `default` runs exactly this many agents.
+             */
+            max_agents?: number | null;
+            /**
+             * Format: int32
+             * @description How many tasks one agent runs at the same time (the agent's
+             *     `--max-concurrency`). Absent: the agent's own default.
+             */
+            max_concurrency?: number | null;
+            /** @description Memory limit of the agent container, a Kubernetes quantity (`32Gi`). */
+            memory_limit?: string | null;
+            /** @description Memory request of the agent container, a Kubernetes quantity (`8Gi`). */
+            memory_request?: string | null;
+            /**
+             * Format: int32
+             * @description Fewest agents of the pool. Not for the pool `default` (its floor is
+             *     the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
+             *     `default` is not autoscaled yet: set it equal to `max_agents`.
+             */
+            min_agents?: number | null;
+            /**
+             * @description Annotations added to the pool's pods (the pod template of its
+             *     Deployment).
+             */
+            pod_annotations?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Labels added to the pool's pods (the pod template of its Deployment).
+             *     Some identity systems select pods by a label. The labels the actuator
+             *     sets itself are refused.
+             */
+            pod_labels?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Annotations the actuator puts on that ServiceAccount (for a cloud
+             *     workload identity). Needs `service_account_name`.
+             */
+            service_account_annotations?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Name of the Kubernetes ServiceAccount the agent pods run as. The
+             *     actuator creates it in the tenant namespace. Absent: the namespace's
+             *     `default` ServiceAccount.
+             */
+            service_account_name?: string | null;
         };
         /** @description One audit row: who did what, when, in which tenant. */
         AuditEventInfo: {
@@ -1838,6 +2011,35 @@ export interface components {
                 target_triple: string;
                 /** @description Tenant scope the agent registered under, if any. */
                 tenant_id?: string | null;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
+        ListResponse_AgentPoolInfo: {
+            items: {
+                /**
+                 * Format: int32
+                 * @description How many agents the server keeps for the pool: the tenant's desired
+                 *     count for `default`, the pool's `max_agents` for another pool.
+                 */
+                desired_agents: number;
+                /**
+                 * Format: int32
+                 * @description How many agents of the pool are registered and alive now.
+                 */
+                live_agents: number;
+                /** @description Pool name. Every tenant has `default`. */
+                pool: string;
+                /**
+                 * @description The pool's settings as stored. A field that is absent means the
+                 *     server-wide default.
+                 */
+                settings: components["schemas"]["AgentPoolSettings"];
+                tenant_id: string;
             }[];
             total: number;
         };
@@ -4519,6 +4721,250 @@ export interface operations {
             };
             /** @description Key not found in this tenant */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_pools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's agent pools, `default` first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_AgentPoolInfo"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_pool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Pool name; every tenant has `default` */
+                pool: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pool */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentPoolInfo"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The tenant has no such pool */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_pool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Pool name: lowercase letters, digits and `-`, 40 characters at most */
+                pool: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentPoolSettings"];
+            };
+        };
+        responses: {
+            /** @description Settings stored; returns the pool */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentPoolInfo"];
+                };
+            };
+            /** @description A setting or the pool name is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Platform-admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_pool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Pool name */
+                pool: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pool removed (for `default`: settings cleared) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Platform-admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The tenant has no such pool */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The pool still has agents */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

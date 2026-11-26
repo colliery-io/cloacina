@@ -193,7 +193,9 @@ pub fn should_act_at(
 /// Compute per-tenant utilization from the live (DB-read, heartbeat-recent)
 /// roster (CLOACI-T-0916 — the roster spans every replica).
 ///
-/// Utilization = Σ`in_flight` / Σ`max_concurrency` over the tenant's agents.
+/// Utilization = Σ`in_flight` / Σ`max_concurrency` over the tenant's agents of
+/// the pool `default`. Capacity is what each agent registered, so tenants (and
+/// agents) with different `max_concurrency` are weighed correctly.
 /// Only tenant-scoped agents (`tenant_id = Some(..)`) are counted — a global
 /// (`None`) agent has no `desired_count` to scale, so it's excluded. A tenant
 /// whose summed `max_concurrency` is `0` (e.g. every live agent advertises zero
@@ -203,6 +205,14 @@ pub fn tenant_utilizations(records: &[FleetAgent]) -> HashMap<String, f64> {
     // tenant -> (Σ in_flight, Σ max_concurrency)
     let mut sums: HashMap<String, (u64, u64)> = HashMap::new();
     for r in records {
+        // CLOACINA-T-1021: only the pool `default` is autoscaled, and only it
+        // receives work. An agent of another pool is left out, so its idle
+        // capacity does not hide a full default pool.
+        if cloacina_api_types::agent_pool_of(&r.capabilities)
+            != cloacina_api_types::DEFAULT_AGENT_POOL
+        {
+            continue;
+        }
         if let Some(tenant) = &r.tenant_id {
             let e = sums.entry(tenant.clone()).or_insert((0, 0));
             e.0 += u64::from(r.in_flight);
@@ -294,6 +304,42 @@ mod tests {
         assert_eq!(utils.len(), 2);
         assert!((utils["t1"] - 0.5).abs() < f64::EPSILON);
         assert!((utils["t2"] - 1.0).abs() < f64::EPSILON);
+    }
+
+    /// CLOACINA-T-1021: capacity is what each agent registered, so tenants
+    /// whose agents run a different max concurrency are each measured against
+    /// their own capacity (nothing assumes 4).
+    #[test]
+    fn utilization_uses_each_agents_registered_capacity() {
+        // t1 agents run 1 task each: 2 of 2 slots busy → 1.0
+        // t2 agents run 16 each: 8 of 32 busy → 0.25
+        let records = vec![
+            rec(Some("t1"), 1, 1),
+            rec(Some("t1"), 1, 1),
+            rec(Some("t2"), 16, 8),
+            rec(Some("t2"), 16, 0),
+        ];
+        let utils = tenant_utilizations(&records);
+        assert!((utils["t1"] - 1.0).abs() < f64::EPSILON);
+        assert!((utils["t2"] - 0.25).abs() < f64::EPSILON);
+    }
+
+    /// CLOACINA-T-1021: only the pool `default` is autoscaled. An idle agent
+    /// of another pool does not lower the tenant's utilization.
+    #[test]
+    fn utilization_counts_the_default_pool_only() {
+        let mut big = rec(Some("t1"), 32, 0);
+        big.capabilities = vec!["pool:big".to_string()];
+        let mut named_default = rec(Some("t1"), 4, 4);
+        named_default.capabilities = vec!["pool:default".to_string()];
+        let records = vec![big, named_default, rec(Some("t1"), 4, 4)];
+        let utils = tenant_utilizations(&records);
+        assert!((utils["t1"] - 1.0).abs() < f64::EPSILON);
+
+        // A tenant with agents in another pool only has no utilization entry.
+        let mut only_big = rec(Some("t2"), 32, 32);
+        only_big.capabilities = vec!["pool:big".to_string()];
+        assert!(tenant_utilizations(&[only_big]).is_empty());
     }
 
     #[test]
