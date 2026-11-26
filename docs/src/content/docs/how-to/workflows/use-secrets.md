@@ -139,7 +139,27 @@ let creds = context.secret("dst_credentials").await?;
 ```
 
 A `$secret` value must be exactly `{"$secret": "<name>"}` (a single key mapping
-to a non-empty string); anything else is rejected as malformed. This composes
+to a non-empty string); anything else is rejected as malformed.
+
+The same reference goes in the context of a direct run
+(`POST /v1/tenants/{tenant_id}/workflows/{name}/execute`): a workflow that
+declares a secret runs only when the context holds a reference for it.
+
+```json
+{ "context": { "dst_credentials": { "$secret": "s3_prod" } } }
+```
+
+A declared secret with no reference is refused with `400`
+`workflow_input_invalid`. The message names the secret and shows the reference
+to add:
+
+```text
+invalid execution context: secret 'dst_credentials' is declared by the workflow but not bound: add a reference for it, {"dst_credentials": {"$secret": "<name of a stored secret>"}}
+```
+
+Creating an instance without the reference is refused with the same message.
+A task that asks for a name that no stored secret and no reference matches gets
+`secret not found: <name>`, followed by the same reference form. This composes
 with the rest of the instance model — rotating `s3_prod` takes effect on the
 next fire with no change to the instance or the workflow, because the binding
 names the secret rather than embedding its value.

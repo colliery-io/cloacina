@@ -787,10 +787,16 @@ mod tests {
     #[tokio::test]
     async fn test_secret_accessor_missing_name_and_field() {
         let ctx = Context::<serde_json::Value>::new().with_secret_resolver(stub_resolver());
-        assert!(matches!(
-            ctx.secret("absent").await.unwrap_err(),
-            SecretAccessError::NotFound(_)
-        ));
+        let err = ctx.secret("absent").await.unwrap_err();
+        assert!(matches!(err, SecretAccessError::NotFound(_)));
+        // CLOACINA-T-1035: the message names the secret and shows the
+        // reference that binds a declared secret.
+        let message = err.to_string();
+        assert!(message.starts_with("secret not found: absent"), "{message}");
+        assert!(
+            message.contains(r#"{"absent": {"$secret": "<name of a stored secret>"}}"#),
+            "{message}"
+        );
         assert!(matches!(
             ctx.secret_field("db_prod", "absent_field")
                 .await

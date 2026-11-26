@@ -44,6 +44,14 @@ use thiserror::Error;
 /// binding name to the concrete secret the instance chose.
 pub const SECRET_REFS_KEY: &str = "__cloacina_secret_refs__";
 
+/// The form of a secret reference for the declared name `declared`, as it is
+/// written in an execute context or in instance params (CLOACINA-T-1035):
+/// `{"db": {"$secret": "<name of a stored secret>"}}`. Error messages show it
+/// so that a caller sees what to add.
+pub fn secret_ref_form(declared: &str) -> String {
+    format!("{{\"{declared}\": {{\"$secret\": \"<name of a stored secret>\"}}}}")
+}
+
 /// Error returned by a [`SecretResolver`] backend implementation.
 #[derive(Debug, Error)]
 pub enum SecretResolverError {
@@ -76,7 +84,12 @@ pub enum SecretAccessError {
     NotConfigured,
 
     /// The named secret does not exist (or is not visible to this tenant).
-    #[error("secret not found: {0}")]
+    /// The message also shows the reference form: the usual cause is a
+    /// declared secret that the context does not bind (CLOACINA-T-1035).
+    #[error(
+        "secret not found: {0}. A declared secret is bound in the context with a reference: {form}",
+        form = secret_ref_form(.0)
+    )]
     NotFound(String),
 
     /// The execution scope's grant does not include this secret name
