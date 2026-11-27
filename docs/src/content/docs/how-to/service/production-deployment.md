@@ -246,6 +246,15 @@ roll them one at a time behind the proxy.
 
 **Upgrade note, secrets:** a task reads only the secrets its package declares (`secrets(...)` in `#[workflow]`, `@cloaca.workflow_secrets(...)`), through the run's `$secret` bindings. Any other name answers `secret not granted`, on agents and in the server process. A package that reads a secret it does not declare, or one built before `secrets(...)`, stops reading secrets until a new version declares them. A package with no metadata document reads no secret until its compiler describes it. Each refusal by the server writes an audit row with the action `secret.refused`, the secret name and the package. See [Use Secrets in a Workflow](../../workflows/use-secrets/).
 
+**Upgrade note, stored secrets bound to tenant and name:** each stored secret is now bound to its tenant and its name, and each tenant's data key to its tenant (see [Secrets](../../../explanation/service/secrets/)). At its first start with `CLOACINA_SECRET_KEK` set, the new server rewrites the secrets of `public` and of each tenant schema once, one transaction per schema, under the migration lock; later starts find nothing to rewrite. No step is needed from the operator. What to expect:
+
+- With several replicas, a replica of the old version fails every secret read and write of a tenant that the new version has rewritten, with a decryption error, until it stops. A task that runs there and reads a secret fails. To avoid that window, scale the old replicas to zero before the new one starts.
+- A secret created or rotated on an old replica during the roll may be written in the old form. A new server reads it only after its next start rewrites it; a rotate that lands after the rewrite of its tenant fails on the old replica.
+- A schema whose data key does not unwrap under the KEK is left as it is, with a warning at start that names the tenant. A secret row that does not decrypt is left and named the same way.
+- A database error during the rewrite stops the start and names each schema; the schemas already rewritten stay rewritten.
+- Rollback: the previous version cannot read rewritten secrets. Restore the pre-upgrade backup from step 1, or create the secrets again.
+- An embedded program that stores secrets with `SecretStore` calls `SecretStore::bind_stored_rows(org_id, kek)` once for each `org_id` it uses before it reads them.
+
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore
 the pre-upgrade backup from step 1.

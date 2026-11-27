@@ -52,7 +52,10 @@ pub use secret_grant::{
 pub use secret_resolver::{
     KEK_ENV_VAR, SecretAllow, SecretResolverConfigError, SecretStoreResolver,
 };
-pub use secret_store::{SecretError, SecretMetadata, SecretStore};
+pub use secret_store::{
+    BindOutcome, SecretError, SecretMetadata, SecretStore, dek_associated_data,
+    secret_associated_data,
+};
 pub use tenant_org::tenant_org_id;
 pub use verification::{
     SecurityConfig, SignatureSource, VerificationError, VerificationResult,

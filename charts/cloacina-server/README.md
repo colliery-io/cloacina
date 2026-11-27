@@ -291,6 +291,17 @@ Before this release a task could read every secret of its tenant
   `GET /v1/tenants/{tenant}/audit?action=secret.refused` to find the
   packages to change.
 
+### Upgrade note: stored secrets are bound to their tenant and name
+
+Each stored secret is now bound to its tenant and its name, and each tenant's
+data key to its tenant (CLOACINA-T-1071). The first server of this release
+rewrites every stored secret once at start, under the migration lock. No step
+is needed. With `replicaCount` above 1, or during the roll with the default
+`maxSurge: 1`, a pod of the old version fails secret reads and writes of a
+rewritten tenant until it stops; scale the old pods to zero first to avoid
+that window. A rollback to the previous release cannot read the rewritten
+secrets: restore the pre-upgrade database backup.
+
 ## Uninstall
 
 ```sh

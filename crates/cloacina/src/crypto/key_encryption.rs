@@ -26,7 +26,7 @@
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit},
+    aead::{Aead, KeyInit, Payload},
 };
 use rand::Rng;
 use thiserror::Error;
@@ -137,13 +137,12 @@ pub fn decrypt_private_key(
     Ok(plaintext)
 }
 
-/// Encrypts arbitrary bytes using AES-256-GCM.
+/// Encrypts arbitrary bytes using AES-256-GCM, with no associated data.
 ///
 /// This is a thin, intent-revealing alias for [`encrypt_private_key`]: the
-/// underlying AEAD is generic over the plaintext, so the same primitive that
-/// wraps signing keys also wraps a tenant data key (DEK) or a serialized
-/// `{field: value}` secret map (CLOACI-I-0133 / T-0857). Output format is
-/// `nonce (12 bytes) || ciphertext || tag (16 bytes)`.
+/// underlying AEAD is generic over the plaintext. Output format is
+/// `nonce (12 bytes) || ciphertext || tag (16 bytes)`. The secrets store uses
+/// [`encrypt_bytes_bound`] instead (CLOACINA-T-1071).
 pub fn encrypt_bytes(plaintext: &[u8], key: &[u8]) -> Result<Vec<u8>, KeyEncryptionError> {
     encrypt_private_key(plaintext, key)
 }
@@ -151,6 +150,75 @@ pub fn encrypt_bytes(plaintext: &[u8], key: &[u8]) -> Result<Vec<u8>, KeyEncrypt
 /// Decrypts bytes produced by [`encrypt_bytes`] (or [`encrypt_private_key`]).
 pub fn decrypt_bytes(encrypted_data: &[u8], key: &[u8]) -> Result<Vec<u8>, KeyEncryptionError> {
     decrypt_private_key(encrypted_data, key)
+}
+
+/// Encrypts bytes using AES-256-GCM, bound to `associated_data`
+/// (CLOACINA-T-1071).
+///
+/// The output decrypts only with the same key and the same associated data,
+/// so a ciphertext copied to a place that uses other associated data does not
+/// decrypt there. The associated data is not stored. Output format is
+/// `nonce (12 bytes) || ciphertext || tag (16 bytes)`, as [`encrypt_bytes`].
+#[allow(deprecated)]
+pub fn encrypt_bytes_bound(
+    plaintext: &[u8],
+    key: &[u8],
+    associated_data: &[u8],
+) -> Result<Vec<u8>, KeyEncryptionError> {
+    if key.len() != 32 {
+        return Err(KeyEncryptionError::InvalidKeyLength(key.len()));
+    }
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|e| KeyEncryptionError::EncryptionFailed(e.to_string()))?;
+
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext,
+                aad: associated_data,
+            },
+        )
+        .map_err(|e| KeyEncryptionError::EncryptionFailed(e.to_string()))?;
+
+    let mut encrypted = Vec::with_capacity(NONCE_SIZE + ciphertext.len());
+    encrypted.extend_from_slice(&nonce_bytes);
+    encrypted.extend_from_slice(&ciphertext);
+    Ok(encrypted)
+}
+
+/// Decrypts bytes produced by [`encrypt_bytes_bound`] with the same
+/// associated data. Other associated data fails as
+/// [`KeyEncryptionError::DecryptionFailed`].
+#[allow(deprecated)]
+pub fn decrypt_bytes_bound(
+    encrypted_data: &[u8],
+    key: &[u8],
+    associated_data: &[u8],
+) -> Result<Vec<u8>, KeyEncryptionError> {
+    if key.len() != 32 {
+        return Err(KeyEncryptionError::InvalidKeyLength(key.len()));
+    }
+    if encrypted_data.len() < NONCE_SIZE + 17 {
+        return Err(KeyEncryptionError::InvalidEncryptedData);
+    }
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|e| KeyEncryptionError::DecryptionFailed(e.to_string()))?;
+
+    let nonce = Nonce::from_slice(&encrypted_data[..NONCE_SIZE]);
+    cipher
+        .decrypt(
+            nonce,
+            Payload {
+                msg: &encrypted_data[NONCE_SIZE..],
+                aad: associated_data,
+            },
+        )
+        .map_err(|e| KeyEncryptionError::DecryptionFailed(e.to_string()))
 }
 
 #[cfg(test)]
@@ -220,5 +288,30 @@ mod tests {
 
         let result = decrypt_private_key(&encrypted, &encryption_key);
         assert!(result.is_err());
+    }
+
+    /// CLOACINA-T-1071: a bound ciphertext decrypts with its own associated
+    /// data only; the unbound read does not open it.
+    #[test]
+    fn a_bound_ciphertext_decrypts_with_its_own_associated_data_only() {
+        let key = [0x01u8; 32];
+        let sealed = encrypt_bytes_bound(b"value", &key, b"cloacina:test:v1:a").unwrap();
+
+        assert_eq!(
+            decrypt_bytes_bound(&sealed, &key, b"cloacina:test:v1:a").unwrap(),
+            b"value"
+        );
+        assert!(decrypt_bytes_bound(&sealed, &key, b"cloacina:test:v1:b").is_err());
+        assert!(decrypt_bytes(&sealed, &key).is_err());
+    }
+
+    /// The unbound form is the bound form with empty associated data, so the
+    /// old rows open with `decrypt_bytes` only.
+    #[test]
+    fn an_unbound_ciphertext_does_not_decrypt_as_bound() {
+        let key = [0x01u8; 32];
+        let sealed = encrypt_bytes(b"value", &key).unwrap();
+        assert!(decrypt_bytes_bound(&sealed, &key, b"cloacina:test:v1:a").is_err());
+        assert_eq!(decrypt_bytes(&sealed, &key).unwrap(), b"value");
     }
 }
