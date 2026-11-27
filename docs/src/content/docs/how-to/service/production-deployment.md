@@ -177,12 +177,12 @@ Every workflow run writes rows that stay after it finishes: one
 started it, and per task one `task_executions` row, one
 `task_execution_metadata` row and one `contexts` row with the full context
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
-row. The server can remove them with a background retention job, once you set a period.
+row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
 | `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions and any event push still waiting in `delivery_outbox`. `0` = off. |
-| `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `3600` | A `delivery_outbox` row is deleted this long after its ack. `0` = off. |
+| `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
 Where to set them:
@@ -205,7 +205,8 @@ What to know:
 
 - **Only finished runs are deleted.** A run that is Pending, Running or Paused is never touched, however old. A context is deleted only when no remaining run or task references it.
 - **The delete is final.** After the period, `GET /v1/tenants/{tenant_id}/executions/{exec_id}` and the UI no longer show the run. If you must keep history longer (audit, compliance), raise the period or set it to `0`, or export before it expires.
-- **Run history is kept until you set a period.** `--run-history-retention-days` is `0` by default, so no run is deleted. When you set a period, the first passes remove every finished run older than it. Acked `delivery_outbox` rows are queue records, not history, and are cleared after an hour by default.
+- **Run history is kept until you set a period.** `--run-history-retention-days` is `0` by default, so no run is deleted. When you set a period, the first passes remove every finished run older than it.
+- **Acked outbox rows are kept until you set a period.** `--outbox-acked-retention-s` is `0` by default, so no acked `delivery_outbox` row is deleted and the table grows by one row for each message that its recipient acked: an execution event pushed to a subscriber, an alert, and on an agent fleet each task dispatch, whose row holds the task's context. These rows are queue records, not history. `3600` deletes each one an hour after its ack.
 - **Per tenant.** Each pass covers the admin (`public`) schema and every tenant schema, with the same periods.
 - **One replica at a time.** Each pass is gated on a Postgres advisory lock, so replicas do not work in parallel.
 - **Bounded work.** A pass removes at most 5,000 runs and 100,000 acked outbox rows per schema; a backlog drains over the next passes. Postgres reuses the freed space after autovacuum; the files on disk do not shrink without `VACUUM FULL`.

@@ -217,7 +217,8 @@ docs may still mention the old name.
 Retention of run history in the database has three settings:
 `--run-history-retention-days` / `CLOACINA_RUN_HISTORY_RETENTION_DAYS`
 (default `0`, off), `--outbox-acked-retention-s` /
-`CLOACINA_OUTBOX_ACKED_RETENTION_S` (default `3600`) and
+`CLOACINA_OUTBOX_ACKED_RETENTION_S` (default `0`, off: acked
+`delivery_outbox` rows are kept and the table grows) and
 `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S` (default `300`).
 See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
