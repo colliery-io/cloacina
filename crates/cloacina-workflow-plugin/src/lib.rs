@@ -38,6 +38,8 @@
 // macro and not actionable at our call site.
 #![allow(unexpected_cfgs, clippy::too_many_arguments)]
 
+/// Log lines of a packaged task go to the host's log (CLOACINA-T-1099).
+pub mod host_log;
 pub mod inventory_entries;
 pub mod manifest;
 pub mod python_env;
@@ -48,6 +50,10 @@ pub mod types;
 pub mod unpack_limit;
 
 pub use task_handle::{TaskExecutionIdGuard, TaskHandle};
+
+#[cfg(not(target_family = "wasm"))]
+pub use host_log::CloacinaLogBinding;
+pub use host_log::{CloacinaLog, CloacinaLogClient};
 
 pub use inventory_entries::{
     AccumulatorEntry, ComputationGraphEntry, ConstructorEntry, ReactorEntry, TaskEntry,
@@ -285,6 +291,9 @@ macro_rules! package {
                 ) -> ::core::result::Result<$crate::TaskExecutionResult, $crate::PluginError>
                 {
                     use $crate::CloacinaPlugin as _;
+                    // CLOACINA-T-1099: the task's `tracing` and `log` lines
+                    // go to the host's log, in the host's span for the task.
+                    $crate::host_log::install();
                     static CDYLIB_RUNTIME: ::std::sync::OnceLock<
                         cloacina_workflow::__private::tokio::runtime::Runtime,
                     > = ::std::sync::OnceLock::new();
@@ -456,6 +465,7 @@ macro_rules! package {
                     request: $crate::GraphExecutionRequest,
                 ) -> ::core::result::Result<$crate::GraphExecutionResult, $crate::PluginError>
                 {
+                    $crate::host_log::install();
                     static CDYLIB_RUNTIME: ::std::sync::OnceLock<
                         cloacina_workflow::__private::tokio::runtime::Runtime,
                     > = ::std::sync::OnceLock::new();
@@ -627,6 +637,7 @@ macro_rules! package {
                     request: $crate::TriggerInvokeRequest,
                 ) -> ::core::result::Result<$crate::TriggerInvokeResult, $crate::PluginError>
                 {
+                    $crate::host_log::install();
                     static CDYLIB_TRIGGER_RUNTIME: ::std::sync::OnceLock<
                         cloacina_workflow::__private::tokio::runtime::Runtime,
                     > = ::std::sync::OnceLock::new();
@@ -724,6 +735,7 @@ macro_rules! package {
                     $crate::TriggerlessGraphInvokeResult,
                     $crate::PluginError,
                 > {
+                    $crate::host_log::install();
                     static CDYLIB_TLCG_RUNTIME: ::std::sync::OnceLock<
                         cloacina_workflow::__private::tokio::runtime::Runtime,
                     > = ::std::sync::OnceLock::new();
@@ -1046,6 +1058,9 @@ pub trait CloacinaHost: Send + Sync {
 // inline mark. Version 8 is still not released, so the fields ride it with no
 // new version. A package built from an earlier commit of version 8 must be
 // built again.
+// No change here for CLOACINA-T-1099: log lines go through the separate host
+// interface `host_log::CloacinaLog`, bound by name, so this trait and its
+// version stay as they are.
 #[fidius::plugin_interface(version = 8, buffer = PluginAllocated)]
 pub trait CloacinaPlugin: Send + Sync {
     /// Returns metadata about all tasks in this workflow package.

@@ -161,6 +161,8 @@ pub struct TaskDocs {
 pub(crate) fn bind_engine_host(loaded: &fidius_host::loader::LoadedLibrary, library_path: &Path) {
     use cloacina_workflow_plugin::{CloacinaHost, CloacinaHostBinding};
 
+    bind_engine_log(loaded, library_path);
+
     let host: std::sync::Arc<dyn CloacinaHost> = std::sync::Arc::new(crate::executor::EngineHost);
     match CloacinaHostBinding::bind(loaded, host) {
         Ok(true) => {
@@ -182,6 +184,42 @@ pub(crate) fn bind_engine_host(loaded: &fidius_host::loader::LoadedLibrary, libr
                 error = %e,
                 "could not bind CloacinaHost — tasks in this package that call \
                  defer_until will fail with a not-bound error; the rest run normally"
+            );
+        }
+    }
+}
+
+/// Install the engine's `CloacinaLog` table on a freshly loaded library
+/// (CLOACINA-T-1099), so the `tracing` and `log` lines of the package are
+/// written in this process's log, in the span of the task that runs.
+///
+/// A package built before the interface existed declares no such import:
+/// `bind` reports `false` and its lines are lost as before. A mismatch or a
+/// second bind is logged; the package still runs.
+pub(crate) fn bind_engine_log(loaded: &fidius_host::loader::LoadedLibrary, library_path: &Path) {
+    use cloacina_workflow_plugin::{CloacinaLog, CloacinaLogBinding};
+
+    let host: std::sync::Arc<dyn CloacinaLog> = std::sync::Arc::new(crate::task_logs::EngineLog);
+    match CloacinaLogBinding::bind(loaded, host) {
+        Ok(true) => {
+            tracing::debug!(
+                library = %library_path.display(),
+                "CloacinaLog bound: the package's log lines go to this process's log"
+            );
+        }
+        Ok(false) => {
+            tracing::debug!(
+                library = %library_path.display(),
+                "package imports no CloacinaLog (built before it existed): its tracing and \
+                 log lines are not written"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                library = %library_path.display(),
+                error = %e,
+                "could not bind CloacinaLog: the package's tracing and log lines are not \
+                 written; its tasks run normally"
             );
         }
     }
