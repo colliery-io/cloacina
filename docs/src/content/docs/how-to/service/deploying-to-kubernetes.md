@@ -402,7 +402,9 @@ What the server writes in a tenant namespace for the compiler:
 
 These need no RBAC verb beyond the table above. The server has no `delete` on
 Secrets, so when a tenant is removed it writes an empty value over
-`cloacina-compiler-db`.
+`cloacina-compiler-db`. It does so with a patch, on each call of the tenant
+delete: a Secret that exists is emptied whatever is left of the Deployment,
+and no Secret is made for a tenant that has none.
 
 The cache volumes are `emptyDir`s: each start of a tenant's compiler is a cold
 start, and its first build downloads and compiles every dependency.

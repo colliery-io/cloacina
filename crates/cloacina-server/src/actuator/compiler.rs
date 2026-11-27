@@ -517,6 +517,15 @@ pub trait CompilerKubeOps: Send + Sync {
     ) -> Result<Option<u32>, ActuatorError>;
     /// Set `spec.replicas` of a Deployment.
     async fn scale(&self, namespace: &str, name: &str, replicas: u32) -> Result<(), ActuatorError>;
+    /// Merge `patch` into a Secret that exists. `Ok(false)`: there is no such
+    /// Secret (or no such namespace), and none is made. Unlike [`Self::apply`],
+    /// which makes the object when it is absent.
+    async fn patch_secret_if_present(
+        &self,
+        namespace: &str,
+        name: &str,
+        patch: &serde_json::Value,
+    ) -> Result<bool, ActuatorError>;
 }
 
 /// The tenant namespace manifest: the same object the agent side applies.
@@ -528,10 +537,8 @@ fn namespace_manifest(namespace: &str) -> serde_json::Value {
     })
 }
 
-/// The Secret with the compiler's database URL. `None` writes an empty
-/// value: that is how the credential is taken away when the tenant goes (the
-/// server has no right to delete Secrets).
-pub fn database_secret_manifest(namespace: &str, database_url: Option<&str>) -> serde_json::Value {
+/// The Secret with the compiler's database URL.
+pub fn database_secret_manifest(namespace: &str, database_url: &str) -> serde_json::Value {
     serde_json::json!({
         "apiVersion": "v1",
         "kind": "Secret",
@@ -541,8 +548,16 @@ pub fn database_secret_manifest(namespace: &str, database_url: Option<&str>) -> 
             "labels": { LABEL_MANAGED: "true" },
         },
         "type": "Opaque",
-        "stringData": { COMPILER_SECRET_KEY: database_url.unwrap_or("") },
+        "stringData": { COMPILER_SECRET_KEY: database_url },
     })
+}
+
+/// The patch that writes an empty value over the database URL of the Secret:
+/// that is how the credential is taken away when the tenant goes (the server
+/// has no right to delete Secrets). A patch changes a Secret that exists and
+/// makes none.
+pub fn empty_database_secret_patch() -> serde_json::Value {
+    serde_json::json!({ "stringData": { COMPILER_SECRET_KEY: "" } })
 }
 
 /// The compiler `Deployment` of one tenant. Pure. No `spec.replicas`: the
@@ -796,7 +811,7 @@ impl KubeCompilers {
                 KubeKind::Secret,
                 &namespace,
                 COMPILER_SECRET_NAME,
-                &database_secret_manifest(&namespace, Some(&self.settings.database_url)),
+                &database_secret_manifest(&namespace, &self.settings.database_url),
             )
             .await?;
         if self.network_policy {
@@ -835,31 +850,30 @@ impl KubeCompilers {
     }
 
     /// Take away what was made for a tenant's compiler: the Deployment, the
-    /// NetworkPolicy, and the database URL in the Secret. Idempotent.
+    /// NetworkPolicy, and the database URL in the Secret. Idempotent: each
+    /// step is done on every call, whatever an earlier call left.
     pub async fn remove(&self, tenant_id: &str) -> Result<(), ActuatorError> {
         let namespace = tenant_namespace(tenant_id);
-        // Nothing was ever made for a tenant with no Deployment: do not make
-        // a namespace or a Secret for it now.
-        let existed = self
-            .ops
-            .deployment_replicas(&namespace, COMPILER_NAME)
-            .await?
-            .is_some();
         self.ops
             .delete(KubeKind::Deployment, &namespace, COMPILER_NAME)
             .await?;
         self.ops
             .delete(KubeKind::NetworkPolicy, &namespace, COMPILER_NAME)
             .await?;
-        if existed {
-            self.ops
-                .apply(
-                    KubeKind::Secret,
-                    &namespace,
-                    COMPILER_SECRET_NAME,
-                    &database_secret_manifest(&namespace, None),
-                )
-                .await?;
+        // CLOACINA-T-1105: the Secret is emptied whenever it exists. It does
+        // not depend on the Deployment: a call that deleted the Deployment
+        // and then failed is retried, and the retry finds no Deployment. A
+        // patch, so that a tenant that never had a compiler gets no namespace
+        // and no Secret now.
+        let emptied = self
+            .ops
+            .patch_secret_if_present(
+                &namespace,
+                COMPILER_SECRET_NAME,
+                &empty_database_secret_patch(),
+            )
+            .await?;
+        if emptied {
             info!(tenant = %tenant_id, namespace = %namespace, "tenant compiler removed (kubernetes)");
         }
         Ok(())
@@ -985,6 +999,25 @@ mod kube_api {
                 .await
                 .map(|_| ())
                 .map_err(|e| failed("scale", e))
+        }
+
+        async fn patch_secret_if_present(
+            &self,
+            namespace: &str,
+            name: &str,
+            patch: &serde_json::Value,
+        ) -> Result<bool, ActuatorError> {
+            // A merge patch, not an apply: it changes a Secret that exists and
+            // answers 404 for one that does not. It needs the `patch` verb
+            // only; the server has no `get` on Secrets.
+            let result = Api::<Secret>::namespaced(self.client.clone(), namespace)
+                .patch(name, &PatchParams::default(), &Patch::Merge(patch))
+                .await;
+            match result {
+                Ok(_) => Ok(true),
+                Err(kube::Error::Api(e)) if e.code == 404 => Ok(false),
+                Err(e) => Err(failed("secret patch", e)),
+            }
         }
     }
 }
@@ -1317,9 +1350,13 @@ mod tests {
     struct FakeKube {
         /// `None`: no Deployment.
         replicas: Mutex<Option<u32>>,
+        /// The database URL in the Secret. `None`: no Secret.
+        secret: Mutex<Option<String>>,
         applied: Mutex<Vec<Applied>>,
         deleted: Mutex<Vec<(KubeKind, String, String)>>,
         scaled: Mutex<Vec<(String, String, u32)>>,
+        /// The next delete of this kind fails, once.
+        fail_delete_once: Mutex<Option<KubeKind>>,
     }
 
     impl FakeKube {
@@ -1366,7 +1403,32 @@ mod tests {
                     *replicas = Some(1);
                 }
             }
+            if kind == KubeKind::Secret {
+                // An apply makes the Secret when it is absent.
+                let value = manifest["stringData"][COMPILER_SECRET_KEY]
+                    .as_str()
+                    .unwrap_or_default();
+                *self.secret.lock().unwrap() = Some(value.to_string());
+            }
             Ok(())
+        }
+        async fn patch_secret_if_present(
+            &self,
+            _namespace: &str,
+            _name: &str,
+            patch: &serde_json::Value,
+        ) -> Result<bool, ActuatorError> {
+            let mut secret = self.secret.lock().unwrap();
+            match secret.as_mut() {
+                // A patch makes nothing.
+                None => Ok(false),
+                Some(value) => {
+                    if let Some(new) = patch["stringData"][COMPILER_SECRET_KEY].as_str() {
+                        *value = new.to_string();
+                    }
+                    Ok(true)
+                }
+            }
         }
         async fn delete(
             &self,
@@ -1374,6 +1436,15 @@ mod tests {
             namespace: &str,
             name: &str,
         ) -> Result<(), ActuatorError> {
+            {
+                let mut fail = self.fail_delete_once.lock().unwrap();
+                if *fail == Some(kind) {
+                    *fail = None;
+                    return Err(ActuatorError::Substrate(
+                        "the API server did not answer".to_string(),
+                    ));
+                }
+            }
             self.deleted
                 .lock()
                 .unwrap()
@@ -1582,8 +1653,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_removed_tenant_loses_its_compiler_and_the_database_url() {
-        let ops = FakeKube::with_replicas(Some(1));
+        let ops = FakeKube::with_replicas(None);
         let c = compilers(ops.clone(), settings());
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(URL));
 
         c.remove("acme").await.unwrap();
 
@@ -1595,10 +1668,17 @@ mod tests {
                 (KubeKind::NetworkPolicy, ns, COMPILER_NAME.to_string()),
             ]
         );
-        // The Secret is written over with an empty value.
-        let secret = ops.last(KubeKind::Secret);
-        assert_eq!(secret["stringData"][COMPILER_SECRET_KEY], "");
-        assert!(!secret.to_string().contains("s3cret"));
+        // The Secret is written over with an empty value, by a patch: the
+        // last apply of the Secret is the one that made it.
+        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(""));
+        assert_eq!(
+            ops.last(KubeKind::Secret)["stringData"][COMPILER_SECRET_KEY],
+            URL
+        );
+        assert_eq!(
+            empty_database_secret_patch(),
+            serde_json::json!({ "stringData": { "database-url": "" } })
+        );
     }
 
     #[tokio::test]
@@ -1607,6 +1687,64 @@ mod tests {
         let c = compilers(ops.clone(), settings());
         c.remove("quiet").await.unwrap();
         assert!(ops.applied.lock().unwrap().is_empty());
+        // No Secret was made to hold an empty value.
+        assert_eq!(*ops.secret.lock().unwrap(), None);
+    }
+
+    /// CLOACINA-T-1105: a removal that fails after the Deployment delete, then
+    /// a retry (tenant delete is retried, CLOACINA-T-1068). The retry finds no
+    /// Deployment and must still take the database URL out of the Secret.
+    #[tokio::test]
+    async fn a_retried_removal_blanks_the_secret_when_the_deployment_is_already_gone() {
+        let ops = FakeKube::with_replicas(None);
+        let c = compilers(ops.clone(), settings());
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(URL));
+
+        // The first removal deletes the Deployment and then fails.
+        *ops.fail_delete_once.lock().unwrap() = Some(KubeKind::NetworkPolicy);
+        c.remove("acme").await.expect_err("the first removal fails");
+        assert_eq!(
+            *ops.replicas.lock().unwrap(),
+            None,
+            "the Deployment is gone"
+        );
+
+        c.remove("acme").await.expect("the retry succeeds");
+        assert_eq!(
+            ops.secret.lock().unwrap().as_deref(),
+            Some(""),
+            "the database URL is still in the Secret after the retry"
+        );
+    }
+
+    /// The Secret is blanked when there never was a Deployment in the cluster
+    /// to find: the removal does not read the Deployment to decide.
+    #[tokio::test]
+    async fn a_removal_blanks_a_secret_that_has_no_deployment() {
+        let ops = FakeKube::with_replicas(None);
+        *ops.secret.lock().unwrap() = Some(URL.to_string());
+        let c = compilers(ops.clone(), settings());
+
+        c.remove("acme").await.unwrap();
+
+        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(""));
+        // Written over, not made again: nothing was applied.
+        assert!(ops.applied.lock().unwrap().is_empty());
+    }
+
+    /// A removal twice in a row: the second call succeeds and changes nothing.
+    #[tokio::test]
+    async fn a_second_removal_succeeds() {
+        let ops = FakeKube::with_replicas(None);
+        let c = compilers(ops.clone(), settings());
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+
+        c.remove("acme").await.unwrap();
+        c.remove("acme").await.unwrap();
+
+        assert_eq!(*ops.replicas.lock().unwrap(), None);
+        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(""));
     }
 
     #[tokio::test]
@@ -1724,7 +1862,7 @@ mod tests {
         );
         assert_eq!(env["valueFrom"]["secretKeyRef"]["key"], COMPILER_SECRET_KEY);
 
-        let secret = database_secret_manifest("cloacina-tenant-acme", Some(URL));
+        let secret = database_secret_manifest("cloacina-tenant-acme", URL);
         assert_eq!(secret["metadata"]["namespace"], "cloacina-tenant-acme");
         assert_eq!(secret["stringData"][COMPILER_SECRET_KEY], URL);
 
