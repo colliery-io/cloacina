@@ -264,7 +264,9 @@ fleet:
     vendorDir: ""
     # `--dev-workspace`: a cloacina workspace inside the image. Development only.
     devWorkspace: ""
-    # `--cargo-target-dir`. A hardened pod mounts an emptyDir here.
+    # `--cargo-target-dir`. A hardened pod with cacheClaim off mounts an
+    # emptyDir here; with the claim the target directory is
+    # /var/cloacina/cache/target, on the claim.
     targetDir: /workspace/target
     # `--build-timeout-s`. 0: the compiler's default (600).
     buildTimeoutSeconds: 0
@@ -273,7 +275,8 @@ fleet:
     # scaled to 0.
     cooldownSeconds: 300
     # Size limit of each of the two cache volumes (cargo home, target
-    # directory). They are emptyDirs: a compiler that starts has empty caches.
+    # directory), when cacheClaim is off. They are emptyDirs then: a compiler
+    # that starts has empty caches.
     cacheSize: 8Gi
     # Pod hardening: not root (uid 10001), read-only root filesystem, no
     # capabilities, the writable paths on emptyDir volumes. false runs the
@@ -314,12 +317,28 @@ fleet:
     # 0.75 GiB at the peak of a build of a heavy set (286 MiB unpacked) for
     # two platforms.
     homeSize: 4Gi
+    # A PersistentVolumeClaim per tenant compiler (CLOACINA-T-1117), in the
+    # tenant's namespace: it holds the cargo home, the target directory and
+    # the uv cache, so a compiler that starts from 0 replicas finds the caches
+    # of its last run. Made at the first start; kept when the compiler is
+    # scaled to 0; deleted with the tenant. Hardened pods only. A claim that
+    # exists is not changed: a new size or class applies to a new claim.
+    # enabled=false puts the three caches back on emptyDirs (cacheSize,
+    # python.cacheSize).
+    cacheClaim:
+      enabled: true
+      # The sum of the emptyDir limits it replaces: 8Gi cargo home, 8Gi target
+      # directory, 4Gi uv cache. Nothing prunes the claim: the target
+      # directory grows with the builds.
+      size: 20Gi
+      # Empty: no storageClassName, the cluster's default storage class.
+      storageClass: ""
     # Python packages (CLOACINA-T-1117): the settings of the tenant
     # compilers, as `compiler.python.*` are those of the chart's own compiler.
     # The image (`image`, or `compiler.image`) must hold uv and python3; the
-    # image of docker/Dockerfile.compiler does. Each start from 0 replicas is a
-    # cold start: the uv cache is an emptyDir, so a build downloads every
-    # wheel again.
+    # image of docker/Dockerfile.compiler does. With cacheClaim the uv cache
+    # is kept between starts; without it each start from 0 replicas
+    # downloads every wheel again.
     python:
       # Platforms to vendor for, as <arch>-<os>. Empty: the compiler's
       # default, aarch64-linux and x86_64-linux.
@@ -342,11 +361,13 @@ fleet:
       # No network for Python builds. With hardened=true it needs wheelDir
       # (the uv cache is empty at each start), and egress=none fits it.
       offline: false
-      # The cache folder of uv. Empty: in a hardened pod its own emptyDir at
-      # /var/cloacina/uv-cache; else uv's default. Another folder must be
-      # writable: in a hardened pod only the volumes are.
+      # The cache folder of uv. Empty: in a hardened pod /var/cloacina/cache/uv
+      # on the cache claim, or its own emptyDir at /var/cloacina/uv-cache with
+      # the claim off; else uv's default. Another folder must be writable: in
+      # a hardened pod only the volumes are.
       uvCacheDir: ""
-      # Size limit of the uv cache emptyDir of a hardened pod.
+      # Size limit of the uv cache emptyDir of a hardened pod, when cacheClaim
+      # is off. With the claim the cache is a folder of the claim.
       cacheSize: 4Gi
 
 # ---------------------------------------------------------------------------

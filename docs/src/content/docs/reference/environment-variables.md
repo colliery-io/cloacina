@@ -212,7 +212,7 @@ Read by the server. With a fleet actuator and `CLOACINA_TENANT_COMPILERS=true`, 
 | `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | The whole cargo flag list of a build, separated by spaces (the compiler's `--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. | empty | `build --lib` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `--vendor-dir`: a cargo home inside the compiler image. | None | `/opt/vendor` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `--dev-workspace`: a cloacina workspace inside the image. Development only. | None | `/workspace` | Server (actuator) | No |
-| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `--cargo-target-dir`. An absolute path. | `/workspace/target` | `/var/cache/target` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `--cargo-target-dir`. An absolute path. Used when the pod has no cache claim; with the claim the target directory is `/var/cloacina/cache/target`. | `/workspace/target` | `/var/cache/target` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S` | `--build-timeout-s`. | None (the compiler's `600`) | `1200` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS` | `--poll-interval-ms`. | `1000` | `2000` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_COOLDOWN_S` | Seconds a tenant's build queue must be empty before its compiler is stopped. | `300` | `900` | Server (actuator) | No |
@@ -220,19 +220,22 @@ Read by the server. With a fleet actuator and `CLOACINA_TENANT_COMPILERS=true`, 
 | `CLOACINA_TENANT_COMPILER_MEMORY_REQUEST` | Memory request of the compiler container. | `1Gi` | `2Gi` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_CPU_LIMIT` | CPU limit of the compiler container. | `2` | `4` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_MEMORY_LIMIT` | Memory limit of the compiler container. | `4Gi` | `8Gi` | Server (k8s actuator) | No |
-| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | Size limit of each cache volume (cargo home, target directory). | `8Gi` | `20Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | Size limit of each cache `emptyDir` (cargo home, target directory), when the pod has no cache claim. | `8Gi` | `20Gi` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_HARDENED` | Pod hardening: uid `10001`, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. `false` runs the image as it is built. | `true` | `false` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_EGRESS` | Crate egress in the compiler pods' NetworkPolicy: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. | `internet` | `none` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | More egress CIDR blocks, separated by commas, every port. | None | `10.9.0.0/24` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | CIDR blocks of the database, separated by commas. Empty allows the database port to every destination. | None | `10.1.2.3/32` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM` | A PersistentVolumeClaim `cloacina-compiler-cache` per tenant compiler, in the tenant namespace, for the cargo home, the target directory and the `uv` cache. Made at the first start, kept across scale to 0, deleted with the tenant. Hardened pods only. `false`: the caches are `emptyDir`s. | `true` | `false` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE` | Requested size of the claim, a storage quantity above zero. A claim that exists keeps its size. | `20Gi` | `50Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS` | Storage class of the claim. Unset: no `storageClassName`, the cluster's default class. | None | `fast-ssd` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_HOME_SIZE` | Size limit of the home volume of a hardened compiler pod, where the build folder is. | `4Gi` | `8Gi` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS` | Platforms the tenant compilers vendor Python dependencies for, separated by commas; given as the compiler's `CLOACINA_COMPILER_PYTHON_PLATFORMS`. A platform the compiler does not know stops the server at start. | None (the compiler's `aarch64-linux`, `x86_64-linux`) | `x86_64-linux` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_PYTHON_VERSION` | Python version the wheels are for, `major.minor`; given as `CLOACINA_COMPILER_PYTHON_VERSION`. | None (the compiler's `3.11`) | `3.12` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL` | The package index of the tenant compilers. Written into the Secret `cloacina-compiler-db` of the tenant namespace (key `python-index-url`) and read by the pod as `CLOACINA_COMPILER_PYTHON_INDEX_URL`; never in the pod spec. The Docker actuator sets it in the container's environment. | None (PyPI) | `https://pypi.internal.example.com/simple` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR` | A folder of wheels inside the compiler image, an absolute path; given as `CLOACINA_COMPILER_PYTHON_WHEEL_DIR`. | None | `/opt/cloacina/wheels` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE` | No network for Python builds; given as `CLOACINA_COMPILER_PYTHON_OFFLINE`. With `CLOACINA_TENANT_COMPILER_HARDENED` on it needs `CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR`, or the server does not start: the pod's `uv` cache is empty at each start. | `false` | `true` | Server (actuator) | No |
-| `CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR` | The `uv` cache folder, an absolute path; given as `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`. | None (hardened pod: `/var/cloacina/uv-cache`, its own volume) | `/var/cloacina/home/uv` | Server (actuator) | No |
-| `CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE` | Size limit of the `uv` cache volume of a hardened compiler pod. | `4Gi` | `10Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR` | The `uv` cache folder, an absolute path; given as `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`. | None (hardened pod: `/var/cloacina/cache/uv` on the cache claim, or `/var/cloacina/uv-cache`, its own volume, with no claim) | `/var/cloacina/home/uv` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE` | Size limit of the `uv` cache `emptyDir` of a hardened compiler pod with no cache claim. | `4Gi` | `10Gi` | Server (k8s actuator) | No |
 
 The compiler pods' NetworkPolicy is written when `CLOACINA_FLEET_NETWORK_POLICY` is on, and uses `CLOACINA_FLEET_DNS_NAMESPACE`. The Docker actuator attaches a compiler container to `CLOACINA_AGENT_NETWORK`.
 

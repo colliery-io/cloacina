@@ -216,6 +216,15 @@ spec:
             {{- end }}
             - name: CLOACINA_TENANT_COMPILER_HOME_SIZE
               value: {{ .Values.fleet.compiler.homeSize | quote }}
+            # The cache claim of the tenant compilers (CLOACINA-T-1117).
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM
+              value: {{ .Values.fleet.compiler.cacheClaim.enabled | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE
+              value: {{ .Values.fleet.compiler.cacheClaim.size | quote }}
+            {{- with .Values.fleet.compiler.cacheClaim.storageClass }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS
+              value: {{ . | quote }}
+            {{- end }}
             # Python settings of the tenant compilers (CLOACINA-T-1117).
             {{- with .Values.fleet.compiler.python }}
             {{- with .platforms }}
