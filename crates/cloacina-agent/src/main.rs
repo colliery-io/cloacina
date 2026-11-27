@@ -44,8 +44,9 @@ use clap::Parser;
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, EphemeralKeyEntry, GRAPH_PACKET_KIND,
-    GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket, host_target_triple,
+    AgentRegisterResponse, AgentResultRequest, AgentUndecodableRequest, EphemeralKeyEntry,
+    GRAPH_PACKET_KIND, GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket,
+    host_target_triple,
 };
 use cloacina::security::{AgentKeyPool, InMemorySecretResolver};
 use futures_util::{SinkExt, StreamExt};
@@ -479,16 +480,43 @@ fn is_permanent_status(status: reqwest::StatusCode) -> bool {
         && status != reqwest::StatusCode::TOO_MANY_REQUESTS
 }
 
+/// What the agent sends to the server about one packet: the result of its
+/// work, or the news that it could not decode the packet.
+trait PacketReport: Serialize {
+    /// The route that takes it.
+    const PATH: &'static str;
+    /// What it is about, for the log.
+    fn subject(&self) -> String;
+}
+
+impl PacketReport for AgentResultRequest {
+    const PATH: &'static str = "/v1/agent/result";
+    fn subject(&self) -> String {
+        format!(
+            "task {} ({})",
+            self.task_execution_id,
+            summarize_outcome(&self.outcome)
+        )
+    }
+}
+
+impl PacketReport for AgentUndecodableRequest {
+    const PATH: &'static str = "/v1/agent/undecodable";
+    fn subject(&self) -> String {
+        format!("undecodable push {}", self.push_id)
+    }
+}
+
 /// POST one report, one time, with a time limit on the whole request.
-async fn post_result(
+async fn post_result<R: PacketReport>(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
-    req: &AgentResultRequest,
+    req: &R,
     attempt_timeout: Duration,
 ) -> std::result::Result<(), PostError> {
     let resp = http
-        .post(format!("{}/v1/agent/result", server))
+        .post(format!("{}{}", server, R::PATH))
         .bearer_auth(api_key)
         .timeout(attempt_timeout)
         .json(req)
@@ -722,7 +750,24 @@ async fn handle_text_frame(
             // CLOACI-T-0722: whole-graph firings ride their own packet kind.
             if kind == GRAPH_PACKET_KIND {
                 let cur = in_flight.load(Ordering::SeqCst);
-                let packet = decode_graph_packet(&env).context("decode graph packet")?;
+                // CLOACINA-T-1058: a packet that does not decode is reported
+                // by its push id, whatever the load of the agent.
+                let packet = match decode_graph_packet(&env).context("decode graph packet") {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        guard.hand_over();
+                        spawn_undecodable(
+                            http.clone(),
+                            server.to_string(),
+                            api_key.to_string(),
+                            agent_id.to_string(),
+                            format!("{e:#}"),
+                            ack_tx.clone(),
+                            push_id,
+                        );
+                        return Ok(());
+                    }
+                };
                 if cur >= max_concurrency {
                     warn!(
                         in_flight = cur,
@@ -762,6 +807,23 @@ async fn handle_text_frame(
                 return Ok(());
             }
 
+            let packet = match decode_packet(&env).context("decode work packet") {
+                Ok(packet) => packet,
+                Err(e) => {
+                    guard.hand_over();
+                    spawn_undecodable(
+                        http.clone(),
+                        server.to_string(),
+                        api_key.to_string(),
+                        agent_id.to_string(),
+                        format!("{e:#}"),
+                        ack_tx.clone(),
+                        push_id,
+                    );
+                    return Ok(());
+                }
+            };
+
             // Capacity check: if we're saturated, refuse with Shutdown-ish.
             // (v1: a real fleet would refuse via the substrate so the relay
             // re-pushes to a less-loaded peer; here we accept + refuse so
@@ -772,7 +834,6 @@ async fn handle_text_frame(
                     in_flight = cur,
                     max_concurrency, "saturated; refusing packet"
                 );
-                let packet = decode_packet(&env);
                 guard.hand_over();
                 spawn_refusal(
                     http.clone(),
@@ -788,7 +849,6 @@ async fn handle_text_frame(
                 return Ok(());
             }
 
-            let packet = decode_packet(&env).context("decode work packet")?;
             guard.hand_over();
             spawn_packet_worker(
                 http.clone(),
@@ -1364,26 +1424,65 @@ fn spawn_refusal(
     server: String,
     api_key: String,
     agent_id: String,
-    packet: Result<WorkPacket>,
+    packet: WorkPacket,
     reason: RefusalReason,
     message: String,
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
 ) {
     tokio::spawn(async move {
-        if let Ok(packet) = packet {
-            let req = AgentResultRequest {
-                protocol_version: AGENT_PROTOCOL_VERSION,
-                agent_id,
-                task_execution_id: packet.task_execution_id.clone(),
-                attempt: packet.attempt,
-                dispatch_id: packet.dispatch_id.clone(),
-                duration_ms: 0,
-                outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
-            };
-            let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
-            report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
-        }
+        let req = AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id,
+            task_execution_id: packet.task_execution_id.clone(),
+            attempt: packet.attempt,
+            dispatch_id: packet.dispatch_id.clone(),
+            duration_ms: 0,
+            outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
+        };
+        let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
+        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
+        finish_and_ack(&ack_tx, push_id);
+    });
+}
+
+/// Tell the server that this agent cannot decode a push, then ack it
+/// (CLOACINA-T-1058).
+///
+/// The agent could not read the packet, so it has no task id for a report:
+/// it names the push id, and the server finds the task in its own outbox
+/// row and fails the dispatch. Before, a full agent acked such a push with
+/// no report, and an agent with a free slot neither acked nor reported: the
+/// task waited out its time limit either way.
+///
+/// The message is retried as a report is. The packet's time limit is not
+/// known, so the tries go on for [`ReportPolicy::min_window`] at least. The
+/// push is acked after that, whatever the result, for the reasons
+/// [`report_outcome`] gives. A server from before the route answers 404: the
+/// push is acked and the task waits out its time limit, as before.
+fn spawn_undecodable(
+    http: reqwest::Client,
+    server: String,
+    api_key: String,
+    agent_id: String,
+    error: String,
+    ack_tx: mpsc::UnboundedSender<Message>,
+    push_id: i64,
+) {
+    error!(
+        push_id,
+        error = %error,
+        "cannot decode a pushed packet (a server of another version?); telling the server"
+    );
+    tokio::spawn(async move {
+        let req = AgentUndecodableRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id,
+            push_id,
+            error,
+            agent_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        };
+        report_outcome(&http, &server, &api_key, &req, Instant::now()).await;
         finish_and_ack(&ack_tx, push_id);
     });
 }
@@ -1457,11 +1556,11 @@ fn server_wait_end(received_at: Instant, timeout_seconds: u32) -> Instant {
 /// to this agent again and run again for a dispatch the server gave up on, on
 /// top of the server's own retry. While the tries go on the push id is still
 /// in work, so the heartbeat keeps its lease and a re-push is ignored.
-async fn report_outcome(
+async fn report_outcome<R: PacketReport>(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
-    req: &AgentResultRequest,
+    req: &R,
     server_gives_up_at: Instant,
 ) -> ReportDelivery {
     report_with_policy(
@@ -1475,31 +1574,27 @@ async fn report_outcome(
     .await
 }
 
-async fn report_with_policy(
+async fn report_with_policy<R: PacketReport>(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
-    req: &AgentResultRequest,
+    req: &R,
     server_gives_up_at: Instant,
     policy: &ReportPolicy,
 ) -> ReportDelivery {
+    let subject = req.subject();
     let mut delay = policy.backoff_min;
     let mut stop_at: Option<Instant> = None;
     let mut attempt = 1u32;
     loop {
         let error = match post_result(http, server, api_key, req, policy.attempt_timeout).await {
             Ok(()) => {
-                debug!(
-                    task_id = %req.task_execution_id,
-                    outcome = %summarize_outcome(&req.outcome),
-                    attempt,
-                    "result reported"
-                );
+                debug!(report = %subject, attempt, "result reported");
                 return ReportDelivery::Delivered;
             }
             Err(PostError::Permanent(e)) => {
                 error!(
-                    task_id = %req.task_execution_id,
+                    report = %subject,
                     error = %e,
                     "the server rejected the result; not sent again"
                 );
@@ -1511,7 +1606,7 @@ async fn report_with_policy(
         let stop_at = *stop_at.get_or_insert(server_gives_up_at.max(now + policy.min_window));
         if attempt >= policy.max_attempts || now + delay > stop_at {
             error!(
-                task_id = %req.task_execution_id,
+                report = %subject,
                 attempts = attempt,
                 error = %error,
                 "result not delivered and the retries are used up; \
@@ -1520,7 +1615,7 @@ async fn report_with_policy(
             return ReportDelivery::GaveUp;
         }
         warn!(
-            task_id = %req.task_execution_id,
+            report = %subject,
             attempt,
             retry_in_ms = delay.as_millis() as u64,
             error = %error,
@@ -2483,7 +2578,7 @@ mod tests {
             server,
             "key".into(),
             "agent-a".into(),
-            Ok(pkt("any-triple")),
+            pkt("any-triple"),
             RefusalReason::Shutdown,
             "agent at max_concurrency".into(),
             ack_tx,
@@ -2502,6 +2597,194 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 2);
         match ack {
             Message::Text(t) => assert!(t.contains("991015"), "ack names the push id: {t}"),
+            other => panic!("unexpected frame: {other:?}"),
+        }
+    }
+
+    // ── CLOACINA-T-1058: a packet the agent cannot decode ────────────────
+
+    /// A payload that is a work packet of another shape: it has the task's
+    /// ids, and lacks fields this agent needs (`artifact`,
+    /// `timeout_seconds`), as a packet from a newer or older server can.
+    fn other_shape_payload() -> String {
+        let payload = serde_json::json!({
+            "protocol_version": AGENT_PROTOCOL_VERSION,
+            "task_execution_id": "00000000-0000-0000-0000-000000001058",
+            "firing_id": "00000000-0000-0000-0000-000000001058",
+            "attempt": 1,
+            "dispatch_id": "d1",
+        });
+        BASE64.encode(serde_json::to_vec(&payload).unwrap())
+    }
+
+    /// A local HTTP server that takes one request, answers 200, and hands
+    /// the request (head and body) to the test.
+    async fn capture_server() -> (String, tokio::sync::oneshot::Receiver<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let Ok(read) = sock.read(&mut chunk).await else {
+                    return;
+                };
+                if read == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..read]);
+                let text = String::from_utf8_lossy(&buf).to_ascii_lowercase();
+                if let Some(head_end) = text.find("\r\n\r\n") {
+                    let want = text
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if buf.len() >= head_end + 4 + want {
+                        break;
+                    }
+                }
+            }
+            let body = r#"{"protocol_version":1}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                 content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = sock.write_all(resp.as_bytes()).await;
+            let _ = sock.shutdown().await;
+            let _ = tx.send(String::from_utf8_lossy(&buf).to_string());
+        });
+        (format!("http://{addr}"), rx)
+    }
+
+    /// Give the agent one push frame it cannot decode. Returns the request
+    /// the server got (if one came) and whether the agent acked the push.
+    async fn deliver_undecodable(
+        push_id: i64,
+        kind: &str,
+        payload_b64: Option<&str>,
+        in_flight: u32,
+        max_concurrency: u32,
+    ) -> (Option<String>, bool) {
+        let (server, request) = capture_server().await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        let mut frame = serde_json::json!({"type": "push", "id": push_id, "kind": kind});
+        if let Some(payload) = payload_b64 {
+            frame["payload_b64"] = serde_json::json!(payload);
+        }
+        let _ = handle_text_frame(
+            frame.to_string(),
+            &reqwest::Client::new(),
+            &server,
+            "key",
+            "agent-a",
+            "any-triple",
+            &Arc::new(AtomicU32::new(in_flight)),
+            max_concurrency,
+            &ack_tx,
+            &Arc::new(tempdir()),
+            &empty_key_pool(),
+        )
+        .await;
+        // The message and the ack come from a spawned task.
+        let request = tokio::time::timeout(Duration::from_secs(2), request)
+            .await
+            .ok()
+            .and_then(|r| r.ok());
+        let acked = match tokio::time::timeout(Duration::from_secs(2), ack_rx.recv()).await {
+            Ok(Some(Message::Text(t))) => t.contains(&push_id.to_string()),
+            _ => false,
+        };
+        (request, acked)
+    }
+
+    /// The server is told of the push by its id, on the undecodable route,
+    /// and the push is acked after that.
+    fn assert_told_and_acked(push_id: i64, got: (Option<String>, bool)) {
+        let (request, acked) = got;
+        let request = request.unwrap_or_else(|| {
+            panic!("the server must learn of the packet: acked={acked}, reports=0")
+        });
+        assert!(
+            request.starts_with("POST /v1/agent/undecodable "),
+            "the route: {request}"
+        );
+        assert!(
+            request.contains(&format!("\"push_id\":{push_id}")),
+            "the message names the push id: {request}"
+        );
+        assert!(request.contains("\"agent_id\":\"agent-a\""), "{request}");
+        assert!(acked, "the push is acked after the message");
+        assert!(
+            !push_registry().in_work_ids().contains(&push_id),
+            "the push is not in work any more"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_full_agent_reports_a_packet_it_cannot_decode() {
+        let id = 1_058_001;
+        let payload = other_shape_payload();
+        let got = deliver_undecodable(id, WORK_PACKET_KIND, Some(&payload), 1, 1).await;
+        assert_told_and_acked(id, got);
+    }
+
+    #[tokio::test]
+    async fn an_agent_with_a_free_slot_reports_a_packet_it_cannot_decode() {
+        let id = 1_058_002;
+        let payload = other_shape_payload();
+        let got = deliver_undecodable(id, WORK_PACKET_KIND, Some(&payload), 0, 1).await;
+        assert_told_and_acked(id, got);
+    }
+
+    #[tokio::test]
+    async fn an_agent_reports_a_graph_packet_it_cannot_decode() {
+        let id = 1_058_003;
+        let payload = other_shape_payload();
+        let got = deliver_undecodable(id, GRAPH_PACKET_KIND, Some(&payload), 0, 1).await;
+        assert_told_and_acked(id, got);
+    }
+
+    /// The payload carries no task id at all: not base64, not JSON, missing.
+    #[tokio::test]
+    async fn an_agent_reports_a_packet_with_no_readable_payload() {
+        let not_json = BASE64.encode(b"\x00\xffnot json");
+        let payloads = [Some("%%% not base64 %%%"), Some(not_json.as_str()), None];
+        for (n, payload) in payloads.into_iter().enumerate() {
+            let id = 1_058_010 + n as i64;
+            let got = deliver_undecodable(id, WORK_PACKET_KIND, payload, 0, 1).await;
+            assert_told_and_acked(id, got);
+        }
+    }
+
+    /// A server from before the route answers 404: the agent sends the
+    /// message one time and acks the push.
+    #[tokio::test]
+    async fn an_agent_acks_an_undecodable_packet_when_the_server_has_no_route() {
+        let (server, hits) = result_server(vec![404]).await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        spawn_undecodable(
+            reqwest::Client::new(),
+            server,
+            "key".into(),
+            "agent-a".into(),
+            "deserialize WorkPacket JSON".into(),
+            ack_tx,
+            1_058_020,
+        );
+        let ack = tokio::time::timeout(Duration::from_secs(5), ack_rx.recv())
+            .await
+            .expect("the ack comes")
+            .expect("ack channel open");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        match ack {
+            Message::Text(t) => assert!(t.contains("1058020"), "ack names the push id: {t}"),
             other => panic!("unexpected frame: {other:?}"),
         }
     }

@@ -34,8 +34,8 @@ use axum::response::{IntoResponse, Response};
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, EphemeralKeyEntry,
-    host_target_triple,
+    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, AgentUndecodableRequest,
+    AgentUndecodableResponse, EphemeralKeyEntry, host_target_triple,
 };
 use cloacina::security::ServerKeyPool;
 use cloacina::security::ownership::{AgentOwner, Principal, Refusal};
@@ -406,6 +406,63 @@ pub async fn report_result(
     }
 
     Ok(Json(AgentResultResponse {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+    }))
+}
+
+/// `POST /v1/agent/undecodable` (CLOACINA-T-1058)
+///
+/// An agent got a push that it cannot decode. It has no task id, so it names
+/// the push by its delivery-outbox id. The server reads its own row, and the
+/// dispatch of that packet ends with a failure that names a likely version
+/// mismatch: the task's retry policy decides the next run, a graph firing
+/// ends with the error
+/// ([`crate::fleet_coordinator::fail_undecodable_packet`]).
+///
+/// The caller key must hold the agent (as for a result), and the row must be
+/// addressed to that agent in its tenant (as for an ack). A row of another
+/// recipient or tenant and an unknown row id get the same 404
+/// `delivery_row_not_found`, and nothing changes. A 5xx makes the agent send
+/// the message again.
+pub async fn report_undecodable(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Json(req): Json<AgentUndecodableRequest>,
+) -> Result<Json<AgentUndecodableResponse>, ApiError> {
+    use crate::fleet_coordinator::Undecodable;
+
+    require_protocol_version(req.protocol_version)?;
+    let agent_row = require_agent_owner(&state, &auth, &req.agent_id).await?;
+    let db = cloacina::dal::DAL::new(state.database.clone());
+    match crate::fleet_coordinator::fail_undecodable_packet(
+        &state.fleet_coordinator,
+        &db,
+        &agent_row,
+        &req,
+    )
+    .await
+    {
+        Ok(Undecodable::Failed(_)) | Ok(Undecodable::AlreadyAcked) => {}
+        Ok(Undecodable::NoRow) | Ok(Undecodable::NotOwned) => {
+            return Err(ApiError::not_found(
+                "delivery_row_not_found",
+                format!("no delivery row {} of this agent", req.push_id),
+            ));
+        }
+        Ok(Undecodable::NotAPacket) => {
+            return Err(ApiError::bad_request(
+                "not_a_work_packet",
+                format!("delivery row {} holds no work packet", req.push_id),
+            ));
+        }
+        Err(e) => {
+            return Err(ApiError::internal_logged(
+                "undecodable-packet message not accepted",
+                &e,
+            ));
+        }
+    }
+    Ok(Json(AgentUndecodableResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
     }))
 }

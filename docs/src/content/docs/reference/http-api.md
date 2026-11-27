@@ -2063,6 +2063,7 @@ limit/provision surface that decides how many agents a tenant runs, see
 | `POST` | `/v1/agent/heartbeat` | Liveness heartbeat; missing heartbeats let the sweeper evict the agent and reassign its in-flight work. |
 | `POST` | `/v1/agent/keys` | An agent replenishes its one-time ephemeral secret-key pool (used for HPKE-wrapped secret delivery, CLOACI-T-0861). |
 | `POST` | `/v1/agent/result` | An agent returns the outcome of a dispatched unit of work. |
+| `POST` | `/v1/agent/undecodable` | An agent says that it cannot decode a pushed work packet, by the packet's delivery row id. The dispatch of that packet fails at once. |
 | `GET`  | `/v1/agent/artifact/{digest}` | An agent fetches a content-addressed package artifact by digest. |
 | `GET`  | `/v1/agent/source/{digest}` | An agent fetches a content-addressed **source** bundle by digest (for build-on-agent flows). |
 | `GET`  | `/v1/agent/providers/{digest}` | An agent fetches a content-addressed **provider** bundle by digest. |
@@ -2079,6 +2080,14 @@ that another key holds. A result changes task state only when it comes from
 the agent the work packet is addressed to and carries the packet's
 `dispatch_id`; see
 [who may act as an agent](../../explanation/service/execution-agent-fleet/#who-may-act-as-an-agent).
+
+`POST /v1/agent/undecodable` takes `agent_id`, `push_id` (the `id` of the
+push frame), `error` and an optional `agent_version`. The agent check is the
+one of `result`. The row must be addressed to that agent in its tenant: a row
+of another recipient or tenant and an unknown `push_id` both answer
+`404 delivery_row_not_found`, and a row that holds no work packet answers
+`400 not_a_work_packet`; none of them changes state. See
+[a packet the agent cannot decode](../../explanation/service/execution-agent-fleet/#a-packet-the-agent-cannot-decode).
 
 See [Execution-Agent Fleet](../../explanation/service/execution-agent-fleet/)
 for how the fleet coordinates, and [Deploy an Execution-Agent Fleet](../../how-to/service/deploy-an-execution-agent-fleet/) to run one.

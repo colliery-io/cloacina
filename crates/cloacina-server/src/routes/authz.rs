@@ -1121,6 +1121,13 @@ pub fn build_authz_table() -> AuthzTable {
         Row::caller(P::AgentAct)
             .no_audit("one for each task; the execution history holds the outcome"),
     );
+    // CLOACINA-T-1058: a packet the agent cannot decode, named by its push id.
+    t.add(
+        post.clone(),
+        "/v1/agent/undecodable",
+        Row::caller(P::AgentAct)
+            .no_audit("one for each refused packet; the execution history holds the outcome"),
+    );
     for path in [
         "/v1/agent/artifact/{digest}",
         "/v1/agent/source/{digest}",
@@ -2129,6 +2136,7 @@ mod tests {
                 "POST /v1/agent/keys",
                 "POST /v1/agent/register",
                 "POST /v1/agent/result",
+                "POST /v1/agent/undecodable",
                 "POST /v1/auth/ws-ticket",
             ]
         );
@@ -2223,8 +2231,9 @@ mod tests {
         assert_eq!(table.faults(), Vec::<String>::new());
         // 81 rows before CLOACINA-T-1055 (76, and the five backfill routes of
         // CLOACINA-T-1020), `POST /v1/agent/keys`, three WebSockets and seven
-        // public routes; the three trusted key routes of CLOACINA-T-1061.
-        assert_eq!(table.len(), 95);
+        // public routes; the three trusted key routes of CLOACINA-T-1061;
+        // `POST /v1/agent/undecodable` of CLOACINA-T-1058.
+        assert_eq!(table.len(), 96);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()
@@ -2367,6 +2376,7 @@ mod tests {
             vec![
                 "POST /v1/agent/heartbeat",
                 "POST /v1/agent/result",
+                "POST /v1/agent/undecodable",
                 "POST /v1/auth/refresh",
                 "POST /v1/auth/ws-ticket",
             ]

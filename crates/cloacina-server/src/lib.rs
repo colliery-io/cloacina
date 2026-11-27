@@ -2409,6 +2409,10 @@ fn registered_routes(
         .post("/agent/heartbeat", crate::routes::agent::heartbeat_agent)
         .post("/agent/keys", crate::routes::agent::replenish_keys)
         .post("/agent/result", crate::routes::agent::report_result)
+        .post(
+            "/agent/undecodable",
+            crate::routes::agent::report_undecodable,
+        )
         .get(
             "/agent/artifact/{digest}",
             crate::routes::agent::fetch_artifact,

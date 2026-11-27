@@ -368,6 +368,35 @@ pub struct AgentResultResponse {
     pub protocol_version: u32,
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Undecodable packet: POST /v1/agent/undecodable
+// ─────────────────────────────────────────────────────────────────────────
+
+/// CLOACINA-T-1058 — the agent got a push that it cannot decode into a
+/// [`WorkPacket`] or a [`GraphWorkPacket`], so it has no task id to report
+/// with. It names the push by its delivery-outbox id; the server reads its
+/// own row to find the task or the firing, and ends the wait with a failure.
+///
+/// A server from before this route answers 404. The agent then acks the
+/// push, and the task waits out its time limit as it did before.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentUndecodableRequest {
+    pub protocol_version: u32,
+    pub agent_id: String,
+    /// The `id` of the push frame: the delivery-outbox row of the packet.
+    pub push_id: i64,
+    /// Why the decode failed, in the agent's words.
+    pub error: String,
+    /// The version of the agent binary, for the error the task ends with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentUndecodableResponse {
+    pub protocol_version: u32,
+}
+
 /// Outcome of one work packet as reported by the agent. The server's
 /// `FleetExecutor` reconciliation maps these onto the shared
 /// `crate::executor::TaskResultHandler::handle_outcome` Result variant,

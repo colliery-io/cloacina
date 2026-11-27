@@ -138,6 +138,33 @@ about 15 minutes and counted in `cloacina_fleet_orphan_results_total`.
 What this does not cover: a replica that stops takes its waits with it. The
 task is then picked up by the stale-claim sweep and runs again, as before.
 
+### A packet the agent cannot decode
+
+A push whose payload the agent cannot read as a work packet (a payload that
+is not base64 or not JSON, or a packet with fields the agent does not know
+how to read) gives the agent no task id, so it cannot send a result. This
+happens when the server and the agent are different versions.
+
+The agent sends `POST /v1/agent/undecodable` with the id of the push, which
+is the id of the packet's `delivery_outbox` row, and its decode error. The
+server reads the task or the firing from its own row and ends the wait of
+step 5 with a failure. The error names the agent, both versions and the
+decode error. For a task the retry policy decides the next run, as for any
+task error; a graph firing ends with the error and is not run in-process.
+The server counts each one in `cloacina_fleet_undecodable_packets_total`.
+
+The agent retries the message as it retries a result, and acks the push
+after it. The load of the agent makes no difference: a full agent and an
+agent with a free slot do the same.
+
+Mixed versions:
+
+- A server from before this route answers 404. The agent acks the push, and
+  the task waits out its time limit.
+- An agent from before this message sends nothing. A full one acks the push;
+  one with a free slot does not, and gets the push again. The task waits out
+  its time limit.
+
 ### Who may act as an agent
 
 An agent row has an owner: the tenant and the API key that registered it.
@@ -163,6 +190,10 @@ An agent row has an owner: the tenant and the API key that registered it.
 - **Delivery socket.** `agent:<agent_id>` is open only to the key that holds
   the agent, and an `ack` applies only to a row addressed to that agent in
   its tenant.
+- **Undecodable packet.** The key must hold the agent, as for a result, and
+  the delivery row the message names must be addressed to that agent in its
+  tenant, as for an `ack`. A message for any other row changes nothing and
+  is counted in `cloacina_fleet_refused_undecodable_total`.
 
 An agent keeps one id for the life of its process: the id of its first
 register, which it registers again at each reconnect. A task that is still
