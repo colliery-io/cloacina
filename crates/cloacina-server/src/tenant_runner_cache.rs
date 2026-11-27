@@ -40,7 +40,10 @@
 //! - [`spawn`] starts a loop that lists the tenant schemas at start and then
 //!   every [`RUNNER_PASS_INTERVAL`], and makes a runner for each tenant that
 //!   has none. That covers a restart and a tenant made through another
-//!   replica. It also stops the runner of a schema that is gone.
+//!   replica. It also stops the runner of a schema that is gone, and the
+//!   runner of a schema that was dropped and made again with the same name
+//!   (its oid differs from the one the runner was made for, CLOACINA-T-1129),
+//!   and makes a new one.
 //! - The tenant create route and the package upload route call
 //!   [`ensure_runner`], so a new tenant and a first publish do not wait for
 //!   the loop.
@@ -107,9 +110,55 @@ pub type FleetRegistrar = Arc<dyn Fn(&DefaultRunner) + Send + Sync>;
 /// within this time.
 pub const RUNNER_PASS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// A runner and the oid of the schema it was made for (CLOACINA-T-1129). A
+/// tenant deleted and made again keeps its name and gets a new oid.
+struct Entry {
+    runner: Arc<DefaultRunner>,
+    /// `None` when the oid could not be read at build time; the next pass
+    /// records the current one.
+    schema_oid: Option<i64>,
+}
+
+/// The oid of each schema of `names` that exists, read through `database`.
+pub async fn schema_oids(
+    database: &Database,
+    names: Vec<String>,
+) -> Result<HashMap<String, i64>, String> {
+    use diesel::RunQueryDsl;
+
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        nspname: String,
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        oid: i64,
+    }
+
+    if names.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let conn = database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| format!("connection: {e}"))?;
+    let rows = conn
+        .interact(move |conn| {
+            diesel::sql_query(
+                "SELECT nspname::text AS nspname, oid::bigint AS oid \
+                 FROM pg_catalog.pg_namespace WHERE nspname = ANY($1)",
+            )
+            .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(names)
+            .load::<Row>(conn)
+        })
+        .await
+        .map_err(|e| format!("interact: {e}"))?
+        .map_err(|e| format!("query: {e}"))?;
+    Ok(rows.into_iter().map(|r| (r.nspname, r.oid)).collect())
+}
+
 /// The live per-tenant `DefaultRunner` instances, one for each tenant.
 pub struct TenantRunnerCache {
-    cache: Mutex<HashMap<String, Arc<DefaultRunner>>>,
+    cache: Mutex<HashMap<String, Entry>>,
     /// Held while a runner is built, so two callers cannot build two runners
     /// for one tenant. A runner that lost such a race could not be shut down:
     /// its `shutdown()` closes the pool it shares with the winner.
@@ -194,20 +243,30 @@ impl TenantRunnerCache {
         tenant_database: Database,
     ) -> Result<Arc<DefaultRunner>, cloacina::WorkflowExecutionError> {
         // Fast path: cached?
-        if let Some(runner) = self.cache.lock().await.get(tenant_id) {
-            return Ok(runner.clone());
+        if let Some(entry) = self.cache.lock().await.get(tenant_id) {
+            return Ok(entry.runner.clone());
         }
 
         // Slow path: build a new runner with the shared Runtime. One build at
         // a time; a caller that waited here finds the runner the other made.
         let _build = self.build_lock.lock().await;
-        if let Some(runner) = self.cache.lock().await.get(tenant_id) {
-            return Ok(runner.clone());
+        if let Some(entry) = self.cache.lock().await.get(tenant_id) {
+            return Ok(entry.runner.clone());
         }
         info!(
             tenant_id = %tenant_id,
             "constructing per-tenant DefaultRunner (CLOACI-T-0580)"
         );
+        // CLOACINA-T-1129: the oid of the schema, read before the build. A
+        // schema made again after this read gives the runner an old oid, and
+        // the next pass replaces it.
+        let schema_oid = match schema_oids(&tenant_database, vec![tenant_id.to_string()]).await {
+            Ok(oids) => oids.get(tenant_id).copied(),
+            Err(e) => {
+                warn!(tenant_id = %tenant_id, error = %e, "schema oid not read; the next pass records it");
+                None
+            }
+        };
         // CLOACI-T-0781: stamp the tenant on this runner's config so its
         // reconciler namespaces tasks `tenant::pkg::wf::task` — that's what the
         // fleet executor routes on, so the tenant's tasks reach its agents.
@@ -240,7 +299,13 @@ impl TenantRunnerCache {
 
         let held = {
             let mut cache = self.cache.lock().await;
-            cache.insert(tenant_id.to_string(), runner.clone());
+            cache.insert(
+                tenant_id.to_string(),
+                Entry {
+                    runner: runner.clone(),
+                    schema_oid,
+                },
+            );
             cache.len()
         };
         if held > self.warn_above.get() {
@@ -263,7 +328,7 @@ impl TenantRunnerCache {
     pub async fn evict(&self, tenant_id: &str) -> Result<bool, cloacina::WorkflowExecutionError> {
         let runner = {
             let mut cache = self.cache.lock().await;
-            cache.remove(tenant_id)
+            cache.remove(tenant_id).map(|e| e.runner)
         };
         match runner {
             Some(r) => {
@@ -289,8 +354,53 @@ impl TenantRunnerCache {
     ) -> EvictOutcome {
         let runner = {
             let mut cache = self.cache.lock().await;
-            cache.remove(tenant_id)
+            cache.remove(tenant_id).map(|e| e.runner)
         };
+        Self::drain(tenant_id, runner, drain_timeout).await
+    }
+
+    /// CLOACINA-T-1129: stop the runner of `tenant_id` when it was made for
+    /// another schema than the one of oid `current_oid` (the tenant was
+    /// deleted and made again). A runner whose oid is not known takes
+    /// `current_oid` and is kept. Returns the outcome; `Missing` when the
+    /// runner is kept or there is none.
+    pub async fn evict_if_remade(
+        &self,
+        tenant_id: &str,
+        current_oid: i64,
+        drain_timeout: std::time::Duration,
+    ) -> EvictOutcome {
+        let runner = {
+            let mut cache = self.cache.lock().await;
+            let remade = match cache.get_mut(tenant_id) {
+                Some(entry) if entry.schema_oid.is_none() => {
+                    entry.schema_oid = Some(current_oid);
+                    false
+                }
+                Some(entry) => entry.schema_oid != Some(current_oid),
+                None => false,
+            };
+            if remade {
+                cache.remove(tenant_id).map(|e| e.runner)
+            } else {
+                None
+            }
+        };
+        if runner.is_some() {
+            info!(
+                tenant_id = %tenant_id,
+                "tenant schema was dropped and made again; its old runner is stopped"
+            );
+        }
+        Self::drain(tenant_id, runner, drain_timeout).await
+    }
+
+    /// Shut `runner` down within `drain_timeout` (CLOACI-T-0581).
+    async fn drain(
+        tenant_id: &str,
+        runner: Option<Arc<DefaultRunner>>,
+        drain_timeout: std::time::Duration,
+    ) -> EvictOutcome {
         match runner {
             None => EvictOutcome::Missing,
             Some(r) => {
@@ -330,7 +440,7 @@ impl TenantRunnerCache {
     pub async fn shutdown_all(&self) -> HashMap<String, Result<(), String>> {
         let runners: Vec<(String, Arc<DefaultRunner>)> = {
             let mut cache = self.cache.lock().await;
-            cache.drain().collect()
+            cache.drain().map(|(t, e)| (t, e.runner)).collect()
         };
         let mut results = HashMap::with_capacity(runners.len());
         for (tenant_id, runner) in runners {
@@ -433,8 +543,10 @@ pub async fn run_pass(state: &crate::AppState) {
 /// Bring the runners in line with `tenants`, the tenant schemas that exist.
 /// A tenant of `held_before` (the tenants that had a runner before the list
 /// was read) that is not in `tenants` loses its runner and its cached
-/// database. Each tenant in `tenants` with no runner gets one. Returns the
-/// runners made and the runners stopped.
+/// database. A held tenant in `tenants` whose schema was dropped and made
+/// again since its runner was made (CLOACINA-T-1129: another oid) loses them
+/// too. Each tenant in `tenants` with no runner gets one. Returns the runners
+/// made and the runners stopped.
 pub async fn apply_tenant_list(
     state: &crate::AppState,
     held_before: &[String],
@@ -450,6 +562,28 @@ pub async fn apply_tenant_list(
         if outcome.was_present() {
             stopped += 1;
             info!(tenant_id = %gone, "tenant schema is gone; its runner is stopped");
+        }
+    }
+    let kept: Vec<String> = held_before
+        .iter()
+        .filter(|held| tenants.contains(held))
+        .cloned()
+        .collect();
+    match schema_oids(&state.database, kept).await {
+        Ok(oids) => {
+            for (tenant, oid) in oids {
+                let outcome = state
+                    .tenant_runners
+                    .evict_if_remade(&tenant, oid, state.tenant_deletion_drain_timeout)
+                    .await;
+                if outcome.was_present() {
+                    state.tenant_databases.evict(&tenant).await;
+                    stopped += 1;
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "tenant runners: could not read schema oids; retrying next pass");
         }
     }
     (ensure_runners(state, tenants).await, stopped)
