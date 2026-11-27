@@ -463,7 +463,10 @@ reach depends on which compiler builds the package.
   they are emptied each time the compiler starts.
 - **The database URL: yes.** The URL is the pod's `DATABASE_URL` environment
   variable, from a Secret. It is not on the command line. Build code has the
-  compiler's uid, so it can read `/proc/<compiler pid>/environ`.
+  compiler's uid, so it can read `/proc/<compiler pid>/environ`. The same
+  holds for a Python package index URL set with
+  `fleet.compiler.python.indexUrl`: it is in the same Secret and in the
+  compiler's environment.
 - **What that URL opens.** By default it is the server's own URL, which
   reaches every tenant's schema. With
   `fleet.compiler.databaseUrlSecretRef` it is the URL of the role the operator

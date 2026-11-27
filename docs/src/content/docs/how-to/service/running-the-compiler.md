@@ -213,7 +213,7 @@ A tenant has at most one compiler. The server keeps no record of the wanted
 state: it works it out from the queue on each tick, so any replica can lead a
 tick. A removed tenant loses its compiler: `DELETE /v1/tenants/{name}` deletes
 the Deployment and its NetworkPolicy and writes an empty value over the
-database URL Secret.
+database URL and the Python index URL in the Secret.
 
 On Kubernetes the compiler of a tenant is a Deployment `cloacina-compiler` in
 the tenant's namespace (`cloacina-tenant-<tenant>`), next to its agents. With
@@ -249,19 +249,35 @@ also keeps the pod's requested CPU and memory reserved.
 | `CLOACINA_TENANT_COMPILER_EGRESS` | `egress` | `internet` | Where a build may fetch crates from: `internet`, `all` or `none`. |
 | `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | `egressCidrs` | empty | More egress CIDR blocks, every port. |
 | `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | `databaseCidrs` | empty | CIDR blocks of the database. |
+| `CLOACINA_TENANT_COMPILER_HOME_SIZE` | `homeSize` | `4Gi` | Size limit of the home volume of a hardened pod. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS` | `python.platforms` | unset (the compiler's `aarch64-linux`, `x86_64-linux`) | `CLOACINA_COMPILER_PYTHON_PLATFORMS` of the compiler, comma-separated. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_VERSION` | `python.version` | unset (the compiler's 3.11) | `CLOACINA_COMPILER_PYTHON_VERSION`. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL` | `python.indexUrl`, or `python.indexUrlSecretRef` | unset (PyPI) | The package index. Written into the Secret `cloacina-compiler-db`, not into the pod spec. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR` | `python.wheelDir` | unset | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR`: a folder of wheels inside the image. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE` | `python.offline` | `false` | `CLOACINA_COMPILER_PYTHON_OFFLINE`. In a hardened pod it needs a wheel folder. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR` | `python.uvCacheDir` | unset (hardened: `/var/cloacina/uv-cache`) | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE` | `python.cacheSize` | `4Gi` | Size limit of the `uv` cache volume of a hardened pod. |
 
 A value the server cannot use (a CIDR block that does not parse, an egress
-mode it does not know) stops the server at start with a message that names
-the variable.
+mode it does not know, a Python platform the compiler does not know, a Python
+version that is not `major.minor`, a folder that is not an absolute path, or
+offline in a hardened pod with no wheel folder) stops the server at start with
+a message that names the variable.
+
+The server also gives each tenant compiler its own unpack limit
+(`CLOACINA_MAX_UNPACKED_BYTES`) when it is not the default, as it does for
+the agents it starts.
 
 **The pod.** With `hardened` the pod runs as uid and gid `10001`, not root,
 with the `RuntimeDefault` seccomp profile, a read-only root filesystem, no
 capabilities and no privilege escalation, and mounts no service account
 token. The paths a build writes are `emptyDir` volumes: the compiler's home
-(`/var/cloacina/home`: unpacked sources and logs), the cargo home
-(`/var/cloacina/cargo`), the target directory and `/tmp`. The image must be
-usable by uid `10001`: the toolchain readable, and nothing it needs written
-outside those four paths. `hardened=false` runs the image as it is built, on
+(`/var/cloacina/home`: unpacked sources, logs and the Python vendoring
+folders; `homeSize`, default 4 GiB), the cargo home (`/var/cloacina/cargo`),
+the target directory (each `cacheSize`, default 8 GiB), `/tmp` (1 GiB) and the
+`uv` cache (`/var/cloacina/uv-cache`, `python.cacheSize`, default 4 GiB). The
+image must be usable by uid `10001`: the toolchain readable, and nothing it
+needs written outside those five paths. `hardened=false` runs the image as it is built, on
 its own filesystem; use it only for a development image that carries its
 caches. The compiler listens on `127.0.0.1:9000` only, and the pod has no
 probe.
@@ -278,7 +294,9 @@ schema, `workflow_packages`, `workflow_registry`, `package_providers` and
 `package_artifacts`, and nothing in `public`. All tenant compilers get the
 same URL. The host in the URL must resolve from the tenant namespaces: use a
 full Service name (`<service>.<namespace>.svc.cluster.local`), not a short
-one. A changed URL reaches a compiler when it next starts.
+one. A changed URL reaches a compiler when it next starts. A Python package
+index URL, when one is set, is a second key of the same Secret,
+`python-index-url`, read as `CLOACINA_COMPILER_PYTHON_INDEX_URL`.
 
 **The network.** With `CLOACINA_FLEET_NETWORK_POLICY` on (the default), the
 server writes a NetworkPolicy `cloacina-compiler` for the compiler pods:
@@ -476,6 +494,71 @@ The compiler's user must be able to write to the cache folder.
 A wheel folder without `--python-offline` adds to the index: `uv` still reads
 the index for every distribution, and finds in the folder the wheels the index
 does not have (a private wheel, for example).
+
+### Python in the compilers the server makes
+
+A [tenant compiler](#compilers-the-server-makes) vendors as the chart's own
+compiler does. The server gives it the settings of
+`CLOACINA_TENANT_COMPILER_PYTHON_*` (chart: `fleet.compiler.python.*`) as the
+compiler's `CLOACINA_COMPILER_PYTHON_*` variables. One that is not set leaves
+the compiler's default. All tenant compilers get the same settings.
+
+**The image.** `fleet.compiler.image` (by default the image of
+`compiler.image`) must hold `uv` and a Python interpreter. The image of
+`docker/Dockerfile.compiler` copies `uv` to `/usr/local/bin/uv` and installs
+`python3` (3.11 on Debian bookworm); a test of `cloacina-server` checks that
+the Dockerfile does both. For an image of your own, check it before you use
+it:
+
+```bash
+docker run --rm --entrypoint uv <image> --version
+docker run --rm --entrypoint python3 <image> --version
+```
+
+A build in an image with no `uv` fails, and the error says that the compiler
+image must hold `uv`.
+
+**The egress.** A Python build downloads from the package index, through the
+compiler's NetworkPolicy:
+
+| `fleet.compiler.egress` | What a Python build needs |
+|---|---|
+| `internet` (the default) | Nothing more for PyPI: the rule allows TCP 443 to public IPv4 addresses, where `pypi.org` and `files.pythonhosted.org` are. |
+| `all` | Nothing more. |
+| `none` | `python.offline=true` and `python.wheelDir`: an image that carries the wheels (see [A compiler image that carries the wheels](#a-compiler-image-that-carries-the-wheels)). |
+
+An index inside the cluster or the private network has a private address,
+which the `internet` rule leaves out. Put its CIDR in
+`CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` (chart: `fleet.compiler.egressCidrs`),
+and its URL in `python.indexUrl` or `python.indexUrlSecretRef`. The rule is
+IPv4 only.
+
+**The index URL** can hold a password. The server writes it into the Secret
+`cloacina-compiler-db` of the tenant's namespace, next to the database URL,
+and the pod reads it from there. It is in no pod spec and in no log.
+
+**The space.** In a hardened pod, the `uv` cache has its own `emptyDir` at
+`/var/cloacina/uv-cache` (`python.cacheSize`, default 4 GiB), and the build
+folder is in the home (`homeSize`, default 4 GiB). For each platform in turn,
+a build holds the filled folder, its archive and an unpacked check of the
+archive; then only the archive stays. A heavy set of 286 MiB unpacked (an
+81 MiB archive) for the two default platforms needs about 0.75 GiB of the home
+at its peak, next to the package's source and the logs; the `uv` cache holds
+the wheels on its own volume. A pod that writes past a size limit is evicted:
+its build stays `building` until a compiler's sweeper puts it back in the
+queue, and runs out of space the same way the next time. Raise `homeSize` and
+`python.cacheSize` for larger sets, or vendor for fewer platforms. A `uv` cache baked into the
+image does not work in a hardened pod: its root filesystem is read-only. A
+wheel folder in the image does, because `uv` only reads it.
+
+**A cold start downloads every wheel again.** The `uv` cache is an
+`emptyDir`: it is empty each time a tenant's compiler starts from 0 replicas.
+The first Python build after a start downloads every wheel its lock file
+names, for each platform, from the index: the cost is the size of those wheels
+over the cluster's link to the index, on every cold start. Builds that follow
+while the compiler runs read the cache. A longer
+`cooldownSeconds` keeps the cache longer. A wheel folder in the image, with
+`python.offline=true`, downloads nothing at any start.
 
 ## Flag reference
 

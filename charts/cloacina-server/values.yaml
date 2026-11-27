@@ -309,6 +309,45 @@ fleet:
     # CIDRs of the database. Empty: the database port of the URL is allowed
     # to every destination.
     databaseCidrs: []
+    # Size limit of the home emptyDir of a hardened compiler pod. The build
+    # folder is there, with the Python vendoring folders of a build: about
+    # 0.75 GiB at the peak of a build of a heavy set (286 MiB unpacked) for
+    # two platforms.
+    homeSize: 4Gi
+    # Python packages (CLOACINA-T-1117): the settings of the tenant
+    # compilers, as `compiler.python.*` are those of the chart's own compiler.
+    # The image (`image`, or `compiler.image`) must hold uv and python3; the
+    # image of docker/Dockerfile.compiler does. Each start from 0 replicas is a
+    # cold start: the uv cache is an emptyDir, so a build downloads every
+    # wheel again.
+    python:
+      # Platforms to vendor for, as <arch>-<os>. Empty: the compiler's
+      # default, aarch64-linux and x86_64-linux.
+      platforms: []
+      # The Python the wheels are for (major.minor). Empty: 3.11.
+      version: ""
+      # The package index. Empty: PyPI. The server puts it in the Secret
+      # cloacina-compiler-db of each tenant namespace, never in the pod spec.
+      # An index inside the cluster has a private address: add its CIDR to
+      # egressCidrs. For a URL with a password use indexUrlSecretRef.
+      indexUrl: ""
+      # An existing Secret in the release namespace that holds the index
+      # URL; used in place of indexUrl.
+      indexUrlSecretRef:
+        name: ""
+        key: index-url
+      # A folder of wheel files in the image: one more place to find wheels,
+      # next to the index. With offline=true it is the only source.
+      wheelDir: ""
+      # No network for Python builds. With hardened=true it needs wheelDir
+      # (the uv cache is empty at each start), and egress=none fits it.
+      offline: false
+      # The cache folder of uv. Empty: in a hardened pod its own emptyDir at
+      # /var/cloacina/uv-cache; else uv's default. Another folder must be
+      # writable: in a hardened pod only the volumes are.
+      uvCacheDir: ""
+      # Size limit of the uv cache emptyDir of a hardened pod.
+      cacheSize: 4Gi
 
 # ---------------------------------------------------------------------------
 # Service

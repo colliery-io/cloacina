@@ -390,12 +390,25 @@ fleet:
 | `fleet.compiler.egress` | `internet` | Crate egress of the compiler pods: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. |
 | `fleet.compiler.egressCidrs` | `[]` | More egress CIDR blocks, every port (a mirror, a git host, a proxy). |
 | `fleet.compiler.databaseCidrs` | `[]` | CIDR blocks of the database; empty allows the database port to every destination. |
+| `fleet.compiler.homeSize` | `4Gi` | Size limit of the home volume of a hardened pod, where the build folder is. |
+| `fleet.compiler.python.platforms` | `[]` (the compiler's `aarch64-linux`, `x86_64-linux`) | Platforms to vendor Python dependencies for. |
+| `fleet.compiler.python.version` | `""` (the compiler's 3.11) | The Python the wheels are for. |
+| `fleet.compiler.python.indexUrl`, `.indexUrlSecretRef` | `""` (PyPI) | The package index; the server puts it in the Secret `cloacina-compiler-db`. |
+| `fleet.compiler.python.wheelDir` | `""` | A folder of wheels inside the image. |
+| `fleet.compiler.python.offline` | `false` | No network for Python builds; with `hardened` it needs `wheelDir`. |
+| `fleet.compiler.python.uvCacheDir` | `""` (hardened: `/var/cloacina/uv-cache`) | The `uv` cache folder. |
+| `fleet.compiler.python.cacheSize` | `4Gi` | Size limit of the `uv` cache volume of a hardened pod. |
+
+See [Python in the compilers the server makes](../running-the-compiler/#python-in-the-compilers-the-server-makes)
+for the image, the egress each mode needs, the space and the cost of a cold
+start.
 
 What the server writes in a tenant namespace for the compiler:
 
 - the Deployment `cloacina-compiler`;
 - the Secret `cloacina-compiler-db`, with the database URL the pod reads as
-  `DATABASE_URL`;
+  `DATABASE_URL`, and the Python index URL (key `python-index-url`) when one
+  is set;
 - the NetworkPolicy `cloacina-compiler` (when `fleet.networkPolicy.enabled`):
   no ingress; egress to DNS, to the database port, and to where crates come
   from by `fleet.compiler.egress` and `fleet.compiler.egressCidrs`.
@@ -406,6 +419,9 @@ Secrets, so when a tenant is removed it writes an empty value over
 
 The cache volumes are `emptyDir`s: each start of a tenant's compiler is a cold
 start, and its first build downloads and compiles every dependency.
+
+The `uv` cache is an `emptyDir` too: the first Python build after a start
+downloads every wheel again.
 
 With `postgresql.enabled` the chart gives the tenant compilers the bundled
 database by its full Service name. With `database.url` or
