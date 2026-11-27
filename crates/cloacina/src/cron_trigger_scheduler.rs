@@ -204,6 +204,23 @@ pub struct Scheduler {
     /// Arc<Mutex> for shared interior mutability across Scheduler clones
     /// (the active poller is single-threaded, but Clone is on the type).
     predicate_cache: PredicateCache,
+    /// The trigger schedules whose poll runs now (CLOACINA-T-1077). A poll
+    /// runs off the loop; a trigger still in this set at its next interval is
+    /// not polled again. Shared by the clones of the scheduler.
+    polls_in_flight: CronHeldSet,
+}
+
+/// Takes a trigger schedule out of the set of polls in flight when its poll
+/// task ends, also when the task panics (CLOACINA-T-1077).
+struct PollInFlight {
+    set: CronHeldSet,
+    id: UniversalUuid,
+}
+
+impl Drop for PollInFlight {
+    fn drop(&mut self) {
+        self.set.lock().remove(&self.id);
+    }
 }
 
 /// Counts the passes of the cron check in this process, so a test can see
@@ -338,6 +355,7 @@ impl Scheduler {
             last_reactor_poll: None,
             last_reactor_prune: None,
             predicate_cache: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            polls_in_flight: Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -976,16 +994,83 @@ impl Scheduler {
                 continue;
             }
 
-            // Process this trigger
-            if let Err(e) = self.process_trigger(&schedule).await {
-                error!("Failed to process trigger '{}': {}", trigger_name, e);
+            // CLOACINA-T-1077: a poll still running at its next interval is
+            // not started again; the next interval is skipped.
+            if self.polls_in_flight.lock().contains(&schedule.id) {
+                debug!(
+                    "Trigger '{}': its last poll is still running; this interval is skipped",
+                    trigger_name
+                );
+                metrics::counter!("cloacina_trigger_polls_total", "outcome" => "in_flight")
+                    .increment(1);
+                self.last_poll_times.insert(trigger_name, now);
+                continue;
             }
 
-            // Update last poll time
-            self.last_poll_times.insert(trigger_name, now);
+            // CLOACINA-T-1077: take the poll in the database, so that of two
+            // schedulers on one database (server replicas) one polls.
+            let claimed = self
+                .dal
+                .schedule()
+                .claim_trigger_poll(
+                    schedule.id,
+                    schedule.last_poll_at.map(DateTime::<Utc>::from),
+                    Utc::now(),
+                    poll_interval,
+                )
+                .await;
+            self.last_poll_times.insert(trigger_name.clone(), now);
+            match claimed {
+                Ok(true) => {}
+                Ok(false) => {
+                    debug!(
+                        "Trigger '{}': not due in the database, or polled by another scheduler",
+                        trigger_name
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    warn!("Trigger '{}': poll claim failed: {}", trigger_name, e);
+                    continue;
+                }
+            }
+
+            // The poll runs off the loop: a poll waits for its trigger (on an
+            // agent, for a server), and the loop must not wait with it.
+            self.polls_in_flight.lock().insert(schedule.id);
+            let guard = PollInFlight {
+                set: self.polls_in_flight.clone(),
+                id: schedule.id,
+            };
+            let this = self.clone();
+            tokio::spawn(async move {
+                let _guard = guard;
+                if let Err(e) = this.process_trigger(&schedule).await {
+                    error!("Failed to process trigger '{}': {}", trigger_name, e);
+                }
+            });
         }
 
         Ok(())
+    }
+
+    /// Record the reason a poll gave no answer, or clear the one of an
+    /// earlier poll (CLOACINA-T-1077).
+    async fn record_poll_error(&self, schedule: &Schedule, error: Option<String>) {
+        if error.is_none() && schedule.last_poll_error.is_none() {
+            return;
+        }
+        if let Err(e) = self
+            .dal
+            .schedule()
+            .set_last_poll_error(schedule.id, error)
+            .await
+        {
+            warn!(
+                "Failed to record the poll result of trigger {:?}: {}",
+                schedule.trigger_name, e
+            );
+        }
     }
 
     /// Processes a single trigger schedule.
@@ -998,40 +1083,49 @@ impl Scheduler {
         );
 
         // Get the trigger instance from the scoped runtime
-        let trigger = self.runtime.get_trigger(trigger_name).ok_or_else(|| {
-            TriggerError::TriggerNotFound {
+        let Some(trigger) = self.runtime.get_trigger(trigger_name) else {
+            let err = TriggerError::TriggerNotFound {
                 name: trigger_name.to_string(),
+            };
+            self.record_poll_error(schedule, Some(err.to_string())).await;
+            metrics::counter!("cloacina_trigger_polls_total", "outcome" => "error").increment(1);
+            return Err(err);
+        };
+
+        // Poll the trigger with timeout. A trigger whose poll runs on an
+        // agent says how long the server waits for the answer
+        // (CLOACINA-T-1077). `last_poll_at` was set by the claim.
+        let wait = trigger
+            .poll_wait()
+            .unwrap_or(self.config.trigger_poll_timeout);
+        let polled = match tokio::time::timeout(wait, trigger.poll()).await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(e)) => Err(TriggerError::from(e)),
+            Err(_) => Err(TriggerError::PollError {
+                message: format!("Trigger '{}' poll timed out after {:?}", trigger_name, wait),
+            }),
+        };
+        let poll_result = match polled {
+            Ok(result) => {
+                self.record_poll_error(schedule, None).await;
+                result
             }
-        })?;
-
-        // Poll the trigger with timeout
-        let poll_result = tokio::time::timeout(self.config.trigger_poll_timeout, trigger.poll())
-            .await
-            .map_err(|_| TriggerError::PollError {
-                message: format!(
-                    "Trigger '{}' poll timed out after {:?}",
-                    trigger_name, self.config.trigger_poll_timeout
-                ),
-            })?
-            .map_err(|e| {
+            Err(e) => {
                 error!("Trigger '{}' poll error: {}", trigger_name, e);
-                e
-            })?;
-
-        // Update last poll time in database
-        let now = Utc::now();
-        if let Err(e) = self.dal.schedule().update_last_poll(schedule.id, now).await {
-            warn!(
-                "Failed to update last_poll_at for trigger '{}': {}",
-                trigger_name, e
-            );
-        }
+                self.record_poll_error(schedule, Some(e.to_string())).await;
+                metrics::counter!("cloacina_trigger_polls_total", "outcome" => "error")
+                    .increment(1);
+                return Err(e);
+            }
+        };
 
         // Check if trigger should fire
         if !poll_result.should_fire() {
             debug!("Trigger '{}' returned Skip", trigger_name);
+            metrics::counter!("cloacina_trigger_polls_total", "outcome" => "skip").increment(1);
             return Ok(());
         }
+        metrics::counter!("cloacina_trigger_polls_total", "outcome" => "fire").increment(1);
 
         // Compute context hash for deduplication
         let context_hash = poll_result.context_hash();
@@ -1913,6 +2007,7 @@ mod tests {
             instance_name: None,
             max_active_runs: None,
             backfill: None,
+            last_poll_error: None,
         }
     }
 
@@ -1942,6 +2037,7 @@ mod tests {
             instance_name: None,
             max_active_runs: None,
             backfill: None,
+            last_poll_error: None,
         }
     }
 
@@ -2677,6 +2773,363 @@ mod tests {
             let _ = dal.schedule().delete(fast_schedule.id).await;
             let _ = dal.schedule().delete(cron_schedule.id).await;
             runner.shutdown().await.expect("shutdown");
+        }
+
+        // -------------------------------------------------------------------
+        // CLOACINA-T-1077 — a poll whose code runs on an agent
+        // -------------------------------------------------------------------
+
+        use crate::trigger::{DispatchedTrigger, PollDispatcher, PollRequest};
+
+        /// A task that records the context of each run.
+        struct RecordTask {
+            contexts: Arc<parking_lot::Mutex<Vec<serde_json::Value>>>,
+        }
+
+        #[async_trait]
+        impl Task for RecordTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, TaskError> {
+                let data: serde_json::Map<String, serde_json::Value> = context
+                    .data()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                self.contexts.lock().push(serde_json::Value::Object(data));
+                Ok(context)
+            }
+
+            fn id(&self) -> &str {
+                "work"
+            }
+
+            fn dependencies(&self) -> &[TaskNamespace] {
+                &[]
+            }
+        }
+
+        /// What the stand-in for the agent answers.
+        #[derive(Clone, Copy)]
+        enum Answer {
+            /// Fire with `{"file": "a.csv"}` on the first poll, skip after.
+            FireOnce,
+            Skip,
+            /// No agent: the poll gives no answer.
+            NoAgent,
+            /// Hold until released, then skip.
+            Hold,
+        }
+
+        /// A dispatcher that stands in for the agent fleet: it answers from
+        /// `answer` and never runs trigger code.
+        struct StandIn {
+            answer: Answer,
+            polls: AtomicUsize,
+            release: Notify,
+            requests: parking_lot::Mutex<Vec<PollRequest>>,
+        }
+
+        impl StandIn {
+            fn new(answer: Answer) -> Arc<Self> {
+                Arc::new(Self {
+                    answer,
+                    polls: AtomicUsize::new(0),
+                    release: Notify::new(),
+                    requests: parking_lot::Mutex::new(Vec::new()),
+                })
+            }
+        }
+
+        #[async_trait]
+        impl PollDispatcher for StandIn {
+            async fn poll(
+                &self,
+                request: &PollRequest,
+            ) -> Result<TriggerResult, cloacina_workflow::TriggerError> {
+                let n = self.polls.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().push(request.clone());
+                match self.answer {
+                    Answer::FireOnce if n == 0 => {
+                        let mut context = Context::new();
+                        context
+                            .insert("file", serde_json::json!("a.csv"))
+                            .expect("context insert");
+                        Ok(TriggerResult::Fire(Some(context)))
+                    }
+                    Answer::FireOnce | Answer::Skip => Ok(TriggerResult::Skip),
+                    Answer::NoAgent => Err(cloacina_workflow::TriggerError::PollError {
+                        message: "no live agent of tenant \"public\" can run poll triggers"
+                            .to_string(),
+                    }),
+                    Answer::Hold => {
+                        self.release.notified().await;
+                        Ok(TriggerResult::Skip)
+                    }
+                }
+            }
+
+            fn wait(&self) -> Duration {
+                Duration::from_secs(60)
+            }
+        }
+
+        /// A runner on the SQLite file `db` with `runtime`.
+        async fn runner_on(db: &std::path::Path, runtime: Arc<Runtime>) -> DefaultRunner {
+            let url = format!("sqlite://{}", db.display());
+            let config = DefaultRunnerConfig::builder()
+                .enable_cron_scheduling(false)
+                .enable_trigger_scheduling(true)
+                .trigger_base_poll_interval(Duration::from_millis(100))
+                .enable_registry_reconciler(false)
+                .build()
+                .expect("runner config");
+            DefaultRunner::builder()
+                .database_url(&url)
+                .with_config(config)
+                .runtime_arc(runtime)
+                .build()
+                .await
+                .expect("runner")
+        }
+
+        /// A runtime with the workflow `poll_wf`, whose task records its
+        /// context, and the dispatched trigger `watch_inbox` that fires it.
+        fn poll_runtime(
+            interval: Duration,
+        ) -> (
+            Arc<Runtime>,
+            Arc<parking_lot::Mutex<Vec<serde_json::Value>>>,
+            crate::trigger::PollDispatcherSlot,
+        ) {
+            let runtime = Arc::new(Runtime::empty());
+            let contexts = Arc::new(parking_lot::Mutex::new(Vec::new()));
+            let task: Arc<dyn Task> = Arc::new(RecordTask {
+                contexts: contexts.clone(),
+            });
+            let workflow = Workflow::builder("poll_wf")
+                .add_task(task.clone())
+                .expect("add task")
+                .build()
+                .expect("build workflow");
+            let namespace = TaskNamespace::new(
+                workflow.tenant(),
+                workflow.package(),
+                workflow.name(),
+                "work",
+            );
+            runtime.register_task(namespace, move || task.clone());
+            runtime.register_workflow("poll_wf".to_string(), move || workflow.clone());
+
+            let slot = crate::trigger::empty_poll_dispatcher_slot();
+            let trigger: Arc<dyn Trigger> = Arc::new(DispatchedTrigger::new(
+                PollRequest {
+                    tenant_id: "public".to_string(),
+                    package_name: "inbox-pkg".to_string(),
+                    package_version: "1.0.0".to_string(),
+                    trigger_name: "watch_inbox".to_string(),
+                    workflow_name: "poll_wf".to_string(),
+                },
+                interval,
+                false,
+                slot.clone(),
+            ));
+            runtime.register_trigger("watch_inbox".to_string(), move || trigger.clone());
+            (runtime, contexts, slot)
+        }
+
+        async fn poll_schedule(runner: &DefaultRunner, interval: Duration) -> Schedule {
+            runner
+                .dal()
+                .schedule()
+                .upsert_trigger(NewSchedule::trigger("watch_inbox", "poll_wf", interval))
+                .await
+                .expect("poll trigger schedule")
+        }
+
+        /// A poll that the agent answers with fire starts the workflow once,
+        /// with the trigger's context; the polls after it answer skip and
+        /// start nothing.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn a_dispatched_poll_that_fires_starts_the_workflow_with_its_context() {
+            let (runtime, contexts, slot) = poll_runtime(Duration::from_millis(100));
+            let stand_in = StandIn::new(Answer::FireOnce);
+            *slot.write().unwrap() = Some(stand_in.clone());
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = runner_on(&dir.path().join("poll.db"), runtime).await;
+            let schedule = poll_schedule(&runner, Duration::from_millis(100)).await;
+
+            assert!(
+                wait_until(Duration::from_secs(15), || async { !contexts.lock().is_empty() })
+                    .await,
+                "the workflow did not start (polls = {})",
+                stand_in.polls.load(Ordering::SeqCst)
+            );
+            assert!(
+                wait_until(Duration::from_secs(5), || async {
+                    stand_in.polls.load(Ordering::SeqCst) >= 4
+                })
+                .await
+            );
+            let runs = contexts.lock().clone();
+            assert_eq!(runs.len(), 1, "one fire, one run: {runs:?}");
+            assert_eq!(runs[0]["file"], serde_json::json!("a.csv"));
+            let request = stand_in.requests.lock()[0].clone();
+            assert_eq!(request.trigger_name, "watch_inbox");
+            assert_eq!(request.package_name, "inbox-pkg");
+            let row = runner.dal().schedule().get_by_id(schedule.id).await.unwrap();
+            assert!(row.last_poll_error.is_none());
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A poll that answers skip starts nothing.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn a_dispatched_poll_that_skips_starts_nothing() {
+            let (runtime, contexts, slot) = poll_runtime(Duration::from_millis(100));
+            let stand_in = StandIn::new(Answer::Skip);
+            *slot.write().unwrap() = Some(stand_in.clone());
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = runner_on(&dir.path().join("poll.db"), runtime).await;
+            let schedule = poll_schedule(&runner, Duration::from_millis(100)).await;
+
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    stand_in.polls.load(Ordering::SeqCst) >= 3
+                })
+                .await
+            );
+            assert!(contexts.lock().is_empty());
+            let rows = runner
+                .dal()
+                .schedule_execution()
+                .list_by_schedule(schedule.id, 10, 0)
+                .await
+                .unwrap();
+            assert!(rows.is_empty(), "a skip writes no execution row");
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// With no agent the poll does not run and nothing fires; the reason
+        /// is on the schedule row. With no dispatcher at all the reason says
+        /// the poll runs only on agents.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn a_poll_with_no_agent_starts_nothing_and_says_why() {
+            let (runtime, contexts, slot) = poll_runtime(Duration::from_millis(100));
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = runner_on(&dir.path().join("poll.db"), runtime).await;
+            let schedule = poll_schedule(&runner, Duration::from_millis(100)).await;
+            let dal = runner.dal();
+            let error_of = |id| {
+                let dal = dal.clone();
+                async move {
+                    dal.schedule()
+                        .get_by_id(id)
+                        .await
+                        .ok()
+                        .and_then(|s| s.last_poll_error)
+                }
+            };
+
+            // No dispatcher set.
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    error_of(schedule.id).await.is_some()
+                })
+                .await
+            );
+            let reason = error_of(schedule.id).await.unwrap();
+            assert!(reason.contains("runs only on the tenant's agents"), "{reason}");
+
+            // A fleet with no agent.
+            let stand_in = StandIn::new(Answer::NoAgent);
+            *slot.write().unwrap() = Some(stand_in.clone());
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    error_of(schedule.id)
+                        .await
+                        .is_some_and(|e| e.contains("no live agent"))
+                })
+                .await
+            );
+            assert!(contexts.lock().is_empty());
+            let rows = dal
+                .schedule_execution()
+                .list_by_schedule(schedule.id, 10, 0)
+                .await
+                .unwrap();
+            assert!(rows.is_empty());
+
+            // An agent answers: the reason is cleared.
+            *slot.write().unwrap() = Some(StandIn::new(Answer::Skip));
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    error_of(schedule.id).await.is_none()
+                })
+                .await
+            );
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// A poll still in flight at its next interval is not sent again.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn a_poll_in_flight_is_not_dispatched_again() {
+            let (runtime, _contexts, slot) = poll_runtime(Duration::from_millis(100));
+            let stand_in = StandIn::new(Answer::Hold);
+            *slot.write().unwrap() = Some(stand_in.clone());
+            let dir = tempfile::tempdir().expect("temp dir");
+            let runner = runner_on(&dir.path().join("poll.db"), runtime).await;
+            poll_schedule(&runner, Duration::from_millis(100)).await;
+
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    stand_in.polls.load(Ordering::SeqCst) >= 1
+                })
+                .await
+            );
+            // Ten intervals pass with the poll held.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            assert_eq!(stand_in.polls.load(Ordering::SeqCst), 1);
+            stand_in.release.notify_one();
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    stand_in.polls.load(Ordering::SeqCst) >= 2
+                })
+                .await,
+                "after the answer the next interval polls again"
+            );
+            stand_in.release.notify_waiters();
+            runner.shutdown().await.expect("shutdown");
+        }
+
+        /// Two schedulers on one database (two server replicas) send one
+        /// poll per interval, not one each.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn two_schedulers_on_one_database_dispatch_one_poll() {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let db = dir.path().join("poll.db");
+            let interval = Duration::from_secs(30);
+            let stand_in = StandIn::new(Answer::Skip);
+            let (runtime_a, _, slot_a) = poll_runtime(interval);
+            *slot_a.write().unwrap() = Some(stand_in.clone());
+            let (runtime_b, _, slot_b) = poll_runtime(interval);
+            *slot_b.write().unwrap() = Some(stand_in.clone());
+
+            let runner_a = runner_on(&db, runtime_a).await;
+            let runner_b = runner_on(&db, runtime_b).await;
+            poll_schedule(&runner_a, interval).await;
+
+            assert!(
+                wait_until(Duration::from_secs(15), || async {
+                    stand_in.polls.load(Ordering::SeqCst) >= 1
+                })
+                .await
+            );
+            // Both loops tick ten times a second; the interval is 30 s.
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert_eq!(stand_in.polls.load(Ordering::SeqCst), 1);
+            runner_a.shutdown().await.expect("shutdown a");
+            runner_b.shutdown().await.expect("shutdown b");
         }
     }
 

@@ -453,6 +453,7 @@ mod unified_schema {
             instance_name -> Nullable<Text>,
             max_active_runs -> Nullable<Integer>,
             backfill -> Nullable<Text>,
+            last_poll_error -> Nullable<Text>,
         }
     }
 

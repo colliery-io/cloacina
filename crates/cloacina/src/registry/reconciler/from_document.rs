@@ -33,12 +33,18 @@
 //! - each reactor, whose accumulators are code of this crate;
 //! - the graph of a Rust package, with a graph function that opens nothing
 //!   and fails a firing it is asked to run: the graph executor sends each
-//!   firing to an agent.
+//!   firing to an agent;
+//! - each poll trigger, as a [`DispatchedTrigger`] and its schedule row
+//!   (CLOACINA-T-1077): the scheduler polls it at the interval of the
+//!   document, and each poll runs on an agent of the tenant, which answers
+//!   fire or skip.
 //!
 //! A package whose code would have to run in this process is refused, with
-//! the reason: a poll trigger (its code runs at each poll), a native provider
-//! (it is a library opened in this process), and Python reactive code (the
-//! accumulators, reactors and graph of a Python package are Python functions).
+//! the reason: a native provider (it is a library opened in this process),
+//! and Python reactive code (the accumulators, reactors and graph of a Python
+//! package are Python functions).
+//!
+//! [`DispatchedTrigger`]: crate::trigger::DispatchedTrigger
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,31 +186,19 @@ impl Task for DescribedTask {
 /// What a package uses that would run its code in this process, each named
 /// (CLOACINA-T-1075). Empty: the package loads from its document.
 ///
-/// - a poll trigger: a trigger with no cron expression;
 /// - a native provider: a bundled provider whose `provider.json` declares
 ///   `runtime = "native"` (`native_providers`);
 /// - Python reactive code: a reactor, a graph or an accumulator of a Python
 ///   package.
+///
+/// A poll trigger is not in the list: its polls run on the tenant's agents
+/// (CLOACINA-T-1077).
 pub fn code_needed_in_process(
     document: &PackageDescription,
     manifest: &cloacina_workflow_plugin::CloacinaMetadata,
     native_providers: &[String],
 ) -> Vec<String> {
     let mut reasons = Vec::new();
-
-    let mut poll: Vec<&str> = document
-        .triggers
-        .iter()
-        .filter(|t| t.cron_expression.is_none())
-        .map(|t| t.name.as_str())
-        .collect();
-    poll.sort_unstable();
-    if !poll.is_empty() {
-        reasons.push(format!(
-            "it declares the poll trigger(s) {}, whose code runs at each poll",
-            quoted(&poll)
-        ));
-    }
 
     if !native_providers.is_empty() {
         let names: Vec<&str> = native_providers.iter().map(String::as_str).collect();
@@ -364,6 +358,28 @@ impl RegistryReconciler {
             return Err(e);
         }
 
+        // Poll triggers (CLOACINA-T-1077): a trigger with no code here, whose
+        // polls run on the tenant's agents, and the schedule row the
+        // scheduler polls at the interval of the document. The rows go into
+        // `created_schedule_ids`, so a failure rolls them back.
+        let registered = match self.step_persist_poll_schedules(metadata, &view).await {
+            Ok(ids) => {
+                created_schedule_ids.extend(ids);
+                self.register_dispatched_triggers(metadata, &document, &runtime)
+            }
+            Err(e) => Err(e),
+        };
+        let trigger_names = match registered {
+            Ok(names) => names,
+            Err(e) => {
+                if let Some(workflow_name) = workflow_name.as_deref() {
+                    runtime.unregister_workflow(workflow_name);
+                }
+                unregister(&runtime);
+                return Err(e);
+            }
+        };
+
         // The task list the API and the UI show. A Rust package's list was
         // written with its build; a Python package's was written at its load
         // before the document existed. Best effort, as there.
@@ -384,12 +400,14 @@ impl RegistryReconciler {
 
         info!(
             "Package {} v{} loaded from its metadata document: {} task(s), workflow {:?}, \
-             {} cron schedule(s), {} reactor(s), graph {:?}; no tenant code was opened",
+             {} schedule(s), {} poll trigger(s) polled on agents, {} reactor(s), graph {:?}; \
+             no tenant code was opened",
             metadata.package_name,
             metadata.version,
             task_namespaces.len(),
             workflow_name,
             created_schedule_ids.len(),
+            trigger_names.len(),
             document.reactors.len(),
             graph_name,
         );
@@ -398,7 +416,7 @@ impl RegistryReconciler {
             metadata: metadata.clone(),
             task_namespaces,
             workflow_name,
-            trigger_names: Vec::new(),
+            trigger_names,
             graph_name,
             reactor_names: document.reactors.iter().map(|r| r.name.clone()).collect(),
             cron_schedule_ids: created_schedule_ids.clone(),
@@ -534,6 +552,73 @@ impl RegistryReconciler {
         Ok((namespaces, Some(workflow_name)))
     }
 
+    /// Register a [`DispatchedTrigger`](crate::trigger::DispatchedTrigger)
+    /// for each poll trigger of the document (CLOACINA-T-1077). Returns the
+    /// names this package holds, for its unload. A name another package of
+    /// the tenant holds refuses the load, as for the in-process load
+    /// (CLOACI-T-0924).
+    fn register_dispatched_triggers(
+        &self,
+        metadata: &WorkflowMetadata,
+        document: &PackageDescription,
+        runtime: &Arc<crate::Runtime>,
+    ) -> Result<Vec<String>, RegistryError> {
+        let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
+        let mut names = Vec::new();
+        for t in document
+            .triggers
+            .iter()
+            .filter(|t| t.cron_expression.is_none())
+        {
+            let free = runtime.may_claim_trigger(&owner, &t.name).map_err(|e| {
+                RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                }
+            })?;
+            if !free {
+                // Already in the runtime for this package.
+                names.push(t.name.clone());
+                continue;
+            }
+            let workflow_name = if t.workflow_name.is_empty() {
+                t.name.clone()
+            } else {
+                t.workflow_name.clone()
+            };
+            let request = crate::trigger::PollRequest {
+                tenant_id: self.config.default_tenant_id.clone(),
+                package_name: metadata.package_name.clone(),
+                package_version: metadata.version.clone(),
+                trigger_name: t.name.clone(),
+                workflow_name,
+            };
+            let poll_interval = super::loading::parse_humantime_duration(&t.poll_interval)
+                .unwrap_or_else(|| Duration::from_secs(60));
+            let trigger = Arc::new(crate::trigger::DispatchedTrigger::new(
+                request,
+                poll_interval,
+                t.allow_concurrent,
+                self.poll_dispatcher.clone(),
+            ));
+            if let Err(e) = runtime.try_register_trigger(&owner, t.name.clone(), move || {
+                trigger.clone() as Arc<dyn cloacina_workflow::Trigger>
+            }) {
+                for name in &names {
+                    runtime.unregister_trigger(name);
+                }
+                return Err(RegistryError::RegistrationFailed {
+                    message: e.to_string(),
+                });
+            }
+            info!(
+                "Package {} v{}: poll trigger '{}' (every {:?}) polls on the tenant's agents",
+                metadata.package_name, metadata.version, t.name, poll_interval
+            );
+            names.push(t.name.clone());
+        }
+        Ok(names)
+    }
+
     /// Each trigger the workflow subscribes to must be a trigger of the
     /// document or one in the runtime, as the in-process load checks.
     fn validate_subscriptions_from_document(
@@ -657,10 +742,15 @@ mod tests {
         }
     }
 
+    /// A poll row as the registrar gets it: trigger, workflow, interval in
+    /// milliseconds, allow concurrent.
+    type PollRow = (String, String, i32, bool);
+
     /// A cron registrar that records each schedule.
     #[derive(Default)]
     struct Schedules {
         cron: Mutex<Vec<(String, String, String)>>,
+        poll: Mutex<Vec<PollRow>>,
     }
 
     #[async_trait]
@@ -681,6 +771,22 @@ mod tests {
         }
         async fn unregister_cron_workflow(&self, _schedule_id: &str) -> Result<(), String> {
             Ok(())
+        }
+        async fn register_poll_trigger(
+            &self,
+            trigger_name: &str,
+            workflow_name: &str,
+            poll_interval_ms: i32,
+            allow_concurrent: bool,
+        ) -> Result<String, String> {
+            let mut poll = self.poll.lock().unwrap();
+            poll.push((
+                trigger_name.to_string(),
+                workflow_name.to_string(),
+                poll_interval_ms,
+                allow_concurrent,
+            ));
+            Ok(format!("poll-{}", poll.len()))
         }
     }
 
@@ -932,40 +1038,83 @@ mod tests {
         );
     }
 
-    /// A package with a poll trigger is refused, with the trigger named, and
-    /// the refusal is recorded; nothing is registered.
+    /// A package with a poll trigger loads from its document
+    /// (CLOACINA-T-1077): the trigger is a `DispatchedTrigger` with no code,
+    /// its schedule row has the interval of the document, and its poll asks
+    /// the runner's dispatcher. The unload takes the trigger out.
     #[tokio::test]
-    async fn a_poll_trigger_refuses_the_package() {
+    async fn a_poll_trigger_loads_and_polls_through_the_dispatcher() {
         let registry = Arc::new(DocumentRegistry::default());
         let schedules = Arc::new(Schedules::default());
-        let reconciler = reconciler("acme", registry.clone(), schedules.clone());
+        let mut reconciler = reconciler("acme", registry.clone(), schedules.clone());
+        let slot = crate::trigger::empty_poll_dispatcher_slot();
+        reconciler.set_poll_dispatcher_slot(slot.clone());
         let meta = metadata("pkg");
         let mut doc = document("rust", vec![task("t", &[])]);
-        doc.triggers = vec![
-            trigger("nightly", Some("0 2 * * *")),
-            trigger("watch_inbox", None),
-        ];
+        let mut poll = trigger("watch_inbox", None);
+        poll.poll_interval = "15s".to_string();
+        poll.allow_concurrent = true;
+        doc.triggers = vec![trigger("nightly", Some("0 2 * * *")), poll];
         *registry.stored.lock().unwrap() = Some(stored(doc));
 
-        let err = load(&reconciler, &meta, "rust").await.unwrap_err();
-        let text = err.to_string();
-        assert!(text.contains("is refused"), "{text}");
-        assert!(text.contains("poll trigger(s) 'watch_inbox'"), "{text}");
-        assert!(text.contains("--single-trust"), "{text}");
-
-        let refused = registry.refused.lock().unwrap();
-        assert_eq!(refused.len(), 1);
-        assert_eq!(refused[0].0, meta.id);
-        assert!(refused[0].1.contains("'watch_inbox'"));
-        assert!(schedules.cron.lock().unwrap().is_empty());
-        assert!(
-            reconciler
-                .runtime
-                .clone()
-                .unwrap()
-                .task_namespaces()
-                .is_empty()
+        let ids = load(&reconciler, &meta, "rust").await.expect("loads");
+        assert!(registry.refused.lock().unwrap().is_empty());
+        assert_eq!(ids.len(), 2, "a cron row and a poll row: {ids:?}");
+        assert_eq!(
+            schedules.poll.lock().unwrap().as_slice(),
+            &[("watch_inbox".to_string(), "wf".to_string(), 15_000, true)]
         );
+
+        let runtime = reconciler.runtime.clone().unwrap();
+        let trigger = runtime.get_trigger("watch_inbox").expect("registered");
+        assert_eq!(trigger.poll_interval(), Duration::from_secs(15));
+        assert!(trigger.allow_concurrent());
+        assert_eq!(trigger.workflow_name(), "wf");
+
+        // No dispatcher: the poll fails with where it runs.
+        let err = trigger.poll().await.unwrap_err();
+        assert!(
+            err.to_string().contains("runs only on the tenant's agents"),
+            "{err}"
+        );
+
+        // A dispatcher set later gets the request with the tenant and the
+        // package version.
+        struct Seen(Mutex<Vec<crate::trigger::PollRequest>>);
+        #[async_trait]
+        impl crate::trigger::PollDispatcher for Seen {
+            async fn poll(
+                &self,
+                request: &crate::trigger::PollRequest,
+            ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError>
+            {
+                self.0.lock().unwrap().push(request.clone());
+                Ok(cloacina_workflow::TriggerResult::Fire(None))
+            }
+            fn wait(&self) -> Duration {
+                Duration::from_secs(40)
+            }
+        }
+        let seen = Arc::new(Seen(Mutex::new(Vec::new())));
+        *slot.write().unwrap() = Some(seen.clone());
+        assert!(trigger.poll().await.unwrap().should_fire());
+        assert_eq!(trigger.poll_wait(), Some(Duration::from_secs(40)));
+        let request = seen.0.lock().unwrap()[0].clone();
+        assert_eq!(request.tenant_id, "acme");
+        assert_eq!(request.package_name, "pkg");
+        assert_eq!(request.package_version, "1.0.0");
+        assert_eq!(request.trigger_name, "watch_inbox");
+
+        let state = reconciler
+            .loaded_packages
+            .read()
+            .await
+            .get(&meta.id)
+            .cloned()
+            .expect("tracked");
+        assert_eq!(state.trigger_names, vec!["watch_inbox".to_string()]);
+        reconciler.unload_package(meta.id).await.expect("unload");
+        assert!(runtime.get_trigger("watch_inbox").is_none());
     }
 
     /// Python reactive code and native providers are named in the reasons.

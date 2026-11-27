@@ -263,6 +263,9 @@ impl DefaultRunner {
         // Share the manager's graph scheduler slot so that a later
         // `set_graph_scheduler()` is observable to the reconciler.
         registry_reconciler.set_graph_scheduler_slot(manager.graph_scheduler.clone());
+        // CLOACINA-T-1077: poll triggers loaded from a metadata document send
+        // their polls through the dispatcher the server sets later.
+        registry_reconciler.set_poll_dispatcher_slot(self.poll_dispatcher.clone());
         registry_reconciler = registry_reconciler.with_runtime(self.runtime.clone());
 
         // T-0553 follow-up: wire a cron registrar so packaged

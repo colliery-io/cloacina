@@ -560,6 +560,91 @@ impl<'a> ScheduleDAL<'a> {
         Ok(())
     }
 
+    /// Take the next poll of a trigger schedule (CLOACINA-T-1077).
+    ///
+    /// Sets `last_poll_at` to `now` only when the row is an enabled, unpaused
+    /// trigger row, its `last_poll_at` still holds `read_last_poll_at` (the
+    /// value the caller read), and that value is at least `interval` before
+    /// `now` (or there is none). `true`: this caller polls. With more than
+    /// one scheduler on one database (server replicas), one of them wins
+    /// each interval; the compare on the value read makes the update a
+    /// compare-and-set on both backends.
+    pub async fn claim_trigger_poll(
+        &self,
+        id: UniversalUuid,
+        read_last_poll_at: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+        interval: std::time::Duration,
+    ) -> Result<bool, ValidationError> {
+        if let Some(last) = read_last_poll_at {
+            let due = chrono::Duration::from_std(interval)
+                .ok()
+                .and_then(|interval| last.checked_add_signed(interval));
+            match due {
+                Some(due) if due <= now => {}
+                _ => return Ok(false),
+            }
+        }
+        let read_ts = read_last_poll_at.map(UniversalTimestamp::from);
+        let now_ts = UniversalTimestamp::from(now);
+        let enabled_true = UniversalBool::from(true);
+
+        let updated = crate::interact_on_backend!(self.dal, |conn| {
+            let target = schedules::table
+                .find(id)
+                .filter(schedules::schedule_type.eq("trigger"))
+                .filter(schedules::enabled.eq(enabled_true))
+                .filter(schedules::paused.eq(UniversalBool::from(false)));
+            match read_ts {
+                Some(read) => diesel::update(target.filter(schedules::last_poll_at.eq(read)))
+                    .set((
+                        schedules::last_poll_at.eq(Some(now_ts)),
+                        schedules::updated_at.eq(now_ts),
+                    ))
+                    .execute(conn),
+                None => diesel::update(target.filter(schedules::last_poll_at.is_null()))
+                    .set((
+                        schedules::last_poll_at.eq(Some(now_ts)),
+                        schedules::updated_at.eq(now_ts),
+                    ))
+                    .execute(conn),
+            }
+        })?;
+
+        Ok(updated == 1)
+    }
+
+    /// Record why the last poll of a trigger gave no answer, or clear it
+    /// with `None` after a poll that answered (CLOACINA-T-1077).
+    pub async fn set_last_poll_error(
+        &self,
+        id: UniversalUuid,
+        error: Option<String>,
+    ) -> Result<(), ValidationError> {
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(schedules::table.find(id))
+                .set(schedules::last_poll_error.eq(error))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
+    /// Whether this schema has an enabled, unpaused poll trigger
+    /// (CLOACINA-T-1077). The fleet control loop keeps one agent for a
+    /// tenant that has one.
+    pub async fn has_active_poll_triggers(&self) -> Result<bool, ValidationError> {
+        let enabled_true = UniversalBool::from(true);
+        let count: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            schedules::table
+                .filter(schedules::schedule_type.eq("trigger"))
+                .filter(schedules::enabled.eq(enabled_true))
+                .filter(schedules::paused.eq(UniversalBool::from(false)))
+                .count()
+                .get_result(conn)
+        })?;
+        Ok(count > 0)
+    }
+
     /// Upserts a trigger schedule by trigger_name.
     pub async fn upsert_trigger(
         &self,
@@ -949,6 +1034,94 @@ mod tests {
         assert!(schedule.is_cron());
         assert!(!schedule.is_trigger());
         assert!(schedule.next_run_at.is_some());
+    }
+
+    // ── poll claim (CLOACINA-T-1077) ─────────────────────────────────
+
+    /// Of two schedulers that read the same row, one takes the poll; the
+    /// next poll is taken only when the interval has passed; the reason of a
+    /// poll with no answer is stored and cleared; a paused row is not taken.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn one_scheduler_takes_each_poll_of_a_trigger() {
+        let dal = unique_dal().await;
+        let interval = Duration::from_secs(30);
+        let row = dal
+            .schedule()
+            .upsert_trigger(NewSchedule::trigger("watch_inbox", "wf", interval))
+            .await
+            .unwrap();
+        assert!(dal.schedule().has_active_poll_triggers().await.unwrap());
+        let read = row.last_poll_at.map(DateTime::<Utc>::from);
+        let now = Utc::now();
+
+        assert!(
+            dal.schedule()
+                .claim_trigger_poll(row.id, read, now, interval)
+                .await
+                .unwrap()
+        );
+        // The second scheduler read the same row: it loses.
+        assert!(
+            !dal.schedule()
+                .claim_trigger_poll(row.id, read, now, interval)
+                .await
+                .unwrap()
+        );
+
+        // From the new row: not due before the interval, due after it.
+        let polled = dal.schedule().get_by_id(row.id).await.unwrap();
+        let last = polled.last_poll_at.map(DateTime::<Utc>::from);
+        assert!(last.is_some());
+        let soon = now + chrono::Duration::seconds(10);
+        assert!(
+            !dal.schedule()
+                .claim_trigger_poll(row.id, last, soon, interval)
+                .await
+                .unwrap()
+        );
+        let later = now + chrono::Duration::seconds(31);
+        assert!(
+            dal.schedule()
+                .claim_trigger_poll(row.id, last, later, interval)
+                .await
+                .unwrap()
+        );
+
+        dal.schedule()
+            .set_last_poll_error(row.id, Some("no live agent".to_string()))
+            .await
+            .unwrap();
+        let errored = dal.schedule().get_by_id(row.id).await.unwrap();
+        assert_eq!(errored.last_poll_error.as_deref(), Some("no live agent"));
+        dal.schedule()
+            .set_last_poll_error(row.id, None)
+            .await
+            .unwrap();
+        assert!(
+            dal.schedule()
+                .get_by_id(row.id)
+                .await
+                .unwrap()
+                .last_poll_error
+                .is_none()
+        );
+
+        dal.schedule().pause(row.id).await.unwrap();
+        assert!(!dal.schedule().has_active_poll_triggers().await.unwrap());
+        let paused = dal.schedule().get_by_id(row.id).await.unwrap();
+        let far = now + chrono::Duration::days(1);
+        assert!(
+            !dal.schedule()
+                .claim_trigger_poll(
+                    row.id,
+                    paused.last_poll_at.map(DateTime::<Utc>::from),
+                    far,
+                    interval
+                )
+                .await
+                .unwrap()
+        );
     }
 
     // ── named instances (CLOACI-T-0894 server surface) ──────────────

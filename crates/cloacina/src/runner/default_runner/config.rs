@@ -886,6 +886,7 @@ impl DefaultRunnerBuilder {
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
             cron_change: Arc::new(tokio::sync::Notify::new()),
+            poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
         };
 
         // Start the background services immediately
