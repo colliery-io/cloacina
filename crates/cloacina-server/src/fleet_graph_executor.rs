@@ -22,15 +22,20 @@
 //! and await the agent's result through the same uuid→result coordinator
 //! rendezvous the task path uses (`/v1/agent/result` is a pure forward).
 //!
-//! **Fallback policy** (the reactor's hot path must never wedge):
-//! - PRE-dispatch failures — no owning package (embedded graph), a Python
-//!   package (interpreted CGs stay in-process in v1), no eligible agent,
-//!   snapshot conversion or enqueue errors — run the firing **in-process**
-//!   via the closure every [`GraphFireEvent`] carries, with a warning.
-//! - POST-dispatch failures — the agent reported an error, or the result
-//!   wait timed out — surface as a [`GraphResult`] error WITHOUT a local
-//!   re-run: the agent may have executed (or still be executing) the graph,
-//!   and double-running a firing is worse than reporting it failed.
+//! Rust and Python graph packages are both dispatched: a Python package
+//! ships its source, and an agent of any arch runs it.
+//!
+//! **No in-process fallback** (CLOACINA-T-1076, CLOACINA-A-0019): the server
+//! never runs a graph firing in its own process. The closure every
+//! [`GraphFireEvent`] carries is not called here.
+//! - A firing that cannot be dispatched — no owning package, no active
+//!   artifact, no agent with room, a snapshot conversion or enqueue error, or
+//!   a packet the agent refuses — fails once with its reason. It is not held
+//!   and not retried; the reactor records the failure and fires again on its
+//!   next input.
+//! - A firing that was dispatched — the agent reported an error, or the
+//!   result wait timed out — fails too: the agent may have run (or still be
+//!   running) the graph.
 //!
 //! CLOACINA-T-1125: `--fleet-graph-firings` says where the agent runs a
 //! firing. `inline` (the default): in the agent process. `worker`: in a
@@ -185,8 +190,8 @@ impl FleetGraphExecutor {
         self
     }
 
-    /// Attempt fleet dispatch. `Err(reason)` = pre-dispatch failure — the
-    /// caller falls back to in-process execution.
+    /// Attempt fleet dispatch. `Err(reason)`: the firing was not dispatched,
+    /// or the agent refused it; the caller fails the firing with the reason.
     async fn try_dispatch(&self, fire: &GraphFireEvent) -> Result<GraphResult, String> {
         // 1. Resolve the graph's owning package: by its reactor surface name
         //    first, then by any of the firing's accumulator sources (some
@@ -216,9 +221,7 @@ impl FleetGraphExecutor {
             )
         })?;
 
-        // 2. Resolve the active artifact. Interpreted (Python) CGs stay
-        //    in-process in v1 — their compiled graph fn is a live PyObject,
-        //    not a shippable artifact.
+        // 2. Resolve the active artifact (a Python package's is its source).
         //    CLOACINA-T-1018: a graph fire has no workflow execution, so it
         //    always runs on the active version; the per-target lookups below
         //    are scoped to that version.
@@ -269,7 +272,7 @@ impl FleetGraphExecutor {
         )
         .ok_or_else(|| {
             format!(
-                "no live agent with capacity + runnable arch in tenant {:?}",
+                "no agent with room and a runnable arch is live in tenant {:?}",
                 fire.tenant_id
             )
         })?;
@@ -352,8 +355,9 @@ impl FleetGraphExecutor {
             "fleet: graph firing enqueued + relay woken"
         );
 
-        // 6. Await the agent's result. POST-dispatch failures do NOT fall
-        //    back (the agent may have run — or still be running — the graph).
+        // 6. Await the agent's result. A failure after dispatch is the
+        //    firing's result (the agent may have run, or still be running,
+        //    the graph).
         //    The wait is the firing's time limit plus the grace of the task
         //    path (CLOACINA-T-1039).
         let result_wait = self.time_limit.result_wait();
@@ -388,7 +392,8 @@ impl FleetGraphExecutor {
                     result.agent_id, message
                 )))),
                 AgentOutcome::Refused { reason, message } => {
-                    // The agent did NOT run the graph — safe to fall back.
+                    // The agent did not run the graph: the firing fails with
+                    // the agent's reason.
                     Err(format!(
                         "agent {} refused the graph firing ({reason:?}): {message}",
                         result.agent_id
@@ -416,14 +421,22 @@ impl FleetGraphExecutor {
                 )
                 .await;
                 Ok(GraphResult::error(GraphError::NodeExecution(format!(
-                    "fleet graph result wait exceeded {}s (agent {}) — NOT re-running \
-                     in-process to avoid a double execution",
+                    "fleet graph result wait exceeded {}s (agent {}); the firing \
+                     is not run again",
                     result_wait.as_secs(),
                     agent_id
                 ))))
             }
         }
     }
+}
+
+/// The result of a firing that no agent took (CLOACINA-T-1076): an error
+/// with the reason. The server does not run the firing itself.
+fn not_dispatched(graph_name: &str, reason: &str) -> GraphResult {
+    GraphResult::error(GraphError::Execution(format!(
+        "graph '{graph_name}' firing failed, not run in the server process: {reason}"
+    )))
 }
 
 #[async_trait::async_trait]
@@ -435,9 +448,9 @@ impl GraphExecutor for FleetGraphExecutor {
                 warn!(
                     graph = %fire.graph_name,
                     reason = %reason,
-                    "fleet: graph dispatch not possible — running firing in-process"
+                    "fleet: graph firing not dispatched; it fails"
                 );
-                (fire.in_process)(fire.snapshot).await
+                not_dispatched(&fire.graph_name, &reason)
             }
         }
     }
@@ -507,6 +520,28 @@ mod tests {
             u64::from(packet.timeout_seconds),
             FleetTaskTimeLimits::DEFAULT_SECONDS
         );
+    }
+
+    /// CLOACINA-T-1076: a firing that no agent took is an error that names
+    /// the graph, says the server did not run it, and keeps the reason.
+    #[test]
+    fn a_firing_not_dispatched_is_an_error_with_its_reason() {
+        for reason in [
+            "graph 'pricing' has no owning package (embedded graph)",
+            "no agent with room and a runnable arch is live in tenant Some(\"acme\")",
+            "agent a-1 refused the graph firing (Draining): shutting down",
+            "delivery_outbox enqueue: connection refused",
+        ] {
+            match not_dispatched("pricing", reason) {
+                GraphResult::Error(e) => {
+                    let text = e.to_string();
+                    assert!(text.contains("graph 'pricing'"), "{text}");
+                    assert!(text.contains("not run in the server process"), "{text}");
+                    assert!(text.ends_with(reason), "{text}");
+                }
+                GraphResult::Completed { .. } => panic!("not an error"),
+            }
+        }
     }
 
     #[test]

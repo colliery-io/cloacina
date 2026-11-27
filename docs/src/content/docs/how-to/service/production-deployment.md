@@ -244,6 +244,8 @@ roll them one at a time behind the proxy.
 
 **Upgrade note, cron schedules:** migration 060 adds a unique index on cron schedules: one schedule per workflow, cron expression and timezone (named instances are not in it). Where a schema holds the same schedule more than once, the migration keeps the row with the latest `last_run_at`, moves the fire records (`schedule_executions`) of the other rows to it with one record per fire time, and deletes the other rows. Run history (`workflow_executions`) is not changed.
 
+**Upgrade note, graph firings with the fleet:** with `--default-executor fleet`, a computation-graph firing that no agent takes now fails with its reason (no owning package, no agent with room in the tenant, a refusal of the agent, an enqueue error). Before, the server ran such a firing in its own process. A tenant with graphs and no live agent sees its firings fail, also during a short gap such as a roll of the agent pool; each failure is in the reactor's recent fires. A server that cannot build the fleet graph executor at start no longer starts.
+
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore
 the pre-upgrade backup from step 1.
