@@ -1886,6 +1886,103 @@ mod tests {
         assert!(undoc.doc_what.is_none() && undoc.doc_why.is_none());
     }
 
+    /// CLOACINA-T-1073: the flow of a compiler that vendors a Python package.
+    /// The sets are stored during the build, the row's metadata says where the
+    /// package runs, and both survive the build-success write and the task
+    /// rewrite at load. A loader gets the set of its platform and no other.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_python_vendor_sets_survive_build_success_and_load() {
+        use crate::registry::traits::WorkflowRegistry;
+
+        let registry = create_test_registry().await;
+        let mut meta = sample_metadata("py-lock-pkg", "1.0.0");
+        meta.tasks = vec![];
+        let pkg_id = registry
+            .store_package_metadata(&Uuid::new_v4().to_string(), &meta)
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+
+        let linux = vec!["aarch64-linux".to_string(), "x86_64-linux".to_string()];
+        registry
+            .store_python_vendor(
+                pkg_id,
+                "py-lock-pkg",
+                "1.0.0",
+                vec![
+                    ("aarch64-linux".to_string(), b"arm-set".to_vec()),
+                    ("x86_64-linux".to_string(), b"x86-set".to_vec()),
+                ],
+                Some(linux.clone()),
+            )
+            .await
+            .unwrap();
+        registry
+            .mark_build_success_with_docs(
+                pkg_id,
+                Vec::new(),
+                std::collections::HashMap::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .await
+            .unwrap();
+        registry
+            .persist_task_graph_db(pkg_id.into(), vec![("prepare".to_string(), vec![])])
+            .await
+            .unwrap();
+
+        let (_, retrieved, _) = registry
+            .get_package_metadata("py-lock-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retrieved.python_platforms, Some(linux.clone()));
+        assert_eq!(
+            registry
+                .python_vendor_platforms("py-lock-pkg", "1.0.0")
+                .await
+                .unwrap(),
+            linux
+        );
+        assert_eq!(
+            registry
+                .get_python_vendor("py-lock-pkg", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            Some(b"x86-set".to_vec())
+        );
+        assert_eq!(
+            registry
+                .get_python_vendor("py-lock-pkg", "1.0.0", "aarch64-macos")
+                .await
+                .unwrap(),
+            None
+        );
+        // The set is not the library of the platform.
+        assert_eq!(
+            registry
+                .get_compiled_data_for_target("py-lock-pkg", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            None
+        );
+
+        // A later build of the same version that vendors nothing leaves no set.
+        registry
+            .clear_python_vendor("py-lock-pkg", "1.0.0")
+            .await
+            .unwrap();
+        assert_eq!(
+            registry
+                .get_python_vendor("py-lock-pkg", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_workflow_pause_resume() {

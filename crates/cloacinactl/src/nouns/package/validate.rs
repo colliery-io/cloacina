@@ -66,6 +66,9 @@ pub fn run(path: &Path, python_version: Option<&str>) -> Result<(), CliError> {
                 &manifest.metadata,
                 python_version,
             )?;
+            // CLOACINA-T-1073: dependencies ship as a lock file for the
+            // compiler, or in vendor/.
+            super::vendor::check_dependencies_ship(&dir, &manifest.package.name)?;
         }
         PackageLanguage::Rust => manifest::validate_rust_layout(&dir)?,
     }

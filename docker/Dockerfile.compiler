@@ -26,6 +26,12 @@
 #            --bind 0.0.0.0:9000 --cargo-flags-replace=build --cargo-flags-replace=--release --cargo-flags-replace=--lib
 
 ARG RUST_VERSION=1.99.0
+# CLOACINA-T-1073: the compiler vendors the dependencies of a Python package
+# with uv. One version for the image; keep it in step with the uv that
+# `cloacinactl package build` is used with (the lock file is uv's).
+ARG UV_VERSION=0.9.21
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 FROM rust:${RUST_VERSION}-slim-bookworm
 
@@ -44,6 +50,14 @@ RUN apt-get update \
         python3 \
         python3-dev \
  && rm -rf /var/lib/apt/lists/*
+
+# CLOACINA-T-1073: uv installs the wheels that a Python package's lock file
+# names. It needs a Python interpreter on the machine (the python3 above) and
+# runs no code of a wheel. By default it downloads from PyPI. To build with no
+# network, bake the wheels into a derived image and start the compiler with
+# --python-wheel-dir and --python-offline: see "A compiler image that carries
+# the wheels" in docs/src/content/docs/how-to/service/running-the-compiler.md.
+COPY --from=uv /uv /usr/local/bin/uv
 
 # CLOACI-T-0836: constructor providers are built to WASM components at package
 # build time (`pack_providers` shells `cargo build --target wasm32-wasip2`), so

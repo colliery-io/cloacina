@@ -1131,6 +1131,8 @@ pub fn build_authz_table() -> AuthzTable {
     for path in [
         "/v1/agent/artifact/{digest}",
         "/v1/agent/source/{digest}",
+        // CLOACINA-T-1073: the vendored Python dependencies of a package.
+        "/v1/agent/python-vendor/{digest}",
         "/v1/agent/providers/{digest}",
     ] {
         t.add(get.clone(), path, Row::caller(P::AgentAct));
@@ -2131,6 +2133,7 @@ mod tests {
             vec![
                 "GET /v1/agent/artifact/{digest}",
                 "GET /v1/agent/providers/{digest}",
+                "GET /v1/agent/python-vendor/{digest}",
                 "GET /v1/agent/source/{digest}",
                 "POST /v1/agent/heartbeat",
                 "POST /v1/agent/keys",
@@ -2232,8 +2235,9 @@ mod tests {
         // 81 rows before CLOACINA-T-1055 (76, and the five backfill routes of
         // CLOACINA-T-1020), `POST /v1/agent/keys`, three WebSockets and seven
         // public routes; the three trusted key routes of CLOACINA-T-1061;
-        // `POST /v1/agent/undecodable` of CLOACINA-T-1058.
-        assert_eq!(table.len(), 96);
+        // `POST /v1/agent/undecodable` of CLOACINA-T-1058;
+        // `GET /v1/agent/python-vendor/{digest}` of CLOACINA-T-1073.
+        assert_eq!(table.len(), 97);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()

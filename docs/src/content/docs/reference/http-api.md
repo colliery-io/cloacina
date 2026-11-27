@@ -2072,6 +2072,7 @@ limit/provision surface that decides how many agents a tenant runs, see
 | `GET`  | `/v1/agent/artifact/{digest}` | An agent fetches a content-addressed package artifact by digest. |
 | `GET`  | `/v1/agent/source/{digest}` | An agent fetches a content-addressed **source** bundle by digest (for build-on-agent flows). |
 | `GET`  | `/v1/agent/providers/{digest}` | An agent fetches a content-addressed **provider** bundle by digest. |
+| `GET`  | `/v1/agent/python-vendor/{digest}?platform=<arch>-<os>` | An agent fetches the dependencies the compiler vendored for a Python package and the agent's platform. `200` with the archive, `204` when the package has no set for the platform, `400` without `platform`, `404` for an unknown digest. |
 
 All of these require an authenticated key (any role); the roster/liveness
 handlers scope work to the caller's tenant.

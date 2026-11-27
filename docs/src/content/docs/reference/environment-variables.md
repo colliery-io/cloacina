@@ -471,6 +471,13 @@ Exposed on `localhost:9092`.
 | `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
 | `CLOACINA_COMPILER_DEV_WORKSPACE` | **Dev escape hatch** (CLOACI-T-0887): injects `[patch.crates-io]` entries pointing at a local workspace so package builds resolve local dev crates instead of crates.io. Not for production. | (unset) | Compiler | Also settable via `--dev-workspace`. The demo compose uses it because cloacina crates aren't on crates.io yet. |
+| `CLOACINA_COMPILER_PYTHON_PLATFORMS` | The platforms the compiler vendors the dependencies of a Python package for, as a comma-separated list of `<arch>-<os>`. | `aarch64-linux,x86_64-linux` | Compiler | Also settable via `--python-platform` (repeatable). A package the compiler vendored loads on these platforms only. |
+| `CLOACINA_COMPILER_PYTHON_VERSION` | The Python version (`major.minor`) the compiler vendors for. | `3.11` | Compiler | Also settable via `--python-version`. Use the Python of the servers and agents. |
+| `CLOACINA_COMPILER_PYTHON_INDEX_URL` | The package index that wheels are downloaded from. | (PyPI) | Compiler | Also settable via `--python-index-url`. Given to `uv` in the environment, not on the command line. Not used with `--python-offline` and a wheel folder. |
+| `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | A folder of wheel files, for example one in the compiler image: one more place to find wheels, next to the index. With `CLOACINA_COMPILER_PYTHON_OFFLINE`, the only source. | (unset) | Compiler | Also settable via `--python-wheel-dir`. |
+| `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR` | The cache folder of `uv`. | (`uv`'s own, under the home folder) | Compiler | Also settable via `--python-uv-cache-dir`. The compiler's user must be able to write to it. |
+| `CLOACINA_COMPILER_PYTHON_OFFLINE` | `true`: vendor with no network. Every wheel must be in the wheel folder, or else in the `uv` cache. | `false` | Compiler | Also settable via `--python-offline`. Needs a wheel folder or a cache folder. |
+| `CLOACINA_UV` | The `uv` program. | `uv` on `PATH` | Compiler, `cloacinactl package build` | Also settable via `--uv` on the compiler. |
 
 ### Compiler tenant / target scoping (also accept env vars)
 

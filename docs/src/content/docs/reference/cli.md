@@ -328,6 +328,22 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
 size a package archive may unpack to. With `cloacinactl compiler start` set
 the environment variable.
 
+`cloacina-compiler` vendors the dependencies of a Python package that is
+published with a `requirements.lock` and no `vendor/` folder. Its settings
+(with `cloacinactl compiler start` set the environment variables):
+
+| Flag | Env | Default | Description |
+|---|---|---|---|
+| `--python-platform <ARCH-OS>` | `CLOACINA_COMPILER_PYTHON_PLATFORMS` | `aarch64-linux`, `x86_64-linux` | A platform to vendor for. Repeatable, or a comma-separated list. |
+| `--python-version <MAJOR.MINOR>` | `CLOACINA_COMPILER_PYTHON_VERSION` | `3.11` | The Python the wheels are for. |
+| `--python-index-url <URL>` | `CLOACINA_COMPILER_PYTHON_INDEX_URL` | PyPI | The package index. |
+| `--python-wheel-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset | A folder of wheel files: one more place to find wheels, next to the index. With `--python-offline`, the only source. |
+| `--python-uv-cache-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR` | `uv`'s own | The cache folder of `uv`. |
+| `--python-offline` | `CLOACINA_COMPILER_PYTHON_OFFLINE` | off | No network: every wheel comes from the wheel folder, or else from the `uv` cache. |
+| `--uv <PATH>` | `CLOACINA_UV` | `uv` on `PATH` | The `uv` program. |
+
+See [Running the Compiler](../../how-to/service/running-the-compiler/#python-packages-vendoring-dependencies).
+
 `stop` / `status` / `health` follow the same pattern as `server`: PID
 file for stop, HTTP `GET /v1/status` for status, HTTP `GET /health`
 for health. Note: `compiler status` / `health` probe the address in
@@ -391,7 +407,7 @@ Scaffolds a canonical package source tree. Local-only.
 | `--kind <workflow\|graph\|cron>` | `workflow` | Package shape. All three kinds scaffold for both languages; `cron` emits a workflow bound to a cron trigger (`#[trigger(on, cron)]` in Rust, `@cloaca.trigger(on=..., cron=...)` in Python). |
 | `--path <DIR>` | `./<name>` | Directory to create. |
 
-### `package build <DIR> [--release] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-vendor]`
+### `package build <DIR> [--release] [--vendor] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-lock]`
 
 Local-only; does not contact the server. Exits 1 on missing files or a
 failed build. What it does depends on `[metadata].language`.
@@ -400,28 +416,37 @@ failed build. What it does depends on `[metadata].language`.
 `package.toml`). With `--release`, builds the release profile. Default
 is debug. The other flags do nothing.
 
-**Python.** Vendors the dependencies of the package. It reads
-`[project].dependencies` of `<DIR>/pyproject.toml`, writes the pinned
-versions and hashes to `<DIR>/requirements.lock`, installs the wheels
+**Python.** Locks the dependencies of the package. It reads
+`[project].dependencies` of `<DIR>/pyproject.toml` and writes the pinned
+versions and hashes to `<DIR>/requirements.lock`. It does not fill
+`vendor/`: the compiler vendors the dependencies of the lock file when
+the package is published. With `--vendor` it also installs the wheels
 of each target platform into `<DIR>/vendor/<platform>/`, and records
 the Python version and the platforms in `[metadata.vendored]` of
-`package.toml`. With no `pyproject.toml` or no dependencies it prints
-that there is nothing to vendor and exits 0. It needs `uv` on `PATH`
-(or its path in `CLOACINA_UV`).
+`package.toml`; the package then ships its dependencies and the
+compiler uses it as it is. With no `pyproject.toml` or no dependencies
+it prints that there is nothing to lock and exits 0. It needs `uv` on
+`PATH` (or its path in `CLOACINA_UV`), except with `--locked` and no
+`--vendor`.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--python-version <MAJOR.MINOR>` | `3.11` | The Python the dependencies are vendored for. |
-| `--arch <x86_64\|aarch64\|both>` | `both` | The CPU architecture of the Linux agents: `x86_64-linux`, `aarch64-linux`, or both. Cannot be used with `--platform`. |
-| `--platform <ARCH-OS>` | — | A platform to vendor for. Repeatable. One of `aarch64-linux`, `x86_64-linux`, `aarch64-macos`, `x86_64-macos`, `x86_64-windows`. Replaces the platforms of `--arch`. |
-| `--locked` | off | Install from the existing `requirements.lock` as it is. Without it the versions are resolved again and the lock file is written again. |
-| `--no-vendor` | off | Do not read `pyproject.toml` and do not touch `vendor/`. |
+| `--vendor` | off | Also fill `vendor/<platform>/` and write `[metadata.vendored]`. Cannot be used with `--no-lock`. |
+| `--python-version <MAJOR.MINOR>` | `3.11` | The Python the dependencies are locked for, and with `--vendor` vendored for. |
+| `--arch <x86_64\|aarch64\|both>` | `both` | With `--vendor`: the CPU architecture of the Linux agents: `x86_64-linux`, `aarch64-linux`, or both. Cannot be used with `--platform`. |
+| `--platform <ARCH-OS>` | — | A platform to vendor for. Needs `--vendor`. Repeatable. One of `aarch64-linux`, `x86_64-linux`, `aarch64-macos`, `x86_64-macos`, `x86_64-windows`. Replaces the platforms of `--arch`. |
+| `--locked` | off | Use the existing `requirements.lock` as it is. Without it the versions are resolved again and the lock file is written again. |
+| `--no-lock` | off | Do not read `pyproject.toml`, write no lock file and do not touch `vendor/`. |
 
-The build fails when: a dependency has no wheel for a target (the error
-names it); `uv` is not found (the error says how to install it);
-`vendor/` holds an entry that is not a platform folder;
-`requires_python` excludes `--python-version`; `--locked` is given and
-there is no `requirements.lock`.
+The build fails when: `uv` is not found (the error says how to install
+it); `requires_python` excludes `--python-version`; `--locked` is given
+and there is no `requirements.lock`. Without `--vendor` it also fails
+when the lock file is one the compiler would refuse (it holds an
+option, a URL or a path, or does not pin a dependency of
+`pyproject.toml`), and when `requirements.lock` changed while `vendor/`
+holds the folders of an earlier `--vendor` build. With `--vendor` it
+also fails when a dependency has no wheel for a target (the error names
+it), and when `vendor/` holds an entry that is not a platform folder.
 
 ### `package validate <PATH> [--python-version <V>] [--max-unpacked-bytes <N>]`
 
@@ -439,6 +464,12 @@ vendored dependencies must be for the same `major.minor`, and each
 platform of `[metadata.vendored]` must have its `vendor/<platform>/`
 folder. The Python that runs the package is `--python-version` when
 given, else `[metadata.vendored].python_version`, else `3.11`.
+
+It also checks that the dependencies ship. A package with a `vendor/`
+folder passes. Without one: dependencies in `pyproject.toml` need a
+`requirements.lock`, the lock file must pin each of them, and it may
+hold only pinned versions with hashes. These are the checks of the
+compiler; `package pack` runs them too.
 
 A package that unpacks to more than `--max-unpacked-bytes` /
 `CLOACINA_MAX_UNPACKED_BYTES` (default `524288000`, 500 MiB) is refused:
@@ -461,12 +492,13 @@ exists, so a server requiring signatures cannot accept packages packed
 by this CLI until I-0103 lands (signature rows must be inserted
 out-of-band).
 
-### `package publish <DIR> [--release] [--sign <KEY>] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-vendor] [--max-unpacked-bytes <N>]`
+### `package publish <DIR> [--release] [--sign <KEY>] [--vendor] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-lock] [--max-unpacked-bytes <N>]`
 
 `build` → `pack` → `upload` in one shot. `--sign` fails hard, same as
 `package pack`. It takes the flags of `package build`: a publish of a
-Python package vendors its dependencies. Pass `--no-vendor` for a
-package whose `vendor/` is filled by hand.
+Python package writes its lock file, and the compiler vendors the
+dependencies. Pass `--vendor` to ship the dependencies in the package.
+Pass `--no-lock` for a package whose `vendor/` is filled by hand.
 
 ### `package upload <FILE>`
 

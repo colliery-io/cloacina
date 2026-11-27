@@ -2508,6 +2508,10 @@ fn registered_routes(
         )
         .get("/agent/source/{digest}", crate::routes::agent::fetch_source)
         .get(
+            "/agent/python-vendor/{digest}",
+            crate::routes::agent::fetch_python_vendor,
+        )
+        .get(
             "/agent/providers/{digest}",
             crate::routes::agent::fetch_providers,
         )

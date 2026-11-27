@@ -419,11 +419,22 @@ Network and dependency resolution depend on the cargo flags:
 - **With `--frozen`/`--offline` dropped** (`--cargo-flags-replace`; the Helm chart's default is `build --lib`), the build has two phases: `cargo fetch` downloads the dependency graph from the network, then the build runs with `--offline` appended.
 - **`--offline` binds cargo, not the code cargo runs.** A build script, a proc-macro or a provider's manifest binary can open any connection the host allows. Provider bundling does not use the cargo flags: its cargo steps can download.
 
+### Python packages: what the compiler downloads
+
+A Python package that is published with a `requirements.lock` and no `vendor/` folder gets its dependencies from the compiler. For each platform of its settings the compiler runs `uv pip install` on the lock file and stores the installed wheels as one set per platform. A package that ships `vendor/` is not touched: the compiler runs no `uv` and downloads nothing for it.
+
+- **What runs.** `uv`, as a build child: the cleared environment, the timeout and the resource caps above, plus the proxy and certificate variables. It installs wheels only (`--only-binary :all:`), so no build script and no code of a dependency runs in the compiler: a wheel is unpacked, not executed. A dependency with no wheel fails the build.
+- **What it downloads, and from where.** The wheels that the lock file names, and the index pages of those distributions, over HTTPS from the package index of the compiler's settings (`--python-index-url`; PyPI by default: `pypi.org` and `files.pythonhosted.org`). With `--python-wheel-dir` it also reads wheels from a folder of the compiler image. With `--python-offline` it opens no connection: the wheels come from that folder, or from a `uv` cache in the image, and a wheel that is not there fails the build by name.
+- **What the package's author controls.** The names, the versions and the hashes in the lock file. Not the source: the compiler refuses a lock file that holds anything other than pinned versions with hashes (an option such as `-r` or `--index-url`, a URL, a path), and it runs `uv` with `--no-config`, so a `uv.toml` in the package does not choose the index. The hashes are the author's own: `--require-hashes` makes the compiler install the files the author locked, and does not make those files safe.
+- **Where the files go.** Into the stored set of the package, and from there into `vendor/<platform>/` on the servers and agents that load the package. The dependencies then run with the package's tasks, with the same reach as the package's own code (see [What a task can reach on its agent](#what-a-task-can-reach-on-its-agent)). The compiler imports none of them.
+- **What this adds to the compiler's network needs.** Egress to the index, unless the compiler is offline. A compiler with restricted egress needs the index and its file host allowed, an index mirror inside the network, or an image that carries the wheels: see [Running the Compiler](../../../how-to/service/running-the-compiler/#python-packages-vendoring-dependencies).
+
 The threat model the compiler addresses:
 
 - **Resource exhaustion** by malicious or pathological builds — bounded by the timeout and the rlimits.
 - **The compiler's environment variables** — not inherited by any child.
 - **Dependency substitution** — bounded by `--frozen --offline` with a curated cargo home, when the operator keeps those flags.
+- **A lock file that reads the compiler's files or another server** — refused before `uv` starts: a lock file holds pinned versions with hashes only.
 
 The threat model the compiler does NOT address:
 

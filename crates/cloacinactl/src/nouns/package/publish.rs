@@ -38,7 +38,8 @@ pub async fn run(
         )));
     }
 
-    // Rust: cargo build. Python: vendor the dependencies (CLOACINA-T-1048).
+    // Rust: cargo build. Python: lock the dependencies, and with --vendor
+    // vendor them (CLOACINA-T-1048, CLOACINA-T-1073).
     // build::run branches on [metadata].language (CLOACI-T-0665).
     super::build::run(dir, release, vendor)?;
 
