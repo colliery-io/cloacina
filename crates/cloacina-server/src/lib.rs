@@ -783,6 +783,13 @@ pub async fn run(
          while they still run."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_cancels_sent_total",
+        "Cancel messages the server sent to an agent for a dispatch whose \
+         result wait ended with no report (CLOACINA-T-1028). The agent kills \
+         the task's worker process. Each one is an attempt that an agent did \
+         not report in the task's time limit plus 30 seconds."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_refused_results_total",
         "Agent reports for a dispatch this replica waits for that were refused \
          because of their sender (CLOACINA-T-1050): `reason` is `other_tenant` \

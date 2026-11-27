@@ -156,7 +156,9 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | How many work packets the agent runs at the same time. Equivalent to `--max-concurrency`. The fleet actuator sets it from the pool's `max_concurrency` setting. | `4` | `1` | Agent | No |
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
-| `CLOACINA_AGENT_MEMORY` | Total memory the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--memory`. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
+| `CLOACINA_AGENT_MEMORY` | Total memory of the agent, a Kubernetes quantity above zero. Equivalent to `--memory`. The agent reports it less `CLOACINA_AGENT_RESERVED_MEMORY` and holds each task to a memory limit from it. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
+| `CLOACINA_AGENT_RESERVED_MEMORY` | The agent's own share of its memory, a Kubernetes quantity or `0`. Equivalent to `--reserved-memory`. The fleet actuator does not set it. | `128Mi` | `256Mi` | Agent | No |
+| `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | The address-space ceiling of a task's worker process, as a multiple of the task's memory limit (64 GiB is added). `0`: no ceiling. Equivalent to `--task-address-space-factor`. The fleet actuator does not set it. | `8` | `0` | Agent | No |
 | `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator sets it to `json` on the agents it starts when the server's own `CLOACINA_AGENT_LOG_FORMAT` is `json` (see [Actuator selection](#actuator-selection)). See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
@@ -567,7 +569,9 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | Agent | Work packets the agent runs at the same time (default `4`) |
 | `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_AGENT_CPU` | Agent | Total CPU the agent reports for task placement (unset: none) |
-| `CLOACINA_AGENT_MEMORY` | Agent | Total memory the agent reports for task placement (unset: none) |
+| `CLOACINA_AGENT_MEMORY` | Agent | Total memory of the agent, for task placement and task memory limits (unset: none) |
+| `CLOACINA_AGENT_RESERVED_MEMORY` | Agent | The agent's own share of its memory (default `128Mi`) |
+| `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | Agent | Address-space ceiling of a task's worker, as a multiple of its memory limit (default `8`; `0` = none) |
 | `CLOACINA_AGENT_LOG_FORMAT` | Agent; Server (actuator) | Format of the agent's log lines: `text` (default) or `json`. On the server: the format of the agents the actuator starts |
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |

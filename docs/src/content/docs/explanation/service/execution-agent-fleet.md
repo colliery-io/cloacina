@@ -110,11 +110,16 @@ On the agent:
 7. **Triple check (fail-closed).** The agent refuses any packet whose artifact
    was built for a different target triple than its own (OQ-6). The server only
    selects agents whose triple matches, but the agent enforces it independently.
-8. **Fetch + cache.** It fetches the cdylib by digest over REST (skipped on a
-   cache hit) and `dlopen`s it via [fidius](../../engine/ffi-system/).
-9. **Execute + report.** It resolves the task in the loaded library, runs it
-   under the packet's time limit with the inlined context, and POSTs the outcome
-   (`Success` / `Failure` / `Refused`) back to the server.
+8. **Fetch + cache.** It fetches the package by digest over REST, one time per
+   digest: the cdylib of a Rust package, or the source archive and the vendored
+   dependencies of a Python package, and the bundled providers.
+9. **Execute + report.** It starts a [worker process](#worker-processes-and-limits)
+   for the task. The worker loads the package (`dlopen` via
+   [fidius](../../engine/ffi-system/), or a Python import), resolves the task
+   and runs it with the inlined context. The agent holds the worker to the
+   packet's time limit and to the task's memory limit, and POSTs the outcome
+   (`Success` / `Failure` / `Refused`) back to the server. A task marked
+   `inline` runs in the agent process, with no worker.
    A POST that fails for a reason that can pass (a network error, a time
    limit, a 5xx) is sent again with a backoff of 1 s, doubled up to 15 s, at
    most 12 times, and not past the point where the server stops waiting. A
@@ -316,10 +321,19 @@ what happens when an attempt fails.
   `86400`, 24 hours). A task that asks for more gets the maximum, and the
   server logs a warning on each dispatch. A default above the maximum stops
   the server at start.
-- **The agent enforces the limit.** The work packet carries it. When the task
-  runs past it the agent reports a timeout and the attempt fails as a timeout,
-  the same as on the in-process executor. The server waits for the report for
-  the limit plus 30 seconds, then gives up on the dispatch.
+- **The agent enforces the limit.** The work packet carries it. The clock
+  starts when the task's worker process has loaded the package. When the task
+  runs past the limit the agent kills the worker process, with every process
+  the task started, and reports a timeout: the attempt fails as a timeout, the
+  same as on the in-process executor. The task's slot is free when the worker
+  has exited. A worker that needs more than 20 seconds to load its package
+  loses that time from its limit: it ends no later than the limit plus 20
+  seconds after its start. The server waits for the report for the limit plus
+  30 seconds, then gives up on the dispatch and sends the agent a
+  [cancel](#worker-processes-and-limits).
+- **An inline task is not killed.** For a task marked `inline` the agent stops
+  waiting at the limit, reports a timeout and frees the slot. A blocking body
+  runs on inside the agent process.
 - **A graph firing gets the server default.** A computation-graph firing sent
   to an agent carries `--fleet-task-timeout-s`, and the server waits for its
   result for that limit plus 30 seconds, then reports the firing as failed. A
@@ -333,20 +347,20 @@ what happens when an attempt fails.
   server as `agent failure (<class>): <the task's error>`. An error pattern or
   the `transient` condition tests that text, so it sees what the task wrote.
 
-A task that ran past its limit is not stopped (see the second point below):
-the agent stops waiting for it and frees the slot.
-
-Two things worth knowing about the recovery characteristics:
+Things worth knowing about the recovery characteristics:
 
 - **It is failover, not checkpointing.** The survivor re-runs the task from the
   start; there is no mid-task resume. Tasks run on the fleet should be
   idempotent, like any retryable task.
-- **The first copy is not stopped.** When the server gives up on a dispatch (a
-  dead agent, a result wait that timed out, a server that stopped), the agent
-  may still be running the task, and there is no cancel message. Two copies of
-  one task can be alive at the same time. A task that writes outside its
-  context, such as a table commit, must be safe to run twice, also at the same
-  time.
+- **The first copy is stopped in one case, and not in two.** When the server's
+  wait for a result ends with no report, the server sends a cancel to the
+  agent that has the packet, and the agent kills the task's worker process.
+  When the server declares an agent dead, or the server process that
+  dispatched the task stops, no cancel is sent: the agent, if it is alive,
+  runs the task on until its time limit and kills it then. In those two cases
+  two copies of one task can be alive at the same time. A task that writes
+  outside its context, such as a table commit, must be safe to run twice, also
+  at the same time. A task marked `inline` is never stopped.
 - **A late report changes nothing.** A result counts only for the dispatch it
   belongs to, and only while the dispatching server holds the claim on the
   task. A report that no replica waits for is logged, deleted from the result
@@ -410,8 +424,9 @@ clear a PodSecurity **`restricted`** cluster, which would otherwise reject them:
   `emptyDir` volumes so the read-only root still works.
 - **No service account token.** The pod sets
   `automountServiceAccountToken: false`. The agent never calls the Kubernetes
-  API, and task code runs in the agent process, where it could read a mounted
-  token. The standalone `cloacina-agent` chart does the same
+  API, and task code runs in the agent's pod with the agent's user id (in a
+  worker process, or in the agent process for an inline task), where it could
+  read a mounted token. The standalone `cloacina-agent` chart does the same
   (`automountServiceAccountToken`, default `false`).
 - **The agent's key leaves the environment.** The key arrives as
   `CLOACINA_API_KEY` from the tenant namespace's Secret. The agent reads it at
@@ -477,6 +492,10 @@ registers, next to its slot count (`max_concurrency`):
   `--memory` (`CLOACINA_AGENT_CPU`, `CLOACINA_AGENT_MEMORY`). With neither it
   reports no totals.
 
+For memory, every agent keeps its own share (`--reserved-memory`, default
+128Mi) and reports the rest: an agent whose pod has 32Gi offers 32Gi less
+128Mi to tasks.
+
 **What is in flight.** The server keeps, for each agent, the tasks it has
 placed there and not yet had a result for. It keeps them on the task rows in
 the database, so every server replica counts the same tasks. The sum of their
@@ -507,9 +526,10 @@ large tasks. Between agents with the same free memory it picks the one with the
 most free slots. An agent that reports no memory total comes after every agent
 that does.
 
-Example: a pool whose agents hold 32Gi. One agent runs a 24Gi task and four
-2Gi tasks together, which is 32Gi. A second 24Gi task does not fit there. It
-goes to another agent of the pool with 24Gi free, or it waits.
+Example: a pool whose agents have 32Gi, of which each offers 32Gi less 128Mi
+to tasks. One agent runs a 24Gi task and three 2Gi tasks together, which is
+30Gi. A second 24Gi task does not fit there. It goes to another agent of the
+pool with 24Gi free, or it waits.
 
 **A task that fits nowhere waits.** It stays `Ready`, keeps its attempt count
 and is tried again every 2 s. It does not fail and it uses no retry attempt.
@@ -522,15 +542,104 @@ task waits. The replica that wrote second always sees the first one, so an
 agent never keeps two tasks on the same room. When both wrote before either
 read, both take their placement back and both tasks are tried again.
 
-**Requests are not limits.** A request decides where a task is sent. Nothing
-measures or limits what the task then uses. A task that uses more memory than
-it requested is not stopped, and when the agent's pod runs out of memory every
-task on that agent fails with it. Set each request to what the task needs at
-its peak, and keep `max_concurrency` low on a pool for large tasks.
+**A memory request is also the task's limit.** The agent stops a task that
+uses more memory than it requested; see
+[worker processes and limits](#worker-processes-and-limits). Set each memory
+request to what the task needs at its peak. A CPU request decides where a task
+is sent and caps nothing.
 
 Graph firings (computation graphs dispatched to the fleet) name no pool and
 have no request. They go to the pool `default` and are counted by the agent's
 free slots only.
+
+### Worker processes and limits
+
+An agent runs each task in a worker process of its own: the agent binary,
+started again for that one task. The agent fetches the package and unwraps the
+task's secrets. The worker loads the package, runs the task, hands the result
+back over a pipe and exits. A Python task gets a fresh interpreter each time.
+
+**What crosses to the worker.** The work packet, the task's secrets and the
+paths of the fetched package files go in over the worker's stdin, a pipe. A
+secret is never in the worker's arguments or environment. The worker has the
+agent's environment (the agent takes its own key out of its environment at
+start), a temporary directory of its own (`TMPDIR`), which the agent removes
+when the worker has exited, and the agent's stdout and stderr, so a task's log
+lines land in the agent's log. The worker has no API key and makes no request
+to the server.
+
+**The memory limit of a task** is its memory request. A task with no request
+gets a share of the agent: what the agent offers to tasks, divided by
+`max_concurrency`. What the agent offers is `--memory` less
+`--reserved-memory`; an agent with no `--memory` uses the memory limit of its
+own cgroup. An agent with neither holds a task with no request to no limit.
+
+So when this version is installed, every task of every package that is already
+published runs in a worker process and has a memory limit, without a new
+publish. A pool with the default 1Gi pods and four slots gives a task with no
+request 224Mi.
+
+**What is enforced, and how.**
+
+| What | How | When it acts |
+|---|---|---|
+| Memory of one task | The agent reads the memory of each worker, with every process the task started, every 250 ms, and kills the worker that is over its limit. On Linux it counts anonymous and shared memory (`RssAnon` + `RssShmem`); pages of a mapped file are not counted. | Within 250 ms of the task passing its limit. The attempt fails with `task exceeded its memory limit of <limit>`. The other tasks on the agent go on. |
+| Memory of the agent as a whole | When the agent and its workers use more than 95% of the agent's memory, the agent kills its largest worker. It reads its own cgroup (cgroup v2) where that has a limit, else its own memory plus that of its workers against `--memory`. | Within 250 ms. The attempt fails with `the agent ran out of memory`. The agent stays registered. |
+| The kernel's out-of-memory kill | Each worker sets its `oom_score_adj` to 1000, so that the kernel picks a worker and not the agent where it picks one process. A worker the kernel killed is reported as `the agent ran out of memory: the kernel killed the task's worker`. | When the pod reaches its memory limit between two reads of the agent. |
+| Time | The agent kills the worker at the task's [time limit](#time-limits-and-retries). | At the limit. |
+| A cancel from the server | When the server's wait for a result ends with no report, it sends the agent a cancel for that dispatch. The agent kills the worker and reports nothing. | When the server gives up; see [recovery](#liveness-and-dead-agent-reclaim). |
+| Address space, open files, processes, CPU time | `setrlimit` on the worker (Linux): address space at 8 times the memory limit plus 64 GiB (`--task-address-space-factor`; `0` turns it off; the 64 GiB leave room for what a runtime reserves and never uses, such as the memory of a WASM constructor), 65536 open files, 32768 processes, CPU seconds at the time limit times the host's CPUs. Each is lowered to the agent's own limit where that is lower. | A backstop behind the rows above. A task that hits one fails with its own error or with `the task's worker process ended with no result`. |
+| A crash | A task that crashes its process (a segmentation fault, an abort) ends its worker only. | The attempt fails with `the task's worker process ended with no result` and the signal. |
+
+A kill is a `SIGKILL` to the worker's process group: the task gets no chance
+to clean up. A slot is free when the worker process has exited.
+
+**What is not enforced.**
+
+- **CPU.** There is no cap on the CPU of a task. Tasks on one agent share the
+  CPU of its pod; a task that uses more than it requested slows its
+  neighbours and does not fail them. Workers run at a lower scheduling
+  priority (`nice` 5) than the agent, so a busy task does not hold back the
+  agent's heartbeat.
+- **Between two reads.** The agent reads memory every 250 ms. A task that
+  takes memory faster than that can reach the pod's limit before the agent
+  acts, and then the kernel acts. On Kubernetes 1.28 and later with cgroup v2
+  the kernel kills every process of the container, the agent too, unless the
+  kubelet runs with `singleProcessOOMKill: true`. The agent's pod then
+  restarts and its tasks are run again.
+- **Memory the count leaves out.** Pages of mapped files are not counted for a
+  task. Memory that a child and its parent share after a `fork` is counted
+  for each of them.
+- **cgroups.** The agent does not put a worker in a cgroup of its own. A pod
+  that runs as non-root with a read-only root filesystem and no capabilities
+  has a read-only cgroup filesystem. The agent logs at start whether it could
+  create one.
+- **A process that leaves.** A process the task starts in a new session
+  leaves the worker's process group. It is still counted for the memory limit
+  while its parents live, and it is not killed with the worker.
+- **Graph firings.** A computation graph firing runs in the agent process,
+  with no worker, no memory limit and no kill.
+- **Systems other than Linux.** macOS has the memory watchdog, the time limit
+  and the cancel; it has no `setrlimit` limits and no out-of-memory score.
+
+**An inline task** (`inline = true` on the task) runs in the agent process, as
+every task did before worker processes. It saves the start of a process and,
+for Python, of an interpreter and the import of the package: the agent loads a
+package one time and keeps it. It gives up:
+
+- the memory limit: nothing measures it, and its memory counts as the agent's;
+- the kill: at its time limit the agent stops waiting and frees the slot, and
+  a blocking body runs on; a cancel from the server does nothing;
+- the separation: a crash in it takes the agent down with every task on it.
+
+Its requests still count for placement. Mark a task inline when it is short,
+uses little memory and is run often.
+
+**What a worker costs.** Measured on a development machine (Apple silicon, a
+debug build): a worker with no package starts, answers and exits in about
+13 ms; a Python task with one small module and no dependencies takes about
+100 ms from the start of the worker to its result. A Python worker also
+unpacks the package for each task.
 
 ### What a publish checks
 
@@ -540,7 +649,8 @@ tenant's pools. The package is refused when a task:
 - names a pool the tenant does not have, or
 - requests more CPU or memory than one agent of its pool can hold. That size is
   what the pool's settings say: its limit, or its request when it sets no
-  limit. A pool that sets neither for a resource has no size to compare with.
+  limit. For memory the agent's own share, 128Mi, comes off first. A pool that
+  sets neither for a resource has no size to compare with.
 
 The check runs when the tenant's runner loads the package, because that is when
 its tasks are known: for a Rust package, after the compile. A refused package
@@ -549,8 +659,8 @@ reason, with the task, the pool and the numbers:
 
 ```text
 package orders v1.4.0 is refused: task 'load_history' requests memory 64Gi,
-but one agent of the pool 'large' holds 32Gi at most. Lower the request, or
-raise the pool's memory limit, and publish again.
+but one agent of the pool 'large' holds 32Gi less the agent's own 128Mi at
+most. Lower the request, or raise the pool's memory limit, and publish again.
 ```
 
 `cloacinactl package inspect <id>` and the workflow routes show it, the same
@@ -565,8 +675,8 @@ refused: create it with `max_agents` 0, so the server starts no agents for it.
 - **Only `default` is autoscaled.** Another pool runs a fixed number of agents,
   its `max_agents`. The tenant's agent limit and the provision API are for
   `default`; they do not count or bound the other pools.
-- **No limit on what a task uses.** A task runs inside the agent process, next
-  to the other tasks of that agent. See "Requests are not limits" above.
+- **No cap on the CPU of a task.** A task's memory is limited and its CPU is
+  not. See [worker processes and limits](#worker-processes-and-limits).
 
 ### How a change of settings reaches the agents
 

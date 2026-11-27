@@ -35,6 +35,10 @@
 //!   code) also gets the names of [`RESOLVE_ENV_ALLOWLIST`].
 //! - [`ChildPolicy::inherit`] — the author's own machine (`cloacinactl`,
 //!   tests). The child gets the caller's environment and no limit.
+//! - [`ChildPolicy::worker`] — a task worker of a fleet agent
+//!   (CLOACINA-T-1028). The child gets the caller's environment, resource
+//!   limits (Linux) and its own process group. The agent holds the clock and
+//!   kills the group with [`kill_child_group`].
 //!
 //! This is not a sandbox. A confined child still has the compiler's user id,
 //! filesystem and network.
@@ -115,10 +119,45 @@ pub struct ChildRlimits {
     pub procs: u64,
 }
 
+impl ChildRlimits {
+    /// The same limits, each lowered to the calling process's own hard limit
+    /// where that is lower. A process without privileges cannot give a child
+    /// a hard limit above its own: `setrlimit` fails and the child does not
+    /// start. `u64::MAX` in a field therefore means "the caller's own limit".
+    /// Not Linux: unchanged (the limits are not applied there).
+    pub fn capped_at_own_limits(self) -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            let cap = |resource: libc::__rlimit_resource_t, val: u64| -> u64 {
+                let mut own = libc::rlimit {
+                    rlim_cur: 0,
+                    rlim_max: 0,
+                };
+                // SAFETY: `getrlimit` writes one `rlimit` to the pointer.
+                if unsafe { libc::getrlimit(resource, &mut own) } != 0 {
+                    return val;
+                }
+                val.min(own.rlim_max)
+            };
+            Self {
+                cpu_s: cap(libc::RLIMIT_CPU, self.cpu_s),
+                mem_bytes: cap(libc::RLIMIT_AS, self.mem_bytes),
+                files: cap(libc::RLIMIT_NOFILE, self.files),
+                procs: cap(libc::RLIMIT_NPROC, self.procs),
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self
+        }
+    }
+}
+
 /// How a build child is held. See the module docs.
 #[derive(Debug, Clone)]
 pub struct ChildPolicy {
     confined: bool,
+    own_group: bool,
     env: Vec<(OsString, OsString)>,
     timeout: Option<Duration>,
     rlimits: Option<ChildRlimits>,
@@ -130,6 +169,7 @@ impl ChildPolicy {
     pub fn inherit() -> Self {
         Self {
             confined: false,
+            own_group: false,
             env: Vec::new(),
             timeout: None,
             rlimits: None,
@@ -142,8 +182,27 @@ impl ChildPolicy {
     pub fn confined(timeout: Duration, rlimits: ChildRlimits) -> Self {
         Self {
             confined: true,
+            own_group: true,
             env: Vec::new(),
             timeout: Some(timeout),
+            rlimits: Some(rlimits),
+        }
+    }
+
+    /// A task worker of a fleet agent (CLOACINA-T-1028): the caller's
+    /// environment and stdio, `rlimits` as the kernel ceilings, an own
+    /// process group. No time limit here: the agent holds the task's clock
+    /// and kills the group with [`kill_child_group`].
+    ///
+    /// The environment is kept because a task reads it (a cloud identity, a
+    /// proxy, a time zone), and the agent takes its own key out of its
+    /// environment at start.
+    pub fn worker(rlimits: ChildRlimits) -> Self {
+        Self {
+            confined: false,
+            own_group: true,
+            env: Vec::new(),
+            timeout: None,
             rlimits: Some(rlimits),
         }
     }
@@ -204,13 +263,14 @@ pub fn build_child_command(program: &str, policy: &ChildPolicy, step: ChildStep)
             }
         }
         cmd.stdin(Stdio::null());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            // Own process group: a time-out kills cargo and what it started
-            // (rustc, build scripts, a provider's manifest binary) together.
-            cmd.process_group(0);
-        }
+    }
+    #[cfg(unix)]
+    if policy.own_group {
+        use std::os::unix::process::CommandExt;
+        // Own process group: a time-out kills cargo and what it started
+        // (rustc, build scripts, a provider's manifest binary) together. For
+        // a task worker: the worker and what the task started.
+        cmd.process_group(0);
     }
     for (key, val) in &policy.env {
         cmd.env(key, val);
@@ -268,9 +328,10 @@ fn apply_rlimits(cmd: &mut Command, rlimits: &ChildRlimits) {
 #[cfg(not(target_os = "linux"))]
 fn apply_rlimits(_cmd: &mut Command, _rlimits: &ChildRlimits) {}
 
-/// SIGKILL the process group of a confined child. `pid` is the child's pid,
-/// which is also its group id ([`build_child_command`] makes it a group
-/// leader). Call it only for a child of a confined policy.
+/// SIGKILL the process group of a child. `pid` is the child's pid, which is
+/// also its group id ([`build_child_command`] makes it a group leader). Call
+/// it only for a child of a confined or a worker policy: a child of
+/// [`ChildPolicy::inherit`] is in the caller's own group.
 #[cfg(unix)]
 pub fn kill_child_group(pid: u32) {
     if pid == 0 {
@@ -332,7 +393,7 @@ pub fn run_build_child(
     let mut child = cmd.spawn().map_err(ChildError::Spawn)?;
     let pid = child.id();
     let kill_group = |pid: u32| {
-        if policy.confined {
+        if policy.own_group {
             kill_child_group(pid);
         }
     };
@@ -550,6 +611,73 @@ mod tests {
         // SAFETY: as above.
         unsafe { std::env::remove_var("CLOACINA_T_1054_MARKER") };
         assert!(has_var(&printed, "CLOACINA_T_1054_MARKER"), "{printed}");
+    }
+
+    /// CLOACINA-T-1028: a task worker keeps the caller's environment (a task
+    /// reads it), and is the leader of its own process group, so the agent
+    /// can kill it with what it started.
+    #[test]
+    #[serial]
+    fn worker_child_keeps_the_environment_and_leads_its_own_group() {
+        // SAFETY: serial test; no other thread of this test reads the env.
+        unsafe { std::env::set_var("CLOACINA_T_1028_MARKER", "from-the-agent") };
+        let policy = ChildPolicy::worker(test_rlimits().capped_at_own_limits());
+        let printed = child_env(&policy, ChildStep::Build);
+        // SAFETY: as above.
+        unsafe { std::env::remove_var("CLOACINA_T_1028_MARKER") };
+        assert!(has_var(&printed, "CLOACINA_T_1028_MARKER"), "{printed}");
+        assert_eq!(policy.timeout(), None);
+        assert!(!policy.is_confined());
+
+        let mut cmd = build_child_command("sh", &policy, ChildStep::Build);
+        cmd.args(["-c", "sleep 30 & echo $!; wait"]);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = cmd.spawn().expect("spawn sh");
+        let mut out = child.stdout.take().expect("stdout");
+        let mut line = String::new();
+        std::io::BufRead::read_line(&mut std::io::BufReader::new(&mut out), &mut line)
+            .expect("read the sleeper's pid");
+        let sleeper: libc::pid_t = line.trim().parse().expect("pid");
+        // SAFETY: `getpgid` has no memory-safety preconditions.
+        let group = unsafe { libc::getpgid(sleeper) };
+        assert_eq!(
+            group,
+            child.id() as libc::pid_t,
+            "the worker leads the group"
+        );
+
+        kill_child_group(child.id());
+        let _ = child.wait();
+        let gone = (0..200).any(|_| {
+            // SAFETY: signal 0 only checks that the process exists.
+            let alive = unsafe { libc::kill(sleeper, 0) } == 0;
+            if alive {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            !alive
+        });
+        assert!(gone, "the sleeper {sleeper} outlived the group kill");
+    }
+
+    /// A limit above the caller's own hard limit is lowered to it, so the
+    /// child can start. `u64::MAX` asks for the caller's own limit.
+    #[test]
+    fn rlimits_are_capped_at_the_callers_own() {
+        let asked = ChildRlimits {
+            cpu_s: u64::MAX,
+            mem_bytes: u64::MAX,
+            files: u64::MAX,
+            procs: u64::MAX,
+        };
+        let capped = asked.capped_at_own_limits();
+        let policy = ChildPolicy::worker(capped);
+        let cmd = build_child_command("true", &policy, ChildStep::Build);
+        let out = run_build_child(cmd, &policy, true).expect("the child starts");
+        assert!(out.status.success());
+        let small = test_rlimits().capped_at_own_limits();
+        assert!(small.files <= 4096 && small.procs <= 4096);
     }
 
     /// A child that sleeps past the time limit is killed and reported.

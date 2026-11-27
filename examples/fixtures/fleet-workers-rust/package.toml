@@ -1,0 +1,16 @@
+# Worker-process fixture for the fleet workers e2e (CLOACINA-T-1028). Four
+# tasks with no dependency between them: one stays in its memory limit, one
+# goes over it, one runs past its time limit, one is marked inline. Each
+# records its start and end, with its process id, in a marker file.
+# See .angreal/test/e2e/fleet_workers.py.
+[package]
+name = "fleet-workers-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "fleet_workers_workflow"
+language = "rust"
+description = "fleet worker processes e2e fixture"

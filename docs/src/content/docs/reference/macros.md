@@ -62,8 +62,8 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `timeout_seconds` | integer (> 0) | no | -- | The task's own time limit in seconds. When set it replaces the executor's limit for this task: `task_timeout` in process, the server default (`--fleet-task-timeout-s`) on an [execution-agent fleet](../../explanation/service/execution-agent-fleet/#time-limits-and-retries), where the server maximum caps it. An attempt that runs past the limit fails as a timeout. |
 | `pool` | string literal | no | `"default"` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the task runs in on an execution-agent fleet. A task with a pool runs only on an agent of that pool; a task with none runs only on the pool `default`. The name follows the pool name rule: lowercase letters, digits and `-`, a letter or digit at both ends, 40 characters at most. See [Pool and requests](#pool-and-requests). |
 | `cpu` | string literal | no | -- | CPU request, a Kubernetes quantity above zero: `"500m"`, `"4"`. The fleet places the task on an agent that has this much CPU free. |
-| `memory` | string literal | no | -- | Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`. The fleet places the task on an agent that has this much memory free. |
-| `inline` | boolean | no | `false` | Marks the task as one that runs inside the agent process. The mark is stored with the task and sent to the agent. It changes nothing about how the task runs. |
+| `memory` | string literal | no | -- | Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`. The fleet places the task on an agent that has this much memory free, and the agent stops the task when it uses more. |
+| `inline` | boolean | no | `false` | On an execution-agent fleet, run the task inside the agent process and not in a worker process of its own. For a task that is short, uses little memory and runs often. See [Inline tasks](#inline-tasks). |
 | `trigger_rules` | expression | no | `always` | Trigger rule expression controlling when the task should execute. See [Trigger Rules](#trigger-rules). |
 | `on_success` | expression (path) | no | -- | Async callback on success. Signature: `async fn(&str, &Context<Value>) -> Result<(), E>` |
 | `on_failure` | expression (path) | no | -- | Async callback on failure. Signature: `async fn(&str, &TaskError, &Context<Value>) -> Result<(), E>` |
@@ -95,19 +95,48 @@ pub async fn summarize(context: &mut Context<Value>) -> Result<(), TaskError> {
   `"0.5"`), a decimal suffix (`m`, `k`, `M`, `G`, `T`) or a binary suffix
   (`Ki`, `Mi`, `Gi`, `Ti`). CPU is counted in millicores and memory in bytes,
   both rounded up.
-- **A request is used for placement only.** The server counts the requests of
-  the tasks in flight on each agent and sends a task where its request still
-  fits. Nothing limits what a task uses: a task that asks for `2Gi` and uses
-  `20Gi` is not stopped, and it can take down the agent with the other tasks on
-  it. Ask for what the task needs at its peak.
-- A task with no request counts as one slot's share of its agent: the agent's
-  total divided by its max concurrency.
+- **A request is used for placement.** The server counts the requests of the
+  tasks in flight on each agent and sends a task where its request still fits.
+- **A memory request is also the task's limit.** On an agent a task runs in a
+  worker process of its own. A task that asks for `2Gi` and uses more is
+  stopped by the agent and fails with `task exceeded its memory limit of 2Gi`;
+  the other tasks on the agent go on. Ask for what the task needs at its peak.
+  A CPU request caps nothing. See
+  [worker processes and limits](../../explanation/service/execution-agent-fleet/#worker-processes-and-limits).
+- A task with no request counts as one slot's share of its agent: what the
+  agent offers to tasks divided by its max concurrency. That share is also its
+  memory limit.
 - When a package is published, a task that names a pool the tenant does not
   have, or that requests more than one agent of its pool can hold, makes the
   package fail with an error that names the task. See
   [what a publish checks](../../explanation/service/execution-agent-fleet/#what-a-publish-checks).
 - The in-process executor does not read these attributes. They take effect
   when tasks run on a fleet.
+
+### Inline tasks
+
+On an execution-agent fleet a task runs in a worker process of its own, which
+the agent starts for it. `inline = true` makes the agent run the task inside
+the agent process.
+
+```rust
+#[task(inline = true)]
+pub async fn stamp(context: &mut Context<Value>) -> Result<(), TaskError> {
+    Ok(())
+}
+```
+
+- An inline task saves the start of a process and the load of the package for
+  each run: the agent loads a package one time and keeps it.
+- It has no memory limit and it is not stopped: at its time limit the agent
+  stops waiting for it, and a blocking body runs on. A crash in it takes the
+  agent down with the tasks on it.
+- Its `pool`, `cpu` and `memory` still count for placement.
+- The default is `false`: a task runs in a worker process unless it says
+  `inline = true`.
+- The in-process executor does not read the attribute.
+
+See [worker processes and limits](../../explanation/service/execution-agent-fleet/#worker-processes-and-limits).
 
 ### Backoff Strategies
 

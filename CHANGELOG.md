@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed (breaking)
+
+- **Fleet: tasks run in a worker process by default, with a memory limit**
+  (CLOACINA-T-1028). An execution agent starts a child process for each task
+  and no longer runs tasks inside its own process. This applies to every task
+  of every package that is already published; no new publish is needed.
+  - A task's memory request (`memory = "2Gi"`) is now also its limit. The
+    agent stops a task that uses more: the attempt fails with
+    `task exceeded its memory limit of 2Gi`, and the other tasks on the agent
+    go on. A task with no request gets a share of its agent as its limit:
+    the agent's memory less 128Mi, divided by its slots (224Mi on the default
+    1Gi agent with 4 slots). Raise a task's `memory` request if it needs more.
+  - A task past its time limit is killed, with the processes it started. Its
+    slot is free when its worker has exited.
+  - The server sends the agent a cancel when it gives up waiting for a
+    result, and the agent kills that attempt.
+  - Each run pays for the start of a process and the load of the package: for
+    a Python task, a new interpreter and the import. To keep a short, small
+    task inside the agent process, mark it inline: `#[task(inline = true)]`
+    in Rust, `@cloaca.task(inline=True)` in Python. An inline task has no
+    memory limit and is not killed.
+  - An agent reports its memory less its own share (`--reserved-memory`,
+    default 128Mi). A task that requests the whole memory of a pool's agent
+    is refused at publish: request 128Mi less.
+  - Python packages that vendor different versions of one library can now run
+    on one agent, each in its worker.
+  - CPU is not capped. What is enforced and what is not is in the fleet docs,
+    "Worker processes and limits".
+  - A server and an agent of different versions work together. An agent from
+    before this change ignores `inline` and the cancel, and runs tasks inside
+    its own process as before. A server from before it sends no `inline` and
+    no cancel.
+
 ## [0.12.0] - 2026-10-13
 
 ### Changed
