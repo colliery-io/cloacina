@@ -20,6 +20,11 @@ from .world import TENANTS
 
 steps = StepRegistry()
 
+# The chapter this file belongs to, and its feature files, from the root of
+# the repository. `chapters.py` finds every `*_steps.py` by these two names.
+CHAPTER = "publishing"
+FEATURES = ("features/publishing/independent_publish.feature",)
+
 # Fixtures and the names they install under.
 REPORT_FIXTURE = "publish-report-rust"
 REPORT_BROKEN_FIXTURE = "publish-report-broken-rust"

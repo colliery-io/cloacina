@@ -1,0 +1,16 @@
+# Fixture of the behaviour suite's standing workload (CLOACINA-T-1107): a job
+# that fails on purpose. Its first task fails on the first attempt of each run
+# and passes on a retry. Twice an hour the run fails for good.
+[package]
+name = "standing-flaky-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "standing_flaky"
+language = "python"
+description = "standing workload: a job that fails on purpose"
+author = "behaviour-suite"
+entry_module = "standing_flaky.tasks"

@@ -84,3 +84,8 @@ gil-stress-artifacts/
 
 # Report of `angreal test bdd publish` (CLOACINA-T-1026)
 bdd-publish-report.txt
+
+# Behaviour suite (CLOACINA-T-1107, CLOACINA-T-1108): the report of each
+# chapter's feature run, and the checker's report, state and snapshots
+bdd-*-report.txt
+bdd-standing-report/

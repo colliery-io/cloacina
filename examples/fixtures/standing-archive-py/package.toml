@@ -1,0 +1,15 @@
+# Fixture of the behaviour suite's standing workload (CLOACINA-T-1107): a
+# long job on an hourly schedule. One task that holds for six minutes.
+[package]
+name = "standing-archive-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "standing_archive"
+language = "python"
+description = "standing workload: a six-minute job every hour"
+author = "behaviour-suite"
+entry_module = "standing_archive.tasks"
