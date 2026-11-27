@@ -200,6 +200,26 @@ NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on port
 - The server image must have `--metrics-bind`: a release after 0.12.0.
   With an older image, set `metrics.enabled=false`.
 
+## The compiler and Python dependencies
+
+With `compiler.enabled=true` the chart's compiler vendors the dependencies of
+a Python package that is published with a `requirements.lock` and no `vendor/`
+folder. Its image must hold `uv`. By default it downloads the wheels from PyPI,
+for `aarch64-linux` and `x86_64-linux` and Python 3.11.
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `compiler.python.platforms` | `[]` | The platforms to vendor for (`--python-platform`). Empty: `aarch64-linux` and `x86_64-linux` |
+| `compiler.python.version` | `""` | The Python the wheels are for (`--python-version`). Empty: `3.11` |
+| `compiler.python.indexUrl` | `""` | The package index (`CLOACINA_COMPILER_PYTHON_INDEX_URL`). Empty: PyPI. For a URL with a password, set the variable from a Secret through `compiler.extraEnv` |
+| `compiler.python.wheelDir` | `""` | A folder of wheel files in the compiler image (`--python-wheel-dir`) |
+| `compiler.python.offline` | `false` | No network for Python builds (`--python-offline`). Needs `wheelDir`, or a `uv` cache in the image |
+| `compiler.python.uvCacheDir` | `/tmp/uv-cache` | The cache folder of `uv` (`--python-uv-cache-dir`), on the pod's `/tmp` volume |
+
+The image recipe for a compiler that carries its wheels, and what the compiler
+downloads, are in
+[Running the Compiler](../running-the-compiler/#python-packages-vendoring-dependencies).
+
 ## Fleet actuator (Kubernetes) + RBAC
 
 The server can provision and autoscale a per-tenant pool of `cloacina-agent`

@@ -21,8 +21,9 @@ manifest plus the workflow source:
 - **Rust** — `Cargo.toml`, `build.rs`, and `src/` (the cdylib is compiled by the
   server's compiler *at load time*, not shipped in the archive).
 - **Python** — a `workflow/` directory holding your module tree (imported at load
-  time; nothing is compiled), plus an optional `vendor/` directory with the
-  third-party dependencies, one folder per platform.
+  time; nothing is compiled). Its third-party dependencies come as a
+  `pyproject.toml` and a `requirements.lock` that the compiler vendors from, or
+  as a `vendor/` directory in the archive, one folder per platform.
 
 The server reads `package.toml` to learn the package's identity and language,
 then compiles (Rust) or imports (Python) the source to discover tasks.
@@ -70,16 +71,32 @@ one vendor folder are added to `sys.path` before import. See
 [Packaging Python Workflows](../../../how-to/embed/packaging-python-workflows/)
 for the full Python procedure.
 
-#### Vendored dependencies
+#### Dependencies
 
 `cloacinactl package build` reads `[project].dependencies` of `pyproject.toml`
-and writes:
+and writes `requirements.lock`: each dependency pinned to a version, with
+hashes. From there a package gets its dependencies in one of two ways.
 
-- `requirements.lock`: each dependency pinned to a version, with hashes.
+**The compiler vendors.** A package with a `requirements.lock` and no `vendor/`
+folder is vendored when it is built on the server: the compiler installs the
+wheels the lock names, for each platform of its settings, and stores one set
+per platform next to the package. A set is an archive in the package format: a
+`package.toml` whose `[metadata]` is the `[metadata.vendored]` record of one
+platform, and `vendor/<platform>/`. The uploaded archive is not changed. A
+server or an agent that loads the package gets the set of its own platform and
+unpacks it into `vendor/<platform>/`; it gets no set of another platform. The
+compiler refuses a package that has dependencies and no lock file, and a lock
+file that holds more than pinned versions with hashes.
+
+**The package ships `vendor/`.** `cloacinactl package build --vendor` also
+writes:
+
 - `vendor/<platform>/`: the installed wheels for one platform. A platform is
   named `<arch>-<os>` (`x86_64-linux`, `aarch64-linux`, `aarch64-macos`,
   `x86_64-macos`, `x86_64-windows`), the name an agent reports for itself.
 - `[metadata.vendored]` in `package.toml`: the Python version and the platforms.
+
+The compiler uses such a package as it is.
 
 The loader picks the vendor folder in this order:
 
@@ -196,8 +213,10 @@ Python), never in the manifest.
 2. It reads `package.toml` and dispatches on `[metadata].language`.
 3. **Rust** — the compiler runs `cargo build` on the unpacked source, then loads
    the resulting cdylib and calls its FFI entry points to enumerate tasks.
-   **Python** — the loader checks `requires_python` and
-   `[metadata.vendored].python_version` against its interpreter, picks the
+   **Python** — the compiler vendors the dependencies of the lock file when
+   the package ships no `vendor/` folder. The loader unpacks the set of its
+   platform, checks `requires_python` and the vendored Python version (of
+   `[metadata.vendored]`, or of the set) against its interpreter, picks the
    vendor folder for its platform, and compares the vendored modules with the
    packages already loaded in the process (a module that another package
    vendors at a different version fails the load). Then it adds `workflow/`
@@ -236,7 +255,8 @@ does not compile. (Compilation happens at load time on the server.)
 ### Python — `cloacinactl package build` and `pack`
 
 ```bash
-# Vendor the dependencies of pyproject.toml into vendor/<platform>/
+# Lock the dependencies of pyproject.toml into requirements.lock
+# (add --vendor to also install them into vendor/<platform>/)
 cloacinactl package build .
 
 # Pack the source directory into a .cloacina archive
@@ -244,13 +264,14 @@ cloacinactl package pack . --out data-pipeline-1.0.0.cloacina
 ```
 
 `build` reads `[metadata].language`; for `python` it compiles nothing and
-vendors the dependencies that `pyproject.toml` declares, with `uv`, for Python
-3.11 on `aarch64-linux` and `x86_64-linux` by default. A package with no
-dependencies needs no `build`.
+locks the dependencies that `pyproject.toml` declares, with `uv`, for Python
+3.11 by default. With `--vendor` it also vendors them, for `aarch64-linux` and
+`x86_64-linux` by default. A package with no dependencies needs no `build`.
 
 `pack` validates the `workflow/` layout (that the directory exists and
-`entry_module` resolves under it), `requires_python` and the
-`[metadata.vendored]` record, and archives the source. A mis-laid-out package
+`entry_module` resolves under it), `requires_python`, the
+`[metadata.vendored]` record and that dependencies have a lock file or a
+`vendor/` folder, and archives the source. A mis-laid-out package
 fails at pack time rather than at upload. The archive can also be built by
 hand — see
 [Packaging Python Workflows](../../../how-to/embed/packaging-python-workflows/).

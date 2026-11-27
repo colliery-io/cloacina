@@ -333,6 +333,37 @@ compiler:
     - "--cargo-flags-replace=build"
     - "--cargo-flags-replace=--lib"
   extraEnv: []
+  # Python packages (CLOACINA-T-1073). A package that is published with a
+  # requirements.lock and no vendor/ folder gets its dependencies from the
+  # compiler: uv installs the wheels the lock names, for each platform below,
+  # and the compiler stores one set per platform. The compiler image must hold
+  # uv. A package that ships vendor/ is used as it is.
+  python:
+    # The platforms to vendor for, as <arch>-<os>. Empty: the compiler's
+    # default, the two platforms of the official agent image (aarch64-linux
+    # and x86_64-linux). A server or an agent on a platform that is not listed
+    # cannot load a package the compiler vendored.
+    platforms: []
+    # The Python the wheels are for (major.minor). Empty: the compiler's
+    # default, 3.11, the Python of the official server and agent images.
+    version: ""
+    # The package index that wheels are downloaded from. Empty: PyPI. For a
+    # URL with a password, leave this empty and set
+    # CLOACINA_COMPILER_PYTHON_INDEX_URL from a Secret through
+    # compiler.extraEnv.
+    indexUrl: ""
+    # A folder of wheel files in the compiler image. Wheels in it are used
+    # before a download.
+    wheelDir: ""
+    # No network for Python builds: every wheel must be in wheelDir (or, with
+    # no wheelDir, in the uv cache). A build that needs another wheel fails
+    # and names it.
+    offline: false
+    # The cache folder of uv. The root filesystem of the pod is read-only, so
+    # the default is on the /tmp emptyDir. For offline builds from a cache
+    # that is baked into the image, name that folder and make the image's
+    # folder writable by the compiler's user.
+    uvCacheDir: /tmp/uv-cache
   # emptyDir size limit for the shared cargo target cache.
   buildCacheSize: 8Gi
   resources:
