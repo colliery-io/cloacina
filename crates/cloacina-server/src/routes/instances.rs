@@ -74,7 +74,11 @@ const MAX_INSTANCES_LIMIT: i64 = 1000;
 /// Best-effort: a missing runner is logged, not fatal. The row is already
 /// committed, and the schedule still fires once anything else re-arms the
 /// timer.
-async fn wake_cron_scheduler(state: &AppState, tenant_id: &str, tenant_db: cloacina::Database) {
+pub(crate) async fn wake_cron_scheduler(
+    state: &AppState,
+    tenant_id: &str,
+    tenant_db: cloacina::Database,
+) {
     let runner = if tenant_id == "public" {
         Some(state.runner.clone())
     } else {

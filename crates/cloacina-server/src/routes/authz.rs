@@ -158,13 +158,15 @@ impl Permission {
             Permission::SessionSelf => "Refresh, log out and read the role of the caller's own key",
             Permission::WsTicket => "Get a WebSocket ticket",
             Permission::WorkflowsRead => {
-                "List and read packages, their source, versions and instances"
+                "List and read packages, their source, versions, instances and backfills"
             }
             Permission::PackagesPublish => "Upload a package, activate a version, delete a version",
             Permission::WorkflowsOperate => {
                 "Pause and resume a workflow; create and delete an instance"
             }
-            Permission::WorkflowsRun => "Run a workflow by hand",
+            Permission::WorkflowsRun => {
+                "Run a workflow by hand; create, cancel and retry a backfill"
+            }
             Permission::TriggersRead => "List and read schedules and triggers",
             Permission::TriggersOperate => "Pause, resume and fire a trigger",
             Permission::ExecutionsRead => {
@@ -929,6 +931,9 @@ pub fn build_authz_table() -> AuthzTable {
         "/v1/tenants/{tenant_id}/workflows/{name}/versions",
         "/v1/tenants/{tenant_id}/workflows/{name}/instances",
         "/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
+        // Backfills (CLOACINA-T-1020): list and read one.
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills",
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
     ] {
         t.add(get.clone(), path, Row::tenant(P::WorkflowsRead));
     }
@@ -988,6 +993,23 @@ pub fn build_authz_table() -> AuthzTable {
         post.clone(),
         "/v1/tenants/{tenant_id}/workflows/{name}/execute",
         Row::tenant(P::WorkflowsRun).audit(a::WORKFLOW_RUN, Some("name")),
+    );
+    // Backfills (CLOACINA-T-1020) start and stop runs of a workflow by hand.
+    // The id of a new backfill is made by the handler, which notes it.
+    t.add(
+        post.clone(),
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills",
+        Row::tenant(P::WorkflowsRun).audit(a::BACKFILL_CREATE, None),
+    );
+    t.add(
+        post.clone(),
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+        Row::tenant(P::WorkflowsRun).audit(a::BACKFILL_CANCEL, Some("id")),
+    );
+    t.add(
+        post.clone(),
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+        Row::tenant(P::WorkflowsRun).audit(a::BACKFILL_RETRY, Some("id")),
     );
     t.add(
         post.clone(),
@@ -1909,6 +1931,37 @@ mod tests {
             'T',
             'W',
         ),
+        // Backfills (CLOACINA-T-1020), as main had them in the old table.
+        (
+            "GET",
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            'T',
+            'R',
+        ),
+        (
+            "GET",
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
+            'T',
+            'R',
+        ),
+        (
+            "POST",
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            'T',
+            'W',
+        ),
+        (
+            "POST",
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+            'T',
+            'W',
+        ),
+        (
+            "POST",
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+            'T',
+            'W',
+        ),
         (
             "POST",
             "/tenants/{tenant_id}/triggers/{name}/pause",
@@ -1977,7 +2030,7 @@ mod tests {
     #[test]
     fn parity_with_the_ordered_levels_minus_the_listed_exceptions() {
         let table = build_authz_table();
-        assert_eq!(OLD_TABLE.len(), 76);
+        assert_eq!(OLD_TABLE.len(), 81);
         let mut exceptions = 0;
         for (method, path, scope, level) in OLD_TABLE {
             let method = Method::from_bytes(method.as_bytes()).unwrap();
@@ -2143,9 +2196,10 @@ mod tests {
     fn the_table_is_sound_and_every_permission_has_a_route() {
         let table = build_authz_table();
         assert_eq!(table.faults(), Vec::<String>::new());
-        // 76 rows before CLOACINA-T-1055, `POST /v1/agent/keys`, three
-        // WebSockets and seven public routes.
-        assert_eq!(table.len(), 87);
+        // 81 rows before CLOACINA-T-1055 (76, and the five backfill routes of
+        // CLOACINA-T-1020), `POST /v1/agent/keys`, three WebSockets and seven
+        // public routes.
+        assert_eq!(table.len(), 92);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()
@@ -2221,10 +2275,11 @@ mod tests {
                 Audit::Read => assert_eq!(r.method, Method::GET, "{}", r.path),
             }
         }
-        // 29 before CLOACINA-T-1055; plus reactor fire, accumulator inject,
+        // 32 before CLOACINA-T-1055 (29, and backfill create, cancel and
+        // retry); plus reactor fire, accumulator inject,
         // the accumulator connect, agent register, agent key top-up, the two
         // logins and logout.
-        assert_eq!(audited, 37);
+        assert_eq!(audited, 40);
         unaudited.sort();
         assert_eq!(
             unaudited,

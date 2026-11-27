@@ -1007,6 +1007,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/workflows/:name/backfills — the backfills of a
+         *     workflow, newest first, each with its progress.
+         */
+        get: operations["list_backfills"];
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/backfills — create a backfill.
+         * @description The backfill takes each fire time `F` of the cron expression with
+         *     `start <= F <= end`, oldest first. It may cover fire times that the live
+         *     schedule of the workflow ran or will run: nothing checks for overlap.
+         */
+        post: operations["create_backfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/workflows/:name/backfills/:id — one backfill,
+         *     with its progress and its failed intervals.
+         */
+        get: operations["get_backfill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/backfills/:id/cancel — stop a
+         *     backfill.
+         * @description No new interval gets a run. The runs that are active end on their own.
+         *     Cancelling a backfill that is cancelled or completed changes nothing.
+         */
+        post: operations["cancel_backfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /tenants/:tenant_id/workflows/:name/backfills/:id/retry — run the
+         *     failed intervals of a backfill again.
+         * @description Creates a new backfill of the intervals that failed in backfill `id`, as
+         *     they are at the time of the call, with the same cron expression, timezone
+         *     and params. The backfill `id` is not changed.
+         */
+        post: operations["retry_backfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/workflows/{name}/execute": {
         parameters: {
             query?: never;
@@ -1481,6 +1572,98 @@ export interface components {
             /** @description Number of rows in this page. */
             total: number;
         };
+        /** @description Response of `GET /tenants/{tenant_id}/workflows/{name}/backfills/{id}`. */
+        BackfillDetail: {
+            backfill: components["schemas"]["BackfillSummary"];
+            /** @description The failed intervals, oldest first, at most 1000. */
+            failed_intervals: components["schemas"]["BackfillFailedInterval"][];
+            /** @description True when the backfill has more failed intervals than the list holds. */
+            failed_intervals_truncated: boolean;
+        };
+        /** @description One failed interval of a backfill. */
+        BackfillFailedInterval: {
+            /** @description The workflow execution of the interval. Absent when no run started. */
+            execution_id?: string | null;
+            /** @description RFC 3339 timestamp: the fire time of the interval. */
+            interval_end: string;
+            /** @description RFC 3339 timestamp. */
+            interval_start: string;
+            /** @description `Failed`, `Cancelled`, or `NotStarted` when no run could be started. */
+            status: string;
+        };
+        /** @description How far a backfill is. */
+        BackfillProgress: {
+            /**
+             * Format: int64
+             * @description Intervals whose run ended `Completed`. Counted from the run history:
+             *     a run that the retention job deleted is not counted.
+             */
+            completed: number;
+            /**
+             * Format: int64
+             * @description Intervals whose run ended `Failed` or `Cancelled`, or could not be
+             *     started. Counted from the run history, like `completed`.
+             */
+            failed: number;
+            /**
+             * @description The position: the end of the last interval that got a run. RFC 3339.
+             *     Absent before the first run.
+             */
+            last_interval_end?: string | null;
+            /**
+             * @description The end of the next interval to get a run. RFC 3339. Absent when no
+             *     interval remains.
+             */
+            next_interval_end?: string | null;
+            /**
+             * Format: int64
+             * @description Intervals with no run yet.
+             */
+            remaining: number;
+            /**
+             * Format: int64
+             * @description Intervals whose run has not ended.
+             */
+            running: number;
+            /**
+             * Format: int64
+             * @description Intervals in the backfill.
+             */
+            total: number;
+        };
+        /**
+         * @description One backfill: a row in the list, and the response of create, cancel and
+         *     retry.
+         */
+        BackfillSummary: {
+            /** @description RFC 3339 timestamp. */
+            created_at: string;
+            cron_expression: string;
+            /** @description End of the range, RFC 3339. */
+            end: string;
+            /** @description Backfill id (a UUID). Each run has it in its context as `backfill_id`. */
+            id: string;
+            /**
+             * Format: int32
+             * @description The limit on active runs of this backfill.
+             */
+            max_active_runs: number;
+            /** @description Parameter values for each run, as stored. */
+            params?: unknown;
+            progress: components["schemas"]["BackfillProgress"];
+            /** @description The id of the backfill whose failed intervals this one runs again. */
+            retry_of?: string | null;
+            /** @description Start of the range, RFC 3339. */
+            start: string;
+            /**
+             * @description `running`, `paused`, `completed` or `cancelled`. `completed` means
+             *     each interval got a run and each run ended; see `progress.failed`
+             *     for the runs that failed.
+             */
+            status: string;
+            timezone: string;
+            workflow_name: string;
+        };
         /**
          * @description Build-pipeline state, derived from the build queue in the database — the
          *     same rows the compiler's own `/v1/status` reports. The server reads them
@@ -1519,6 +1702,39 @@ export interface components {
             password: string;
             role: string;
             username: string;
+        };
+        /** @description Body for `POST /tenants/{tenant_id}/workflows/{name}/backfills`. */
+        CreateBackfillRequest: {
+            /**
+             * @description Cron expression that gives the intervals. When omitted: the
+             *     expression and timezone of the cron schedule of the workflow, when it
+             *     has exactly one.
+             */
+            cron?: string | null;
+            /**
+             * @description End of the range, an RFC 3339 timestamp. For one interval, set
+             *     `start` and `end` to its fire time.
+             */
+            end: string;
+            /**
+             * Format: int32
+             * @description The most runs of this backfill that may be active at once, 1 or more.
+             *     Defaults to 1. The limit is apart from the limit of any other
+             *     schedule of the workflow.
+             */
+            max_active_runs?: number | null;
+            /**
+             * @description Parameter values for each run, validated against the workflow's
+             *     declared `params(...)` slots.
+             */
+            params?: unknown;
+            /**
+             * @description Start of the range, an RFC 3339 timestamp. The backfill takes each
+             *     fire time `F` of the expression with `start <= F <= end`.
+             */
+            start: string;
+            /** @description IANA timezone for `cron`. Defaults to `UTC` when `cron` is given. */
+            timezone?: string | null;
         };
         /** @description Body for `POST /tenants/{tenant_id}/workflows/{name}/instances`. */
         CreateInstanceRequest: {
@@ -2352,6 +2568,15 @@ export interface components {
         ResetPasswordRequest: {
             password: string;
         };
+        /** @description Body for `POST /tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry`. */
+        RetryBackfillRequest: {
+            /**
+             * Format: int32
+             * @description The limit on active runs of the new backfill. Defaults to the limit
+             *     of the backfill that is retried.
+             */
+            max_active_runs?: number | null;
+        };
         /**
          * @description Request body for `PUT|POST /v1/tenants/{tenant_id}/secrets/{name}` — rotate.
          *
@@ -2423,6 +2648,44 @@ export interface components {
             description?: string | null;
             name: string;
             username: string;
+        };
+        /**
+         * @description List envelope variant that retains a top-level `tenant_id`, used by
+         *     tenant-scoped list endpoints for backward compatibility with operator
+         *     dashboards that key off it.
+         */
+        TenantListResponse_BackfillSummary: {
+            items: {
+                /** @description RFC 3339 timestamp. */
+                created_at: string;
+                cron_expression: string;
+                /** @description End of the range, RFC 3339. */
+                end: string;
+                /** @description Backfill id (a UUID). Each run has it in its context as `backfill_id`. */
+                id: string;
+                /**
+                 * Format: int32
+                 * @description The limit on active runs of this backfill.
+                 */
+                max_active_runs: number;
+                /** @description Parameter values for each run, as stored. */
+                params?: unknown;
+                progress: components["schemas"]["BackfillProgress"];
+                /** @description The id of the backfill whose failed intervals this one runs again. */
+                retry_of?: string | null;
+                /** @description Start of the range, RFC 3339. */
+                start: string;
+                /**
+                 * @description `running`, `paused`, `completed` or `cancelled`. `completed` means
+                 *     each interval got a run and each run ended; see `progress.failed`
+                 *     for the runs that failed.
+                 */
+                status: string;
+                timezone: string;
+                workflow_name: string;
+            }[];
+            tenant_id: string;
+            total: number;
         };
         /**
          * @description List envelope variant that retains a top-level `tenant_id`, used by
@@ -5823,6 +6086,364 @@ export interface operations {
             };
             /** @description Workflow not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_backfills: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backfills of this workflow */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantListResponse_BackfillSummary"];
+                };
+            };
+            /** @description Invalid pagination */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_backfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description Backfill created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSummary"];
+                };
+            };
+            /** @description Invalid range, cron expression, timezone, limit or params */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_backfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+                /** @description Backfill id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backfill detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillDetail"];
+                };
+            };
+            /** @description Invalid backfill id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    cancel_backfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+                /** @description Backfill id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backfill as it is after the cancel */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSummary"];
+                };
+            };
+            /** @description Invalid backfill id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    retry_backfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Workflow name */
+                name: string;
+                /** @description Id of the backfill to retry */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryBackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description The new backfill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillSummary"];
+                };
+            };
+            /** @description Invalid backfill id or limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Backfill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The backfill has no failed interval */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

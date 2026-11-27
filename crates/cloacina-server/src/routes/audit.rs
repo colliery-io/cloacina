@@ -80,6 +80,10 @@ pub mod actions {
     pub const TRIGGER_FIRE: Action = action("trigger.fire", "trigger");
     pub const INSTANCE_CREATE: Action = action("instance.create", "instance");
     pub const INSTANCE_DELETE: Action = action("instance.delete", "instance");
+    // Backfills (CLOACINA-T-1020).
+    pub const BACKFILL_CREATE: Action = action("backfill.create", "backfill");
+    pub const BACKFILL_CANCEL: Action = action("backfill.cancel", "backfill");
+    pub const BACKFILL_RETRY: Action = action("backfill.retry", "backfill");
     pub const KEY_CREATE: Action = action("key.create", "key");
     pub const KEY_REVOKE: Action = action("key.revoke", "key");
     pub const TENANT_CREATE: Action = action("tenant.create", "tenant");

@@ -60,6 +60,53 @@ pub const INTERVAL_START_KEY: &str = "interval_start";
 /// [`INTERVAL_START_KEY`].
 pub const INTERVAL_END_KEY: &str = "interval_end";
 
+/// Context key for the id of the backfill that started a run
+/// (CLOACINA-T-1020). The scheduler sets it on each run of a backfill, next
+/// to the interval keys. Not in [`RESERVED_FIRE_KEYS`].
+pub const BACKFILL_ID_KEY: &str = "backfill_id";
+
+/// Checks the interval keys of a manual run (CLOACINA-T-1020).
+///
+/// A run with no interval key is fine. A run that sets one must set both:
+/// each an RFC 3339 timestamp, `interval_end` after `interval_start`. The
+/// error is a message for the caller.
+pub fn validate_interval_keys(
+    context: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let read = |key: &str| -> Result<Option<chrono::DateTime<chrono::FixedOffset>>, String> {
+        match context.get(key) {
+            None => Ok(None),
+            Some(serde_json::Value::String(text)) => chrono::DateTime::parse_from_rfc3339(text)
+                .map(Some)
+                .map_err(|e| {
+                    format!(
+                        "{key} must be an RFC 3339 timestamp such as 2026-01-31T06:00:00Z: '{text}' is not ({e})"
+                    )
+                }),
+            Some(other) => Err(format!(
+                "{key} must be an RFC 3339 timestamp in a string such as \"2026-01-31T06:00:00Z\": got {other}"
+            )),
+        }
+    };
+    let start = read(INTERVAL_START_KEY)?;
+    let end = read(INTERVAL_END_KEY)?;
+    match (start, end) {
+        (None, None) => Ok(()),
+        (Some(start), Some(end)) if end > start => Ok(()),
+        (Some(start), Some(end)) => Err(format!(
+            "{INTERVAL_END_KEY} must be after {INTERVAL_START_KEY}: got {} and {}",
+            end.to_rfc3339(),
+            start.to_rfc3339()
+        )),
+        (Some(_), None) => Err(format!(
+            "{INTERVAL_START_KEY} is set and {INTERVAL_END_KEY} is not: set both or none"
+        )),
+        (None, Some(_)) => Err(format!(
+            "{INTERVAL_END_KEY} is set and {INTERVAL_START_KEY} is not: set both or none"
+        )),
+    }
+}
+
 /// Errors from building or using a workflow instance.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkflowInstanceError {
@@ -409,6 +456,62 @@ mod tests {
 
     /// CLOACINA-T-1020: a manual run (and a bound param) can set the interval
     /// of the run; the older scheduler keys in the same payload stay dropped.
+    #[test]
+    fn manual_interval_keys_are_checked() {
+        let ctx = |v: serde_json::Value| v.as_object().cloned().unwrap();
+        let ok = |v| validate_interval_keys(&ctx(v));
+
+        assert!(ok(serde_json::json!({})).is_ok());
+        assert!(ok(serde_json::json!({"other": 1})).is_ok());
+        assert!(
+            ok(serde_json::json!({
+                "interval_start": "2026-01-31T05:00:00Z",
+                "interval_end": "2026-01-31T06:00:00+00:00"
+            }))
+            .is_ok()
+        );
+        // The offsets differ; the instants are compared.
+        assert!(
+            ok(serde_json::json!({
+                "interval_start": "2026-01-31T05:00:00Z",
+                "interval_end": "2026-01-31T07:30:00+02:00"
+            }))
+            .is_ok()
+        );
+
+        let e = ok(serde_json::json!({
+            "interval_start": "2026-01-31",
+            "interval_end": "2026-01-31T06:00:00Z"
+        }))
+        .unwrap_err();
+        assert!(
+            e.contains("interval_start must be an RFC 3339 timestamp"),
+            "{e}"
+        );
+
+        let e = ok(serde_json::json!({
+            "interval_start": 1769835600,
+            "interval_end": "2026-01-31T06:00:00Z"
+        }))
+        .unwrap_err();
+        assert!(e.contains("in a string"), "{e}");
+
+        let e = ok(serde_json::json!({
+            "interval_start": "2026-01-31T06:00:00Z",
+            "interval_end": "2026-01-31T06:00:00Z"
+        }))
+        .unwrap_err();
+        assert!(
+            e.contains("interval_end must be after interval_start"),
+            "{e}"
+        );
+
+        let e = ok(serde_json::json!({"interval_start": "2026-01-31T06:00:00Z"})).unwrap_err();
+        assert!(e.contains("set both or none"), "{e}");
+        let e = ok(serde_json::json!({"interval_end": "2026-01-31T06:00:00Z"})).unwrap_err();
+        assert!(e.contains("set both or none"), "{e}");
+    }
+
     #[test]
     fn merge_keeps_the_interval_keys() {
         assert!(!RESERVED_FIRE_KEYS.contains(&INTERVAL_START_KEY));

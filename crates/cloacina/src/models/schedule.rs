@@ -153,12 +153,16 @@ pub fn effective_max_active_runs(
 pub enum ScheduleType {
     Cron,
     Trigger,
+    /// A backfill: a bounded second schedule for one workflow
+    /// (CLOACINA-T-1020).
+    Backfill,
 }
 
 impl From<&str> for ScheduleType {
     fn from(s: &str) -> Self {
         match s {
             "trigger" => ScheduleType::Trigger,
+            "backfill" => ScheduleType::Backfill,
             _ => ScheduleType::Cron,
         }
     }
@@ -175,6 +179,7 @@ impl std::fmt::Display for ScheduleType {
         match self {
             ScheduleType::Cron => write!(f, "cron"),
             ScheduleType::Trigger => write!(f, "trigger"),
+            ScheduleType::Backfill => write!(f, "backfill"),
         }
     }
 }
@@ -229,9 +234,21 @@ pub struct Schedule {
     /// keeps older serialized schedules readable.
     #[serde(default)]
     pub max_active_runs: Option<i32>,
+
+    /// The range of a backfill row, as JSON (CLOACINA-T-1020): see
+    /// [`BackfillSpec`](crate::models::backfill::BackfillSpec). `None` on a
+    /// cron or trigger row.
+    #[serde(default)]
+    pub backfill: Option<String>,
 }
 
 impl Schedule {
+    /// Returns true if this is a backfill: a bounded second schedule for
+    /// one workflow (CLOACINA-T-1020).
+    pub fn is_backfill(&self) -> bool {
+        self.get_type() == ScheduleType::Backfill
+    }
+
     /// Returns the schedule type as an enum.
     pub fn get_type(&self) -> ScheduleType {
         ScheduleType::from(self.schedule_type.as_str())
@@ -522,6 +539,7 @@ mod tests {
             params: None,
             instance_name: None,
             max_active_runs: None,
+            backfill: None,
         };
 
         assert!(schedule.is_trigger());

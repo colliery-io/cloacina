@@ -2240,6 +2240,28 @@ fn registered_routes(
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
             crate::routes::instances::delete_instance,
         )
+        // Backfills (CLOACINA-T-1020). The static `backfills` segment wins
+        // over the `{version}` wildcard of the delete route below.
+        .post(
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            crate::routes::backfills::create_backfill,
+        )
+        .get(
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            crate::routes::backfills::list_backfills,
+        )
+        .get(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
+            crate::routes::backfills::get_backfill,
+        )
+        .post(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+            crate::routes::backfills::cancel_backfill,
+        )
+        .post(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+            crate::routes::backfills::retry_backfill,
+        )
         .delete(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             crate::routes::workflows::delete_workflow,
@@ -2847,6 +2869,8 @@ mod tests {
     mod audit_routes;
     /// Router tests of the authorization model (CLOACINA-T-1055).
     mod authz_routes;
+    /// Router tests of backfills (CLOACINA-T-1020).
+    mod backfill_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;

@@ -23,6 +23,7 @@ use crate::GlobalOpts;
 
 pub mod accumulator;
 pub mod audit;
+pub mod backfill;
 pub mod compiler;
 pub mod constructor;
 pub mod daemon;

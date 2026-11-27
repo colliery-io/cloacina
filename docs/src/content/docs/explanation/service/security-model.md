@@ -128,10 +128,10 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 |---|---|---|---|---|---|---|
 | `session.self` | Refresh, log out and read the role of the caller's own key | yes | yes | yes |  | yes |
 | `ws.ticket` | Get a WebSocket ticket | yes | yes | yes | yes | yes |
-| `workflows.read` | List and read packages, their source, versions and instances | yes | yes | yes |  | yes |
+| `workflows.read` | List and read packages, their source, versions, instances and backfills | yes | yes | yes |  | yes |
 | `packages.publish` | Upload a package, activate a version, delete a version |  | yes | yes |  | yes |
 | `workflows.operate` | Pause and resume a workflow; create and delete an instance |  | yes | yes |  | yes |
-| `workflows.run` | Run a workflow by hand |  | yes | yes |  | yes |
+| `workflows.run` | Run a workflow by hand; create, cancel and retry a backfill |  | yes | yes |  | yes |
 | `triggers.read` | List and read schedules and triggers | yes | yes | yes |  | yes |
 | `triggers.operate` | Pause, resume and fire a trigger |  | yes | yes |  | yes |
 | `executions.read` | List and read executions, their events and tasks; the `exec_events:<id>` stream | yes | yes | yes |  | yes |
@@ -207,6 +207,8 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | GET | `/v1/tenants/{tenant_id}/workflows/{name}/versions` | tenant in the path | `workflows.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/workflows/{name}/instances` | tenant in the path | `workflows.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/backfills` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}` | tenant in the path | `workflows.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/triggers` | tenant in the path | `triggers.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/triggers/{name}` | tenant in the path | `triggers.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/triggers/{name}/interface` | tenant in the path | `triggers.read` | none (read) |
@@ -222,6 +224,9 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | POST | `/v1/tenants/{tenant_id}/workflows/{name}/instances` | tenant in the path | `workflows.operate` | `instance.create` |
 | DELETE | `/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | tenant in the path | `workflows.operate` | `instance.delete` |
 | POST | `/v1/tenants/{tenant_id}/workflows/{name}/execute` | tenant in the path | `workflows.run` | `workflow.run` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/backfills` | tenant in the path | `workflows.run` | `backfill.create` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel` | tenant in the path | `workflows.run` | `backfill.cancel` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry` | tenant in the path | `workflows.run` | `backfill.retry` |
 | POST | `/v1/tenants/{tenant_id}/triggers/{name}/pause` | tenant in the path | `triggers.operate` | `trigger.pause` |
 | POST | `/v1/tenants/{tenant_id}/triggers/{name}/resume` | tenant in the path | `triggers.operate` | `trigger.resume` |
 | POST | `/v1/tenants/{tenant_id}/triggers/{name}/fire` | tenant in the path | `triggers.operate` | `trigger.fire` |

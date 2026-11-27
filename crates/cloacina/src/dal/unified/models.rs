@@ -500,6 +500,9 @@ pub struct UnifiedSchedule {
     /// CLOACINA-T-1020: the most active runs of a cron schedule; None = not
     /// declared.
     pub max_active_runs: Option<i32>,
+    /// CLOACINA-T-1020: the range of a backfill row, as JSON; None on every
+    /// other row.
+    pub backfill: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -1127,6 +1130,7 @@ impl From<UnifiedSchedule> for Schedule {
             params: u.params,
             instance_name: u.instance_name,
             max_active_runs: u.max_active_runs,
+            backfill: u.backfill,
         }
     }
 }
