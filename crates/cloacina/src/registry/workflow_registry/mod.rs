@@ -24,7 +24,9 @@ mod database;
 pub mod filesystem;
 mod package;
 
-pub use database::{BuildQueueStats, ReconcilerStats, build_queue_stats, reconciler_stats};
+pub use database::{
+    BuildQueueStats, PackageVersionDelete, ReconcilerStats, build_queue_stats, reconciler_stats,
+};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -525,6 +527,35 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         // Use the trait implementation
         self.unregister_workflow(package_name, version).await
+    }
+
+    /// Delete a package name and version in any build state: the rule of
+    /// the delete route (CLOACINA-T-1122). See
+    /// [`PackageVersionDelete`] for the outcomes. On `Removed` the stored
+    /// archive of each removed row is deleted too.
+    pub async fn delete_package_version(
+        &mut self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<PackageVersionDelete, RegistryError> {
+        let outcome = self.delete_version_rows(package_name, version).await?;
+        if let PackageVersionDelete::Removed {
+            package_ids,
+            registry_ids,
+        } = &outcome
+        {
+            for id in package_ids.iter().chain(registry_ids.iter()) {
+                if self.loaded_packages.remove(id).is_some() {
+                    self.registrar
+                        .unregister_package_tasks(&id.to_string())
+                        .map_err(RegistryError::Loader)?;
+                }
+            }
+            for registry_id in registry_ids {
+                self.storage.delete_binary(&registry_id.to_string()).await?;
+            }
+        }
+        Ok(outcome)
     }
 }
 

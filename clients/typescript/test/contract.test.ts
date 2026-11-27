@@ -359,13 +359,14 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect((err as CloacinaApiError).code).toBe("workflow_not_found");
   });
 
-  it("DELETE /v1/tenants/{t}/workflows/{name}/{version} is idempotent (200 even when absent)", async () => {
-    // Documented contract decision (T-0645): unregister is idempotent —
-    // deleting a workflow that was never registered still returns the
-    // deleted envelope.
-    const deleted = await client.deleteWorkflow("does-not-exist", "0.0.0");
-    expect(deleted.status).toBe("deleted");
-    expect(deleted.package_name).toBe("does-not-exist");
+  it("DELETE /v1/tenants/{t}/workflows/{name}/{version} 404s for an unknown package", async () => {
+    // CLOACINA-T-1122.
+    const err = await client
+      .deleteWorkflow("does-not-exist", "0.0.0")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect((err as CloacinaApiError).status).toBe(404);
+    expect((err as CloacinaApiError).code).toBe("workflow_not_found");
   });
 
   it("GET /v1/tenants/{t}/workflows/{name}/versions 404s for a package with no version", async () => {

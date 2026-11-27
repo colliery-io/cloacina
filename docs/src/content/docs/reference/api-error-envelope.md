@@ -85,7 +85,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `key_not_found` | `DELETE /v1/auth/keys/{key_id}` | Key ID is well-formed but no key exists with that ID, or the key was already revoked. |
 | `execution_not_found` | `GET /v1/tenants/{tenant_id}/executions/{exec_id}` | Execution row missing from the tenant's schema. |
 | `trigger_not_found` | `GET /v1/tenants/{tenant_id}/triggers/{name}` | No schedule row with that name in the tenant's schema. |
-| `workflow_not_found` | `GET /v1/tenants/{tenant_id}/workflows/{name}`, `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | Tenant registry has no entry for `name` (or `(name, version)` for delete). |
+| `workflow_not_found` | `GET /v1/tenants/{tenant_id}/workflows/{name}`, `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | Tenant registry has no entry for `name` (or `(name, version)` for delete, in any build state). |
 | `trusted_key_not_found` | `DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` | No trusted key with that id in this tenant. The id of another tenant's key gives the same answer. |
 
 ### 409 Conflict
@@ -94,6 +94,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 |---|---|---|
 | `tenant_exists` | `POST /v1/tenants` | A tenant of this name exists. The message names the tenant. |
 | `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
+| `package_building` | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | The compiler is building the package version. Nothing is removed; delete it when the build ends. |
 | `trusted_key_exists` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The tenant already has this key, live or revoked. |
 
 ### 500 Internal Server Error

@@ -333,10 +333,12 @@ def test_workflow_missing_404(client: Client) -> None:
     assert exc.value.code == "workflow_not_found"
 
 
-def test_workflow_delete_idempotent(client: Client) -> None:
-    # Documented contract decision (T-0645): unregister is idempotent.
-    deleted = client.delete_workflow("does-not-exist", "0.0.0")
-    assert deleted.status == "deleted"
+def test_workflow_delete_missing_404(client: Client) -> None:
+    # CLOACINA-T-1122: a delete of a package that does not exist is a 404.
+    with pytest.raises(CloacinaApiError) as exc:
+        client.delete_workflow("does-not-exist", "0.0.0")
+    assert exc.value.status == 404
+    assert exc.value.code == "workflow_not_found"
 
 
 def test_workflow_versions_missing_404(client: Client) -> None:

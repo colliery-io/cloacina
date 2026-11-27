@@ -1024,9 +1024,18 @@ Requires a `write`-or-better key. No request body.
 
 ### DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}
 
-Unregister a specific workflow version. Only the active version can be deleted
-this way. Deleting it does not make an earlier version active: use the
-activation route for that.
+Remove a package version in any build state: its rows and their stored
+archives. Deleting the active version does not make an earlier version
+active: use the activation route for that.
+
+| Build state of the version | Result |
+|---|---|
+| `success`, `pending`, `failed` | Removed. `200`, and one `package.delete` audit row. |
+| `building` | Refused: `409 package_building`. Nothing is removed. Delete it when the build ends. |
+| no such name and version | `404 workflow_not_found`. |
+
+A refused or missing delete writes no audit row. A later upload of the same
+bytes makes a new package row.
 
 **Path parameters:**
 
@@ -1048,9 +1057,10 @@ activation route for that.
 
 **Errors:**
 
-| Status | Body |
-|---|---|
-| `404` | `{"error": "<detail>"}` |
+| Status | Code | Cause |
+|---|---|---|
+| `404` | `workflow_not_found` | No package of this name and version. |
+| `409` | `package_building` | The compiler is building the package. |
 
 ### Named workflow instances
 

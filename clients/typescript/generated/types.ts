@@ -7425,7 +7425,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workflow unregistered. Idempotent: also returned when no matching package existed */
+            /** @description The package version was removed, in any build state but `building`: its rows and stored archives */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7452,8 +7452,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Registry lookup failed */
+            /** @description `workflow_not_found`: no package of this name and version */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `package_building`: the compiler is building the package; nothing was removed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
