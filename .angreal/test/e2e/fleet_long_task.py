@@ -9,7 +9,10 @@ task body; the test counts them.
 `fleet-wait-for-agent` (CLOACINA-T-1012): a task with no agent in its tenant
 must wait, not fail. It must run on its first attempt when an agent registers.
 
-Both use the stack of `_fleet_stack.py`. They need Docker.
+`fleet-full-agent` (CLOACINA-T-1043): a packet that reaches an agent with no
+free slot is refused. The task must wait and then run on its first attempt.
+
+All use the stack of `_fleet_stack.py`. They need Docker.
 """
 
 import re
@@ -39,6 +42,14 @@ HAPPY_WORKFLOW = "compiler_happy_workflow"
 NO_AGENT_SECONDS = 15
 # A second tenant: its agent has free capacity and can run no task of `public`.
 OTHER_TENANT = "fleet_wait_other"
+
+# Long enough for several refused dispatch tries (one each 2 s), short enough
+# for a pull request.
+FULL_AGENT_TASK_SECONDS = 20
+# The server learns that an agent is full from the agent's heartbeat. With a
+# long interval the roster still shows a free slot while the first task runs,
+# so the server sends the second packet and the agent refuses it.
+FULL_AGENT_HEARTBEAT_SECONDS = 60
 
 TERMINAL = {"Completed", "Failed", "Cancelled"}
 
@@ -179,3 +190,105 @@ def fleet_wait_for_agent():
         print("  ok: the task ran on the agent on attempt 1")
 
     print_final_success("cloacina fleet wait-for-agent e2e")
+
+
+@test()
+@e2e()
+@angreal.command(
+    name="fleet-full-agent",
+    about="fleet e2e: a task refused by a full agent waits, then runs on its first attempt",
+    when_to_use=[
+        "checking that a refusal for capacity puts the task back in the queue",
+    ],
+    when_not_to_use=["unit testing", "running without docker"],
+)
+def fleet_full_agent():
+    print_section_header("cloacina fleet full-agent e2e")
+    with FleetStack(
+        "fleet-full-agent-e2e",
+        18086,
+        19006,
+        server_env={"CLOACINA_AGENT_HEARTBEAT_INTERVAL_S": str(FULL_AGENT_HEARTBEAT_SECONDS)},
+    ) as stack:
+        marker = stack.home / "full-agent-marker.txt"
+        stack.compile_fixture(LONG_FIXTURE)
+        # One slot. The fixture task has `retry_attempts = 0`: a refusal that
+        # used an attempt would fail the task.
+        agent_log = stack.start_agent(
+            max_concurrency=1,
+            env={
+                "FLEET_LONG_TASK_MARKER": str(marker),
+                "FLEET_LONG_TASK_SECONDS": str(FULL_AGENT_TASK_SECONDS),
+            },
+        )
+
+        # Two executions, one after the other with no pause: both dispatches
+        # fall between two heartbeats of the agent.
+        first = _poll_run_workflow(stack.home, LONG_WORKFLOW, timeout_s=120.0)
+        second = _poll_run_workflow(stack.home, LONG_WORKFLOW, timeout_s=120.0)
+        started_at = time.time()
+        print(f"  triggered executions: {first}, {second} (each task runs {FULL_AGENT_TASK_SECONDS} s)")
+
+        # While one task runs, the other must be Ready on attempt 1. A sample
+        # can fall inside a dispatch try (the row is Running until the refusal
+        # arrives), so take several.
+        waits_as_ready = False
+        samples = []
+        for _ in range(6):
+            time.sleep(1.5)
+            states = sorted(
+                (t["status"], t["attempt"])
+                for execution_id in (first, second)
+                for t in stack.tasks(execution_id)
+            )
+            samples.append(states)
+            if states == [("Ready", 1), ("Running", 1)]:
+                waits_as_ready = True
+                break
+        print(f"  tasks while the agent is full: {samples}")
+        if not waits_as_ready:
+            raise AssertionError(
+                "while the agent runs one task, the other must be Ready on attempt 1; "
+                f"saw {samples}"
+            )
+
+        statuses = {}
+        for execution_id in (first, second):
+            statuses[execution_id] = _poll_execution_status(
+                stack.home, execution_id, TERMINAL, timeout_s=300.0
+            )
+        print(f"  executions {list(statuses.values())} after {time.time() - started_at:.0f} s")
+        time.sleep(2.0)
+
+        refused = stack.log_text(agent_log.name).count("refusing packet")
+        waits = stack.log_text("server.log").count("the agent refused: full")
+        lines = _marker_lines(marker)
+        starts = [line for line in lines if line.startswith("start ")]
+        ends = [line for line in lines if line.startswith("end ")]
+        print(
+            f"  packets refused by the agent: {refused}, waits logged by the server: {waits}, "
+            f"task starts: {len(starts)}, task ends: {len(ends)}"
+        )
+
+        if refused == 0:
+            raise AssertionError(
+                "the agent refused no packet, so this run did not test the refusal. "
+                "A heartbeat fell between the two dispatches, or the server now "
+                "counts the slot itself."
+            )
+        for execution_id, status in statuses.items():
+            if status != "Completed":
+                raise AssertionError(f"execution {execution_id} ended in {status!r}, expected Completed")
+            tasks = stack.tasks(execution_id)
+            if len(tasks) != 1 or tasks[0]["attempt"] != 1:
+                raise AssertionError(
+                    f"execution {execution_id}: a refusal for capacity must use no attempt; "
+                    f"got {[(t['status'], t['attempt']) for t in tasks]}"
+                )
+        if len(starts) != 2 or len(ends) != 2:
+            raise AssertionError(
+                f"each task must run one time: {len(starts)} starts, {len(ends)} ends"
+            )
+        print("  ok: the refused task waited as Ready and both ran on attempt 1")
+
+    print_final_success("cloacina fleet full-agent e2e")

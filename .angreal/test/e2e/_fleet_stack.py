@@ -42,8 +42,12 @@ def build_binaries():
 
 
 class FleetStack:
-    def __init__(self, name: str, server_port: int, compiler_port: int):
+    def __init__(
+        self, name: str, server_port: int, compiler_port: int, server_env: dict | None = None
+    ):
+        """`server_env`: environment variables for the server process only."""
         self.name = name
+        self.server_env = dict(server_env or {})
         self.bootstrap_key = f"test-bootstrap-{name}"
         self.server_bind = f"127.0.0.1:{server_port}"
         self.compiler_bind = f"127.0.0.1:{compiler_port}"
@@ -65,6 +69,7 @@ class FleetStack:
 
         env = os.environ.copy()
         env["CLOACINA_DEFAULT_EXECUTOR"] = "fleet"
+        env.update(self.server_env)
         server = self._spawn(
             "server.log",
             [

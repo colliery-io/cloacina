@@ -356,9 +356,10 @@ impl FleetExecutor {
 
     /// Put the task back in the queue for a later dispatch try, with no use of
     /// a retry attempt (CLOACINA-T-1012). For "no agent can take it now": no
-    /// live agent of the tenant has a free slot, or the chosen agent was full
-    /// when the packet arrived. That is a wait for capacity, not a failure of
-    /// the task.
+    /// live agent of the tenant has a free slot. That is a wait for capacity,
+    /// not a failure of the task. Only for a dispatch that has not stamped the
+    /// start: the task must still be `Ready`. After the start, use
+    /// [`defer_refused_for_capacity`](Self::defer_refused_for_capacity).
     async fn defer_for_capacity(&self, event: &TaskReadyEvent, why: &str) -> ExecutionResult {
         metrics::counter!("cloacina_fleet_dispatch_deferred_total").increment(1);
         let not_before = cloacina::database::universal_types::UniversalTimestamp(
@@ -382,6 +383,87 @@ impl FleetExecutor {
                 error = %e,
                 "fleet: could not delay the next dispatch try; the task stays Ready"
             ),
+        }
+        ExecutionResult::skipped(event.task_execution_id)
+    }
+
+    /// [`defer_for_capacity`](Self::defer_for_capacity) for a dispatch whose
+    /// start is already stamped: the packet reached the agent and the agent
+    /// refused it as full (CLOACINA-T-1043).
+    ///
+    /// By then the task is `Running` with a start time and no
+    /// `waiting_since`, and the deferral of a `Ready` task changes nothing.
+    /// So this undoes the start: the task is `Ready` again with no start
+    /// time, the same attempt, and `waiting_before` as its `waiting_since`
+    /// (what the row had before the start), so a refusal does not reset how
+    /// long the task has waited. The write applies only while this executor
+    /// holds the claim (CLOACINA-A-0017).
+    async fn defer_refused_for_capacity(
+        &self,
+        event: &TaskReadyEvent,
+        waiting_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
+    ) -> ExecutionResult {
+        const WHY: &str = "the agent refused: full or shutting down";
+        metrics::counter!("cloacina_fleet_dispatch_deferred_total").increment(1);
+        let not_before = cloacina::database::universal_types::UniversalTimestamp(
+            chrono::Utc::now()
+                + chrono::Duration::from_std(NO_CAPACITY_RETRY_DELAY)
+                    .unwrap_or_else(|_| chrono::Duration::seconds(2)),
+        );
+        // A dropped write here would leave the task `Running` with no claim,
+        // which nothing recovers. Try again on an error before giving up.
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            match self
+                .dal
+                .task_execution()
+                .defer_dispatch_after_start(
+                    event.task_execution_id,
+                    self.instance_id,
+                    not_before,
+                    waiting_before,
+                )
+                .await
+            {
+                Ok(true) => {
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        why = WHY,
+                        "fleet: no capacity now; the task waits and keeps its attempt"
+                    );
+                    break;
+                }
+                Ok(false) => {
+                    // The claim moved (a stale-claim sweep) or the task is in
+                    // an end state: its state is not this executor's to write.
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        why = WHY,
+                        "fleet: refused dispatch not put back; this executor no longer \
+                         holds the claim, or the task has ended"
+                    );
+                    break;
+                }
+                Err(e) if tries < 5 => {
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        tries,
+                        "fleet: could not put the refused task back; trying again"
+                    );
+                    tokio::time::sleep(Duration::from_millis(100 * tries)).await;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        "fleet: could not put the refused task back in the queue; \
+                         it stays Running with no claim until its workflow times out"
+                    );
+                    break;
+                }
+            }
         }
         ExecutionResult::skipped(event.task_execution_id)
     }
@@ -878,6 +960,27 @@ impl TaskExecutor for FleetExecutor {
             // The agent is DB-less and the claim only records the owner, not
             // started_at, so without this the per-task timeline (Gantt) has no
             // real start offset. Idempotent (no-op if already set) + best-effort.
+            //
+            // CLOACINA-T-1043: `mark_started` also moves the task to `Running`
+            // and clears `waiting_since`. Read the wait first: when the agent
+            // refuses the packet as full, the start is undone and the wait
+            // goes back as it was.
+            let waiting_before = match self
+                .dal
+                .task_execution()
+                .get_by_id(event.task_execution_id)
+                .await
+            {
+                Ok(task) => task.waiting_since,
+                Err(e) => {
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        "fleet: could not read the task's wait before the start"
+                    );
+                    None
+                }
+            };
             if let Err(e) = self
                 .dal
                 .task_execution()
@@ -945,7 +1048,8 @@ impl TaskExecutor for FleetExecutor {
             // failure — keep its reconcile log quiet (debug), unlike a real failure.
             // CLOACINA-T-1012: `Shutdown` is the agent's "I am full or going
             // away" refusal. The task did not run: wait for capacity, with no
-            // use of a retry attempt.
+            // use of a retry attempt. CLOACINA-T-1043: the start was stamped
+            // in step 6, so the deferral undoes it.
             if matches!(
                 result_req.outcome,
                 AgentOutcome::Refused {
@@ -954,7 +1058,7 @@ impl TaskExecutor for FleetExecutor {
                 }
             ) {
                 return Ok(self
-                    .defer_for_capacity(&event, "the agent refused: full or shutting down")
+                    .defer_refused_for_capacity(&event, waiting_before)
                     .await);
             }
             let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
@@ -1379,6 +1483,417 @@ mod tests {
         // One-time: the pool is now exhausted — a second dispatch gets no key
         // (the executor would fail closed, never reuse/plaintext).
         assert!(registry.consume_secret_key("a1").is_none());
+    }
+
+    // ── CLOACINA-T-1043: what an agent's refusal does to the task row ────────
+    //
+    // A whole executor on SQLite in memory. The test plays the agent: it reads
+    // the work packet from the outbox and sends the report to the coordinator,
+    // as the result route does.
+
+    #[cfg(feature = "sqlite")]
+    mod refusals {
+        use super::*;
+        use cloacina::dal::DAL;
+        use cloacina::dal::unified::fleet_agents::FleetAgentRegistration;
+        use cloacina::database::Database;
+        use cloacina::database::universal_types::UniversalTimestamp;
+        use cloacina::fleet::RefusalReason;
+        use cloacina::models::task_execution::{NewTaskExecution, TaskExecution};
+        use cloacina::models::workflow_execution::NewWorkflowExecution;
+        use cloacina::retry::RetryCondition;
+
+        const AGENT: &str = "agent-1";
+        const TASK: &str = "public::full_pkg::full_wf::long_task";
+        /// How long the task has waited when the test dispatches it.
+        const WAITED_SECONDS: i64 = 90;
+
+        struct LongTask {
+            retry_policy: RetryPolicy,
+        }
+
+        #[async_trait]
+        impl cloacina::Task for LongTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, TaskError> {
+                Ok(context)
+            }
+            fn id(&self) -> &str {
+                "long_task"
+            }
+            fn dependencies(&self) -> &[TaskNamespace] {
+                &[]
+            }
+            fn retry_policy(&self) -> RetryPolicy {
+                self.retry_policy.clone()
+            }
+        }
+
+        struct Stack {
+            dal: DAL,
+            coordinator: Arc<FleetCoordinator>,
+            executor: Arc<FleetExecutor>,
+        }
+
+        /// A server with one live agent of capacity 1 in tenant `public`, and
+        /// a built package that holds [`TASK`]. The package has no cdylib, so
+        /// it runs on an agent of any architecture.
+        async fn stack(retry_policy: RetryPolicy) -> Stack {
+            use cloacina::database::schema::unified::workflow_packages;
+            use diesel::prelude::*;
+
+            let url = format!(
+                "file:fleet_executor_test_{}?mode=memory&cache=shared",
+                uuid::Uuid::new_v4()
+            );
+            let db = Database::new(&url, "", 5);
+            db.run_migrations()
+                .await
+                .expect("migrations should succeed");
+            let dal = DAL::new(db.clone());
+
+            let metadata = serde_json::from_value(serde_json::json!({
+                "package_name": "full_pkg",
+                "workflow_name": "full_wf",
+                "version": "1.0.0",
+                "description": null,
+                "author": null,
+                "tasks": [],
+                "graph_data": null,
+                "architecture": "any",
+                "symbols": [],
+            }))
+            .unwrap();
+            let package_id = dal
+                .workflow_packages()
+                .store_package_metadata(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &metadata,
+                    cloacina::models::workflow_packages::StorageType::Database,
+                    None,
+                )
+                .await
+                .unwrap();
+            let built: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(dal, |conn| {
+                    diesel::update(workflow_packages::table.find(UniversalUuid(package_id)))
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::content_hash.eq("digest-1"),
+                        ))
+                        .execute(conn)
+                });
+            assert_eq!(built.unwrap(), 1);
+
+            let registry = Arc::new(AgentRegistry::new(db, Duration::from_secs(60)));
+            registry
+                .register(
+                    FleetAgentRegistration {
+                        agent_id: AGENT.to_string(),
+                        tenant_id: Some("public".to_string()),
+                        target_triple: host_target_triple(),
+                        capabilities: vec![],
+                        max_concurrency: 1,
+                    },
+                    cloacina::security::ServerKeyPool::new(),
+                )
+                .await
+                .unwrap();
+
+            let runtime = Arc::new(cloacina::Runtime::empty());
+            runtime.register_task(cloacina::parse_namespace(TASK).unwrap(), move || {
+                Arc::new(LongTask {
+                    retry_policy: retry_policy.clone(),
+                })
+            });
+
+            let coordinator = Arc::new(FleetCoordinator::new());
+            let executor = Arc::new(FleetExecutor::new(
+                dal.clone(),
+                dal.clone(),
+                registry,
+                coordinator.clone(),
+                cloacina::delivery::WakeHandle::default(),
+                TaskResultHandler::new(
+                    dal.clone(),
+                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    None,
+                ),
+                runtime,
+            ));
+            Stack {
+                dal,
+                coordinator,
+                executor,
+            }
+        }
+
+        /// A `Ready` task on attempt 1 that has waited [`WAITED_SECONDS`].
+        async fn waiting_task(dal: &DAL) -> TaskReadyEvent {
+            use cloacina::database::schema::unified::task_executions;
+            use diesel::prelude::*;
+
+            let workflow_id = dal
+                .workflow_execution()
+                .create(NewWorkflowExecution {
+                    workflow_name: "full_wf".into(),
+                    workflow_version: "1.0.0".into(),
+                    status: "Pending".into(),
+                    context_id: None,
+                })
+                .await
+                .unwrap()
+                .id;
+            let task_id = dal
+                .task_execution()
+                .create(NewTaskExecution {
+                    workflow_execution_id: workflow_id,
+                    task_name: TASK.into(),
+                    status: "Ready".into(),
+                    attempt: 1,
+                    max_attempts: 3,
+                    trigger_rules: r#"{"type":"Always"}"#.into(),
+                    task_configuration: "{}".into(),
+                })
+                .await
+                .unwrap()
+                .id;
+            let since =
+                UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(WAITED_SECONDS));
+            let aged: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(dal, |conn| {
+                    diesel::update(task_executions::table.find(task_id))
+                        .set(task_executions::waiting_since.eq(Some(since)))
+                        .execute(conn)
+                });
+            assert_eq!(aged.unwrap(), 1);
+            TaskReadyEvent::new(task_id, workflow_id, TASK.to_string(), 1)
+        }
+
+        async fn row(dal: &DAL, event: &TaskReadyEvent) -> TaskExecution {
+            dal.task_execution()
+                .get_by_id(event.task_execution_id)
+                .await
+                .unwrap()
+        }
+
+        /// The agent side of one dispatch: wait for the work packet of this
+        /// task in the outbox (a row newer than `after`), wait until the
+        /// server has stamped the start, then report `outcome` for the
+        /// packet's `dispatch_id`. Returns the id of the outbox row.
+        async fn agent_reports(
+            stack: &Stack,
+            event: &TaskReadyEvent,
+            after: i64,
+            outcome: AgentOutcome,
+        ) -> i64 {
+            let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT);
+            let mut found = None;
+            for _ in 0..400 {
+                let open = stack
+                    .dal
+                    .delivery_outbox()
+                    .list_open_for_recipient(&recipient, 10)
+                    .await
+                    .unwrap();
+                if let Some(push) = open.into_iter().find(|push| push.id > after) {
+                    found = Some(push);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let push = found.expect("the executor enqueues a work packet for the agent");
+            let packet: WorkPacket = serde_json::from_slice(&push.payload).unwrap();
+            assert_eq!(
+                packet.task_execution_id,
+                event.task_execution_id.0.to_string()
+            );
+            assert_eq!(packet.attempt, 1, "each dispatch is of attempt 1");
+
+            // The start is stamped at dispatch (the timeline reads it).
+            let mut started = false;
+            for _ in 0..400 {
+                if row(&stack.dal, event).await.started_at.is_some() {
+                    started = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            assert!(started, "the task has a start time while the agent has it");
+
+            let report = AgentResultRequest {
+                protocol_version: AGENT_PROTOCOL_VERSION,
+                agent_id: AGENT.to_string(),
+                task_execution_id: packet.task_execution_id.clone(),
+                attempt: packet.attempt,
+                dispatch_id: packet.dispatch_id.clone(),
+                duration_ms: 0,
+                outcome,
+            };
+            assert!(
+                stack
+                    .coordinator
+                    .forward(event.task_execution_id, report)
+                    .is_ok(),
+                "the executor waits for this report"
+            );
+            push.id
+        }
+
+        fn refused(reason: RefusalReason) -> AgentOutcome {
+            AgentOutcome::Refused {
+                reason,
+                message: "agent at max_concurrency".to_string(),
+            }
+        }
+
+        /// One dispatch try that the agent answers with `outcome`. Returns the
+        /// outbox row id of the packet.
+        async fn dispatch(
+            stack: &Stack,
+            event: &TaskReadyEvent,
+            after: i64,
+            outcome: AgentOutcome,
+        ) -> i64 {
+            let executor = stack.executor.clone();
+            let dispatched = event.clone();
+            let run = tokio::spawn(async move { executor.execute(dispatched).await });
+            let push_id = agent_reports(stack, event, after, outcome).await;
+            run.await.unwrap().expect("the dispatch returns a result");
+            push_id
+        }
+
+        #[tokio::test]
+        async fn a_task_refused_by_a_full_agent_is_ready_again_with_its_attempt_and_its_wait() {
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+            let before = row(&stack.dal, &event).await;
+            assert!(before.waiting_since.is_some());
+
+            dispatch(&stack, &event, 0, refused(RefusalReason::Shutdown)).await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Ready", "the task waits; it did not run");
+            assert_eq!(after.attempt, 1, "a refusal for capacity uses no attempt");
+            assert_eq!(after.started_at, None, "the task did not start");
+            assert_eq!(
+                after.waiting_since, before.waiting_since,
+                "a refusal does not reset how long the task has waited"
+            );
+            assert_eq!(after.claimed_by, None, "the claim is released");
+            assert!(
+                after.retry_at.is_some_and(|at| at.0 > chrono::Utc::now()),
+                "the next dispatch try is delayed"
+            );
+            assert_eq!(after.last_error, None, "a wait is not an error");
+        }
+
+        #[tokio::test]
+        async fn a_task_refused_by_a_full_agent_is_counted_as_waiting() {
+            // `cloacina_waiting_tasks` and
+            // `cloacina_oldest_waiting_task_age_seconds` are set from
+            // `waiting_task_stats` (CLOACINA-T-1036).
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+
+            dispatch(&stack, &event, 0, refused(RefusalReason::Shutdown)).await;
+
+            let stats = stack
+                .dal
+                .task_execution()
+                .waiting_task_stats()
+                .await
+                .unwrap();
+            assert_eq!(stats.count, 1);
+            assert!(
+                stats.oldest_age_seconds(chrono::Utc::now()) >= WAITED_SECONDS as f64,
+                "the age counts from before the refused dispatch"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_task_refused_by_a_full_agent_is_dispatched_again_and_completes_on_attempt_1() {
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+            let ready_ids = |tasks: Vec<TaskExecution>| -> Vec<UniversalUuid> {
+                tasks.into_iter().map(|task| task.id).collect()
+            };
+
+            let first = dispatch(&stack, &event, 0, refused(RefusalReason::Shutdown)).await;
+
+            // Not before the delay, then again in the scheduler's read.
+            let ready = stack
+                .dal
+                .task_execution()
+                .get_ready_for_retry()
+                .await
+                .unwrap();
+            assert!(!ready_ids(ready).contains(&event.task_execution_id));
+            tokio::time::sleep(NO_CAPACITY_RETRY_DELAY + Duration::from_millis(250)).await;
+            let ready = stack
+                .dal
+                .task_execution()
+                .get_ready_for_retry()
+                .await
+                .unwrap();
+            assert!(ready_ids(ready).contains(&event.task_execution_id));
+
+            // The second try: the agent has a free slot and runs the task.
+            let done = AgentOutcome::Success {
+                context: serde_json::json!({"done": true}),
+            };
+            let second = dispatch(&stack, &event, first, done).await;
+            assert!(second > first, "the second try is a new packet");
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Completed");
+            assert_eq!(after.attempt, 1);
+            assert!(after.started_at.is_some());
+            assert_eq!(after.waiting_since, None);
+        }
+
+        // The other refusals are failed attempts under the task's own retry
+        // policy (CLOACINA-T-1014). These two tests record that, they do not
+        // judge it.
+
+        #[tokio::test]
+        async fn an_artifact_fetch_refusal_uses_a_retry_attempt() {
+            let stack = stack(policy(3, RetryCondition::AllErrors)).await;
+            let event = waiting_task(&stack.dal).await;
+
+            dispatch(
+                &stack,
+                &event,
+                0,
+                refused(RefusalReason::ArtifactFetchFailed),
+            )
+            .await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Ready");
+            assert_eq!(after.attempt, 2);
+        }
+
+        #[tokio::test]
+        async fn an_artifact_fetch_refusal_fails_a_task_with_no_retries() {
+            let stack = stack(policy(1, RetryCondition::AllErrors)).await;
+            let event = waiting_task(&stack.dal).await;
+
+            dispatch(
+                &stack,
+                &event,
+                0,
+                refused(RefusalReason::ArtifactFetchFailed),
+            )
+            .await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Failed");
+            assert_eq!(after.attempt, 1);
+        }
     }
 
     // Agent selection / tenant isolation tests (CLOACI-T-0817) moved to
