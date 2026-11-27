@@ -109,8 +109,9 @@ Useful options (full list in the [CLI reference](../../../reference/cli/#agent))
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
 - `--log-format json` / `CLOACINA_AGENT_LOG_FORMAT` — write one JSON object per
-  log line, with the task's ids on the lines written while a task runs. See
-  [Find a Task's Logs](../find-a-tasks-logs/).
+  log line, with the task's ids on the lines written while a task runs. For
+  agents that the server's fleet actuator starts, set the same variable in the
+  server's environment. See [Find a Task's Logs](../find-a-tasks-logs/).
 - `--api-key-file <PATH>` / `CLOACINA_API_KEY_FILE` — read the key from a file
   in place of `CLOACINA_API_KEY`.
 

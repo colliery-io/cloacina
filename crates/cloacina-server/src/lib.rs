@@ -1311,11 +1311,17 @@ pub async fn run(
     // start, as a bad actuator does.
     let tenant_compilers = crate::actuator::compiler::CompilerSettings::from_env(&database_url)
         .map_err(|e| anyhow::anyhow!("FATAL: per-tenant compiler settings: {e}"))?;
+    // CLOACINA-T-1101: the log format of the agents the actuator starts. A
+    // value that is not `text` or `json` stops the start, whatever the
+    // actuator.
+    let agent_log_format =
+        crate::actuator::agent_log_format_from_env().map_err(|e| anyhow::anyhow!("FATAL: {e}"))?;
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
         runner.database().clone(),
         tenant_compilers,
+        agent_log_format,
     )
     .map_err(|e| {
         anyhow::anyhow!(

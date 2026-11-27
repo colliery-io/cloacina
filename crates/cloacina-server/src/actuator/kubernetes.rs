@@ -206,6 +206,11 @@ pub struct KubernetesConfig {
     /// Namespace the cluster DNS service runs in
     /// (`CLOACINA_FLEET_DNS_NAMESPACE`, default `kube-system`).
     pub dns_namespace: String,
+    /// Log format of the agents (`CLOACINA_AGENT_LOG_FORMAT`, default
+    /// `text`), set on each agent pod as the same variable
+    /// (CLOACINA-T-1101). The server checks the value at start and gives it
+    /// here: [`KubernetesConfig::from_env`] leaves the default.
+    pub agent_log_format: cloacina::task_logs::LogFormat,
 }
 
 /// Parse a `k=v,k2=v2` selector string into a label map (empty entries skipped).
@@ -278,6 +283,7 @@ impl KubernetesConfig {
             network_policy_enabled,
             server_endpoint,
             dns_namespace,
+            agent_log_format: Default::default(),
         }
     }
 }
@@ -358,6 +364,9 @@ pub struct AgentDeployment {
     pub key_id: Option<String>,
     /// Resource requests + limits for the agent container.
     pub resources: AgentResources,
+    /// The agent's log format (`CLOACINA_AGENT_LOG_FORMAT`). `text` leaves
+    /// the variable out: the agent's own default.
+    pub log_format: cloacina::task_logs::LogFormat,
 }
 
 /// Everything [`KubeOps::ensure_network_policy`] needs to materialize one
@@ -510,13 +519,17 @@ impl KubernetesActuator {
     pub fn from_env(
         database: Database,
         compilers: Option<super::compiler::CompilerSettings>,
+        agent_log_format: cloacina::task_logs::LogFormat,
     ) -> Result<Self, ActuatorError> {
         let ops = Arc::new(KubeApiOps::in_cluster()?);
         let actuator = Self {
             ops: ops.clone(),
             minter: Arc::new(DalKeyMinter::new(database.clone())),
             pools: Arc::new(DalPoolSource::new(database)),
-            config: KubernetesConfig::from_env(),
+            config: KubernetesConfig {
+                agent_log_format,
+                ..KubernetesConfig::from_env()
+            },
             compilers: None,
         };
         Ok(match compilers {
@@ -594,6 +607,7 @@ impl KubernetesActuator {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: Some(key_id.to_string()),
             resources: self.config.resources.with_pool(settings),
+            log_format: self.config.agent_log_format,
         };
         self.ops.ensure_deployment(&spec).await?;
 
@@ -951,6 +965,14 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
             env.push(serde_json::json!({
                 "name": "CLOACINA_MAX_UNPACKED_BYTES",
                 "value": bytes,
+            }));
+        }
+        // The agent's log format (CLOACINA-T-1101). Not set for `text`, so
+        // the manifest is as before and an upgrade rolls nothing.
+        if let Some(format) = super::agent_log_format_env_value(spec.log_format) {
+            env.push(serde_json::json!({
+                "name": super::AGENT_LOG_FORMAT_ENV,
+                "value": format,
             }));
         }
     }
@@ -1546,6 +1568,7 @@ mod tests {
             network_policy_enabled: true,
             server_endpoint: Some(server_endpoint()),
             dns_namespace: "kube-system".to_string(),
+            agent_log_format: Default::default(),
         }
     }
 
@@ -1628,6 +1651,7 @@ mod tests {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: None,
             resources: AgentResources::default(),
+            log_format: Default::default(),
         };
         let m = agent_deployment_manifest(&spec);
         let pod = &m["spec"]["template"]["spec"];
@@ -1789,6 +1813,7 @@ mod tests {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: None,
             resources: AgentResources::default(),
+            log_format: Default::default(),
         }
     }
 
@@ -1927,6 +1952,58 @@ mod tests {
     fn manifest_sets_no_unpack_limit_env_for_the_default_limit() {
         let m = agent_deployment_manifest(&default_spec());
         assert!(env_value(&m, "CLOACINA_MAX_UNPACKED_BYTES").is_none());
+    }
+
+    // CLOACINA-T-1101: the agent's log format.
+    #[test]
+    fn manifest_sets_the_log_format_env_only_for_json() {
+        // The default: no variable, so the manifest is as before the setting.
+        let m = agent_deployment_manifest(&default_spec());
+        assert!(env_value(&m, "CLOACINA_AGENT_LOG_FORMAT").is_none());
+
+        let mut spec = default_spec();
+        spec.log_format = cloacina::task_logs::LogFormat::Json;
+        let json = agent_deployment_manifest(&spec);
+        assert_eq!(
+            env_value(&json, "CLOACINA_AGENT_LOG_FORMAT"),
+            Some(&serde_json::json!("json"))
+        );
+
+        // The variable is all that the setting adds.
+        let mut without = json.clone();
+        without["spec"]["template"]["spec"]["containers"][0]["env"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|e| e["name"] != "CLOACINA_AGENT_LOG_FORMAT");
+        assert_eq!(without, m);
+    }
+
+    /// The reconcile gives the server's setting to every pool's Deployment.
+    #[tokio::test]
+    async fn reconcile_gives_the_agents_the_log_format_of_the_config() {
+        for (format, expected) in [
+            (cloacina::task_logs::LogFormat::Text, None),
+            (
+                cloacina::task_logs::LogFormat::Json,
+                Some(serde_json::json!("json")),
+            ),
+        ] {
+            let mut cfg = config();
+            cfg.agent_log_format = format;
+            let ops = Arc::new(MockOps::with_ready(0));
+            let act = KubernetesActuator::new(ops.clone(), Arc::new(MockMinter::default()), cfg);
+
+            act.reconcile("acme", 1).await.unwrap();
+
+            let specs = ops.deployment_specs.lock().unwrap();
+            assert_eq!(specs.len(), 1);
+            let m = agent_deployment_manifest(&specs[0]);
+            assert_eq!(
+                env_value(&m, "CLOACINA_AGENT_LOG_FORMAT"),
+                expected.as_ref(),
+                "{format}"
+            );
+        }
     }
 
     #[test]
@@ -2544,6 +2621,7 @@ mod tests {
             resources: config().resources,
             cpu_total: None,
             memory_total: None,
+            log_format: Default::default(),
         };
         let m = agent_deployment_manifest(&spec);
         // The actuator's value wins over a pool annotation of the same name.

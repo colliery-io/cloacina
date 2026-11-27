@@ -262,6 +262,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | `fleet.actuator` | `none` | `none` (off) or `kubernetes`. |
 | `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
+| `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |
 | `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |
 | `fleet.serviceAccount.annotations` | `{}` | Annotations on that ServiceAccount (e.g. IRSA / Workload Identity). |
 | `fleet.agentResources` | requests `250m`/`256Mi`, limits `1`/`1Gi` | Resource requests/limits applied to every agent pod (rendered as `CLOACINA_AGENT_*`). |
