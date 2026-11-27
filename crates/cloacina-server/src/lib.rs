@@ -838,6 +838,25 @@ pub async fn run(
          not report in the task's time limit plus 30 seconds."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_worker_starts_total",
+        "Jobs (tasks and graph firings) that agents ran in a worker process, \
+         from the agents' heartbeats (CLOACINA-T-1126): `start` is `cold` (a \
+         new worker process, which loads the package) or `warm` (a worker \
+         that ran a job of the same package version and tenant before and \
+         kept the package loaded). Inline jobs are not counted. A low share \
+         of `warm` means jobs pay the package load."
+    );
+    metrics::describe_counter!(
+        "cloacina_fleet_warm_workers_retired_total",
+        "Warm worker processes that agents ended, from the agents' heartbeats \
+         (CLOACINA-T-1126), by `reason`: `idle`, `max_jobs`, `memory` (it \
+         held more memory after a job than its agent allows), `dirty` (a \
+         job changed the environment or left a process running), \
+         `pool_full`, `pressure` (the agent was short of memory), `dead`, \
+         `other`. A worker killed with its job (time limit, memory limit, \
+         cancel) is not counted here."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_refused_results_total",
         "Agent reports for a dispatch this replica waits for that were refused \
          because of their sender (CLOACINA-T-1050): `reason` is `other_tenant` \

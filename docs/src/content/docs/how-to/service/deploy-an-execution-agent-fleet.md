@@ -117,6 +117,13 @@ Useful options (full list in the [CLI reference](../../../reference/cli/#agent))
   `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` (default 8) — the address-space
   ceiling of a task's worker process, as a multiple of its memory limit. `0`
   sets none.
+- `--warm-workers <N>` / `CLOACINA_AGENT_WARM_WORKERS` (default: the value of
+  `--max-concurrency`) — how many idle
+  [warm workers](../../../explanation/service/execution-agent-fleet/#warm-workers)
+  the agent keeps, so the next task of a package version and tenant skips the
+  load of the package. `0` sets none. `--warm-worker-idle-seconds` (60),
+  `--warm-worker-max-jobs` (100) and `--warm-worker-max-memory-percent` (50)
+  say when a warm worker ends.
 - `--cache-dir <PATH>` / `CLOACINA_AGENT_CACHE_DIR` — persist the fetched-cdylib
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.

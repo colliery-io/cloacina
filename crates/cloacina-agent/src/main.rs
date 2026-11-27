@@ -142,6 +142,35 @@ struct Args {
         default_value_t = worker::DEFAULT_ADDRESS_SPACE_FACTOR
     )]
     task_address_space_factor: u64,
+    /// The most idle warm workers the agent keeps (CLOACINA-T-1126): worker
+    /// processes that keep a package version loaded for the next job of the
+    /// same package version, tenant and memory limit. Default: the value of
+    /// `--max-concurrency`. `0`: none; each job gets a new worker.
+    #[arg(long, env = "CLOACINA_AGENT_WARM_WORKERS")]
+    warm_workers: Option<usize>,
+    /// Seconds a warm worker may stay idle before the agent ends it.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS",
+        default_value_t = worker::DEFAULT_WARM_IDLE_SECONDS
+    )]
+    warm_worker_idle_seconds: u64,
+    /// The most jobs one worker process runs. The agent ends it after the
+    /// last one.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_WARM_WORKER_MAX_JOBS",
+        default_value_t = worker::DEFAULT_WARM_MAX_JOBS
+    )]
+    warm_worker_max_jobs: u32,
+    /// A worker that holds more than this share of its jobs' memory limit
+    /// after a job, in percent, is ended and not used again.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT",
+        default_value_t = worker::DEFAULT_WARM_MAX_MEMORY_PERCENT
+    )]
+    warm_worker_max_memory_percent: u64,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -298,6 +327,39 @@ mod log_format_tests {
         );
         assert!(parse(&["--log-format", "yaml"]).is_err());
     }
+
+    #[test]
+    fn warm_workers_default_to_the_slots_and_zero_turns_them_off() {
+        let warm = warm_config(&parse(&["--max-concurrency", "6"]).unwrap());
+        assert_eq!(warm.max_idle, 6);
+        assert_eq!(warm.idle_timeout, Duration::from_secs(60));
+        assert_eq!(warm.max_jobs, 100);
+        assert_eq!(warm.max_memory_percent, 50);
+        let off = warm_config(&parse(&["--warm-workers", "0"]).unwrap());
+        assert_eq!(off.max_idle, 0);
+        let set = warm_config(
+            &parse(&[
+                "--warm-workers",
+                "2",
+                "--warm-worker-idle-seconds",
+                "5",
+                "--warm-worker-max-jobs",
+                "10",
+                "--warm-worker-max-memory-percent",
+                "75",
+            ])
+            .unwrap(),
+        );
+        assert_eq!(
+            (
+                set.max_idle,
+                set.idle_timeout,
+                set.max_jobs,
+                set.max_memory_percent
+            ),
+            (2, Duration::from_secs(5), 10, 75)
+        );
+    }
 }
 
 /// Backoff bounds for the reconnect loop.
@@ -368,6 +430,14 @@ fn worker_settings_from(
         .filter(|offered| *offered > 0);
     let default_memory_limit = worker::default_memory_share(offered, args.max_concurrency);
     let child_cgroups = memory::probe_child_cgroup();
+    let warm = warm_config(args);
+    info!(
+        warm_workers = warm.max_idle,
+        warm_worker_idle_s = warm.idle_timeout.as_secs(),
+        warm_worker_max_jobs = warm.max_jobs,
+        warm_worker_max_memory_percent = warm.max_memory_percent,
+        "warm workers"
+    );
     info!(
         agent_memory = ?agent_memory.total().map(memory::format_bytes),
         reserved = %memory::format_bytes(reserved),
@@ -386,10 +456,23 @@ fn worker_settings_from(
         address_space_factor: args.task_address_space_factor,
         log_format: args.log_format,
         max_unpacked_bytes: args.max_unpacked_bytes,
+        warm: worker::WarmPool::new(warm),
         // Agents on one host can share a cache directory: each has its own
         // worker directories.
         ..worker::WorkerSettings::unlimited(cache_dir.join(format!("work-{}", std::process::id())))
     })
+}
+
+/// How this agent keeps warm workers (CLOACINA-T-1126), from its flags.
+fn warm_config(args: &Args) -> worker::WarmConfig {
+    worker::WarmConfig {
+        max_idle: args
+            .warm_workers
+            .unwrap_or(args.max_concurrency.max(1) as usize),
+        idle_timeout: Duration::from_secs(args.warm_worker_idle_seconds),
+        max_jobs: args.warm_worker_max_jobs,
+        max_memory_percent: args.warm_worker_max_memory_percent,
+    }
 }
 
 async fn run(args: Args) -> Result<()> {
@@ -766,20 +849,29 @@ fn spawn_heartbeat_loop(
         loop {
             ticker.tick().await;
             let n = in_flight.load(Ordering::SeqCst);
+            // CLOACINA-T-1126: the worker counts since the last heartbeat the
+            // server took; put back when this one is not taken.
+            let warm = worker::settings().warm.clone();
             let body = AgentHeartbeatRequest {
                 protocol_version: AGENT_PROTOCOL_VERSION,
                 agent_id: agent_id.clone(),
                 in_flight: n,
                 available_capacity: max_concurrency.saturating_sub(n),
                 in_flight_push_ids: push_registry().in_work_ids(),
+                worker_counts: warm.take_counts(),
             };
-            match http
+            let sent = http
                 .post(format!("{}/v1/agent/heartbeat", server))
                 .bearer_auth(&api_key)
                 .json(&body)
                 .send()
-                .await
+                .await;
+            if !matches!(&sent, Ok(resp) if resp.status().is_success())
+                && let Some(counts) = &body.worker_counts
             {
+                warm.restore_counts(counts);
+            }
+            match sent {
                 Ok(resp) if resp.status().is_success() => {
                     debug!(in_flight = n, "heartbeat ok");
                     // CLOACI-T-0861 / D-5 — honor the server's replenish signal AND

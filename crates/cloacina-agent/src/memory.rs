@@ -107,10 +107,20 @@ impl AgentMemory {
     }
 }
 
+/// When the agent as a whole uses more than this share of its memory, in
+/// percent, it ends its largest idle warm worker (CLOACINA-T-1126).
+const AGENT_PRESSURE_PERCENT: u64 = 80;
+
 struct Watched {
     limit: Option<u64>,
     stop: mpsc::UnboundedSender<StopReason>,
     stopping: bool,
+    /// A warm worker with no job (CLOACINA-T-1126). The watchdog kills it
+    /// itself: nobody waits on it.
+    idle: bool,
+    /// Which watch this is: a guard removes its own watch only, not a later
+    /// one of the same process id.
+    generation: u64,
 }
 
 /// The watchdog. One per agent process; tests make their own.
@@ -125,16 +135,28 @@ pub(crate) struct Watchdog {
 pub(crate) struct WatchGuard {
     watchdog: Arc<Watchdog>,
     pid: u32,
+    generation: u64,
 }
 
 impl Drop for WatchGuard {
     fn drop(&mut self) {
-        self.watchdog
+        let mut workers = self
+            .watchdog
             .workers
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&self.pid);
+            .unwrap_or_else(|e| e.into_inner());
+        if workers
+            .get(&self.pid)
+            .is_some_and(|w| w.generation == self.generation)
+        {
+            workers.remove(&self.pid);
+        }
     }
+}
+
+fn next_generation() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Watchdog {
@@ -160,6 +182,28 @@ impl Watchdog {
         limit: Option<u64>,
         stop: mpsc::UnboundedSender<StopReason>,
     ) -> WatchGuard {
+        self.insert(pid, limit, stop, false)
+    }
+
+    /// Watch an idle warm worker (CLOACINA-T-1126): no limit of its own; its
+    /// memory counts for the agent as a whole. When the agent is short of
+    /// memory the watchdog kills it, and sends the reason on `stop`.
+    pub(crate) fn watch_idle(
+        self: &Arc<Self>,
+        pid: u32,
+        stop: mpsc::UnboundedSender<StopReason>,
+    ) -> WatchGuard {
+        self.insert(pid, None, stop, true)
+    }
+
+    fn insert(
+        self: &Arc<Self>,
+        pid: u32,
+        limit: Option<u64>,
+        stop: mpsc::UnboundedSender<StopReason>,
+        idle: bool,
+    ) -> WatchGuard {
+        let generation = next_generation();
         self.workers
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -169,6 +213,8 @@ impl Watchdog {
                     limit,
                     stop,
                     stopping: false,
+                    idle,
+                    generation,
                 },
             );
         if !self.running.swap(true, Ordering::SeqCst) {
@@ -189,6 +235,7 @@ impl Watchdog {
         WatchGuard {
             watchdog: self.clone(),
             pid,
+            generation,
         }
     }
 
@@ -235,9 +282,37 @@ impl Watchdog {
         let (Some(agent_total), Some(agent_used)) = (self.agent.total(), agent_used) else {
             return;
         };
-        if agent_used.saturating_mul(100) <= agent_total.saturating_mul(AGENT_FULL_PERCENT)
-            || workers.values().any(|w| w.stopping)
-        {
+        if workers.values().any(|w| w.stopping) {
+            return;
+        }
+        let over =
+            |percent: u64| agent_used.saturating_mul(100) > agent_total.saturating_mul(percent);
+        // CLOACINA-T-1126: short of memory, an idle warm worker goes first,
+        // the largest one; it holds no job.
+        if over(AGENT_PRESSURE_PERCENT) {
+            let largest_idle = workers
+                .iter()
+                .filter(|(_, w)| w.idle)
+                .filter_map(|(pid, _)| used.get(pid).map(|&now| (*pid, now)))
+                .max_by_key(|(_, now)| *now);
+            // Taken out of the watch at once: it is killed now, and the next
+            // round must not wait for its pool to notice.
+            if let Some((pid, now)) = largest_idle
+                && let Some(watched) = workers.remove(&pid)
+            {
+                let _ = watched.stop.send(StopReason::AgentOutOfMemory {
+                    used: now,
+                    agent_used,
+                    agent_total,
+                });
+                #[cfg(unix)]
+                cloacina::packaging::build_child::kill_child_group(pid);
+                #[cfg(not(unix))]
+                let _ = pid;
+                return;
+            }
+        }
+        if !over(AGENT_FULL_PERCENT) {
             return;
         }
         let largest = workers

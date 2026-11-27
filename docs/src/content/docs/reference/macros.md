@@ -116,9 +116,11 @@ pub async fn summarize(context: &mut Context<Value>) -> Result<(), TaskError> {
 
 ### Inline tasks
 
-On an execution-agent fleet a task runs in a worker process of its own, which
-the agent starts for it. `inline = true` makes the agent run the task inside
-the agent process.
+On an execution-agent fleet a task runs in a worker process: a new one, which
+opens the package's library, or a
+[warm worker](../../explanation/service/execution-agent-fleet/#warm-workers)
+that has it open from a task of the same package version and tenant.
+`inline = true` makes the agent run the task inside the agent process.
 
 ```rust
 #[task(inline = true)]
