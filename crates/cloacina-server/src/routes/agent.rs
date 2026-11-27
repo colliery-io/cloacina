@@ -220,6 +220,17 @@ pub async fn register_agent(
         "agent registered"
     );
 
+    // CLOACINA-T-1083: the agent learns when its key expires. A failed
+    // lookup leaves it out: the register itself has succeeded.
+    let key_expires_at = cloacina::dal::DAL::new(state.database.clone())
+        .api_keys()
+        .get_key(auth.key_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|k| k.expires_at)
+        .map(|t| t.to_rfc3339());
+
     Ok(Json(AgentRegisterResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
         agent_id,
@@ -227,6 +238,7 @@ pub async fn register_agent(
         // DEFAULT_HEARTBEAT_INTERVAL_SECONDS. The agent heartbeats at this rate
         // and the server's liveness sweeper uses the same basis.
         heartbeat_interval_seconds: state.agent_heartbeat_interval_seconds,
+        key_expires_at,
     }))
 }
 

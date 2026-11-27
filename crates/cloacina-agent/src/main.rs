@@ -644,6 +644,8 @@ async fn connect_and_serve(
         heartbeat_interval_seconds = register_resp.heartbeat_interval_seconds,
         "agent registered with server"
     );
+    // CLOACINA-T-1083: when the key expires, and a warning before it.
+    let expiry_warning = log_key_expiry(register_resp.key_expires_at.as_deref());
 
     // ── 2. Spawn the heartbeat task for THIS session. It also carries the D-5
     //       key-pool top-up: each heartbeat response may ask the agent to
@@ -689,7 +691,78 @@ async fn connect_and_serve(
     .await;
 
     heartbeat.abort();
+    if let Some(task) = expiry_warning {
+        task.abort();
+    }
     session
+}
+
+/// Days before its key expires that an agent warns (CLOACINA-T-1083). The
+/// Kubernetes actuator replaces its agents' keys at the same point by default.
+const KEY_EXPIRY_WARNING_DAYS: i64 = 10;
+
+/// What the agent logs about its key's expiry (CLOACINA-T-1083).
+#[derive(Debug, PartialEq, Eq)]
+enum KeyExpiryLog {
+    /// The key does not expire, or the server did not say.
+    None,
+    /// The key expires at this time; more than the warning window is left.
+    ExpiresAt(chrono::DateTime<chrono::Utc>),
+    /// The key expires within the warning window.
+    ExpiresSoon(chrono::DateTime<chrono::Utc>),
+    /// The value from the server is not an RFC 3339 time.
+    Unreadable(String),
+}
+
+fn key_expiry_log(raw: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> KeyExpiryLog {
+    let Some(raw) = raw else {
+        return KeyExpiryLog::None;
+    };
+    match chrono::DateTime::parse_from_rfc3339(raw) {
+        Ok(at) => {
+            let at = at.with_timezone(&chrono::Utc);
+            if at - now < chrono::Duration::days(KEY_EXPIRY_WARNING_DAYS) {
+                KeyExpiryLog::ExpiresSoon(at)
+            } else {
+                KeyExpiryLog::ExpiresAt(at)
+            }
+        }
+        Err(_) => KeyExpiryLog::Unreadable(raw.to_string()),
+    }
+}
+
+fn warn_key_expires_soon(at: chrono::DateTime<chrono::Utc>) {
+    warn!(
+        key_expires_at = %at.to_rfc3339(),
+        "the agent's API key expires soon; after it the server refuses the agent \
+         (401 key_expired). Give the agent a new key before then"
+    );
+}
+
+/// Log the key's expiry at register. When more than the warning window is
+/// left, a task warns when the window starts; the caller aborts it when the
+/// session ends.
+fn log_key_expiry(raw: Option<&str>) -> Option<tokio::task::JoinHandle<()>> {
+    match key_expiry_log(raw, chrono::Utc::now()) {
+        KeyExpiryLog::None => None,
+        KeyExpiryLog::Unreadable(raw) => {
+            warn!(key_expires_at = %raw, "the server gave a key expiry that is not an RFC 3339 time");
+            None
+        }
+        KeyExpiryLog::ExpiresSoon(at) => {
+            warn_key_expires_soon(at);
+            None
+        }
+        KeyExpiryLog::ExpiresAt(at) => {
+            info!(key_expires_at = %at.to_rfc3339(), "the agent's API key expires");
+            let warn_at = at - chrono::Duration::days(KEY_EXPIRY_WARNING_DAYS);
+            let wait = (warn_at - chrono::Utc::now()).to_std().unwrap_or_default();
+            Some(tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                warn_key_expires_soon(at);
+            }))
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -3376,6 +3449,31 @@ const _: fn() = || {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CLOACINA-T-1083: an agent logs its key's expiry at start, and warns
+    /// when less than 10 days are left.
+    #[test]
+    fn the_agent_logs_its_key_expiry_and_warns_10_days_before() {
+        let now = chrono::Utc::now();
+        assert_eq!(key_expiry_log(None, now), KeyExpiryLog::None);
+        let in_days = |d: i64| (now + chrono::Duration::days(d)).to_rfc3339();
+        assert!(matches!(
+            key_expiry_log(Some(&in_days(30)), now),
+            KeyExpiryLog::ExpiresAt(_)
+        ));
+        assert!(matches!(
+            key_expiry_log(Some(&in_days(9)), now),
+            KeyExpiryLog::ExpiresSoon(_)
+        ));
+        assert!(matches!(
+            key_expiry_log(Some(&in_days(-1)), now),
+            KeyExpiryLog::ExpiresSoon(_)
+        ));
+        assert_eq!(
+            key_expiry_log(Some("next week"), now),
+            KeyExpiryLog::Unreadable("next week".to_string())
+        );
+    }
     use cloacina::fleet::{AgentOutcome, ArtifactRef};
 
     // ── CLOACINA-T-1015: the result POST is retried ──────────────────────

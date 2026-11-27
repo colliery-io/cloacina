@@ -1441,12 +1441,23 @@ pub async fn run(
     // actuator.
     let agent_log_format =
         crate::actuator::agent_log_format_from_env().map_err(|e| anyhow::anyhow!("FATAL: {e}"))?;
+    // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
+    // the key cache of this one when the notice arrives. Made before the
+    // actuator, which sends the notice when it revokes agent keys
+    // (CLOACINA-T-1083).
+    let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
+    let key_notice: Arc<dyn crate::actuator::KeyRevocationNotice> =
+        Arc::new(crate::routes::auth::DbKeyRevocationNotice::new(
+            runner.database().clone(),
+            key_cache.clone(),
+        ));
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
         runner.database().clone(),
         tenant_compilers,
         agent_log_format,
+        Some(key_notice),
     )
     .map_err(|e| {
         anyhow::anyhow!(
@@ -1490,9 +1501,6 @@ pub async fn run(
         }
     }
 
-    // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
-    // the key cache of this one when the notice arrives.
-    let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
     #[cfg(feature = "postgres")]
     crate::routes::auth::spawn_key_revocation_listener(
         database_url.clone(),
@@ -3293,6 +3301,9 @@ mod tests {
 
     /// Platform admin keys: make, refuse, rotate (CLOACINA-T-1065).
     mod platform_admin_keys;
+
+    /// Key expiry: the optional field, `key_expired`, actuator keys (CLOACINA-T-1083).
+    mod agent_key_expiry;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 

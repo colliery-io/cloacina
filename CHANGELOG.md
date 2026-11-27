@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **Agent keys of the Kubernetes actuator expire and are rotated**
+  (CLOACINA-T-1083). A key the actuator mints for a tenant's agents expires
+  after 30 days (`--agent-key-lifetime-days`). When 10 days are left
+  (`--agent-key-rotate-days`) the actuator mints a new key and every pool's
+  pods roll onto it. The old key is revoked only when every pool's rollout is
+  complete; before, it was revoked as soon as the Deployments were applied,
+  while old pods still used it. On the first reconcile after the upgrade each
+  tenant's agents move to an expiring key and roll once. Docker actuator keys
+  do not expire.
+  - A key a person creates takes an optional `expires_at` (`cloacinactl key
+    create --expires-at`); no default.
+  - An expired key is answered `401` with the code `key_expired`, also a
+    login key past its TTL, where the code was `unauthorized`.
+  - An agent logs its key's expiry when it registers, and a warning when less
+    than 10 days are left.
+
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task

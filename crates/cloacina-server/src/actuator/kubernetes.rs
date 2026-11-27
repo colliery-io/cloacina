@@ -51,7 +51,7 @@ use tracing::{info, warn};
 use cloacina::database::Database;
 use cloacina_api_types::{AgentEgressRule, AgentPoolSettings, DEFAULT_AGENT_POOL};
 
-use super::docker::{DalKeyMinter, KeyMinter};
+use super::docker::{DalKeyMinter, KeyMinter, minter_with_notice};
 use super::settings::{AgentPoolSource, DalPoolSource, DefaultPoolOnly, fixed_agent_count};
 use super::{ActuatorError, FleetActuator, ReconcileOutcome, reconcile_delta};
 
@@ -466,6 +466,12 @@ pub trait KubeOps: Send + Sync {
     /// Current ready replica count for the agent `Deployment` (0 if absent).
     async fn count_ready_replicas(&self, namespace: &str, name: &str)
     -> Result<u32, ActuatorError>;
+    /// True when a `Deployment`'s rollout is complete: its status is of the
+    /// current spec, and every replica runs the current pod template and is
+    /// available, with no pod of an older template left (the test of
+    /// `kubectl rollout status`). An absent Deployment is complete: it has no
+    /// pod. CLOACINA-T-1083: the old agent key is revoked only after this.
+    async fn rollout_complete(&self, namespace: &str, name: &str) -> Result<bool, ActuatorError>;
     /// The id of the API key a `Deployment`'s pods are started with: its
     /// pod-template annotation [`KEY_ID_ANNOTATION`]. `None` when the
     /// Deployment is absent or was applied before CLOACINA-T-1055.
@@ -550,6 +556,7 @@ impl KubernetesActuator {
         database: Database,
         compilers: Option<super::compiler::CompilerSettings>,
         agent_log_format: cloacina::task_logs::LogFormat,
+        notice: Option<Arc<dyn super::KeyRevocationNotice>>,
     ) -> Result<Self, ActuatorError> {
         let ops = Arc::new(KubeApiOps::in_cluster()?);
         let credentials = Arc::new(super::compiler::AdminBuildCredentials::new(
@@ -557,7 +564,13 @@ impl KubernetesActuator {
         ));
         let actuator = Self {
             ops: ops.clone(),
-            minter: Arc::new(DalKeyMinter::new(database.clone())),
+            // The tenant's agent key expires and is rotated (CLOACINA-T-1083).
+            minter: minter_with_notice(
+                Arc::new(
+                    DalKeyMinter::new(database.clone()).with_expiry(super::agent_key_expiry()),
+                ),
+                notice,
+            ),
             pools: Arc::new(DalPoolSource::new(database)),
             config: KubernetesConfig {
                 agent_log_format,
@@ -716,8 +729,9 @@ impl FleetActuator for KubernetesActuator {
         // pool's Deployment, so all the tenant's agents share one key of role
         // `agent`. The `default` Deployment's pod template names the key in
         // use. With none named (a cold start, or a Deployment from before the
-        // `agent` role), or one that is not a live `agent` key (revoked, or a
-        // `read` key), a new key is minted and written to the Secret; the
+        // `agent` role), or one that is not a live `agent` key (revoked, a
+        // `read` key, expired, or due for rotation: CLOACINA-T-1083), a new
+        // key is minted and written to the Secret; the
         // annotation then changes on every pool's Deployment, which rolls its
         // pods onto the new key.
         let noted = self
@@ -770,7 +784,21 @@ impl FleetActuator for KubernetesActuator {
         if let Some(e) = first_error {
             return Err(e);
         }
-        // Every pool is on `key_id` now: revoke every other key the actuator
+        // Every pool's Deployment names `key_id` now, but the old pods hold
+        // the old key until they are replaced (CLOACINA-T-1083). Revoke only
+        // when every pool's rollout is complete; else a later reconcile does
+        // it, or the old key expires.
+        for (pool, _) in &pools {
+            if !self
+                .ops
+                .rollout_complete(&namespace, &pool_deployment_name(pool))
+                .await?
+            {
+                tracing::debug!(tenant = %tenant_id, pool = %pool, "fleet actuator revokes no agent key until the pool's rollout is complete (kubernetes)");
+                return Ok(total);
+            }
+        }
+        // Every pod runs on `key_id`: revoke every other key the actuator
         // minted for the tenant (finding 12 of CLOACINA-D-0019). That takes
         // the key just replaced and the `read` keys from before the `agent`
         // role. Not done after a failed pool: its pods may still hold the old
@@ -1407,6 +1435,15 @@ impl KubeOps for KubeApiOps {
         Ok(ready.max(0) as u32)
     }
 
+    async fn rollout_complete(&self, namespace: &str, name: &str) -> Result<bool, ActuatorError> {
+        let api: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
+        let found = api
+            .get_opt(name)
+            .await
+            .map_err(|e| ActuatorError::Substrate(format!("get deployment failed: {e}")))?;
+        Ok(found.is_none_or(|d| deployment_rollout_complete(&d)))
+    }
+
     async fn deployment_key_id(
         &self,
         namespace: &str,
@@ -1423,6 +1460,27 @@ impl KubeOps for KubeApiOps {
             .and_then(|m| m.annotations)
             .and_then(|a| a.get(KEY_ID_ANNOTATION).cloned()))
     }
+}
+
+/// The test of `kubectl rollout status` on a Deployment (CLOACINA-T-1083):
+/// the controller has seen the current spec, every wanted replica runs the
+/// current pod template and is available, and no pod of an older template is
+/// left.
+fn deployment_rollout_complete(deployment: &Deployment) -> bool {
+    let generation = deployment.metadata.generation.unwrap_or(0);
+    let wanted = deployment
+        .spec
+        .as_ref()
+        .and_then(|s| s.replicas)
+        .unwrap_or(1);
+    let Some(status) = deployment.status.as_ref() else {
+        return wanted == 0;
+    };
+    let observed = status.observed_generation.unwrap_or(0);
+    let updated = status.updated_replicas.unwrap_or(0);
+    let total = status.replicas.unwrap_or(0);
+    let available = status.available_replicas.unwrap_or(0);
+    observed >= generation && updated >= wanted && total <= updated && available >= updated
 }
 
 #[cfg(test)]
@@ -1471,11 +1529,14 @@ mod tests {
         secret_values: Mutex<BTreeMap<String, String>>,
         /// A Deployment name whose next delete fails, once.
         fail_delete_once: Mutex<Option<String>>,
+        /// Deployment names whose rollout is not complete (CLOACINA-T-1083).
+        rolling: Mutex<Vec<String>>,
     }
 
     impl MockOps {
         fn with_ready(ready: u32) -> Self {
             Self {
+                rolling: Mutex::new(Vec::new()),
                 secret_values: Mutex::new(BTreeMap::new()),
                 fail_delete_once: Mutex::new(None),
                 ready,
@@ -1607,6 +1668,13 @@ mod tests {
         ) -> Result<u32, ActuatorError> {
             Ok(self.ready)
         }
+        async fn rollout_complete(
+            &self,
+            _namespace: &str,
+            name: &str,
+        ) -> Result<bool, ActuatorError> {
+            Ok(!self.rolling.lock().unwrap().iter().any(|n| n == name))
+        }
         async fn deployment_key_id(
             &self,
             _namespace: &str,
@@ -1638,6 +1706,8 @@ mod tests {
     struct MockMinter {
         minted: AtomicU32,
         kept: Mutex<Vec<Vec<String>>>,
+        /// What each `revoke_others` answers: the number of keys revoked.
+        others: AtomicU32,
     }
 
     #[async_trait]
@@ -1668,7 +1738,7 @@ mod tests {
             keep: &[String],
         ) -> Result<u32, ActuatorError> {
             self.kept.lock().unwrap().push(keep.to_vec());
-            Ok(0)
+            Ok(self.others.load(Ordering::SeqCst))
         }
     }
 
@@ -2816,6 +2886,321 @@ mod tests {
         let act = actuator(Arc::new(ops), minter.clone());
         assert!(act.reconcile("acme", 1).await.is_err());
         assert!(minter.kept.lock().unwrap().is_empty());
+    }
+
+    /// CLOACINA-T-1083: a new key rolls the pods, but the old pods hold the
+    /// old key until they are replaced. While a pool's rollout is not
+    /// complete the old key is not revoked; the first reconcile after every
+    /// pool's rollout is complete revokes it.
+    #[tokio::test]
+    async fn the_old_key_is_revoked_only_after_every_pools_rollout_is_complete() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        *ops.key_id.lock().unwrap() = Some("read-key-from-before".to_string());
+        // The pool `big` is still rolling onto the new key.
+        ops.rolling
+            .lock()
+            .unwrap()
+            .push(pool_deployment_name("big"));
+        let minter = Arc::new(MockMinter::default());
+        let act = actuator(ops.clone(), minter.clone())
+            .with_pools(Arc::new(FixedPools(vec![("big".to_string(), big_pool())])));
+
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(minter.minted.load(Ordering::SeqCst), 1);
+        assert!(
+            minter.kept.lock().unwrap().is_empty(),
+            "the old key was revoked while the pool `big` still ran pods on it"
+        );
+
+        // The rollout of `big` completes: the next reconcile revokes.
+        ops.rolling.lock().unwrap().clear();
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(minter.minted.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            minter.kept.lock().unwrap().clone(),
+            vec![vec!["minted-0".to_string()]]
+        );
+    }
+
+    /// CLOACINA-T-1083: the same holds for the pool `default`.
+    #[tokio::test]
+    async fn a_rolling_default_pool_keeps_the_old_key() {
+        let ops = Arc::new(MockOps::with_ready(1));
+        *ops.key_id.lock().unwrap() = None;
+        ops.rolling
+            .lock()
+            .unwrap()
+            .push(pool_deployment_name(DEFAULT_AGENT_POOL));
+        let minter = Arc::new(MockMinter::default());
+        let act = actuator(ops.clone(), minter.clone());
+        act.reconcile("acme", 1).await.unwrap();
+        assert!(minter.kept.lock().unwrap().is_empty());
+    }
+
+    /// A minter whose keys are all due for rotation (CLOACINA-T-1083).
+    #[derive(Default)]
+    struct DueMinter {
+        inner: MockMinter,
+    }
+
+    #[async_trait]
+    impl KeyMinter for DueMinter {
+        async fn mint(
+            &self,
+            tenant_id: &str,
+        ) -> Result<super::super::docker::MintedKey, ActuatorError> {
+            self.inner.mint(tenant_id).await
+        }
+        async fn is_live_agent_key(
+            &self,
+            _tenant_id: &str,
+            key_id: &str,
+        ) -> Result<bool, ActuatorError> {
+            // `minted-before` has 10 days left: due. A key minted now is not.
+            Ok(key_id.starts_with("minted-") && key_id != "minted-before")
+        }
+        async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
+            self.inner.revoke(key_id).await
+        }
+        async fn revoke_others(
+            &self,
+            tenant_id: &str,
+            keep: &[String],
+        ) -> Result<u32, ActuatorError> {
+            self.inner.revoke_others(tenant_id, keep).await
+        }
+    }
+
+    /// CLOACINA-T-1083: a key due for rotation is replaced like a key that is
+    /// not live: a new key in the Secret, every pool's pods named onto it,
+    /// and the old key revoked once the rollout is complete.
+    #[tokio::test]
+    async fn a_key_due_for_rotation_is_replaced_and_the_pods_roll() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        let minter = Arc::new(DueMinter::default());
+        let act = KubernetesActuator::new(ops.clone(), minter.clone(), config());
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(minter.inner.minted.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            ops.secret_values
+                .lock()
+                .unwrap()
+                .get("cloacina-tenant-acme/cloacina-agent-key/api-key")
+                .map(String::as_str),
+            Some("clk_test_0")
+        );
+        assert_eq!(
+            ops.deployment_specs.lock().unwrap()[0].key_id.as_deref(),
+            Some("minted-0")
+        );
+        assert_eq!(
+            minter.inner.kept.lock().unwrap().clone(),
+            vec![vec!["minted-0".to_string()]]
+        );
+    }
+
+    fn key_info(
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> cloacina::dal::unified::api_keys::ApiKeyInfo {
+        cloacina::dal::unified::api_keys::ApiKeyInfo {
+            id: uuid::Uuid::new_v4(),
+            name: "agent:acme:x".to_string(),
+            permissions: "agent".to_string(),
+            created_at: chrono::Utc::now(),
+            revoked: false,
+            tenant_id: Some("acme".to_string()),
+            is_admin: false,
+            expires_at,
+            issued_via: None,
+        }
+    }
+
+    /// CLOACINA-T-1083: under the rule of 30 days and rotation at 10 days
+    /// left, a key is live with more than 10 days left, and due with less.
+    #[test]
+    fn a_key_is_rotated_when_10_days_are_left() {
+        use super::super::docker::agent_key_is_live;
+        let rule = super::super::AgentKeyExpiry::default();
+        assert_eq!(rule.lifetime, chrono::Duration::days(30));
+        assert_eq!(rule.rotate_before, chrono::Duration::days(10));
+        let now = chrono::Utc::now();
+        let days = |d: i64| Some(now + chrono::Duration::days(d));
+        assert!(agent_key_is_live(
+            &key_info(days(30)),
+            "acme",
+            Some(rule),
+            now
+        ));
+        assert!(agent_key_is_live(
+            &key_info(Some(
+                now + chrono::Duration::days(10) + chrono::Duration::minutes(1)
+            )),
+            "acme",
+            Some(rule),
+            now
+        ));
+        assert!(!agent_key_is_live(
+            &key_info(Some(
+                now + chrono::Duration::days(10) - chrono::Duration::minutes(1)
+            )),
+            "acme",
+            Some(rule),
+            now
+        ));
+        assert!(!agent_key_is_live(
+            &key_info(days(1)),
+            "acme",
+            Some(rule),
+            now
+        ));
+        // An expired key is never live, with or without a rule.
+        assert!(!agent_key_is_live(&key_info(days(-1)), "acme", None, now));
+        // No expiry: live for the Docker minter (no rule); under the rule it
+        // is a key from before the rule, and the first reconcile replaces it.
+        assert!(agent_key_is_live(&key_info(None), "acme", None, now));
+        assert!(!agent_key_is_live(&key_info(None), "acme", Some(rule), now));
+        // Another tenant's key is not live.
+        assert!(!agent_key_is_live(
+            &key_info(days(30)),
+            "beta",
+            Some(rule),
+            now
+        ));
+    }
+
+    #[test]
+    fn a_new_key_expires_after_the_lifetime() {
+        let rule = super::super::AgentKeyExpiry::default();
+        let now = chrono::Utc::now();
+        assert_eq!(rule.expires_at(now), now + chrono::Duration::days(30));
+        let rule = super::super::AgentKeyExpiry::from_days(7, 2).unwrap();
+        assert_eq!(rule.expires_at(now), now + chrono::Duration::days(7));
+        assert!(rule.is_due(Some(now + chrono::Duration::days(1)), now));
+        assert!(!rule.is_due(Some(now + chrono::Duration::days(3)), now));
+        assert!(!rule.is_due(None, now));
+    }
+
+    #[test]
+    fn an_agent_key_rule_with_a_window_not_under_the_lifetime_is_refused() {
+        for (lifetime, rotate) in [(30, 30), (10, 20), (30, 0), (0, 0)] {
+            assert!(
+                super::super::AgentKeyExpiry::from_days(lifetime, rotate).is_err(),
+                "{lifetime}/{rotate}"
+            );
+        }
+    }
+
+    /// Counts the key revocation notices sent.
+    #[derive(Default)]
+    struct CountingNotice(AtomicU32);
+
+    #[async_trait]
+    impl super::super::KeyRevocationNotice for CountingNotice {
+        async fn announce(&self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// CLOACINA-T-1083: when the actuator revokes the old key, every server
+    /// is told (the notice of CLOACINA-T-1128); with nothing revoked, no
+    /// notice.
+    #[tokio::test]
+    async fn the_revoke_of_the_old_key_sends_the_cross_server_notice() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        *ops.key_id.lock().unwrap() = None;
+        let inner = Arc::new(MockMinter::default());
+        inner.others.store(1, Ordering::SeqCst);
+        let notice = Arc::new(CountingNotice::default());
+        let minter = minter_with_notice(inner.clone(), Some(notice.clone()));
+        let act = KubernetesActuator::new(ops.clone(), minter, config());
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(inner.kept.lock().unwrap().len(), 1);
+        assert_eq!(notice.0.load(Ordering::SeqCst), 1);
+
+        inner.others.store(0, Ordering::SeqCst);
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(
+            notice.0.load(Ordering::SeqCst),
+            1,
+            "nothing revoked: no notice"
+        );
+    }
+
+    /// The single revoke of the Docker actuator (a stopped container's key)
+    /// sends the notice too.
+    #[tokio::test]
+    async fn a_single_revoke_sends_the_notice() {
+        let notice = Arc::new(CountingNotice::default());
+        let minter = minter_with_notice(Arc::new(MockMinter::default()), Some(notice.clone()));
+        minter.revoke("minted-3").await.unwrap();
+        assert_eq!(notice.0.load(Ordering::SeqCst), 1);
+    }
+
+    fn deployment(
+        generation: i64,
+        wanted: i32,
+        status: Option<(i64, i32, i32, i32)>,
+    ) -> Deployment {
+        let mut d = Deployment::default();
+        d.metadata.generation = Some(generation);
+        d.spec = Some(k8s_openapi::api::apps::v1::DeploymentSpec {
+            replicas: Some(wanted),
+            ..Default::default()
+        });
+        d.status = status.map(|(observed, updated, total, available)| {
+            k8s_openapi::api::apps::v1::DeploymentStatus {
+                observed_generation: Some(observed),
+                updated_replicas: Some(updated),
+                replicas: Some(total),
+                available_replicas: Some(available),
+                ..Default::default()
+            }
+        });
+        d
+    }
+
+    /// CLOACINA-T-1083: the test of `kubectl rollout status`.
+    #[test]
+    fn a_rollout_is_complete_when_every_pod_runs_the_new_template() {
+        // Done: 2 wanted, 2 updated, 2 in all, 2 available.
+        assert!(deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 2, 2, 2))
+        )));
+        // The controller has not seen the new spec yet.
+        assert!(!deployment_rollout_complete(&deployment(
+            4,
+            2,
+            Some((3, 2, 2, 2))
+        )));
+        // One pod of the old template is left.
+        assert!(!deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 2, 3, 2))
+        )));
+        // Not every pod is on the new template yet.
+        assert!(!deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 1, 2, 2))
+        )));
+        // A new pod is not available yet.
+        assert!(!deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 2, 2, 1))
+        )));
+        // Scaled to zero, no pod left: done.
+        assert!(deployment_rollout_complete(&deployment(
+            3,
+            0,
+            Some((3, 0, 0, 0))
+        )));
+        assert!(deployment_rollout_complete(&deployment(1, 0, None)));
+        // No status yet with pods wanted: not done.
+        assert!(!deployment_rollout_complete(&deployment(1, 2, None)));
     }
 
     #[test]

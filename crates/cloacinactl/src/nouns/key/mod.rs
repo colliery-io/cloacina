@@ -51,6 +51,10 @@ enum KeyVerb {
         /// platform admin flag. Needs a platform admin key (CLOACINA-T-1065).
         #[arg(long, conflicts_with = "role")]
         platform_admin: bool,
+        /// When the key expires: an RFC 3339 timestamp in the future, for
+        /// example `2027-01-31T00:00:00Z`. Not set: the key does not expire.
+        #[arg(long)]
+        expires_at: Option<String>,
     },
     List,
     Revoke {
@@ -92,8 +96,12 @@ impl KeyCmd {
                 name,
                 role,
                 platform_admin,
+                expires_at,
             } => {
-                let body = KeyVerb::create_body(&name, role, platform_admin);
+                let mut body = KeyVerb::create_body(&name, role, platform_admin);
+                if let Some(at) = &expires_at {
+                    body["expires_at"] = serde_json::Value::String(at.clone());
+                }
                 let resp: serde_json::Value = client.post("/v1/auth/keys", &body).await?;
 
                 // One-time-only warning for human output.
@@ -113,6 +121,9 @@ impl KeyCmd {
                     println!("role:        {role}");
                     if platform_admin {
                         println!("platform admin: yes");
+                    }
+                    if let Some(at) = resp.get("expires_at").and_then(|v| v.as_str()) {
+                        println!("expires at:  {at}");
                     }
                     println!("NOTE: this is the only time the secret will be shown. Save it now.");
                     Ok(())
@@ -158,6 +169,7 @@ mod tests {
             name,
             role,
             platform_admin,
+            ..
         } = cli.key.verb
         else {
             panic!("not a create");
@@ -178,6 +190,7 @@ mod tests {
             name,
             role,
             platform_admin,
+            ..
         } = cli.key.verb
         else {
             panic!("not a create");

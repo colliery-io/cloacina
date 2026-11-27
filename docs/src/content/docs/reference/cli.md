@@ -209,6 +209,8 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--cors-allowed-headers <LIST>]
                         [--max-package-bytes <N>]
                         [--max-unpacked-bytes <N>]
+                        [--agent-key-lifetime-days <N>]
+                        [--agent-key-rotate-days <N>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -243,7 +245,7 @@ See
 `server start` has every flag of `cloacina-server`. Each setting below
 `--default-executor` in the tables of this section (from
 `--verification-org-id` and `--reconcile-interval-s` to
-`--max-unpacked-bytes`) is taken in three ways: a flag, the env var of the
+`--agent-key-rotate-days`) is taken in three ways: a flag, the env var of the
 setting, or a key of `[server]` in `config.toml` with the flag's name in
 snake case (for example `fleet_task_timeout_s = 600`,
 `cors_allowed_origins = ["https://ops.example.com"]`). The order is flag, env
@@ -311,6 +313,8 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--fleet-poll-timeout-s <N>` | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent. The server waits this plus 10 s for the answer; with no answer it records the poll as missed and fires nothing. `0` stops the start. CLOACINA-T-1077. |
 | `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
 | `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |
+| `--agent-key-lifetime-days <N>` | `CLOACINA_AGENT_KEY_LIFETIME_DAYS` | `30` | Days an agent key that the Kubernetes actuator mints stays valid. After it the key is refused with `401` `key_expired`. Docker actuator keys do not expire. CLOACINA-T-1083. |
+| `--agent-key-rotate-days <N>` | `CLOACINA_AGENT_KEY_ROTATE_DAYS` | `10` | Days left on an agent key at which the Kubernetes actuator replaces it: a new key in the Secret, and every pool's pods roll onto it. The old key is revoked when every pool's rollout is complete. At least `1` and less than `--agent-key-lifetime-days`, or the server does not start. See [Key expiry](../../explanation/service/security-model/#key-expiry). CLOACINA-T-1083. |
 
 ### Alert webhook (`cloacina-server`)
 
@@ -756,7 +760,7 @@ what, when, in which tenant.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `key create <NAME> [--role <ROLE> \| --platform-admin]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
+| `key create <NAME> [--role <ROLE> \| --platform-admin] [--expires-at <TIME>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. `--expires-at` is an RFC 3339 time in the future after which the key is refused; not set, the key does not expire. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
 | `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
 | `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. The last live platform admin key is refused (`409`). |
 
@@ -978,6 +982,8 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 # cors_allowed_headers = ["authorization", "content-type"]
 # max_package_bytes = 104857600
 # max_unpacked_bytes = 524288000
+# agent_key_lifetime_days = 30
+# agent_key_rotate_days = 10
 ```
 
 ## Profile Resolution

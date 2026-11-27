@@ -92,6 +92,7 @@ Authorization: Bearer clk_a1b2c3d4e5f6...
 |---|---|---|
 | `401` | `{"error": "missing or malformed Authorization header"}` | No `Authorization` header or not `Bearer` scheme |
 | `401` | `{"error": "invalid or revoked API key"}` | Key not found or has been revoked |
+| `401` | `{"error": "the API key has expired", "code": "key_expired"}` | The key's `expires_at` has passed |
 | `500` | `{"error": "internal error during authentication"}` | Database error during validation |
 
 ## Public Endpoints
@@ -219,6 +220,7 @@ Without `platform_admin`, the key belongs to the tenant `public`. With `"platfor
 | `name` | string | yes | Human-readable name for the key |
 | `role` | string | yes | Key role. Lowercase string: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. |
 | `platform_admin` | boolean | no | Default `false`. `true` makes a platform admin key; `role` must then be `"admin"`, else `400`. |
+| `expires_at` | string | no | When the key expires: an RFC 3339 time in the future. After it the key is answered `401` `key_expired`. Not set: the key does not expire. A past time or a value that is not RFC 3339 answers `400` `invalid_expires_at`. The response and the key lists carry `expires_at` (`null` for none). Also on `POST /v1/tenants/{tenant_id}/keys`. |
 
 > **Naming note:** the request field is `role`; the response field
 > is `permissions`. They carry the same value (e.g., `"admin"`).
@@ -236,7 +238,8 @@ Without `platform_admin`, the key belongs to the tenant `public`. With `"platfor
   "permissions": "admin",
   "tenant_id": null,
   "is_admin": true,
-  "created_at": "2026-04-02T14:30:00+00:00"
+  "created_at": "2026-04-02T14:30:00+00:00",
+  "expires_at": null
 }
 ```
 

@@ -93,7 +93,33 @@ impl<'a> ApiKeyDAL<'a> {
         is_admin: bool,
         role: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
-        crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role).await
+        crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role, None).await
+    }
+
+    /// [`Self::create_key`] with an expiry (CLOACINA-T-1083). `None`: the key
+    /// does not expire. After `expires_at` the key is refused.
+    #[cfg(feature = "postgres")]
+    pub async fn create_key_expiring(
+        &self,
+        key_hash: &str,
+        name: &str,
+        tenant_id: Option<&str>,
+        is_admin: bool,
+        role: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<ApiKeyInfo, ValidationError> {
+        crud::create_key(
+            self.dal, key_hash, name, tenant_id, is_admin, role, expires_at,
+        )
+        .await
+    }
+
+    /// True when the hash is of a key that is not revoked and whose expiry
+    /// has passed (CLOACINA-T-1083). Asked only after [`Self::validate_hash`]
+    /// refused the hash, to answer `key_expired` in place of `unauthorized`.
+    #[cfg(feature = "postgres")]
+    pub async fn is_expired_hash(&self, key_hash: &str) -> Result<bool, ValidationError> {
+        crud::is_expired_hash(self.dal, key_hash).await
     }
 
     /// CLOACI-T-0792: mint a short-TTL, provenance-tagged key (never god-mode).

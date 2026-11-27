@@ -306,6 +306,7 @@ impl Client {
                 name: name.to_string(),
                 role,
                 platform_admin: false,
+                expires_at: None,
             },
         )
         .await
@@ -323,6 +324,7 @@ impl Client {
                 name: name.to_string(),
                 role: KeyRole::Admin,
                 platform_admin: true,
+                expires_at: None,
             },
         )
         .await
@@ -354,6 +356,7 @@ impl Client {
                 name: name.to_string(),
                 role,
                 platform_admin: false,
+                expires_at: None,
             },
         )
         .await
