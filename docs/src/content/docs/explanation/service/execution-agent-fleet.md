@@ -532,6 +532,22 @@ Graph firings (computation graphs dispatched to the fleet) name no pool and
 have no request. They go to the pool `default` and are counted by the agent's
 free slots only.
 
+### Which waiting task gets the room that frees
+
+The waiting tasks of a tenant are dispatched in the order of their
+[priority](../../priority/): the priority of the task's workflow, then the
+task's own, then the time waited, with ageing. In each pass of the scheduler
+the tasks look for an agent one after another in that order, so the room
+that is free goes to the first task in the order that fits.
+
+A task that fits no agent is put off for two seconds and keeps its place.
+While a task that was given a better priority is put off, the worse tasks of
+its pool are not dispatched, until they have aged level with it. Tasks that
+were given the same priorities do not hold each other back: a small task
+still passes a large one of the same priority that waits for room.
+
+A task that runs on an agent is never stopped for more important work.
+
 ### What a publish checks
 
 When a package is published, the server checks each of its tasks against the

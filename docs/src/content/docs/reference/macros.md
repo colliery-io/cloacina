@@ -64,6 +64,7 @@ pub async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 | `cpu` | string literal | no | -- | CPU request, a Kubernetes quantity above zero: `"500m"`, `"4"`. The fleet places the task on an agent that has this much CPU free. |
 | `memory` | string literal | no | -- | Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`. The fleet places the task on an agent that has this much memory free. |
 | `inline` | boolean | no | `false` | Marks the task as one that runs inside the agent process. The mark is stored with the task and sent to the agent. It changes nothing about how the task runs. |
+| `priority` | integer, 0 to 10 | no | the workflow's priority | The task's own priority. 0 is the highest, 10 the lowest. It orders the task among the waiting tasks of the same workflow priority. A value outside 0 to 10 is a compile error. See [Priority](../../explanation/priority/). |
 | `trigger_rules` | expression | no | `always` | Trigger rule expression controlling when the task should execute. See [Trigger Rules](#trigger-rules). |
 | `on_success` | expression (path) | no | -- | Async callback on success. Signature: `async fn(&str, &Context<Value>) -> Result<(), E>` |
 | `on_failure` | expression (path) | no | -- | Async callback on failure. Signature: `async fn(&str, &TaskError, &Context<Value>) -> Result<(), E>` |
@@ -274,6 +275,7 @@ pub mod etl_pipeline {
 | `tenant` | string literal | no | `"public"` | Tenant identifier for multi-tenant deployments. |
 | `author` | string literal | no | -- | Author information. |
 | `triggers` | list of string literals | no | -- | Trigger names this workflow subscribes to; the reconciler binds each named trigger to this workflow at load. |
+| `priority` | integer, 0 to 10 | no | `5` | The workflow's priority. 0 is the highest, 10 the lowest. Waiting tasks of a workflow with a better priority are dispatched first. Every task of an execution takes it, unless the task declares its own. A value outside 0 to 10 is a compile error. See [Priority](../../explanation/priority/). |
 | `params` | param list | no | -- | Declared, typed execute-time inputs (see below). |
 | `secrets` | name list | no | -- | `secrets( name1, name2, ... )` — required encrypted inputs (CLOACI-I-0133). Each must be bound at execute time with `{"$secret": "secret-name"}`. A name that collides with a declared param is a compile error. |
 

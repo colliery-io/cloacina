@@ -38,6 +38,7 @@ All parameters are keyword-only and optional
 - `cpu` (str or number): CPU request, a Kubernetes quantity above zero: `"500m"`, `"4"`, or the number `4`. See [Pool and requests](#pool-and-requests).
 - `memory` (str or number): Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`, or a number of bytes.
 - `inline` (bool): Marks the task as one that runs inside the agent process. The mark is stored with the task and sent to the agent. It changes nothing about how the task runs. Default: `False`.
+- `priority` (int): The task's own priority, 0 (the highest) to 10. It orders the task among the waiting tasks of the same workflow priority. Default: the priority of the task's workflow. A value outside 0 to 10 raises `ValueError`. The workflow's priority is set with `WorkflowBuilder.priority(n)`. See [Priority](../../../explanation/priority/).
 - `on_success` (callable): Callback function called when task succeeds
 - `on_failure` (callable): Callback function called when task fails
 - `invokes` (ComputationGraphBuilder): A **trigger-less** computation graph this task invokes: after the task body succeeds, the engine executes the graph with the task's context. The referenced `with ComputationGraphBuilder(...)` block must run before the decorator, or the decorator raises `ValueError`. Python parity with Rust's `#[task(invokes = …)]`.
