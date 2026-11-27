@@ -3131,6 +3131,9 @@ mod tests {
     /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
     mod key_revocation_notice;
 
+    /// OIDC sessions follow the group map and the IdP (CLOACINA-T-1082).
+    mod oidc_group_changes;
+
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.

@@ -1078,6 +1078,9 @@ mod postgres_schema {
             refresh_enc -> Nullable<Bytea>,
             created_at -> Timestamptz,
             expires_at -> Nullable<Timestamptz>,
+            login_id -> Nullable<Uuid>,
+            claims -> Nullable<Text>,
+            checked_at -> Nullable<Timestamptz>,
         }
     }
 
