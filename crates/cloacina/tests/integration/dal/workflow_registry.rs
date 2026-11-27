@@ -363,6 +363,8 @@ async fn test_metadata_document_is_stored_and_read_back() {
                 cpu: None,
                 memory: None,
                 inline: false,
+                priority: None,
+                workflow_priority: None,
             }],
             triggers: Vec::new(),
         },

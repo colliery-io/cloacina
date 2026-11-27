@@ -157,6 +157,14 @@ pub struct TaskDescription {
     /// The inline mark of the task.
     #[serde(default)]
     pub inline: bool,
+    /// The task's own priority, 0 to 10 (CLOACINA-T-1045). `None`: the
+    /// priority of its workflow.
+    #[serde(default)]
+    pub priority: Option<u8>,
+    /// The priority of the task's workflow (CLOACINA-T-1045). `None`: the
+    /// default priority.
+    #[serde(default)]
+    pub workflow_priority: Option<u8>,
     /// The fingerprint of the task's code, when the task gives one.
     #[serde(default)]
     pub code_fingerprint: Option<String>,
@@ -176,6 +184,8 @@ impl TaskDescription {
             cpu: self.cpu.clone(),
             memory: self.memory.clone(),
             inline: self.inline,
+            priority: self.priority,
+            workflow_priority: self.workflow_priority,
         }
     }
 }
@@ -300,6 +310,8 @@ impl PackageDescription {
                 cpu: t.cpu,
                 memory: t.memory,
                 inline: t.inline,
+                priority: t.priority,
+                workflow_priority: t.workflow_priority,
                 code_fingerprint: None,
                 doc_what: None,
                 doc_why: None,
@@ -392,6 +404,8 @@ impl PackageDescription {
                     cpu: placement.cpu,
                     memory: placement.memory,
                     inline: placement.inline,
+                    priority: placement.priority,
+                    workflow_priority: placement.workflow_priority,
                     code_fingerprint: task.code_fingerprint(),
                     doc_what: None,
                     doc_why: None,
@@ -708,6 +722,8 @@ mod tests {
             cpu: None,
             memory: None,
             inline: false,
+            priority: None,
+            workflow_priority: None,
         }
     }
 

@@ -3461,6 +3461,8 @@ mod tests {
             cpu: None,
             memory: Some("2Gi".to_string()),
             inline: false,
+            priority: None,
+            workflow_priority: None,
         };
         PackageDescription::from_rust_library(RustLibraryMetadata {
             tasks: PackageTasksMetadata {
