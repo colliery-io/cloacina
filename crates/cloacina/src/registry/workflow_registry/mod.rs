@@ -815,10 +815,9 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         Ok(())
     }
 
-    /// Defense-in-depth signature existence check (CLOACI-T-0571).
-    ///
-    /// Queries `package_signatures` for any row with the given hash.
-    /// Used by the reconciler when `require_signatures` is on.
+    /// Signature existence (CLOACI-T-0571): queries `package_signatures`
+    /// for any row with the given hash. The reconciler's check at load is
+    /// `verify_package_signature`.
     async fn find_signature(&self, package_hash: &str) -> Result<bool, RegistryError> {
         use crate::security::{DbPackageSigner, PackageSigner};
         let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
@@ -828,6 +827,63 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
                 "find_signature DAL query failed for hash {}: {}",
                 package_hash, e
             ))),
+        }
+    }
+
+    /// The load check (CLOACINA-T-1062): the signature rows are read from
+    /// this registry's database, the trusted keys from `trust_database`, or
+    /// from this registry's database when there is none.
+    async fn verify_package_signature(
+        &self,
+        package_data: &[u8],
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<
+        Result<
+            crate::registry::traits::LoadSignature,
+            crate::registry::traits::LoadSignatureRefusal,
+        >,
+        RegistryError,
+    > {
+        use crate::registry::traits::{LoadSignature, LoadSignatureRefusal};
+        use crate::security::{DbKeyManager, DbPackageSigner, VerificationError};
+
+        let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
+        let trust = trust_database.unwrap_or(&self.database).clone();
+        let key_manager = DbKeyManager::new(crate::dal::DAL::new(trust));
+        match crate::security::verify_stored_signature_for_orgs(
+            package_data,
+            org_ids,
+            &signer,
+            &key_manager,
+        )
+        .await
+        {
+            Ok((result, trusted_by)) => Ok(Ok(LoadSignature {
+                package_hash: result.package_hash,
+                signer_fingerprint: result.signer_fingerprint,
+                trusted_by,
+            })),
+            Err(e) => {
+                let code = match &e {
+                    VerificationError::SignatureNotFound { .. } => "missing_signature",
+                    VerificationError::UntrustedSigner { .. } => "untrusted_signer",
+                    VerificationError::RevokedSigner { .. } => "revoked_signer",
+                    VerificationError::InvalidSignature
+                    | VerificationError::TamperedPackage { .. }
+                    | VerificationError::MalformedSignature { .. } => "invalid_signature",
+                    // The check could not run: a database or key store error.
+                    _ => {
+                        return Err(RegistryError::Internal(format!(
+                            "signature check failed: {e}"
+                        )));
+                    }
+                };
+                Ok(Err(LoadSignatureRefusal {
+                    code,
+                    reason: e.to_string(),
+                }))
+            }
         }
     }
 

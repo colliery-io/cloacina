@@ -150,8 +150,9 @@ Task claiming enables horizontal scaling by allowing multiple runner instances t
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `require_signatures` | `bool` | `false` | When `true`, the registry reconciler refuses to load packages that have no stored signature. |
-| `verification_org_id` | `Option<UniversalUuid>` | `None` | Trusted org UUID used for signature-verification audit logging. |
+| `require_signatures` | `bool` | `false` | When `true`, the registry reconciler verifies the stored signature of each package at load: a row stored for the org of the runner's tenant or for `verification_org_id`, a live trusted key of one of the two, and a signature that verifies. A package that does not pass is not loaded. |
+| `verification_org_id` | `Option<UniversalUuid>` | `None` | The server-wide org of the load check, asked after the org of the runner's tenant. |
+| `signature_trust_database` | `Option<Database>` | `None` | The database that holds the trusted keys of the load check. `None`: the runner's own database. |
 
 ### Executor Routing
 

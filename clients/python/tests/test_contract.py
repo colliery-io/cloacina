@@ -320,6 +320,34 @@ def test_upload_rejects_garbage(client: Client) -> None:
     assert exc.value.status == 400
 
 
+def test_upload_signature_is_sent_and_checked(client: Client) -> None:
+    """The signature of a signed upload reaches the server (CLOACINA-T-1062).
+
+    A text that is no signature is a 400 ``malformed_signature``. A signature
+    made for other bytes is a 403 ``package_tampered``, before any key is
+    looked up.
+    """
+    with pytest.raises(CloacinaApiError) as exc:
+        client.upload_workflow(b"not a real package", signature="not a signature")
+    assert exc.value.status == 400
+    assert exc.value.code == "malformed_signature"
+
+    for_other_bytes = json.dumps(
+        {
+            "version": 1,
+            "algorithm": "ed25519",
+            "package_hash": "0" * 64,
+            "key_fingerprint": "0" * 64,
+            "signature": "AAAA",
+            "signed_at": "2026-01-01T00:00:00Z",
+        }
+    )
+    with pytest.raises(CloacinaApiError) as exc:
+        client.upload_workflow(b"not a real package", signature=for_other_bytes)
+    assert exc.value.status == 403
+    assert exc.value.code == "package_tampered"
+
+
 def test_workflow_list_envelope(client: Client, tenant_name: str) -> None:
     page = client.list_workflows()
     assert page.tenant_id == tenant_name

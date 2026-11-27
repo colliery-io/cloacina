@@ -2567,8 +2567,7 @@ export interface components {
         };
         /**
          * @description Multipart form for workflow package upload. Spec-only type: the handler
-         *     accepts the first file field regardless of name; `file` is the
-         *     conventional field name.
+         *     reads the fields `file` and `signature` by name.
          */
         PackageUploadForm: {
             /**
@@ -2576,6 +2575,15 @@ export interface components {
              * @description The `.cloacina` package archive.
              */
             file: string;
+            /**
+             * @description The detached signature of the archive: the JSON text of the `.sig`
+             *     file that `cloacinactl package pack --sign` writes (`version`,
+             *     `algorithm`, `package_hash`, `key_fingerprint`, `signature`,
+             *     `signed_at`). Ed25519 over the SHA-256 of the archive. Needed when the
+             *     server requires signed packages; checked whenever it is sent.
+             *     Left out of an upload with no signature: the field has no null value.
+             */
+            signature?: string;
         };
         /**
          * @description One recorded reactor fire (CLOACI-T-0766) — a row in
@@ -6282,7 +6290,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description The first file field is taken as the .cloacina package */
+        /** @description The `file` field is the .cloacina package. The optional `signature` field is its detached signature; a server that requires signed packages refuses an upload without it */
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["PackageUploadForm"];
@@ -6298,7 +6306,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowUploadedResponse"];
                 };
             };
-            /** @description Invalid or empty package */
+            /** @description Invalid or empty package, or a `signature` field that is not a detached signature (`malformed_signature`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6316,7 +6324,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Tenant/role denied or signature verification failed */
+            /** @description Tenant/role denied, or the signature check refused the upload: `signature_required`, `package_tampered`, `untrusted_signer`, `signer_revoked`, `invalid_signature` */
             403: {
                 headers: {
                     [name: string]: unknown;

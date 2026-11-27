@@ -660,10 +660,36 @@ impl Client {
 
     // ---- workflows ----
 
-    /// Upload a `.cloacina` package (multipart).
+    /// Upload a `.cloacina` package (multipart), with no signature. A server
+    /// that requires signed packages refuses it (`signature_required`): use
+    /// [`Self::upload_workflow_signed`].
     pub async fn upload_workflow(
         &self,
         package: Vec<u8>,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowUploadedResponse, ClientError> {
+        self.upload_workflow_with(package, None, tenant).await
+    }
+
+    /// Upload a `.cloacina` package with its detached signature
+    /// (CLOACINA-A-0018). `signature` is the JSON text of the `.sig` file that
+    /// `cloacinactl package pack --sign` writes: Ed25519 over the SHA-256 of
+    /// the package. It goes to the server as the `signature` field of the
+    /// upload. The private key is not part of it.
+    pub async fn upload_workflow_signed(
+        &self,
+        package: Vec<u8>,
+        signature: &str,
+        tenant: Option<&str>,
+    ) -> Result<WorkflowUploadedResponse, ClientError> {
+        self.upload_workflow_with(package, Some(signature), tenant)
+            .await
+    }
+
+    async fn upload_workflow_with(
+        &self,
+        package: Vec<u8>,
+        signature: Option<&str>,
         tenant: Option<&str>,
     ) -> Result<WorkflowUploadedResponse, ClientError> {
         let t = self.tenant_of(tenant);
@@ -671,7 +697,10 @@ impl Client {
             .file_name("package.cloacina")
             .mime_str("application/octet-stream")
             .map_err(ClientError::from_reqwest)?;
-        let form = reqwest::multipart::Form::new().part("file", part);
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+        if let Some(signature) = signature {
+            form = form.text("signature", signature.to_string());
+        }
         let response = self
             .request(Method::POST, &format!("/v1/tenants/{t}/workflows"))
             .multipart(form)

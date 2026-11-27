@@ -739,6 +739,25 @@ Upload a workflow package.
 | Field | Type | Description |
 |---|---|---|
 | `file` | binary | The `.cloacina` package archive |
+| `signature` | text, optional | The detached signature of the archive: the JSON text of the `.sig` file that `cloacinactl package pack --sign` writes. Needed when the server runs with `--require-signatures`; checked whenever it is sent |
+
+The fields are read by name, in either order. The `signature` field is at
+most 16 KiB. Its JSON:
+
+```json
+{
+  "version": 1,
+  "algorithm": "ed25519",
+  "package_hash": "<SHA-256 of the archive, 64 hexadecimal characters>",
+  "key_fingerprint": "<SHA-256 of the signer's public key, 64 hexadecimal characters>",
+  "signature": "<the 64-byte Ed25519 signature of the hash, base64>",
+  "signed_at": "2026-11-27T12:00:00Z"
+}
+```
+
+The signature is made over the 32 bytes of the SHA-256 of the archive.
+`signed_at` is not covered by it and the server does not keep it. See
+[Signature verification](#signature-verification) for the check.
 
 **Example (curl):**
 
@@ -746,6 +765,15 @@ Upload a workflow package.
 curl -X POST http://localhost:8080/v1/tenants/tenant_acme/workflows \
   -H "Authorization: Bearer clk_a1b2c3d4..." \
   -F "file=@my_workflow.cloacina"
+```
+
+With a signature:
+
+```bash
+curl -X POST http://localhost:8080/v1/tenants/tenant_acme/workflows \
+  -H "Authorization: Bearer clk_a1b2c3d4..." \
+  -F "file=@my_workflow.cloacina" \
+  -F "signature=<my_workflow.cloacina.sig"
 ```
 
 **Response:** `201 Created`
@@ -770,6 +798,12 @@ version stays in service. An upload of the same bytes returns the same
 |---|---|---|
 | `400` | `{"error": "no 'file' field in multipart request"}` | Missing file field |
 | `400` | `{"error": "empty package file"}` | Zero-byte file |
+| `400` | `{"error": "…", "code": "malformed_signature"}` | The `signature` field is not a detached signature, is larger than 16 KiB, or names a version or an algorithm the server does not know |
+| `403` | `{"error": "…", "code": "signature_required"}` | No `signature` field, and the server requires signed packages |
+| `403` | `{"error": "…", "code": "package_tampered"}` | The signature was made for other bytes |
+| `403` | `{"error": "…", "code": "untrusted_signer"}` | The signer's key is known neither to the tenant nor to the server-wide org |
+| `403` | `{"error": "…", "code": "signer_revoked"}` | The signer's key is revoked |
+| `403` | `{"error": "…", "code": "invalid_signature"}` | The signature does not verify with the trusted key |
 | `400` | `{"error": "<detail>", "code": "upload_failed"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
 | `400` | `{"error": "package '<name>' declares dependencies in pyproject.toml (…) and has no requirements.lock and no vendor/ folder. Run 'cloacinactl package build' …", "code": "python_dependencies_not_locked"}` | A Python package with dependencies and no `vendor/` folder has no `requirements.lock`, or its lock file fails the compiler's checks (an option line, a URL or a path, a pin with no `--hash`, a dependency not pinned; the error names the line). The checks of `cloacinactl package validate` and the compiler. Nothing is stored and no build is queued |
 | `413` | `{"error": "package too large: the upload is <N> bytes (<M> MiB), and the limit of this server is <L> bytes (<K> MiB). …", "code": "package_too_large"}` | The upload is larger than `--max-package-bytes` (`CLOACINA_MAX_PACKAGE_BYTES`, default 100 MiB) |
@@ -2266,22 +2300,31 @@ been removed.
 
 ### Signature verification
 
+- The signature of a package comes with the upload, as the `signature`
+  field of `POST /v1/tenants/{tenant_id}/workflows`. The server does
+  **not** sign packages, only verifies: the publisher signs with its
+  own private key (`cloacinactl package pack --sign`, `package publish
+  --sign`), and the private key is never sent.
 - When `--require-signatures` (or `CLOACINA_REQUIRE_SIGNATURES=true`)
-  is set, the server verifies package signatures at upload. The
-  verification requires a signature row in the `package_signatures`
-  table, read by the hash of the uploaded bytes — the server does
-  **not** sign packages, only verifies. Client-side signing is **not
-  implemented yet** (`cloacinactl package pack --sign` fails hard by
-  design) and no route stores a signature — signature rows are written
-  through the library API, so `--require-signatures` cannot be satisfied
-  by the CLI packing path today.
-- The signer is looked up in the [trusted keys](#trusted-keys) of the
+  is set, an upload with no `signature` field is refused with `403
+  signature_required`. Without it, an upload with no signature passes.
+  A signature that is sent is checked in both cases.
+- The signature is checked against the bytes of the same request. The
+  signer is looked up in the [trusted keys](#trusted-keys) of the
   tenant in the path first, then in the trusted keys of the server-wide
   org if `--verification-org-id` is set. The first list that holds the
   key, live, decides. With no `--verification-org-id`, each tenant
   trusts only its own keys.
-- No signature row → `403 signature_not_found`. A signer in neither
-  list, or revoked → `403 untrusted_signer`.
+- A signer in neither list → `403 untrusted_signer`. A signer that a
+  list holds revoked and none holds live → `403 signer_revoked`. A
+  signature for other bytes → `403 package_tampered`. A signature that
+  does not verify → `403 invalid_signature`. A field that is no
+  detached signature → `400 malformed_signature`.
+- The signature of an accepted upload is stored in the tenant's schema
+  with the org whose key list held the signer. With
+  `--require-signatures`, each package is verified again when the
+  server loads it; a revoke of a key does not unload a loaded package.
+  See [Require signed packages](../../how-to/service/require-signed-packages/#how-a-package-is-checked-at-load).
 
 ### Metrics endpoint
 

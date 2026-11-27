@@ -14,20 +14,18 @@
  *  limitations under the License.
  */
 
-//! CLOACI-T-0571 — defense-in-depth signature-existence check.
+//! CLOACI-T-0571 — the `find_signature` predicate of the registry: whether
+//! a `package_signatures` row exists for a package hash.
 //!
-//! When `require_signatures` is on, the reconciler refuses to load any
-//! `workflow_packages` row that has no companion `package_signatures`
-//! row. The upload route is the strong gate (CLOACI-I-0103); this
-//! catches direct DB inserts that bypass it.
+//! Tests here exercise the lookup against a real Postgres fixture: insert a
+//! signature, ask the registry, assert the presence/absence flips.
 //!
-//! Tests here exercise the lookup contract end-to-end against a real
-//! Postgres fixture: insert a signature, ask the registry, assert the
-//! presence/absence flips. The reconciler integration end-to-end (write
-//! a workflow_packages row, run the reconciler, assert it refuses) is
-//! covered by the existing reconciler harness; this file pins the
-//! `find_signature` predicate the reconciler depends on so a future DAL
-//! refactor can't silently break the gate.
+//! The reconciler's check at load is more than this predicate
+//! (CLOACINA-T-1062): it verifies the stored signature against the trusted
+//! keys, through `WorkflowRegistry::verify_package_signature`. The tests of
+//! that check are in `cloacina::security::verification`, and the tests of a
+//! refused and an accepted load in `cloacina-server`
+//! (`tests/package_signing.rs`).
 
 #[cfg(feature = "postgres")]
 mod postgres_tests {

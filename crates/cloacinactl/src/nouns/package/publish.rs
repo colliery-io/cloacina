@@ -27,15 +27,9 @@ pub async fn run(
     sign: Option<&Path>,
     vendor: &super::vendor::VendorArgs,
 ) -> Result<(), CliError> {
-    // CLOACI-T-0596 / API-05: `--sign` not yet implemented; fail-hard
-    // before doing the build so the operator catches the gap. See
-    // package/pack.rs for the matching error message.
-    if let Some(key_path) = sign {
-        return Err(CliError::UserError(format!(
-            "--sign {} is not yet implemented — package signing is tracked under I-0103. \
-             Remove --sign and re-run, or wait for the signing-side completion.",
-            key_path.display()
-        )));
+    // A key file that cannot sign stops the command before the build.
+    if let Some(key_file) = sign {
+        super::sign::check_signing_key(key_file)?;
     }
 
     // Rust: cargo build. Python: lock the dependencies, and with --vendor
@@ -48,5 +42,14 @@ pub async fn run(
     // pack_to validates the Python layout before archiving.
     let produced = super::pack::pack_to(dir, Some(&pkg_path))?;
 
-    super::upload::run(globals, &produced).await
+    // CLOACINA-T-1062: `--sign` signs the archive that was just built, on
+    // this machine, and the signature goes with the upload. With no `--sign`
+    // the upload has no signature.
+    let signature = match sign {
+        Some(key_file) => Some(super::sign::UploadSignature::Made(
+            super::sign::sign_archive(&produced, key_file)?,
+        )),
+        None => None,
+    };
+    super::upload::run(globals, &produced, signature).await
 }

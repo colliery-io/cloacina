@@ -158,6 +158,7 @@ fn test_reconciler_config() {
         default_tenant_id: "custom".to_string(),
         require_signatures: false,
         verification_org_id: None,
+        signature_trust_database: None,
     };
 
     assert_eq!(custom_config.reconcile_interval.as_secs(), 60);

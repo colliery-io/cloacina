@@ -491,12 +491,27 @@ class Client(_Base):
 
     # ---- workflows ----
 
-    def upload_workflow(self, package: bytes, tenant: str | None = None):
+    def upload_workflow(
+        self,
+        package: bytes,
+        tenant: str | None = None,
+        signature: str | None = None,
+    ):
+        """Upload a ``.cloacina`` package.
+
+        ``signature`` is the detached signature of the package: the JSON text
+        of the ``.sig`` file that ``cloacinactl package pack --sign`` writes
+        (Ed25519 over the SHA-256 of the package). It is sent as the
+        ``signature`` field of the upload. A server that requires signed
+        packages refuses an upload without it (``signature_required``).
+        """
         import io
 
         body = PackageUploadForm(
             file=File(payload=io.BytesIO(package), file_name="package.cloacina")
         )
+        if signature is not None:
+            body.signature = signature
         return _unwrap(
             upload_workflow.sync_detailed(
                 self.tenant_segment(tenant), client=self._gen, body=body

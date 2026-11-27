@@ -226,50 +226,59 @@ impl RegistryReconciler {
                 version: metadata.version.clone(),
             })?;
 
-        // CLOACI-T-0571: defense-in-depth signature existence check.
-        // When `require_signatures` is on, refuse to load any package
-        // whose source bytes have no matching `package_signatures` row.
-        // The upload route is the strong verification gate (CLOACI-I-0103);
-        // this catches direct DB inserts that bypass it.
+        // CLOACI-T-0571, CLOACINA-T-1062: the signature check at load.
+        // With `require_signatures` on, a package loads only when a
+        // signature stored for the tenant's org or the server org verifies
+        // against a live trusted key of one of them (CLOACINA-A-0018: the
+        // tenant's org first). The upload route makes the same check; this
+        // one also refuses a package that did not come through it, and one
+        // whose signer was revoked since the upload.
         if self.config.require_signatures {
-            let package_hash = {
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(&loaded_workflow.package_data);
-                hex::encode(hasher.finalize())
-            };
-            let has_sig = self
+            let org_ids = self.config.signature_org_ids();
+            let package_label = format!("{} v{}", metadata.package_name, metadata.version);
+            let checked = self
                 .registry
-                .find_signature(&package_hash)
+                .verify_package_signature(
+                    &loaded_workflow.package_data,
+                    &org_ids,
+                    self.config.signature_trust_database.as_ref(),
+                )
                 .await
                 .map_err(|e| RegistryError::RegistrationFailed {
-                    message: format!(
-                        "signature-existence check failed for {} v{}: {}",
-                        metadata.package_name, metadata.version, e
-                    ),
+                    message: format!("signature check failed for {package_label}: {e}"),
                 })?;
-            if !has_sig {
-                let msg = format!(
-                    "no signature row present for package {} v{} (hash {}); \
-                     refusing to load (require_signatures=true)",
-                    metadata.package_name, metadata.version, package_hash
-                );
-                tracing::warn!(
-                    package_name = %metadata.package_name,
-                    package_version = %metadata.version,
-                    package_hash = %package_hash,
-                    "{}",
-                    msg
-                );
-                if let Some(org_id) = self.config.verification_org_id {
-                    crate::security::audit::log_package_load_failure(
-                        org_id,
-                        &format!("{} v{}", metadata.package_name, metadata.version),
-                        &msg,
-                        "missing_signature",
+            match checked {
+                Ok(verified) => {
+                    crate::security::audit::log_package_load_success(
+                        verified.trusted_by,
+                        &package_label,
+                        &verified.package_hash,
+                        Some(&verified.signer_fingerprint),
+                        /* signature_verified */ true,
                     );
                 }
-                return Err(RegistryError::RegistrationFailed { message: msg });
+                Err(refusal) => {
+                    let msg = format!(
+                        "package {package_label} has no signature that passes the load check \
+                         ({}): {}; refusing to load (require_signatures=true)",
+                        refusal.code, refusal.reason
+                    );
+                    tracing::warn!(
+                        package_name = %metadata.package_name,
+                        package_version = %metadata.version,
+                        tenant_id = %self.config.default_tenant_id,
+                        code = refusal.code,
+                        "{}",
+                        msg
+                    );
+                    crate::security::audit::log_package_load_failure(
+                        org_ids[0],
+                        &package_label,
+                        &msg,
+                        refusal.code,
+                    );
+                    return Err(RegistryError::RegistrationFailed { message: msg });
+                }
             }
         }
 

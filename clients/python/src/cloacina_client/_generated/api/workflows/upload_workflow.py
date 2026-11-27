@@ -91,8 +91,7 @@ def sync_detailed(
         tenant_id (str):
         body (PackageUploadForm): Multipart form for workflow package upload. Spec-only type: the
             handler
-            accepts the first file field regardless of name; `file` is the
-            conventional field name.
+            reads the fields `file` and `signature` by name.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -126,8 +125,7 @@ def sync(
         tenant_id (str):
         body (PackageUploadForm): Multipart form for workflow package upload. Spec-only type: the
             handler
-            accepts the first file field regardless of name; `file` is the
-            conventional field name.
+            reads the fields `file` and `signature` by name.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -156,8 +154,7 @@ async def asyncio_detailed(
         tenant_id (str):
         body (PackageUploadForm): Multipart form for workflow package upload. Spec-only type: the
             handler
-            accepts the first file field regardless of name; `file` is the
-            conventional field name.
+            reads the fields `file` and `signature` by name.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -189,8 +186,7 @@ async def asyncio(
         tenant_id (str):
         body (PackageUploadForm): Multipart form for workflow package upload. Spec-only type: the
             handler
-            accepts the first file field regardless of name; `file` is the
-            conventional field name.
+            reads the fields `file` and `signature` by name.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

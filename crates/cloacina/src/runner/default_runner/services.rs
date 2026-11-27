@@ -29,7 +29,7 @@ use crate::dal::FilesystemRegistryStorage;
 use crate::dal::UnifiedRegistryStorage;
 use crate::executor::workflow_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
-use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
+use crate::registry::{RegistryReconciler, WorkflowRegistryImpl};
 use crate::{Scheduler, SchedulerConfig};
 
 use super::DefaultRunner;
@@ -199,21 +199,7 @@ impl DefaultRunner {
 
         let (inner_tx, inner_rx) = watch::channel(false);
 
-        let reconciler_config = ReconcilerConfig {
-            reconcile_interval: self.config.registry_reconcile_interval(),
-            enable_startup_reconciliation: self.config.registry_enable_startup_reconciliation(),
-            package_operation_timeout: Duration::from_secs(30),
-            continue_on_package_error: true,
-            // CLOACI-T-0781: namespace this runner's tasks under the tenant it
-            // serves (was hardcoded "public"), so a per-tenant runner's tasks are
-            // `tenant::pkg::wf::task` and route to that tenant's agents.
-            default_tenant_id: self.config.tenant_id().to_string(),
-            // CLOACI-T-0571: forward signature-existence-check config
-            // from the runner so server mode picks up the same gating
-            // already plumbed via --require-signatures + --verification-org-id.
-            require_signatures: self.config.require_signatures(),
-            verification_org_id: self.config.verification_org_id(),
-        };
+        let reconciler_config = self.config.reconciler_config();
 
         let workflow_registry_result = match self.config.registry_storage_backend() {
             "filesystem" => {

@@ -361,14 +361,21 @@ In production, set `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) to pin the in
 
 ### What it is, why it's optional
 
-When the server is started with `--require-signatures`, every package upload runs through cryptographic signature verification before the package is registered. The verification:
+When the server is started with `--require-signatures`, every package upload runs through cryptographic signature verification before the package is registered. The signature comes with the archive, as a field of the upload. The verification:
 
-1. Reads the signature stored for the hash of the uploaded bytes.
+1. Checks that the signature was made for the uploaded bytes.
 2. Looks the signer's key up in the trusted keys of the tenant in the path, then in the trusted keys of the server-wide org if `--verification-org-id` is set.
 3. Verifies the signature against the trusted public key.
-4. Logs the outcome (success or failure) to the audit log with the package fingerprint.
+4. Stores the signature in the tenant's schema, with the org whose key list held the signer.
+5. Logs the outcome (success or failure) to the audit log with the package fingerprint.
 
 There is no soft-fail path: an upload with no signature, or signed by a key that neither list holds live, is refused.
+
+**The private key stays with the publisher.** A publisher signs on its own machine (`cloacinactl package pack --sign`, `package publish --sign`) with a key file that only its owner can read. The server receives the archive and the signature and holds public keys only. A breach of the server gives an attacker no key that signs packages.
+
+**The check runs again at load.** With `--require-signatures`, the runner of each tenant verifies a package when it loads it: a signature stored for the tenant's org or the server-wide org, a live trusted key of one of the two, and a signature that verifies. A row in the tenant's tables is not enough: a caller that can write a tenant's schema cannot make a package load without a signature by a trusted key. The trusted keys are in the admin schema; a tenant's database user is granted its own schema only.
+
+**A revoke is not an unload.** A revoked key signs no new upload from the moment of the revoke. A package that is already loaded keeps running until its next load, which is the next start of the server; that load refuses it. An operator that must stop a package at once deletes it.
 
 Trust is **per tenant**. Each tenant has its own trusted keys, and its `admin` adds and revokes them (`cloacinactl trusted-key`, or the `/v1/tenants/{tenant_id}/trusted-keys` routes); a platform admin can do the same for any tenant. A package signed for one tenant is not accepted by another. The server-wide org is the operator's own key set: a key in it is trusted for every tenant. An operator that wants strict per-tenant trust sets no `--verification-org-id`; each tenant then trusts only its own keys.
 
@@ -383,8 +390,10 @@ Reach for `--require-signatures` whenever the package author is not the server o
 
 Package signing uses **Ed25519** asymmetric cryptography. Each key is a pair:
 
-- **Private key** — used to sign packages. Kept secret and stored encrypted at
-  rest (the 32-byte AES-256 *key encryption key* protects it in the database).
+- **Private key** — used to sign packages. Kept secret. A publisher that signs
+  with `cloacinactl` keeps it in a file on its own machine. A program on the
+  library API can keep it in the database instead, encrypted at rest (the
+  32-byte AES-256 *key encryption key* protects it).
 - **Public key** — used to verify signatures. Distributed to verifiers.
 - **Key fingerprint** — the SHA-256 hash of the public key, used to identify
   which key signed a package.

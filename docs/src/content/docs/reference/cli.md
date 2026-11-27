@@ -493,36 +493,61 @@ a source directory with a `vendor/` folder by the size of its files, an
 archive when it is unpacked. Give the value of the server and the agents.
 `package pack` and `package publish` take the same flag.
 
-### `package pack <DIR> [--out <PATH>] [--sign <KEY>] [--max-unpacked-bytes <N>]`
+### `package pack <DIR> [--out <PATH>] [--sign <KEY_FILE>] [--max-unpacked-bytes <N>]`
 
 Packs the source directory into a `.cloacina` archive (tar + bzip2
 **source** archive — no compiled artifacts). `--out` defaults to
 `<dir>/<name>.cloacina`. Runs the same validation as
-`package validate` first.
+`package validate` first. The path of the archive is the one line on
+stdout.
 
-`--sign <KEYFILE>` **fails hard by design**: workflow-package signing
-is not yet implemented (tracked under CLOACI-I-0103), so passing
-`--sign` produces an error rather than a silently unsigned archive.
-Note the asymmetry: the server's `--require-signatures` enforcement
-exists, so a server requiring signatures cannot accept packages packed
-by this CLI until I-0103 lands (signature rows must be inserted
-out-of-band).
+`--sign <KEY_FILE>` signs the archive and writes the signature beside
+it as `<archive>.sig` (for `demo.cloacina`: `demo.cloacina.sig`). The
+path of the signature file goes to stderr. The signature is Ed25519
+over the SHA-256 of the archive; the file is JSON with the fields
+`version`, `algorithm`, `package_hash`, `key_fingerprint`, `signature`
+and `signed_at`, and holds nothing secret.
 
-### `package publish <DIR> [--release] [--sign <KEY>] [--vendor] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-lock] [--max-unpacked-bytes <N>]`
+The key file is an unencrypted Ed25519 private key in PKCS#8 PEM, as
+`openssl genpkey -algorithm ed25519` writes it. On Unix a key file that
+the group or others can read is refused: give it mode `600`. The key is
+read on this machine and is sent nowhere. A missing file, a file with
+wider permissions and a file that is no such key each exit 1 and write
+no signature.
 
-`build` → `pack` → `upload` in one shot. `--sign` fails hard, same as
-`package pack`. It takes the flags of `package build`: a publish of a
-Python package writes its lock file, and the compiler vendors the
-dependencies. Pass `--vendor` to ship the dependencies in the package.
-Pass `--no-lock` for a package whose `vendor/` is filled by hand.
+### `package publish <DIR> [--release] [--sign <KEY_FILE>] [--vendor] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-lock] [--max-unpacked-bytes <N>]`
 
-### `package upload <FILE>`
+`build` → `pack` → `upload` in one shot. It takes the flags of
+`package build`: a publish of a Python package writes its lock file,
+and the compiler vendors the dependencies. Pass `--vendor` to ship the
+dependencies in the package. Pass `--no-lock` for a package whose
+`vendor/` is filled by hand.
+
+`--sign <KEY_FILE>` signs the archive that was built and sends the
+signature with the upload. The key file is the one of `package pack
+--sign`; it is checked before the build starts. Without `--sign` the
+upload has no signature, and a server that requires signatures refuses
+it with `403 signature_required`.
+
+### `package upload <FILE> [--signature <SIG_FILE>]`
 
 Multipart POST of a `.cloacina` archive to
 `/v1/tenants/<tenant>/workflows`. Requires a resolved server + API key
-(profile or flags). Server-side signature verification is enforced if
-the server was started with `--require-signatures`. Exit codes: 1
-(user error), 2 (network), 4 (auth), 5 (server reject).
+(profile or flags). Exit codes: 1 (user error), 2 (network), 4 (auth),
+5 (server reject).
+
+When `<FILE>.sig` is there (written by `package pack --sign`), it is
+sent with the archive as the `signature` field. `--signature
+<SIG_FILE>` sends another signature file in its place. A signature file
+that was made for other bytes than `<FILE>` is refused before the
+upload (exit 1). With no signature file the upload has no signature.
+
+The server checks a signature that is sent, and refuses the upload when
+the check fails: `untrusted_signer`, `signer_revoked`,
+`invalid_signature`, `package_tampered`, `malformed_signature`. A
+server started with `--require-signatures` also refuses an upload with
+no signature (`signature_required`). See
+[Require signed packages](../../how-to/service/require-signed-packages/#how-an-upload-is-checked).
 
 The version that is in service stays active until the build of the
 uploaded one succeeds. A failed build leaves it in service; see
@@ -583,7 +608,7 @@ cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
 | Flag | Default | Description |
 |---|---|---|
 | `--out <PATH>` | `<name>-<version>.cloacina` in CWD | Output archive path. |
-| `--sign-key <FILE>` | (none) | Ed25519 secret key (32 raw bytes) used to sign the provider archive (`package.sig`). This provider-side signing scheme **is** implemented — distinct from the unimplemented workflow-package `--sign`. |
+| `--sign-key <FILE>` | (none) | Ed25519 secret key (32 raw bytes) used to sign the provider archive (`package.sig`). This provider-side signing scheme is distinct from the workflow-package `--sign`, which takes a PKCS#8 PEM key file and writes a `.sig` file. |
 | `--manifest-bin <NAME>` | `emit_manifest` | Name of the provider crate's `[[bin]]` that prints the generated provider manifest JSON. |
 | `--debug` | off | Build the component in debug profile (default is release). |
 | `--native` | off | Package a **native host cdylib** provider instead of a sandboxed wasm32-wasip2 component (CLOACI-T-0903). Native providers run trusted and unsandboxed in-process — capability grants are advisory, not enforced. The crate must declare a `native` cargo feature plus fidius-core/fidius-macro host deps. The command prints the trust tier to stderr. |

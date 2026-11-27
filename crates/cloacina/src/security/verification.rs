@@ -97,6 +97,15 @@ pub enum VerificationError {
         fingerprint: String,
     },
 
+    /// The signer's key is in the trusted keys of an organization that was
+    /// asked, revoked, and no organization that was asked holds it live
+    /// (CLOACINA-T-1062).
+    #[error("Package signed by a revoked key: {fingerprint}")]
+    RevokedSigner {
+        /// Fingerprint of the key that signed the package
+        fingerprint: String,
+    },
+
     #[error("Invalid signature: cryptographic verification failed")]
     InvalidSignature,
 
@@ -398,9 +407,10 @@ pub async fn verify_package_bytes(
 /// tenant's org first, then the server org if one is set).
 ///
 /// The first organization that trusts the signer's key decides: the result
-/// names it. A key that no organization of the list trusts (unknown, or
-/// revoked in each of them) is [`VerificationError::UntrustedSigner`]. An
-/// empty list trusts no key.
+/// names it. A key that no organization of the list knows is
+/// [`VerificationError::UntrustedSigner`]; a key that one of them holds
+/// revoked, and none live, is [`VerificationError::RevokedSigner`]. An empty
+/// list trusts no key.
 ///
 /// The failure lines of the audit log name the first organization of the
 /// list.
@@ -430,16 +440,112 @@ pub async fn verify_package_bytes_for_orgs(
         }
     };
 
+    check_signature_for_orgs(&package_hash, &signature, org_ids, log_org, key_manager).await
+}
+
+/// Verify a detached signature that came with the package bytes, with the
+/// signer looked up in each organization of `org_ids`, in order
+/// (CLOACINA-A-0018, CLOACINA-T-1062: the `signature` field of an upload).
+///
+/// No signature store is read: the signature is the one given. The checks,
+/// in order, and the error of each:
+///
+/// 1. the format is one this build knows ([`VerificationError::MalformedSignature`]);
+/// 2. the signature was made for these bytes ([`VerificationError::TamperedPackage`]);
+/// 3. an organization of the list holds the signer's key live
+///    ([`VerificationError::RevokedSigner`] when one holds it revoked and
+///    none live, else [`VerificationError::UntrustedSigner`]);
+/// 4. the signature verifies with that key ([`VerificationError::InvalidSignature`]).
+///
+/// The result names the organization that trusted the key.
+pub async fn verify_detached_signature_for_orgs(
+    package_data: &[u8],
+    signature: &DetachedSignature,
+    org_ids: &[UniversalUuid],
+    key_manager: &DbKeyManager,
+) -> Result<(VerificationResult, UniversalUuid), VerificationError> {
+    let package_hash = compute_package_hash(package_data)?;
+    let log_org = org_ids
+        .first()
+        .copied()
+        .unwrap_or(UniversalUuid(uuid::Uuid::nil()));
+    check_signature_for_orgs(&package_hash, signature, org_ids, log_org, key_manager).await
+}
+
+/// Verify the signature a registry stored for a package, for a load
+/// (CLOACINA-T-1062).
+///
+/// `package_signer` reads the rows where the package lives; `key_manager`
+/// reads the trusted keys, which can be another database (a tenant's rows
+/// are in the tenant's schema, the trusted keys in the admin schema). Only
+/// rows stored for an organization of `org_ids` count. The package passes
+/// when one of them passes [`verify_detached_signature_for_orgs`]; else the
+/// error is the one of the last row, or
+/// [`VerificationError::SignatureNotFound`] with no row.
+pub async fn verify_stored_signature_for_orgs(
+    package_data: &[u8],
+    org_ids: &[UniversalUuid],
+    package_signer: &DbPackageSigner,
+    key_manager: &DbKeyManager,
+) -> Result<(VerificationResult, UniversalUuid), VerificationError> {
+    let package_hash = compute_package_hash(package_data)?;
+    let log_org = org_ids
+        .first()
+        .copied()
+        .unwrap_or(UniversalUuid(uuid::Uuid::nil()));
+    let rows = package_signer
+        .find_signatures_for_orgs(&package_hash, org_ids)
+        .await
+        .map_err(|e| VerificationError::DatabaseError {
+            error: e.to_string(),
+        })?;
+
+    let mut last_error = VerificationError::SignatureNotFound {
+        hash: package_hash.clone(),
+    };
+    for (row, _stored_for) in rows {
+        let signature = DetachedSignature::from_signature_info(&row);
+        match check_signature_for_orgs(&package_hash, &signature, org_ids, log_org, key_manager)
+            .await
+        {
+            Ok(verified) => return Ok(verified),
+            Err(e) => last_error = e,
+        }
+    }
+    Err(last_error)
+}
+
+/// The checks every verification by organization shares: the format, the
+/// hash, the trusted key, the signature. `log_org` is the organization of a
+/// failure line written before a key was found.
+async fn check_signature_for_orgs(
+    package_hash: &str,
+    signature: &DetachedSignature,
+    org_ids: &[UniversalUuid],
+    log_org: UniversalUuid,
+    key_manager: &DbKeyManager,
+) -> Result<(VerificationResult, UniversalUuid), VerificationError> {
+    if signature.version != DetachedSignature::VERSION {
+        return Err(VerificationError::MalformedSignature {
+            reason: format!("unsupported signature version {}", signature.version),
+        });
+    }
+    if signature.algorithm != DetachedSignature::ALGORITHM {
+        return Err(VerificationError::MalformedSignature {
+            reason: format!("unsupported signature algorithm '{}'", signature.algorithm),
+        });
+    }
+
     if signature.package_hash != package_hash {
         audit::log_verification_failure(
             log_org,
-            &package_hash,
+            package_hash,
             "tampered",
             Some(&signature.key_fingerprint),
         );
         return Err(VerificationError::TamperedPackage {
-            expected: signature.package_hash,
-            actual: package_hash,
+            expected: signature.package_hash.clone(),
+            actual: package_hash.to_string(),
         });
     }
 
@@ -457,25 +563,55 @@ pub async fn verify_package_bytes_for_orgs(
         }
     }
     let Some((trusted_key, org_id)) = trusted else {
+        // No organization holds the key live. One that holds it revoked
+        // makes the answer "revoked"; a key no organization of the list
+        // knows is "untrusted", whoever else trusts it.
+        let mut revoked = false;
+        for org_id in org_ids {
+            let keys = key_manager
+                .list_org_trusted_keys(*org_id)
+                .await
+                .map_err(|e| VerificationError::KeyManagerError {
+                    error: e.to_string(),
+                })?;
+            if keys
+                .iter()
+                .any(|k| k.fingerprint == signature.key_fingerprint && !k.is_active())
+            {
+                revoked = true;
+                break;
+            }
+        }
+        let reason = if revoked {
+            "revoked_signer"
+        } else {
+            "untrusted_signer"
+        };
         audit::log_verification_failure(
             log_org,
-            &package_hash,
-            "untrusted_signer",
+            package_hash,
+            reason,
             Some(&signature.key_fingerprint),
         );
-        return Err(VerificationError::UntrustedSigner {
-            fingerprint: signature.key_fingerprint.clone(),
+        return Err(if revoked {
+            VerificationError::RevokedSigner {
+                fingerprint: signature.key_fingerprint.clone(),
+            }
+        } else {
+            VerificationError::UntrustedSigner {
+                fingerprint: signature.key_fingerprint.clone(),
+            }
         });
     };
 
-    let hash_bytes = hex::decode(&package_hash).map_err(|e| VerificationError::HashError {
+    let hash_bytes = hex::decode(package_hash).map_err(|e| VerificationError::HashError {
         error: e.to_string(),
     })?;
 
     let sig_bytes = signature.signature_bytes().map_err(|_| {
         audit::log_verification_failure(
             org_id,
-            &package_hash,
+            package_hash,
             "invalid_signature",
             Some(&signature.key_fingerprint),
         );
@@ -485,7 +621,7 @@ pub async fn verify_package_bytes_for_orgs(
     if verify_signature(&hash_bytes, &sig_bytes, &trusted_key.public_key).is_err() {
         audit::log_verification_failure(
             org_id,
-            &package_hash,
+            package_hash,
             "invalid_signature",
             Some(&signature.key_fingerprint),
         );
@@ -494,15 +630,15 @@ pub async fn verify_package_bytes_for_orgs(
 
     audit::log_verification_success(
         org_id,
-        &package_hash,
+        package_hash,
         &signature.key_fingerprint,
         trusted_key.key_name.as_deref(),
     );
 
     Ok((
         VerificationResult {
-            package_hash,
-            signer_fingerprint: signature.key_fingerprint,
+            package_hash: package_hash.to_string(),
+            signer_fingerprint: signature.key_fingerprint.clone(),
             signer_name: trusted_key.key_name,
         },
         org_id,
@@ -789,5 +925,381 @@ mod tests {
             result,
             Err(VerificationError::MalformedSignature { .. })
         ));
+    }
+
+    // ── A signature that comes with the bytes, and the load check
+    //    (CLOACINA-T-1062, CLOACINA-A-0018) ──────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    mod by_org {
+        use super::*;
+        use crate::dal::unified::DAL;
+        use crate::database::Database;
+        use crate::security::PackageSigner;
+        use crate::security::tenant_org_id;
+
+        async fn new_database() -> Database {
+            let url = format!(
+                "file:verify_by_org_{}?mode=memory&cache=shared",
+                uuid::Uuid::new_v4()
+            );
+            let db = Database::new(&url, "", 5);
+            db.run_migrations()
+                .await
+                .expect("migrations should succeed");
+            db
+        }
+
+        const BYTES: &[u8] = b"the bytes of a package";
+
+        fn signed(keypair: &crate::crypto::GeneratedKeypair) -> DetachedSignature {
+            DetachedSignature::sign(BYTES, &keypair.private_key).unwrap()
+        }
+
+        /// The tenant's org is asked first, then the server org. The result
+        /// names the org that trusted the key.
+        #[tokio::test]
+        async fn test_detached_signature_is_checked_against_the_orgs_in_order() {
+            let km = DbKeyManager::new(DAL::new(new_database().await));
+            let tenant_org = tenant_org_id("acme");
+            let server_org = UniversalUuid::new_v4();
+            let orgs = [tenant_org, server_org];
+            let tenant_key = generate_signing_keypair();
+            let server_key = generate_signing_keypair();
+            km.trust_public_key(tenant_org, &tenant_key.public_key, None)
+                .await
+                .unwrap();
+            km.trust_public_key(server_org, &server_key.public_key, None)
+                .await
+                .unwrap();
+
+            let (result, org) =
+                verify_detached_signature_for_orgs(BYTES, &signed(&tenant_key), &orgs, &km)
+                    .await
+                    .unwrap();
+            assert_eq!(org, tenant_org);
+            assert_eq!(result.signer_fingerprint, tenant_key.fingerprint);
+
+            let (_, org) =
+                verify_detached_signature_for_orgs(BYTES, &signed(&server_key), &orgs, &km)
+                    .await
+                    .unwrap();
+            assert_eq!(org, server_org);
+
+            // The server key is no use when the server org is not asked.
+            let alone =
+                verify_detached_signature_for_orgs(BYTES, &signed(&server_key), &[tenant_org], &km)
+                    .await;
+            assert!(
+                matches!(alone, Err(VerificationError::UntrustedSigner { .. })),
+                "{alone:?}"
+            );
+            // A key in both orgs is trusted by the first.
+            km.trust_public_key(tenant_org, &server_key.public_key, None)
+                .await
+                .unwrap();
+            let (_, org) =
+                verify_detached_signature_for_orgs(BYTES, &signed(&server_key), &orgs, &km)
+                    .await
+                    .unwrap();
+            assert_eq!(org, tenant_org);
+        }
+
+        /// Each signature that must not pass has its own error.
+        #[tokio::test]
+        async fn test_each_bad_detached_signature_has_its_own_error() {
+            let km = DbKeyManager::new(DAL::new(new_database().await));
+            let tenant_org = tenant_org_id("acme");
+            let other_tenant_org = tenant_org_id("globex");
+            let server_org = UniversalUuid::new_v4();
+            let orgs = [tenant_org, server_org];
+            let trusted = generate_signing_keypair();
+            km.trust_public_key(tenant_org, &trusted.public_key, None)
+                .await
+                .unwrap();
+
+            // A key nobody trusts, and a key only another tenant trusts.
+            let stranger = generate_signing_keypair();
+            let others = generate_signing_keypair();
+            km.trust_public_key(other_tenant_org, &others.public_key, None)
+                .await
+                .unwrap();
+            for keypair in [&stranger, &others] {
+                let result =
+                    verify_detached_signature_for_orgs(BYTES, &signed(keypair), &orgs, &km).await;
+                assert!(
+                    matches!(result, Err(VerificationError::UntrustedSigner { .. })),
+                    "{result:?}"
+                );
+            }
+
+            // A signature for other bytes.
+            let other_bytes =
+                DetachedSignature::sign(b"other bytes", &trusted.private_key).unwrap();
+            let result = verify_detached_signature_for_orgs(BYTES, &other_bytes, &orgs, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::TamperedPackage { .. })),
+                "{result:?}"
+            );
+
+            // The trusted key's fingerprint, signature bytes of another key.
+            let mut forged = signed(&trusted);
+            forged.signature = signed(&stranger).signature;
+            let result = verify_detached_signature_for_orgs(BYTES, &forged, &orgs, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::InvalidSignature)),
+                "{result:?}"
+            );
+            // Signature bytes that are not base64.
+            let mut not_base64 = signed(&trusted);
+            not_base64.signature = "not!base64!".to_string();
+            let result = verify_detached_signature_for_orgs(BYTES, &not_base64, &orgs, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::InvalidSignature)),
+                "{result:?}"
+            );
+
+            // A format this build does not know.
+            let mut other_algorithm = signed(&trusted);
+            other_algorithm.algorithm = "rsa".to_string();
+            let mut other_version = signed(&trusted);
+            other_version.version = 2;
+            for signature in [&other_algorithm, &other_version] {
+                let result = verify_detached_signature_for_orgs(BYTES, signature, &orgs, &km).await;
+                assert!(
+                    matches!(result, Err(VerificationError::MalformedSignature { .. })),
+                    "{result:?}"
+                );
+            }
+
+            // No org asked: no key is trusted.
+            let result =
+                verify_detached_signature_for_orgs(BYTES, &signed(&trusted), &[], &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::UntrustedSigner { .. })),
+                "{result:?}"
+            );
+        }
+
+        /// A revoked key is "revoked", not "untrusted". A key the tenant
+        /// revoked that the server org holds live still passes.
+        #[tokio::test]
+        async fn test_a_revoked_signer_is_told_apart_and_the_server_org_can_still_trust_it() {
+            let km = DbKeyManager::new(DAL::new(new_database().await));
+            let tenant_org = tenant_org_id("acme");
+            let server_org = UniversalUuid::new_v4();
+            let orgs = [tenant_org, server_org];
+            let keypair = generate_signing_keypair();
+            let in_tenant = km
+                .trust_public_key(tenant_org, &keypair.public_key, None)
+                .await
+                .unwrap();
+            km.revoke_trusted_key(tenant_org, in_tenant.id)
+                .await
+                .unwrap();
+
+            let result =
+                verify_detached_signature_for_orgs(BYTES, &signed(&keypair), &orgs, &km).await;
+            assert!(
+                matches!(
+                    &result,
+                    Err(VerificationError::RevokedSigner { fingerprint })
+                        if *fingerprint == keypair.fingerprint
+                ),
+                "{result:?}"
+            );
+
+            // Live in the server org: it passes, by the server org.
+            let in_server = km
+                .trust_public_key(server_org, &keypair.public_key, None)
+                .await
+                .unwrap();
+            let (_, org) = verify_detached_signature_for_orgs(BYTES, &signed(&keypair), &orgs, &km)
+                .await
+                .unwrap();
+            assert_eq!(org, server_org);
+
+            // Revoked there too.
+            km.revoke_trusted_key(server_org, in_server.id)
+                .await
+                .unwrap();
+            let result =
+                verify_detached_signature_for_orgs(BYTES, &signed(&keypair), &orgs, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::RevokedSigner { .. })),
+                "{result:?}"
+            );
+        }
+
+        /// Rows are stored with their org and read by org. One row for a
+        /// hash and a key: a second store replaces the first.
+        #[tokio::test]
+        async fn test_signature_rows_carry_the_org_and_are_read_by_org() {
+            let signer = DbPackageSigner::new(DAL::new(new_database().await));
+            let org_a = tenant_org_id("acme");
+            let org_b = tenant_org_id("globex");
+            let keypair = generate_signing_keypair();
+            let row = signed(&keypair).to_signature_info().unwrap();
+
+            // A row with no org is not a row of any org.
+            signer.store_signature(&row).await.unwrap();
+            let rows = signer
+                .find_signatures_for_orgs(&row.package_hash, &[org_a, org_b])
+                .await
+                .unwrap();
+            assert!(rows.is_empty());
+
+            // Stored for org A: org A finds it, org B does not.
+            signer.store_signature_for_org(org_a, &row).await.unwrap();
+            let rows = signer
+                .find_signatures_for_orgs(&row.package_hash, &[org_a])
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].1, org_a);
+            assert_eq!(rows[0].0.key_fingerprint, keypair.fingerprint);
+            let rows = signer
+                .find_signatures_for_orgs(&row.package_hash, &[org_b])
+                .await
+                .unwrap();
+            assert!(rows.is_empty());
+
+            // Stored again, for org B: still one row, now of org B.
+            signer.store_signature_for_org(org_b, &row).await.unwrap();
+            assert_eq!(
+                signer
+                    .find_signatures(&row.package_hash)
+                    .await
+                    .unwrap()
+                    .len(),
+                1
+            );
+            let rows = signer
+                .find_signatures_for_orgs(&row.package_hash, &[org_a, org_b])
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].1, org_b);
+
+            // A second key for the same bytes is a second row.
+            let second = generate_signing_keypair();
+            let second_row = signed(&second).to_signature_info().unwrap();
+            signer
+                .store_signature_for_org(org_b, &second_row)
+                .await
+                .unwrap();
+            let rows = signer
+                .find_signatures_for_orgs(&row.package_hash, &[org_b])
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2);
+        }
+
+        /// The load check: the rows are in one database (the tenant's), the
+        /// trusted keys in another (the admin schema).
+        #[tokio::test]
+        async fn test_stored_signature_is_verified_with_keys_of_another_database() {
+            let tenant_db = new_database().await;
+            let admin_db = new_database().await;
+            let signer = DbPackageSigner::new(DAL::new(tenant_db.clone()));
+            let km = DbKeyManager::new(DAL::new(admin_db));
+            let tenant_org = tenant_org_id("acme");
+            let server_org = UniversalUuid::new_v4();
+            let orgs = [tenant_org, server_org];
+            let keypair = generate_signing_keypair();
+            let row = signed(&keypair).to_signature_info().unwrap();
+
+            // No row.
+            let result = verify_stored_signature_for_orgs(BYTES, &orgs, &signer, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::SignatureNotFound { .. })),
+                "{result:?}"
+            );
+
+            // A row with no org does not count.
+            signer.store_signature(&row).await.unwrap();
+            let result = verify_stored_signature_for_orgs(BYTES, &orgs, &signer, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::SignatureNotFound { .. })),
+                "{result:?}"
+            );
+
+            // A row for the tenant's org, by a key the tenant does not
+            // trust: a row alone proves nothing.
+            signer
+                .store_signature_for_org(tenant_org, &row)
+                .await
+                .unwrap();
+            let result = verify_stored_signature_for_orgs(BYTES, &orgs, &signer, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::UntrustedSigner { .. })),
+                "{result:?}"
+            );
+            // A key in the tenant's own database is not a trusted key: the
+            // trusted keys are read from the other database.
+            DbKeyManager::new(DAL::new(tenant_db))
+                .trust_public_key(tenant_org, &keypair.public_key, None)
+                .await
+                .unwrap();
+            let result = verify_stored_signature_for_orgs(BYTES, &orgs, &signer, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::UntrustedSigner { .. })),
+                "{result:?}"
+            );
+
+            // The tenant trusts the key: the package passes.
+            let trusted = km
+                .trust_public_key(tenant_org, &keypair.public_key, None)
+                .await
+                .unwrap();
+            let (result, org) = verify_stored_signature_for_orgs(BYTES, &orgs, &signer, &km)
+                .await
+                .unwrap();
+            assert_eq!(org, tenant_org);
+            assert_eq!(result.signer_fingerprint, keypair.fingerprint);
+            // Other bytes have no row.
+            let result = verify_stored_signature_for_orgs(b"other", &orgs, &signer, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::SignatureNotFound { .. })),
+                "{result:?}"
+            );
+
+            // The revoke: the next check refuses the package.
+            km.revoke_trusted_key(tenant_org, trusted.id).await.unwrap();
+            let result = verify_stored_signature_for_orgs(BYTES, &orgs, &signer, &km).await;
+            assert!(
+                matches!(result, Err(VerificationError::RevokedSigner { .. })),
+                "{result:?}"
+            );
+        }
+
+        /// `sign_package_with_db_key` with `store_signature` stores the row
+        /// for the org that signs, so the load check of that org finds it.
+        #[tokio::test]
+        async fn test_a_signature_stored_by_the_library_passes_the_load_check_of_its_org() {
+            let dal = DAL::new(new_database().await);
+            let km = DbKeyManager::new(dal.clone());
+            let signer = DbPackageSigner::new(dal);
+            let org = UniversalUuid::new_v4();
+            let master_key = [3u8; 32];
+            let key = km
+                .create_signing_key(org, "release", &master_key)
+                .await
+                .unwrap();
+            km.trust_public_key(org, &key.public_key, None)
+                .await
+                .unwrap();
+            let file = NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), BYTES).unwrap();
+            signer
+                .sign_package_with_db_key(file.path(), org, key.id, &master_key, true)
+                .await
+                .unwrap();
+
+            let (_, trusted_by) = verify_stored_signature_for_orgs(BYTES, &[org], &signer, &km)
+                .await
+                .unwrap();
+            assert_eq!(trusted_by, org);
+        }
     }
 }
