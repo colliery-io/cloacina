@@ -270,8 +270,10 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | POST | `/v1/agent/heartbeat` | caller's key | `agent.act` | none: one every few seconds for each agent |
 | POST | `/v1/agent/keys` | caller's key | `agent.act` | `agent.keys` |
 | POST | `/v1/agent/result` | caller's key | `agent.act` | none: one for each task; the execution history holds the outcome |
+| POST | `/v1/agent/undecodable` | caller's key | `agent.act` | none: one for each refused packet; the execution history holds the outcome |
 | GET | `/v1/agent/artifact/{digest}` | caller's key | `agent.act` | none (read) |
 | GET | `/v1/agent/source/{digest}` | caller's key | `agent.act` | none (read) |
+| GET | `/v1/agent/python-vendor/{digest}` | caller's key | `agent.act` | none (read) |
 | GET | `/v1/agent/providers/{digest}` | caller's key | `agent.act` | none (read) |
 
 <!-- authz-table:end -->
