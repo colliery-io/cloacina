@@ -88,8 +88,12 @@ fn parse_scopes(raw: Option<&str>) -> Vec<String> {
 pub struct IdentityClaims {
     /// The stable subject identifier (`sub`).
     pub subject: String,
-    /// The verified email, if the IdP released one.
+    /// The email, if the IdP released one. It is proven only when
+    /// `email_verified` is `Some(true)`.
     pub email: Option<String>,
+    /// The `email_verified` claim: `None` when the IdP sent none. A `domain:`
+    /// rule needs `Some(true)` (CLOACINA-T-1066).
+    pub email_verified: Option<bool>,
     /// Group/role memberships from the IdP (e.g. Keycloak `groups`, GitHub orgs).
     pub groups: Vec<String>,
 }
@@ -99,7 +103,8 @@ pub struct IdentityClaims {
 pub enum ClaimMatch {
     /// The identity is a member of this group.
     Group(String),
-    /// The identity's email is in this domain (e.g. `acme.com`).
+    /// The identity's email is in this domain (e.g. `acme.com`), and the IdP
+    /// says the email is verified.
     EmailDomain(String),
     /// An exact subject match (a specific person).
     Subject(String),
@@ -120,11 +125,17 @@ impl MappingRule {
         match &self.claim {
             ClaimMatch::Subject(s) => &claims.subject == s,
             ClaimMatch::Group(g) => claims.groups.iter().any(|cg| cg == g),
-            ClaimMatch::EmailDomain(d) => claims
-                .email
-                .as_deref()
-                .map(|e| email_in_domain(e, d))
-                .unwrap_or(false),
+            // CLOACINA-T-1066: only an email the IdP says it verified. With
+            // `email_verified` false or not sent, a person who can set the
+            // email at the IdP could choose the domain of a rule.
+            ClaimMatch::EmailDomain(d) => {
+                claims.email_verified == Some(true)
+                    && claims
+                        .email
+                        .as_deref()
+                        .map(|e| email_in_domain(e, d))
+                        .unwrap_or(false)
+            }
         }
     }
 }
@@ -212,7 +223,8 @@ impl MappingPolicy {
 
     /// Parse a `;`-separated allowlist: each rule `<match>=<tenant>:<role>`,
     /// where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and
-    /// `<tenant>` may be `_` for a global principal. Malformed clauses are
+    /// `<tenant>` may be `_` for a global principal. A `domain:` rule matches
+    /// only an identity with `email_verified` true. Malformed clauses are
     /// skipped. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`.
     pub fn parse(raw: &str) -> MappingPolicy {
         let mut rules = Vec::new();
@@ -345,6 +357,7 @@ impl OidcProvider {
 
         let subject = claims.subject().as_str().to_string();
         let email = claims.email().map(|e| e.as_str().to_string());
+        let email_verified = claims.email_verified();
         // `groups` is a non-standard claim Dex/Keycloak include; read it from
         // the *already-validated* JWT payload (signature/iss/aud/exp/nonce all
         // checked above) rather than fighting the typed additional-claims path.
@@ -353,6 +366,7 @@ impl OidcProvider {
         Ok(IdentityClaims {
             subject,
             email,
+            email_verified,
             groups,
         })
     }
@@ -505,8 +519,15 @@ mod tests {
         IdentityClaims {
             subject: sub.to_string(),
             email: email.map(str::to_string),
+            // The IdP says the email is proven, as Dex does for its users.
+            email_verified: email.map(|_| true),
             groups: groups.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    fn with_email_verified(mut c: IdentityClaims, v: Option<bool>) -> IdentityClaims {
+        c.email_verified = v;
+        c
     }
 
     fn policy() -> MappingPolicy {
@@ -549,6 +570,41 @@ mod tests {
             .expect("mapped");
         assert_eq!(p.tenant.as_deref(), Some("acme"));
         assert_eq!(p.role, "write");
+    }
+
+    /// CLOACINA-T-1066: an email the IdP did not prove matches no `domain:`
+    /// rule, so a person cannot type a domain into a profile and get a role.
+    #[test]
+    fn domain_rule_refuses_an_email_that_is_not_verified() {
+        let c = with_email_verified(claims("u2", Some("bob@acme.com"), &[]), Some(false));
+        assert!(policy().resolve(&c, "iss").is_none());
+        assert!(policy().resolve_all(&c, "iss").is_empty());
+    }
+
+    /// CLOACINA-T-1066: no `email_verified` claim is not a proof.
+    #[test]
+    fn domain_rule_refuses_an_email_with_no_verified_claim() {
+        let c = with_email_verified(claims("u2", Some("bob@acme.com"), &[]), None);
+        assert!(policy().resolve(&c, "iss").is_none());
+        assert!(policy().resolve_all(&c, "iss").is_empty());
+    }
+
+    /// CLOACINA-T-1066: `group:` and `sub:` rules do not read the email.
+    #[test]
+    fn group_and_subject_rules_do_not_need_a_verified_email() {
+        let g = with_email_verified(
+            claims("u1", Some("u1@acme.com"), &["acme-admins"]),
+            Some(false),
+        );
+        let p = policy().resolve(&g, "iss").expect("mapped by the group");
+        assert_eq!(p.role, "admin");
+        // The group rule gives the only membership: the domain rule adds none.
+        assert_eq!(policy().resolve_all(&g, "iss").len(), 1);
+
+        let s = with_email_verified(claims("sub-root", Some("r@acme.com"), &[]), None);
+        let all = policy().resolve_all(&s, "iss");
+        assert_eq!(all.len(), 1);
+        assert!(all[0].tenant.is_none());
     }
 
     #[test]

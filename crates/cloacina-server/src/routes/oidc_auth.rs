@@ -111,6 +111,16 @@ pub async fn oidc_callback(
         }
     };
 
+    // CLOACINA-T-1066: an email the IdP did not mark verified matches no
+    // `domain:` rule. Say so, so an operator sees why such a login is denied.
+    if claims.email.is_some() && claims.email_verified != Some(true) {
+        warn!(
+            subject = %claims.subject,
+            email_verified = ?claims.email_verified,
+            "oidc: the email is not verified, so no domain: rule applies to this login"
+        );
+    }
+
     // A single sign-in may grant several tenant memberships (one IdP identity →
     // {tenant, role} set). Mint a scoped key for each; the SPA lets the user
     // pick which to enter. Unmapped → denied.
