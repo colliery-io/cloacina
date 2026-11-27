@@ -72,9 +72,12 @@ the install says where the agents come from:
 | `server.singleTrust=true` | none needed | every tenant's packages are loaded and their tasks run in the server process |
 
 With `fleet.actuator=kubernetes` or `fleet.externalAgents=true` a task waits
-until an agent of its tenant can take it. A package that uses a poll trigger,
-a native provider or Python reactive code does not load: its `build_status`
-is `failed` and `build_error` names what it uses.
+until an agent of its tenant can take it. A poll trigger's polls run on an
+agent of its tenant too: with `fleet.actuator=kubernetes` a tenant with a poll
+trigger keeps one agent; with `fleet.externalAgents=true` keep one agent of
+each such tenant running ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+A package that uses a native provider or Python reactive code does not load:
+its `build_status` is `failed` and `build_error` names what it uses.
 
 `server.singleTrust=true` is for a server whose every tenant is trusted as
 much as the server: one team, or one person. Each tenant's code then reaches
@@ -96,12 +99,14 @@ Before this setting a chart install ran every task in the server process
   metadata document, and the compiler describes the packages built before on
   its own ([Running the Compiler](../running-the-compiler/)). Until then the
   workflow detail gives `not_loaded_reason`.
-- Without single trust, a package with a poll trigger, a native provider or
-  Python reactive code is refused at its first load and gets `build_status`
-  `failed`. The refusal stays when the setting changes: to load it with single
-  trust after a refusal, publish a new version of it. Set
-  `server.singleTrust=true` before the upgrade to keep such packages in
-  service.
+- Without single trust, a package with a native provider or Python reactive
+  code is refused at its first load and gets `build_status` `failed`. The
+  refusal stays when the setting changes: to load it with single trust after
+  a refusal, publish a new version of it. Set `server.singleTrust=true` before
+  the upgrade to keep such packages in service.
+- A package with a poll trigger loads and polls on the tenant's agents. One
+  that a server of the release before refused for its poll trigger stays
+  refused: publish a new version of it.
 - With `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv`, the server
   does not start without `server.singleTrust=true`.
 

@@ -27,6 +27,16 @@ subscribe to its name. Two kinds of firing rule:
   again.
 - The scheduler hands a fired workflow off and does not wait for it to end, so
   a long run does not delay other trigger polls or cron schedules.
+- Each poll runs off the scheduler loop. A trigger whose last poll still runs
+  at its next interval is not polled again; that interval is skipped. Of
+  several schedulers on one database, one takes each poll.
+- **On a server** (CLOACINA-T-1077) a poll trigger's code runs on an agent of
+  the tenant, not in the server: the server sends each poll to an agent, which
+  calls the trigger and answers fire or skip. A poll trigger needs a running
+  agent and costs one dispatch per poll; a tenant with a poll trigger keeps one
+  agent. A poll that gets no answer fires nothing and its reason is in
+  `last_poll_error` of the trigger. See
+  [Poll triggers on agents](../../../service/execution-agent-fleet/#poll-triggers-on-agents).
 - **Fan-out** (CLOACI-T-0777 / T-0778). When a trigger fires, *every* workflow
   subscribed to it runs, not just the primary `on` workflow. A workflow
   subscribes by naming the trigger in `#[workflow(triggers = ["my_trigger"])]`,

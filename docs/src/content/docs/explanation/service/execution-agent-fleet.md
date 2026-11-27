@@ -676,6 +676,71 @@ fleet, so two replicas never scale or actuate the same tenant concurrently
 (NFR-003). The knobs above are documented in
 [Environment Variables](../../../reference/environment-variables/#fleet-actuator--autoscaler).
 
+## Poll triggers on agents
+
+A server that loads packages from their metadata (no `--single-trust`) runs
+no tenant code, so a poll trigger's code runs on an agent of its tenant
+(CLOACINA-T-1077, CLOACINA-A-0019). The interval, the target workflow and
+`allow_concurrent` come from the package's stored metadata document.
+
+1. **Due.** The scheduler of the tenant's runner reads the trigger's schedule
+   row. A poll is due when `poll_interval_ms` has passed since
+   `last_poll_at`. The scheduler takes the poll with a compare-and-set on
+   `last_poll_at`, so of several server replicas one sends each poll.
+2. **Off the loop.** The poll runs on its own task; the scheduler loop does
+   not wait for the agent. A trigger whose last poll still runs at its next
+   interval is not polled again: that interval is skipped and counted.
+3. **Dispatch.** The server picks a live agent of the tenant, pool
+   `default`, with a free slot, a runnable arch and the capability
+   `job:poll`, and sends a poll packet (kind `agent_poll`) on the delivery
+   outbox. A poll takes one slot of the agent while it runs.
+4. **On the agent.** The agent loads the package as for a task (a Python
+   package is imported into the same runtime its tasks use; a Rust build's
+   library is opened once and kept), calls the trigger under the poll time
+   limit and reports fire, with the trigger's context, or skip.
+5. **Fire.** On a fire the server starts the workflow with the context, as
+   for a poll in the server: the dedup by context hash and the execution row
+   are the same.
+
+**Settings.** `--fleet-poll-timeout-s` / `CLOACINA_FLEET_POLL_TIMEOUT_S`
+(default 30) is the time an agent lets one poll run. The server waits that
+plus 10 s for the answer.
+
+**A poll that gets no answer** fires nothing, and the reason is in
+`last_poll_error` of the trigger in the triggers routes and the UI:
+
+- no live agent of the tenant, or none with the capability (an agent of a
+  release before poll packets registers none and is never sent a poll);
+- every such agent is full;
+- no answer in time, or the packet is lost: the server stops waiting. A later
+  answer finds no wait and changes nothing. A packet carries the time the
+  server stops waiting; an agent that gets it later (for example after the
+  packet was moved from an agent that died) does not run the poll;
+- the agent refused it, or the trigger returned an error.
+
+The next interval polls again. A poll that answers clears `last_poll_error`.
+
+**One agent for a tenant with a poll trigger.** The fleet control loop reads,
+on each tick, which tenants have an enabled, unpaused poll trigger. For those
+the autoscaler's floor and the count the actuator reconciles to are at least
+one, also for a tenant whose desired count is 0. A tenant with no poll
+trigger keeps `CLOACINA_AUTOSCALE_FLOOR` (0 by default) and can scale to zero.
+The loop runs only with an actuator; with agents that register themselves,
+keep one agent of each such tenant running.
+
+**Cost.** Each poll is one dispatch: a trigger with a 10 s interval sends 360
+packets an hour, each with a package load on an agent that has not loaded the
+build yet.
+
+**Metrics.** `cloacina_trigger_polls_total{outcome}` (`fire`, `skip`,
+`error`, `in_flight`), `cloacina_fleet_polls_total{answer}` (`fire`, `skip`,
+`failed`, `missed`), `cloacina_fleet_polls_missed_total{reason}`
+(`no_build`, `no_agent`, `enqueue`, `no_answer`, `refused`, `bad_answer`) and
+the gauge `cloacina_fleet_poll_floor_tenants`.
+
+With `--single-trust` the server polls in its own process, as the daemon
+does; the scheduler's claim and the off-loop poll are the same.
+
 ## When to use the fleet
 
 | Situation | Use |

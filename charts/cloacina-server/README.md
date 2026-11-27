@@ -51,9 +51,10 @@ It also fails unless the install says where tenant tasks run (CLOACINA-T-1075):
 By default the server runs no tenant code in its own process. It loads each
 package from the metadata document its compiler stored, opens no tenant
 library and imports no tenant Python module, and sends every task to an agent
-of the tenant. A task waits until such an agent can take it. A package that
-uses a poll trigger, a native provider or Python reactive code does not load;
-its `build_error` names what it uses.
+of the tenant. A task waits until such an agent can take it. A poll trigger's
+polls also run on an agent of the tenant; a tenant with a poll trigger keeps
+one agent. A package that uses a native provider or Python reactive code does
+not load; its `build_error` names what it uses.
 
 `server.singleTrust=true` (`--single-trust`) is for a server whose every
 tenant is trusted as much as the server. The server then loads packages and
@@ -241,10 +242,13 @@ server process. After an upgrade with the old values:
 - To keep running tasks in the server, set `server.singleTrust=true`.
 - Without single trust, the server loads a package only once its compiler
   has stored the package's metadata document; upgrade the compiler with the
-  server. A package with a poll trigger, a native provider or Python reactive
-  code is refused at its first load (`build_status` `failed`), and stays
-  refused if the setting is turned on later: set `server.singleTrust=true`
-  before the upgrade to keep such packages in service.
+  server. A package with a native provider or Python reactive code is refused
+  at its first load (`build_status` `failed`), and stays refused if the
+  setting is turned on later: set `server.singleTrust=true` before the
+  upgrade to keep such packages in service.
+- A package with a poll trigger loads, and its polls run on the tenant's
+  agents. A package that a server of the release before refused for its poll
+  trigger stays refused: upload a new version of it.
 - `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv` stops the server
   at start without `server.singleTrust=true`.
 
