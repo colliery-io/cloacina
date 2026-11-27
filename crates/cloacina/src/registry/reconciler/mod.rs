@@ -208,6 +208,17 @@ pub trait CronWorkflowRegistrar: Send + Sync {
     /// [`register_cron_workflow`](Self::register_cron_workflow).
     async fn unregister_cron_workflow(&self, schedule_id: &str) -> Result<(), String>;
 
+    /// The ids of all schedule rows that exist now, cron and poll.
+    /// The reconciler reads them before a load (CLOACINA-T-1057): the
+    /// register calls are upserts, so a re-load gets back the id of a row
+    /// that already exists, and a failed load must delete only the rows it
+    /// made. The default is the empty set, so a registrar written before
+    /// this still compiles; with it, a failed load deletes every id the
+    /// load got. `DalCronRegistrar` reads the rows.
+    async fn existing_schedule_ids(&self) -> Result<std::collections::HashSet<String>, String> {
+        Ok(std::collections::HashSet::new())
+    }
+
     /// Create a `trigger`-type schedule row for a custom-poll (non-cron)
     /// trigger. The in-memory `Trigger` impl is registered separately by
     /// the reconciler's runtime step; this persists the row the trigger
