@@ -23,6 +23,8 @@ command-line flags (most also accept an environment variable). The
 | `--alert-webhook-timeout-s` | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `10` | Seconds allowed for one alert request. |
 | `--alert-webhook-max-attempts` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
+| `--log-format` | `CLOACINA_LOG_FORMAT` | `text` | Format of the log lines on stderr: `text` or `json`. The log file under `--home` is JSON in both. |
+| `--task-log-url-template` | `CLOACINA_TASK_LOG_URL_TEMPLATE` | — | URL of a task's logs in your log stack, with the placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`. The web UI shows it as a link on each task. Not set = no link. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--max-package-bytes` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts. A larger upload is refused with status 413. |
 | `--max-unpacked-bytes` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to. A larger archive is refused at upload and at load. The compiler, the agent and `cloacinactl` read the same setting. |

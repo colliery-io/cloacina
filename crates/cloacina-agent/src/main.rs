@@ -127,6 +127,11 @@ struct Args {
         default_value_t = cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
     )]
     max_unpacked_bytes: u64,
+    /// Format of the agent's log lines on stdout: `text`, or `json` (one JSON
+    /// object per line, for a log stack). In `json`, a line written while a
+    /// task runs has the task's ids under `span` (CLOACINA-T-1024).
+    #[arg(long, env = "CLOACINA_AGENT_LOG_FORMAT", default_value_t)]
+    log_format: cloacina::task_logs::LogFormat,
 }
 
 /// The environment variable the agent's key may arrive in.
@@ -213,18 +218,45 @@ async fn async_main(args: Args) -> Result<()> {
     // rustls has both ring and aws-lc-rs compiled in; without a process
     // default, a wss:// connect panics choosing one.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    match args.log_format {
+        cloacina::task_logs::LogFormat::Text => {
+            tracing_subscriber::fmt().with_env_filter(filter).init()
+        }
+        cloacina::task_logs::LogFormat::Json => tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .init(),
+    }
 
     if let Err(e) = run(args).await {
         error!(error = ?e, "agent exited with error");
         std::process::exit(1);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod log_format_tests {
+    use super::*;
+    use cloacina::task_logs::LogFormat;
+
+    fn parse(extra: &[&str]) -> Result<Args, clap::Error> {
+        let mut argv = vec!["cloacina-agent", "--server", "http://localhost:8080"];
+        argv.extend_from_slice(extra);
+        Args::try_parse_from(argv)
+    }
+
+    #[test]
+    fn the_log_format_is_text_unless_json_is_asked_for() {
+        assert_eq!(parse(&[]).unwrap().log_format, LogFormat::Text);
+        assert_eq!(
+            parse(&["--log-format", "json"]).unwrap().log_format,
+            LogFormat::Json
+        );
+        assert!(parse(&["--log-format", "yaml"]).is_err());
+    }
 }
 
 /// Backoff bounds for the reconnect loop.
@@ -2258,9 +2290,22 @@ async fn process_work_packet(
         }
     }
 
-    // 6. Execute under the packet's timeout.
+    // 6. Execute under the packet's timeout, inside the task's span
+    //    (CLOACINA-T-1024): a log line written while the task runs carries
+    //    the tenant, workflow, run, task, attempt and dispatch.
+    use tracing::Instrument as _;
+    let task_span = cloacina::task_logs::task_span(
+        packet.tenant_id.as_deref().unwrap_or("public"),
+        &packet.task_name,
+        &packet.workflow_execution_id,
+        packet.attempt,
+        packet.dispatch_id.as_deref(),
+    );
     let timeout = std::time::Duration::from_secs(packet.timeout_seconds.max(1) as u64);
-    match tokio::time::timeout(timeout, task.execute(context)).await {
+    match tokio::time::timeout(timeout, task.execute(context))
+        .instrument(task_span)
+        .await
+    {
         Ok(Ok(output)) => {
             let output_value = context_to_value(&output);
             cloacina::fleet::AgentOutcome::Success {

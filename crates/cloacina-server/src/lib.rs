@@ -49,6 +49,7 @@ pub mod retention;
 pub mod routes;
 pub mod secrets;
 pub mod startup_migrations;
+pub mod task_logs;
 pub mod tenant_runner_cache;
 pub mod upload_limit;
 
@@ -453,9 +454,16 @@ pub async fn run(
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Build the base subscriber with stderr + file layers
+    // CLOACINA-T-1024: stderr is text, or JSON when `--log-format json`.
+    let stderr_layer = match task_logs::log_format() {
+        cloacina::task_logs::LogFormat::Text => fmt::layer().with_writer(std::io::stderr).boxed(),
+        cloacina::task_logs::LogFormat::Json => {
+            fmt::layer().json().with_writer(std::io::stderr).boxed()
+        }
+    };
     let subscriber = tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(stderr_layer)
         .with(fmt::layer().json().with_writer(non_blocking));
 
     // Conditionally add OpenTelemetry tracing layer

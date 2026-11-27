@@ -278,6 +278,22 @@ impl PythonTaskWrapper {
     }
 }
 
+/// The traceback of a Python exception as `traceback.format_exception` gives
+/// it: the frames, the exception, and the exceptions it was raised from.
+/// Empty when Python cannot format it.
+pub(crate) fn format_python_traceback(py: Python<'_>, err: &PyErr) -> String {
+    py.import("traceback")
+        .and_then(|module| {
+            module.call_method1(
+                "format_exception",
+                (err.get_type(py), err.value(py), err.traceback(py)),
+            )
+        })
+        .and_then(|lines| lines.extract::<Vec<String>>())
+        .map(|lines| lines.concat())
+        .unwrap_or_default()
+}
+
 // SAFETY: PythonTaskWrapper holds PyObject fields which are not Send/Sync.
 // This is safe because ALL access to PyObject fields goes through Python::with_gil()
 // or tokio::task::spawn_blocking + Python::with_gil(), ensuring the GIL is held
@@ -315,7 +331,12 @@ impl cloacina::Task for PythonTaskWrapper {
         //    later in the async caller so the graph can be `.await`ed.
         let task_id_for_body = task_id.clone();
         let on_failure_for_body = Python::attach(|py| on_failure.as_ref().map(|f| f.clone_ref(py)));
+        // The blocking thread does not inherit the caller's span: enter it
+        // there, so lines logged while the body runs keep the task's ids
+        // (CLOACINA-T-1024).
+        let span = tracing::Span::current();
         let (mut final_context, returned_handle) = tokio::task::spawn_blocking(move || {
+            let _entered = span.enter();
             Python::attach(|py| {
                 let original_data = context.data().clone();
                 let py_context = PyContext::from_rust_context(context);
@@ -364,6 +385,9 @@ impl cloacina::Task for PythonTaskWrapper {
                     }
                     Err(e) => {
                         let error_message = format!("Python task execution failed: {}", e);
+                        // CLOACINA-T-1024: the traceback goes with the failure
+                        // as its details. The callback gets the message only.
+                        let traceback = format_python_traceback(py, &e);
                         if let Some(callback) = on_failure_for_body {
                             if let Err(callback_err) =
                                 callback.call1(py, (&task_id_for_body, &error_message, py_context))
@@ -375,7 +399,10 @@ impl cloacina::Task for PythonTaskWrapper {
                             }
                         }
                         Err(cloacina::TaskError::ExecutionFailed {
-                            message: error_message,
+                            message: cloacina::task_logs::with_error_details(
+                                &error_message,
+                                &traceback,
+                            ),
                             task_id: task_id_for_body.clone(),
                             timestamp: chrono::Utc::now(),
                         })
@@ -1311,6 +1338,86 @@ def post(ctx):
         );
         assert_eq!(get("long").retry_policy().max_attempts, 0);
         assert_eq!(get("plain").timeout(), None);
+    }
+
+    // CLOACINA-T-1024: a failed Python task keeps its traceback as the
+    // details of the failure; the message stays the exception type and text.
+    #[tokio::test]
+    #[serial]
+    async fn test_failed_task_keeps_its_traceback_as_details() {
+        Python::initialize();
+        let rt = Arc::new(cloacina::Runtime::empty());
+        let _scope = ScopedRuntime::new(rt.clone()).unwrap();
+
+        Python::attach(|py| {
+            super::push_workflow_context(super::PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "t1024_traceback",
+            ));
+            let decorator = task(
+                py,
+                Some("boom".to_string()),
+                None,
+                None,
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            let locals = pyo3::types::PyDict::new(py);
+            py.run(
+                c_str!(
+                    "def inner(ctx):\n    raise ValueError('bad row 7')\n\n\
+                     def boom(ctx):\n    try:\n        inner(ctx)\n    \
+                     except ValueError as e:\n        \
+                     raise RuntimeError('load failed') from e\n"
+                ),
+                Some(&locals),
+                Some(&locals),
+            )
+            .unwrap();
+            let user_fn = locals.get_item("boom").unwrap().unwrap();
+            decorator.__call__(py, user_fn.unbind()).unwrap();
+            super::pop_workflow_context();
+        });
+
+        let ns = cloacina::TaskNamespace::new("public", "embedded", "t1024_traceback", "boom");
+        let task = rt.get_task(&ns).expect("the task is registered");
+        let err = task
+            .execute(cloacina::Context::new())
+            .await
+            .expect_err("the task raises");
+        let text = err.to_string();
+        let (message, details) = cloacina::task_logs::split_error_details(&text);
+
+        assert_eq!(
+            message,
+            "Task execution failed: Python task execution failed: RuntimeError: load failed"
+        );
+        let details = details.expect("the traceback is kept");
+        assert!(
+            details.contains("Traceback (most recent call last):"),
+            "{details}"
+        );
+        assert!(details.contains("in boom"), "{details}");
+        assert!(details.contains("in inner"), "{details}");
+        // The exception it was raised from is there too.
+        assert!(details.contains("ValueError: bad row 7"), "{details}");
+        assert!(
+            details.trim_end().ends_with("RuntimeError: load failed"),
+            "{details}"
+        );
+        assert!(details.len() <= cloacina::task_logs::MAX_ERROR_DETAILS_BYTES + 64);
     }
 
     #[test]

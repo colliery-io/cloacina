@@ -52,6 +52,8 @@ The chart fails fast if you don't configure exactly one of:
 | `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant runners; none is stopped at the limit |
 | `context.warnBytes` | `1048576` | Size in bytes above which a task context is logged as a warning and counted (`0` = off) |
 | `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
+| `server.logFormat` | `text` | Format of the server's log lines on stderr: `text` or `json` (`--log-format`) |
+| `server.taskLogUrlTemplate` | `""` | URL of a task's logs in your log stack, with `{tenant}`, `{execution_id}`, `{task}`, `{attempt}`; the UI shows it as a link on each task; empty = no link (`--task-log-url-template`) |
 | `service.type` | `ClusterIP` | Service type |
 | `ingress.enabled` | `false` | Provision an Ingress |
 | `serviceMonitor.enabled` | `false` | Emit a Prometheus operator `ServiceMonitor` |

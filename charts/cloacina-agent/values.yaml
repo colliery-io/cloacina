@@ -34,6 +34,11 @@ server:
   # Leave empty unless you know you need it (OQ-6 fail-closed matching).
   targetTripleOverride: ""
 
+# Format of the agent's log lines on stdout: text or json (one JSON object per
+# line, for a log stack). In json, a line written while a task runs has the
+# task's ids under `span` (--log-format).
+logFormat: text
+
 # API key the agent authenticates with. Its tenant scope decides which tenants'
 # work the agent may receive. Choose ONE:
 #   1. apiKey (inline): this chart renders a Secret. Convenient for dev; the

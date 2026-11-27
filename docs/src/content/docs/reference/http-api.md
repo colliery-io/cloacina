@@ -1342,6 +1342,13 @@ of an execution's progress. **Tenant-scoped read.**
 
 **Response:** `200 OK` — the execution's tasks with their individual statuses.
 
+Each task has `last_error` (the message of the failure of its last attempt),
+`error_details` (the traceback of a failed Python task, or the reason of a
+skipped or abandoned task; `null` when there is none) and `log_url` (the URL
+of the attempt's logs in your log stack; `null` unless the server has
+`--task-log-url-template`). See
+[Find a Task's Logs](../../how-to/service/find-a-tasks-logs/).
+
 **Errors:**
 
 | Status | Body |

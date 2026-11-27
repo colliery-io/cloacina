@@ -571,7 +571,10 @@ impl TaskResultHandler {
                 RetryCondition::AllErrors => true,
                 RetryCondition::TransientOnly => Self::error_is_transient(error),
                 RetryCondition::ErrorPattern { patterns } => {
-                    let error_msg = error.to_string().to_lowercase();
+                    // The message only: the details of a failure (a Python
+                    // traceback) are not part of the contract (CLOACINA-T-1024).
+                    let error_text = error.to_string();
+                    let error_msg = crate::task_logs::error_message(&error_text).to_lowercase();
                     patterns
                         .iter()
                         .any(|pattern| error_msg.contains(&pattern.to_lowercase()))
@@ -596,7 +599,11 @@ impl TaskResultHandler {
             ExecutorError::ConnectionPool(_) => true,
             ExecutorError::TaskNotFound(_) => false,
             ExecutorError::TaskExecution(task_error) => {
-                let error_msg = task_error.to_string().to_lowercase();
+                // The message only, not the details of the failure
+                // (CLOACINA-T-1024): a traceback names files and modules,
+                // and "connection" in a path is not a transient error.
+                let error_text = task_error.to_string();
+                let error_msg = crate::task_logs::error_message(&error_text).to_lowercase();
                 error_msg.contains("timeout")
                     || error_msg.contains("connection")
                     || error_msg.contains("network")
@@ -713,6 +720,39 @@ mod is_transient_tests {
             timestamp: chrono::Utc::now(),
         };
         assert!(handler().is_transient_error(&ExecutorError::TaskExecution(task_err)));
+    }
+
+    /// CLOACINA-T-1024: the details of a failure (a Python traceback) are not
+    /// read by the retry conditions; the message still is.
+    #[test]
+    fn retry_conditions_read_the_message_and_not_the_details() {
+        let failure = |message: &str, details: &str| {
+            ExecutorError::TaskExecution(crate::error::TaskError::ExecutionFailed {
+                message: crate::task_logs::with_error_details(message, details),
+                task_id: "test".to_string(),
+                timestamp: chrono::Utc::now(),
+            })
+        };
+        let traceback = "Traceback (most recent call last):\n  File \"urllib3/connection.py\", \
+                         line 1, in connect\nValueError: bad input";
+        let in_details_only = failure("ValueError: bad input", traceback);
+        let in_message = failure("ConnectionError: connection refused", traceback);
+
+        assert!(!TaskResultHandler::error_is_transient(&in_details_only));
+        assert!(TaskResultHandler::error_is_transient(&in_message));
+
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::ErrorPattern {
+                patterns: vec!["connection".to_string()],
+            })
+            .build();
+        assert!(!TaskResultHandler::retry_allowed(
+            &policy,
+            1,
+            &in_details_only
+        ));
+        assert!(TaskResultHandler::retry_allowed(&policy, 1, &in_message));
     }
 }
 

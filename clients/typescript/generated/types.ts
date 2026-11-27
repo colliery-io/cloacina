@@ -2717,12 +2717,20 @@ export interface components {
              *     when `started_at` is null (some runner configs don't stamp it).
              */
             created_at: string;
-            /** @description Structured error details, when present. */
+            /**
+             * @description Details of the task's end, when present: the traceback of a failed
+             *     Python task, the reason of a skipped or abandoned task.
+             */
             error_details?: string | null;
             /** @description Task execution UUID. */
             id: string;
             /** @description Last error message for the most recent failed attempt, when present. */
             last_error?: string | null;
+            /**
+             * @description URL of this attempt's logs in the operator's log stack, when the
+             *     server has a log URL template (`--task-log-url-template`).
+             */
+            log_url?: string | null;
             /** Format: int32 */
             max_attempts: number;
             /** @description RFC 3339 timestamp; `null` until the task starts. */

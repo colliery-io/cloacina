@@ -65,6 +65,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_PUBLIC_BASE_URL` | `--public-base-url` | None | Public URL of the server, for the absolute links in an alert |
 | `CLOACINA_MAX_PACKAGE_BYTES` | `--max-package-bytes` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload is refused with status 413 and an error that names the size and the limit |
 | `CLOACINA_MAX_UNPACKED_BYTES` | `--max-unpacked-bytes` | `524288000` | The largest size, in bytes, that a package archive may unpack to (500 MiB). A larger archive is refused at upload and at load. Also read by `cloacina-compiler`, `cloacina-agent`, `cloacinactl daemon` and `cloacinactl package validate`, `pack` and `publish`: give each the same value |
+| `CLOACINA_LOG_FORMAT` | `--log-format` | `text` | Format of the server's log lines on stderr: `text` or `json` (one JSON object per line). The log file under `--home` is JSON in both |
+| `CLOACINA_TASK_LOG_URL_TEMPLATE` | `--task-log-url-template` | None | URL of a task's logs in your log stack, with the placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`. The task API gives it as `log_url` and the web UI shows a link. Not set = no link. Also taken by `cloacinactl server start`. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/) |
 | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `--database-wait-timeout-s` | `60` | Seconds the server waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s), then exits with an error. `0` = one try, no wait |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Server-wide trusted org UUID (optional) |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner warning limit |
@@ -152,6 +154,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
 | `CLOACINA_AGENT_MEMORY` | Total memory the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--memory`. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
+| `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator does not set it. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
 
@@ -549,6 +552,9 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_AGENT_CPU` | Agent | Total CPU the agent reports for task placement (unset: none) |
 | `CLOACINA_AGENT_MEMORY` | Agent | Total memory the agent reports for task placement (unset: none) |
+| `CLOACINA_AGENT_LOG_FORMAT` | Agent | Format of the agent's log lines: `text` (default) or `json` |
+| `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
+| `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |
 | `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | `CARGO_HOME` pointed at a curated vendored source tree |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |

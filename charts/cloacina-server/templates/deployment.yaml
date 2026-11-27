@@ -46,6 +46,14 @@ spec:
             - "--metrics-bind"
             - {{ printf "0.0.0.0:%v" .Values.metrics.port | quote }}
             {{- end }}
+            {{- if ne (.Values.server.logFormat | default "text") "text" }}
+            - "--log-format"
+            - {{ .Values.server.logFormat | quote }}
+            {{- end }}
+            {{- if .Values.server.taskLogUrlTemplate }}
+            - "--task-log-url-template"
+            - {{ .Values.server.taskLogUrlTemplate | quote }}
+            {{- end }}
             - "--tenant-runner-cache-size"
             - {{ .Values.server.tenantRunnerCacheSize | quote }}
             - "--tenant-deletion-drain-timeout-s"

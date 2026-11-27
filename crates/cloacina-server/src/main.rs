@@ -99,6 +99,21 @@ struct Cli {
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
 
+    /// Format of the server's log lines on stderr: `text`, or `json` (one
+    /// JSON object per line, for a log stack). The log file under `--home`
+    /// is JSON in both. In `json`, a line written while a task runs in the
+    /// server has the task's ids under `span` (CLOACINA-T-1024).
+    #[arg(long, env = "CLOACINA_LOG_FORMAT", default_value_t)]
+    log_format: cloacina::task_logs::LogFormat,
+
+    /// Template of the URL of a task's logs in your log stack
+    /// (CLOACINA-T-1024). The placeholders `{tenant}`, `{execution_id}`,
+    /// `{task}` and `{attempt}` are filled in for each task, URL-encoded.
+    /// The task API then gives `log_url`, and the UI shows a link. Not set =
+    /// no link.
+    #[arg(long, env = "CLOACINA_TASK_LOG_URL_TEMPLATE")]
+    task_log_url_template: Option<String>,
+
     /// Days to keep a finished workflow run (status Completed, Failed or
     /// Cancelled) in the database, counted from when it finished. A
     /// background job then deletes the run with its task executions, task
@@ -380,6 +395,18 @@ async fn main() -> Result<()> {
         cli.max_unpacked_bytes,
     )
     .map_err(|e| anyhow::anyhow!(e))?;
+
+    // CLOACINA-T-1024: the console log format and the task log link.
+    cloacina_server::task_logs::set_log_format(cli.log_format);
+    if let Some(template) = cli
+        .task_log_url_template
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+    {
+        let template = cloacina_server::task_logs::TaskLogUrlTemplate::parse(template)
+            .map_err(|e| anyhow::anyhow!("--task-log-url-template: {e}"))?;
+        cloacina_server::task_logs::install_url_template(template);
+    }
 
     // Fail at start on limits the server cannot run with (CLOACINA-T-1014).
     let fleet_task_time_limits =

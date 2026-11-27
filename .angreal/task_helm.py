@@ -167,6 +167,17 @@ def helm_lint():
         "          port: 9090",  # no NetworkPolicy rule for the metrics port
     ])
 
+    # Task logs (CLOACINA-T-1024): no flag by default; both when set.
+    _expect(out, "task logs, default values",
+            absent=["--log-format", "--task-log-url-template"])
+    log_url = "https://logs.example.com/s?run={execution_id}&task={task}"
+    out = _render(db + ["--set", "server.logFormat=json",
+                        "--set-string", f"server.taskLogUrlTemplate={log_url}"])
+    _expect(out, "task logs set", present=[
+        '- "--log-format"\n            - "json"',
+        f'- "--task-log-url-template"\n            - "{log_url}"',
+    ])
+
     # Metrics off: one value brings back /metrics on the API port, with no
     # metrics Service and no NetworkPolicy.
     out = _render(db + ["--set", "metrics.enabled=false",

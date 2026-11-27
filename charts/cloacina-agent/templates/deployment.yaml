@@ -46,6 +46,10 @@ spec:
             - "--target-triple-override"
             - {{ .Values.server.targetTripleOverride | quote }}
             {{- end }}
+            {{- if ne (.Values.logFormat | default "text") "text" }}
+            - "--log-format"
+            - {{ .Values.logFormat | quote }}
+            {{- end }}
           env:
             - name: CLOACINA_SERVER
               value: {{ .Values.server.url | quote }}

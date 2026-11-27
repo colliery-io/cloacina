@@ -114,7 +114,12 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
-        let error_message = error_message.to_string();
+        // CLOACINA-T-1024: a failure text can carry details (a Python
+        // traceback) after a marker. The message goes to `last_error` and the
+        // event; the details go to `error_details`.
+        let (message, details) = crate::task_logs::split_error_details(error_message);
+        let error_message = message.to_string();
+        let error_details = details.map(crate::task_logs::bound_error_details);
         let applied = crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<bool, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
@@ -122,12 +127,15 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Get task info for event
                 let task: UnifiedTaskExecution =
                     task_executions::table.find(task_id).first(conn)?;
+                // A failure with no details keeps what the column holds.
+                let error_details = error_details.clone().or(task.error_details.clone());
 
                 // Update task status — guarded by claimed_by when runner_id provided
                 let set_clause = (
                     task_executions::status.eq("Failed"),
                     task_executions::completed_at.eq(Some(now)),
                     task_executions::last_error.eq(&error_message),
+                    task_executions::error_details.eq(&error_details),
                     task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                     task_executions::updated_at.eq(now),
                 );

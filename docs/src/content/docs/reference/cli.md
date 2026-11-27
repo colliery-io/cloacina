@@ -177,6 +177,7 @@ under the `/v1/` prefix and the unauth probes `/health`, `/ready`,
 
 ```text
 cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
+                        [--task-log-url-template <URL>]
                         [--database-url <URL>]
                         [--bootstrap-key <KEY>]
                         [--require-signatures] [--verification-org-id <UUID>]
@@ -202,6 +203,7 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
 |---|---|---|---|
 | `--bind <ADDR>` | | `127.0.0.1:8080` | Listen address. |
 | `--metrics-bind <ADDR>` | `CLOACINA_METRICS_BIND` | (none) | Address of a separate listener for `/metrics`. When set, `/metrics` is served only there and `--bind` answers 404 for it. When not set, `/metrics` is on `--bind`. |
+| `--task-log-url-template <URL>` | `CLOACINA_TASK_LOG_URL_TEMPLATE` | (none) | URL of a task's logs in your log stack, with the placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`. The web UI shows it as a link on each task. Not set: no link. See [Task logs](#task-logs-cloacina-server). |
 | `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
 | `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. The signer must be a trusted key of the tenant (see [`trusted-key`](#trusted-key)), or of `--verification-org-id` if one is set. |
@@ -255,6 +257,17 @@ an unknown key fails fast.
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
 | `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Forwarded by `cloacinactl server start`; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+
+### Task logs (`cloacina-server`)
+
+The server stores no task output. These flags set the format of its own log
+lines and the link from a task to your log stack. See
+[Find a Task's Logs](../../how-to/service/find-a-tasks-logs/).
+
+| Flag | Env Var | Default | Description |
+|---|---|---|---|
+| `--log-format <text\|json>` | `CLOACINA_LOG_FORMAT` | `text` | Format of the server's log lines on stderr. `json` writes one JSON object per line. The log file under `--home` is JSON in both. On `cloacina-server` only. |
+| `--task-log-url-template <URL>` | `CLOACINA_TASK_LOG_URL_TEMPLATE` | (none) | URL of a task's logs in your log stack. The placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}` are filled in for each task, percent-encoded. The task API then gives `log_url` and the web UI shows a link. Must start with `http://` or `https://`. Not set, or empty: no link. Forwarded by `cloacinactl server start`. |
 
 ### Fleet agent liveness (`cloacina-server`)
 
@@ -366,6 +379,7 @@ cloacina-agent --server <URL> --api-key <KEY>
                [--agent-id <ID>] [--max-concurrency <N>] [--pool <NAME>]
                [--capabilities <TAG,TAG>] [--target-triple-override <TRIPLE>]
                [--cache-dir <PATH>] [--max-unpacked-bytes <N>]
+               [--log-format <text|json>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -382,6 +396,7 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
 | `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package or provider archive may unpack to (500 MiB). The agent refuses to load a larger one. Use the value of the server. |
+| `--log-format <text\|json>` | `CLOACINA_AGENT_LOG_FORMAT` | `text` | Format of the agent's log lines on stdout. `json` writes one JSON object per line; a line written while a task runs has the task's ids under `span`. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). |
 
 The agent exposes no HTTP surface of its own — observe it via its logs and the
 server's fleet metrics (`cloacina_fleet_*`). See the how-to guide

@@ -450,6 +450,11 @@ pub fn ExecutionView(
                                     <th>"Attempt"</th>
                                     <th>"Duration"</th>
                                     <th>"Error"</th>
+                                    // The log link column is there only when
+                                    // the server has a log URL template.
+                                    <Show when=move || task_list.get().iter().any(|t| t.log_url.is_some())>
+                                        <th>"Logs"</th>
+                                    </Show>
                                 </tr>
                             </thead>
                             <tbody>
@@ -469,7 +474,27 @@ pub fn ExecutionView(
                                                 </td>
                                                 <td class="app-bad app-meta--md">
                                                     {t.last_error.clone().unwrap_or_default()}
+                                                    // The traceback of a failed Python task,
+                                                    // or the reason of a skipped task.
+                                                    {t.error_details.clone().map(|details| view! {
+                                                        <details class="app-errdetails">
+                                                            <summary>"Details"</summary>
+                                                            <pre class="app-errdetails__text">{details}</pre>
+                                                        </details>
+                                                    })}
                                                 </td>
+                                                {t.log_url.clone().map(|url| view! {
+                                                    <td>
+                                                        <a
+                                                            href=url
+                                                            class="app-link"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                        >
+                                                            "Logs ↗"
+                                                        </a>
+                                                    </td>
+                                                })}
                                             </tr>
                                         }
                                     }

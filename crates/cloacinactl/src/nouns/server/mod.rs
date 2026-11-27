@@ -45,6 +45,12 @@ enum ServerVerb {
         #[arg(long, env = "CLOACINA_METRICS_BIND")]
         metrics_bind: Option<SocketAddr>,
 
+        /// Template of the URL of a task's logs in your log stack, with the
+        /// placeholders `{tenant}`, `{execution_id}`, `{task}` and
+        /// `{attempt}`. The UI then shows a log link on each task.
+        #[arg(long, env = "CLOACINA_TASK_LOG_URL_TEMPLATE")]
+        task_log_url_template: Option<String>,
+
         #[arg(long, env = "DATABASE_URL")]
         database_url: Option<String>,
 
@@ -81,6 +87,7 @@ impl ServerCmd {
             ServerVerb::Start {
                 bind,
                 metrics_bind,
+                task_log_url_template,
                 database_url,
                 bootstrap_key,
                 require_signatures,
@@ -91,6 +98,7 @@ impl ServerCmd {
                     globals,
                     bind,
                     metrics_bind,
+                    task_log_url_template,
                     database_url,
                     bootstrap_key,
                     require_signatures,
