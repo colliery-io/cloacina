@@ -29,7 +29,17 @@ cloacina-workflow-plugin = { workspace = true }
 # `constructor-packaging` (serde-only, no wasmtime): the build step discovers a
 # package's `constructor!` provider refs and bundles each provider into
 # `package_providers` (CLOACI-T-0836).
-cloacina = { workspace = true, default-features = false, features = ["constructor-packaging"] }
+#
+# `constructors-wasm` (CLOACINA-T-1074): the describe child imports a Python
+# package the way a server does, and `cloaca.constructor(...)` resolves a
+# bundled provider during that import.
+cloacina = { workspace = true, default-features = false, features = ["constructor-packaging", "constructors-wasm"] }
+# CLOACINA-T-1074: the describe child (this binary, started again in describe
+# mode) imports a Python package to read its tasks, triggers, reactors and
+# graph. `default-features = false` (not `extension-module`) embeds the
+# interpreter, as in the server and the agent, so the compiler host needs
+# libpython.
+cloacina-python = { workspace = true, default-features = false }
 cloacina-api-types = { workspace = true }
 clap.workspace = true
 anyhow.workspace = true
@@ -52,5 +62,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 
+[build-dependencies]
+# Link settings for the embedded Python interpreter (the describe child).
+cloacina-build = { workspace = true }
+
 [dev-dependencies]
 serial_test = "4"
+serde = "1.0"

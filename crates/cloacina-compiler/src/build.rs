@@ -27,6 +27,7 @@ use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
 use cloacina::packaging::build_child::{
     ChildPolicy, ChildRlimits, ChildStep, build_child_command, kill_child_group,
 };
+use cloacina::registry::package_description::PackageDescription;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
 use sha2::{Digest, Sha256};
@@ -34,6 +35,7 @@ use tempfile::TempDir;
 use tracing::{debug, info, warn};
 
 use crate::config::CompilerConfig;
+use crate::describe::DescribeInput;
 
 /// Result of a single build attempt.
 pub enum BuildOutcome {
@@ -54,6 +56,11 @@ pub enum BuildOutcome {
         /// for Rust (surfaces come from the FFI input-interface) and for Python
         /// packages with no boundary schemas.
         declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
+        /// CLOACINA-T-1074: the full metadata document that the describe
+        /// child wrote, with the source parse above already in it. `None`
+        /// for a per-target build (`--build-target`), which fills a library
+        /// for one architecture and does not describe.
+        document: Option<Box<PackageDescription>>,
     },
     Failed(String),
     /// The cargo subprocess exceeded `CompilerConfig::build_timeout` and was
@@ -119,12 +126,15 @@ pub async fn execute_build(
     config: &CompilerConfig,
 ) -> BuildOutcome {
     match run_build(registry, package_id, config).await {
-        Ok((artifact, task_docs, declared_params, declared_surfaces)) => BuildOutcome::Success {
-            artifact,
-            task_docs,
-            declared_params,
-            declared_surfaces,
-        },
+        Ok((artifact, task_docs, declared_params, declared_surfaces, document)) => {
+            BuildOutcome::Success {
+                artifact,
+                task_docs,
+                declared_params,
+                declared_surfaces,
+                document: document.map(Box::new),
+            }
+        }
         Err(BuildError::Failed { reason, .. }) => BuildOutcome::Failed(reason),
         Err(BuildError::TimedOut { elapsed }) => BuildOutcome::TimedOut { elapsed },
     }
@@ -165,19 +175,161 @@ fn signal_name(num: i32) -> String {
 type TaskDocsMap =
     std::collections::HashMap<String, cloacina::registry::loader::package_loader::TaskDocs>;
 
+/// What a finished build gives: the library, the source parse (docs, params,
+/// surfaces) and the metadata document.
+type BuildParts = (
+    Vec<u8>,
+    TaskDocsMap,
+    Vec<cloacina::input_interface::InputSlot>,
+    Vec<cloacina_api_types::DeclaredSurface>,
+    Option<PackageDescription>,
+);
+
+/// Describe a built package in a child process (CLOACINA-T-1074).
+///
+/// A Rust package is described from `library`, the built cdylib. A Python
+/// package (`library` is empty) is described from `archive`, the uploaded
+/// package, with the dependencies the registry holds for the compiler's own
+/// platform and the package's bundled providers.
+///
+/// Used by the build, and by the pass over packages built before the
+/// document existed. An `Err` is the reason, as the publisher reads it.
+pub(crate) async fn describe_stored(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package_name: &str,
+    version: &str,
+    library: &[u8],
+    archive: &[u8],
+    work: &Path,
+    config: &CompilerConfig,
+) -> Result<PackageDescription, String> {
+    use cloacina::registry::WorkflowRegistry;
+
+    if !library.is_empty() {
+        return crate::describe::describe(DescribeInput::Rust { library }, work, config).await;
+    }
+    let platform = cloacina_workflow_plugin::python_env::host_platform();
+    let vendored_set = registry
+        .get_python_vendor(package_name, version, &platform)
+        .await
+        .map_err(|e| format!("failed to read the vendored dependencies for {platform}: {e}"))?;
+    let providers = registry
+        .get_package_providers(package_name, version)
+        .await
+        .map_err(|e| format!("failed to read the bundled providers: {e}"))?;
+    crate::describe::describe(
+        DescribeInput::Python {
+            archive,
+            vendored_set: vendored_set.as_deref(),
+            providers: &providers,
+        },
+        work,
+        config,
+    )
+    .await
+}
+
+/// What the compiler reads from the unpacked package source, without running
+/// it: the docs of each task, the declared params and secrets, and the
+/// declared surfaces.
+fn parse_source(
+    source_dir: &Path,
+    language: &str,
+) -> (
+    TaskDocsMap,
+    Vec<cloacina::input_interface::InputSlot>,
+    Vec<cloacina_api_types::DeclaredSurface>,
+) {
+    // CLOACI-T-0752: parse "what & why" docs from the unpacked source while we
+    // still have it. Best-effort and independent of the cargo build.
+    let task_docs = crate::doc_parse::parse_task_docs(source_dir, language);
+
+    // CLOACI-T-0760: parse declared workflow params from the source too. For
+    // Python this is the *only* source of declared params (no cdylib FFI); for
+    // Rust it's empty (the FFI input-interface entrypoint is authoritative).
+    let mut declared_params = crate::param_parse::parse_workflow_params(source_dir, language);
+
+    // CLOACI-T-0859: parse declared workflow SECRETS (Python
+    // `cloaca.workflow_secrets(...)`) and carry them as encrypted slots in the
+    // same declared-params list, so the manifest records which secrets the
+    // workflow requires. Empty for Rust (its secrets ride the FFI interface).
+    declared_params.extend(crate::param_parse::parse_workflow_secrets(
+        source_dir, language,
+    ));
+
+    // CLOACI-T-0770: parse declared CG boundary surfaces (Python
+    // `cloaca.boundary_schema(...)`) from the same source. Empty for Rust.
+    let declared_surfaces = crate::param_parse::parse_boundary_schemas(source_dir, language);
+
+    (task_docs, declared_params, declared_surfaces)
+}
+
+/// Describe a package that is already built and in service
+/// (CLOACINA-T-1074): one built before the metadata document existed. No
+/// build runs. The stored library (or, for a Python package, the stored
+/// archive) is described in a child process, and the source parse is added
+/// as a build adds it. An `Err` is the reason the package cannot be
+/// described.
+pub(crate) async fn describe_existing(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package_id: uuid::Uuid,
+    config: &CompilerConfig,
+) -> Result<PackageDescription, String> {
+    let (meta, source_bytes) = registry
+        .get_source_for_build(package_id)
+        .await
+        .map_err(|e| format!("failed to load the package source: {e}"))?
+        .ok_or_else(|| "the package is no longer in the registry".to_string())?;
+    let library = registry
+        .get_compiled_data_by_id(package_id)
+        .await
+        .map_err(|e| format!("failed to load the built library: {e}"))?
+        .unwrap_or_default();
+
+    let tmp_root = config.tmp_root_or_default();
+    std::fs::create_dir_all(&tmp_root)
+        .map_err(|e| format!("failed to ensure tmp_root {}: {e}", tmp_root.display()))?;
+    let work = TempDir::new_in(&tmp_root)
+        .map_err(|e| format!("failed to create a scratch folder: {e}"))?;
+
+    let archive_path = work.path().join("pkg.cloacina");
+    std::fs::write(&archive_path, &source_bytes)
+        .map_err(|e| format!("failed to stage the archive: {e}"))?;
+    let extract_dir = work.path().join("source");
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|e| format!("failed to prepare the extract folder: {e}"))?;
+    let source_dir = tokio::task::spawn_blocking(move || {
+        cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+    })
+    .await
+    .map_err(|e| format!("unpack task panicked: {e}"))?
+    .map_err(|e| format!("unpack of the package archive failed: {e}"))?;
+    let manifest = load_manifest(&source_dir)?;
+    let language = manifest_language(&manifest);
+    if language != "python" && library.is_empty() {
+        return Err("the package row holds no built library".to_string());
+    }
+
+    let mut document = describe_stored(
+        registry,
+        &meta.package_name,
+        &meta.version,
+        if language == "python" { &[] } else { &library },
+        &source_bytes,
+        work.path(),
+        config,
+    )
+    .await?;
+    let (task_docs, declared_params, declared_surfaces) = parse_source(&source_dir, &language);
+    document.overlay_source_parse(&task_docs, &declared_params, &declared_surfaces);
+    Ok(document)
+}
+
 async fn run_build(
     registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
     package_id: uuid::Uuid,
     config: &CompilerConfig,
-) -> Result<
-    (
-        Vec<u8>,
-        TaskDocsMap,
-        Vec<cloacina::input_interface::InputSlot>,
-        Vec<cloacina_api_types::DeclaredSurface>,
-    ),
-    BuildError,
-> {
+) -> Result<BuildParts, BuildError> {
     let build_started_at = std::time::Instant::now();
     let build_claim_id = UniversalUuid(package_id);
 
@@ -225,27 +377,7 @@ async fn run_build(
     let manifest = load_manifest(&source_dir).map_err(BuildError::internal)?;
     let language = manifest_language(&manifest);
 
-    // CLOACI-T-0752: parse "what & why" docs from the unpacked source while we
-    // still have it. Best-effort and independent of the cargo build.
-    let task_docs = crate::doc_parse::parse_task_docs(&source_dir, &language);
-
-    // CLOACI-T-0760: parse declared workflow params from the source too. For
-    // Python this is the *only* source of declared params (no cdylib FFI); for
-    // Rust it's empty (the FFI input-interface entrypoint is authoritative).
-    let mut declared_params = crate::param_parse::parse_workflow_params(&source_dir, &language);
-
-    // CLOACI-T-0859: parse declared workflow SECRETS (Python
-    // `cloaca.workflow_secrets(...)`) and carry them as encrypted slots in the
-    // same declared-params list, so the manifest records which secrets the
-    // workflow requires. Empty for Rust (its secrets ride the FFI interface).
-    declared_params.extend(crate::param_parse::parse_workflow_secrets(
-        &source_dir,
-        &language,
-    ));
-
-    // CLOACI-T-0770: parse declared CG boundary surfaces (Python
-    // `cloaca.boundary_schema(...)`) from the same source. Empty for Rust.
-    let declared_surfaces = crate::param_parse::parse_boundary_schemas(&source_dir, &language);
+    let (task_docs, declared_params, declared_surfaces) = parse_source(&source_dir, &language);
 
     info!(
         %package_id,
@@ -312,15 +444,7 @@ async fn run_build(
         .elapsed()
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
-    let final_result: Result<
-        (
-            Vec<u8>,
-            TaskDocsMap,
-            Vec<cloacina::input_interface::InputSlot>,
-            Vec<cloacina_api_types::DeclaredSurface>,
-        ),
-        BuildError,
-    > = match result {
+    let final_result: Result<BuildParts, BuildError> = match result {
         Ok(success) => {
             // CLOACI-T-0836/T-0831: bundle the constructor providers this package
             // consumes (resolve → build per the provider's declared runtime →
@@ -466,29 +590,60 @@ async fn run_build(
                 Ok(())
             }
             .await;
-            if let Err(err) = bundle_result {
-                let reason = match &err {
-                    BuildError::Failed { reason, .. } => reason.clone(),
-                    other => format!("{other:?}"),
-                };
-                audit::log_compiler_build_finished(
-                    build_claim_id,
+            // CLOACINA-T-1074: read the package's metadata in a child process
+            // and keep the document. After the bundling: a Python import
+            // resolves its bundled providers. A describe that fails, or
+            // passes its time limit, fails the build with the reason; the
+            // inner Result keeps the "failed" audit emit below.
+            let described: Result<Option<PackageDescription>, BuildError> = match bundle_result {
+                Err(err) => Err(err),
+                // A per-target compiler fills a library; the primary
+                // compiler describes the package.
+                Ok(()) if config.build_target.is_some() => Ok(None),
+                Ok(()) => describe_stored(
+                    registry,
                     &meta.package_name,
                     &meta.version,
-                    &cargo_toml_hash,
-                    cargo_lock_hash.as_deref(),
-                    config.compiler_instance_id,
-                    "failed",
-                    success.exit_status,
-                    None,
-                    wall_clock_ms,
-                    Some(&reason),
-                    // Build-process sandbox excised (2026-07-11); the field stays
-                    // for audit-schema stability and states the truth.
-                    "none",
-                );
-                return Err(err);
-            }
+                    &success.artifact,
+                    &source_bytes,
+                    work.path(),
+                    config,
+                )
+                .await
+                .map(Some)
+                .map_err(|reason| {
+                    BuildError::internal(format!(
+                        "describe of {} v{} failed: {reason}",
+                        meta.package_name, meta.version
+                    ))
+                }),
+            };
+            let mut document = match described {
+                Ok(document) => document,
+                Err(err) => {
+                    let reason = match &err {
+                        BuildError::Failed { reason, .. } => reason.clone(),
+                        other => format!("{other:?}"),
+                    };
+                    audit::log_compiler_build_finished(
+                        build_claim_id,
+                        &meta.package_name,
+                        &meta.version,
+                        &cargo_toml_hash,
+                        cargo_lock_hash.as_deref(),
+                        config.compiler_instance_id,
+                        "failed",
+                        success.exit_status,
+                        None,
+                        wall_clock_ms,
+                        Some(&reason),
+                        // Build-process sandbox excised (2026-07-11); the field stays
+                        // for audit-schema stability and states the truth.
+                        "none",
+                    );
+                    return Err(err);
+                }
+            };
 
             audit::log_compiler_build_finished(
                 build_claim_id,
@@ -513,11 +668,17 @@ async fn run_build(
                 declared_params = declared_params.len(),
                 "build succeeded"
             );
+            // The docs, and for Python the declared params, secrets and
+            // surfaces, come from the source parse, not from the code.
+            if let Some(doc) = document.as_mut() {
+                doc.overlay_source_parse(&task_docs, &declared_params, &declared_surfaces);
+            }
             Ok((
                 success.artifact,
                 task_docs,
                 declared_params,
                 declared_surfaces,
+                document,
             ))
         }
         Err(BuildError::Failed {
@@ -1304,6 +1465,8 @@ mod tests {
             build_target: None,
             build_target_package: None,
             python: Default::default(),
+            describe_timeout: Duration::from_secs(60),
+            describe_program: None,
         }
     }
 
@@ -1519,6 +1682,57 @@ mod tests {
             "the compiler calls a bundling entry with an inherited environment:\n{}",
             hits.join("\n")
         );
+    }
+
+    /// CLOACINA-T-1074: the compiler process opens no built library. Only the
+    /// describe child does, and its code is in `describe.rs`. The registry
+    /// entries that open a library in the calling process are not called from
+    /// the compiler either.
+    #[test]
+    fn compiler_opens_no_library_outside_the_describe_child() {
+        let compiler_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let opens: Vec<String> = [
+            ["load_", "library"].concat(),
+            ["extract_", "metadata"].concat(),
+            ["extract_", "graph_metadata"].concat(),
+            ["extract_", "reactor_metadata"].concat(),
+            ["extract_", "trigger_metadata"].concat(),
+            ["extract_", "constructor_metadata"].concat(),
+            ["extract_", "triggerless_graph_metadata"].concat(),
+            ["describe_", "library"].concat(),
+            ["PackageLoader", "::new"].concat(),
+            ["TaskRegistrar", "::new"].concat(),
+            ["mark_build_success", "("].concat(),
+            ["mark_build_success_with_docs", "("].concat(),
+            ["load_workflow_", "package"].concat(),
+            ["load_cg_", "package"].concat(),
+        ]
+        .into_iter()
+        .collect();
+        let needles: Vec<&str> = opens.iter().map(String::as_str).collect();
+        let hits = source_lines_with(&compiler_src, &needles, &["describe.rs"]);
+        assert!(
+            hits.is_empty(),
+            "the compiler opens a library, or imports a package, outside describe.rs:\n{}",
+            hits.join("\n")
+        );
+
+        // In describe.rs they are in the child's half only: after the line
+        // that starts it.
+        let text = std::fs::read_to_string(compiler_src.join("describe.rs")).expect("describe.rs");
+        let child_half = text
+            .find("// The child's half")
+            .expect("describe.rs marks the child's half");
+        for needle in &needles {
+            let in_parent_half = text[..child_half]
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .any(|l| l.contains(needle));
+            assert!(
+                !in_parent_half,
+                "`{needle}` is in the compiler's half of describe.rs"
+            );
+        }
     }
 
     /// Lines of the `.rs` files under `dir` (recursive) that hold one of

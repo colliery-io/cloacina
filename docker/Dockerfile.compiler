@@ -37,6 +37,11 @@ FROM rust:${RUST_VERSION}-slim-bookworm
 
 # Same build chain as the cloacina-server builder stage — the compiler runs
 # these tools at runtime to build uploaded packages (libpq/pyo3/rdkafka).
+#
+# CLOACINA-T-1074: python3 and python3-dev are also a runtime need of the
+# compiler binary itself. Its describe child imports a Python package to read
+# the package's metadata, so the binary links libpython and does not start
+# without it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         build-essential \

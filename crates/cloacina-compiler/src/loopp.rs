@@ -77,7 +77,26 @@ async fn run_build_with_heartbeat(
             task_docs,
             declared_params,
             declared_surfaces,
+            document,
         } => {
+            // CLOACINA-T-1074: the compiler does not open the library. The
+            // describe child read its metadata; the document is stored with
+            // the build, and the row's `metadata` is filled from it.
+            let Some(document) = document else {
+                metrics::counter!(
+                    "cloacina_compiler_builds_total",
+                    "status" => "failed",
+                )
+                .increment(1);
+                warn!(%package_id, "build gave no metadata document");
+                if let Err(e) = registry
+                    .mark_build_failed(package_id, "the build gave no metadata document")
+                    .await
+                {
+                    warn!(%e, %package_id, "mark_build_failed failed");
+                }
+                return;
+            };
             metrics::counter!(
                 "cloacina_compiler_builds_total",
                 "status" => "ok",
@@ -88,9 +107,10 @@ async fn run_build_with_heartbeat(
             // CLOACI-T-0760: also carry source-parsed declared params (the
             // Python parity path — Rust gets them from the FFI instead).
             if let Err(e) = registry
-                .mark_build_success_with_docs(
+                .mark_build_success_described(
                     package_id,
                     artifact,
+                    &document,
                     task_docs,
                     declared_params,
                     declared_surfaces,
@@ -129,6 +149,72 @@ async fn run_build_with_heartbeat(
             );
         }
     }
+}
+
+/// The most packages one pass of [`describe_pass`] describes. The pass runs
+/// between builds, on the sweep tick: a small batch keeps a new upload from
+/// waiting behind a long list.
+const DESCRIBE_PASS_BATCH: i64 = 5;
+
+/// Describe packages that are in service and have no metadata document of
+/// this compiler's format (CLOACINA-T-1074): packages built before the
+/// document existed, and packages whose build was taken over from an
+/// identical upload. Returns how many packages it worked on.
+///
+/// No build runs and no row leaves service. The stored library (for Python,
+/// the stored archive) is described in a child process. A package that can be
+/// described gets its document. One that cannot gets `describe_error` with
+/// the reason, and is not tried again by this compiler version.
+pub async fn describe_pass(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    config: &CompilerConfig,
+) -> usize {
+    let packages = match registry
+        .list_undescribed_packages(DESCRIBE_PASS_BATCH)
+        .await
+    {
+        Ok(packages) => packages,
+        Err(e) => {
+            warn!(%e, "list_undescribed_packages failed");
+            return 0;
+        }
+    };
+    let count = packages.len();
+    for package in packages {
+        let described = crate::build::describe_existing(registry, package.id, config).await;
+        let stored = match &described {
+            Ok(document) => {
+                info!(
+                    package_id = %package.id,
+                    package_name = %package.package_name,
+                    version = %package.version,
+                    tasks = document.tasks.len(),
+                    "described a package built before"
+                );
+                metrics::counter!("cloacina_compiler_describes_total", "status" => "ok")
+                    .increment(1);
+                registry
+                    .store_package_description(package.id, document)
+                    .await
+            }
+            Err(reason) => {
+                warn!(
+                    package_id = %package.id,
+                    package_name = %package.package_name,
+                    version = %package.version,
+                    %reason,
+                    "a package built before cannot be described"
+                );
+                metrics::counter!("cloacina_compiler_describes_total", "status" => "failed")
+                    .increment(1);
+                registry.store_describe_error(package.id, reason).await
+            }
+        };
+        if let Err(e) = stored {
+            warn!(%e, package_id = %package.id, "storing the describe result failed");
+        }
+    }
+    count
 }
 
 pub(crate) async fn run(
@@ -174,6 +260,9 @@ pub(crate) async fn run(
                     }
                     Err(e) => warn!(%e, "sweep_stale_builds failed"),
                 }
+                // CLOACINA-T-1074: packages in service with no metadata
+                // document get one, from their stored build.
+                describe_pass(&registry, &config).await;
                 // SQL-derived queue-depth gauge (REC-06 / I-0108 pattern) —
                 // re-seeded every sweep tick so a panic between
                 // enqueue/dequeue can't drift the gauge. Best-effort:

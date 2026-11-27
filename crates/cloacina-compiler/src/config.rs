@@ -133,9 +133,33 @@ pub struct CompilerConfig {
     /// the wheels come from (an index, or a wheel folder or a `uv` cache in
     /// the compiler image). CLOACINA-T-1073.
     pub python: crate::python::PythonVendorConfig,
+
+    /// The wall-clock limit of the describe child (`--describe-timeout-s`):
+    /// the child that opens a built library, or imports a Python package, to
+    /// read its metadata. A describe past the limit is killed and the build
+    /// fails with that reason. CLOACINA-T-1074.
+    pub describe_timeout: Duration,
+
+    /// The program the describe child runs: the compiler binary. `None` means
+    /// this process's own executable. A test, whose own executable is the
+    /// test harness, names the built compiler. CLOACINA-T-1074.
+    pub describe_program: Option<PathBuf>,
 }
 
+/// The default of `--describe-timeout-s`, in seconds.
+pub const DEFAULT_DESCRIBE_TIMEOUT_S: u64 = 120;
+
 impl CompilerConfig {
+    /// The program of the describe child: `describe_program`, else this
+    /// process's own executable.
+    pub fn describe_program_or_default(&self) -> Result<PathBuf, String> {
+        match &self.describe_program {
+            Some(program) => Ok(program.clone()),
+            None => std::env::current_exe()
+                .map_err(|e| format!("cannot find the compiler's own executable: {e}")),
+        }
+    }
+
     /// Resolve the effective tmp-root — uses `$home/build-tmp` when unset.
     pub fn tmp_root_or_default(&self) -> PathBuf {
         self.tmp_root

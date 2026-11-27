@@ -126,6 +126,17 @@ struct Cli {
     #[arg(long, env = "CLOACINA_COMPILER_BUILD_TIMEOUT_S", default_value_t = 600)]
     build_timeout_s: u64,
 
+    /// Maximum wall-clock time of the describe step (seconds): the child
+    /// process that opens a built library, or imports a Python package, to
+    /// read its metadata. A describe past the limit is killed and the build
+    /// fails with that reason. Default 120. CLOACINA-T-1074.
+    #[arg(
+        long,
+        env = "CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S",
+        default_value_t = cloacina_compiler::DEFAULT_DESCRIBE_TIMEOUT_S
+    )]
+    describe_timeout_s: u64,
+
     /// Override `CARGO_HOME` for the cargo subprocess. Operator-managed:
     /// run `cargo vendor` against a known-good source tree, point this at
     /// the resulting cargo home. The compiler combines this with
@@ -297,8 +308,25 @@ fn default_home() -> PathBuf {
         .join(".cloacina")
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // CLOACINA-T-1074: describe mode. The compiler starts this same binary as
+    // a child to read a built package's metadata. Checked before the service
+    // arguments are parsed: the child gets no database URL.
+    let mut args = std::env::args_os();
+    let _program = args.next();
+    if args.next().as_deref() == Some(std::ffi::OsStr::new(cloacina_compiler::DESCRIBE_MODE)) {
+        let code = cloacina_compiler::run_describe_child(args.collect());
+        // Leave at once: the package's code may have started threads.
+        std::process::exit(code);
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(serve())
+}
+
+async fn serve() -> Result<()> {
     let cli = Cli::parse();
     cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(cli.max_unpacked_bytes)
         .map_err(|e| anyhow::anyhow!(e))?;
@@ -324,6 +352,9 @@ async fn main() -> Result<()> {
 
     if cli.build_timeout_s == 0 {
         anyhow::bail!("--build-timeout-s must be greater than zero");
+    }
+    if cli.describe_timeout_s == 0 {
+        anyhow::bail!("--describe-timeout-s must be greater than zero");
     }
 
     // CLOACINA-T-1073: a setting that cannot work stops the compiler at start.
@@ -380,6 +411,9 @@ async fn main() -> Result<()> {
         compiler_instance_id: cloacina::UniversalUuid::new_v4(),
         log_retention_days: cli.log_retention_days,
         python,
+        describe_timeout: Duration::from_secs(cli.describe_timeout_s),
+        // The describe child is this binary.
+        describe_program: None,
     };
 
     run(config).await
@@ -460,6 +494,23 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(cli.max_unpacked_bytes, 1_073_741_824);
+    }
+
+    /// CLOACINA-T-1074: the time limit of the describe step is a setting.
+    #[test]
+    fn describe_timeout_flag_defaults_to_120_seconds_and_is_read() {
+        use clap::Parser;
+        let cli = super::Cli::try_parse_from(["cloacina-compiler", "--database-url", "x"]).unwrap();
+        assert_eq!(cli.describe_timeout_s, 120);
+        let cli = super::Cli::try_parse_from([
+            "cloacina-compiler",
+            "--database-url",
+            "x",
+            "--describe-timeout-s",
+            "30",
+        ])
+        .unwrap();
+        assert_eq!(cli.describe_timeout_s, 30);
     }
 
     /// CLOACINA-T-1073: the Python vendoring flags.

@@ -129,6 +129,8 @@ async fn status(State(state): State<HttpState>) -> Json<serde_json::Value> {
             "status": "ok",
             "pending": stats.pending,
             "building": stats.building,
+            // CLOACINA-T-1074: packages in service with no metadata document.
+            "undescribed": stats.undescribed,
             "last_success_at": stats.last_success_at.map(|t| t.to_rfc3339()),
             "last_failure_at": stats.last_failure_at.map(|t| t.to_rfc3339()),
             "heartbeat_at": stats.heartbeat_at.map(|t| t.to_rfc3339()),
