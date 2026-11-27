@@ -394,8 +394,13 @@ impl DockerActuator {
         mut self,
         ops: Arc<dyn super::compiler::CompilerContainerOps>,
         settings: super::compiler::CompilerSettings,
+        credentials: Arc<dyn super::compiler::BuildCredentials>,
     ) -> Self {
-        self.compilers = Some(super::compiler::DockerCompilers::new(ops, settings));
+        self.compilers = Some(super::compiler::DockerCompilers::new(
+            ops,
+            settings,
+            credentials,
+        ));
         self
     }
 
@@ -414,6 +419,9 @@ impl DockerActuator {
             ..DockerConfig::from_env()
         };
         let ops = Arc::new(BollardOps::new(docker));
+        let credentials = Arc::new(super::compiler::AdminBuildCredentials::new(
+            database.clone(),
+        ));
         let actuator = Self {
             ops: ops.clone(),
             minter: Arc::new(DalKeyMinter::new(database.clone())),
@@ -422,7 +430,7 @@ impl DockerActuator {
             compilers: None,
         };
         Ok(match compilers {
-            Some(settings) => actuator.with_compilers(ops, settings),
+            Some(settings) => actuator.with_compilers(ops, settings, credentials),
             None => actuator,
         })
     }

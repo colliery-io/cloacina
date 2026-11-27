@@ -273,6 +273,10 @@ mod postgres_impl {
                                     message: format!("Failed to run migrations: {}", e),
                                 })?;
 
+                            // 5. The tenant's build role (CLOACINA-T-1063),
+                            // still under the migration lock.
+                            ensure_build_role_in(conn, &schema_name)?;
+
                             Ok(())
                         });
                     // Defense in depth: SET LOCAL above scopes the change to
@@ -372,6 +376,16 @@ mod postgres_impl {
                         diesel::sql_query(&sql).execute(conn).map_err(|e| {
                             AdminError::SqlExecution {
                                 message: format!("Failed to drop user '{}': {}", username, e),
+                            }
+                        })?;
+
+                        // 3. Drop the build role (CLOACINA-T-1063). Its
+                        // grants went with the schema.
+                        let role = build_role_name(&schema_name);
+                        let sql = format!("DROP ROLE IF EXISTS \"{}\"", role);
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to drop role '{}': {}", role, e),
                             }
                         })?;
 
@@ -555,10 +569,15 @@ mod postgres_impl {
                             .map_err(|e| AdminError::SqlExecution {
                                 message: format!("Failed to set search_path: {}", e),
                             })?;
-                        crate::database::migration_lock::run_pending_postgres_migrations_locked(
-                            conn,
-                        )
-                        .map_err(|e| AdminError::SqlExecution { message: e })
+                        let ran =
+                            crate::database::migration_lock::run_pending_postgres_migrations_locked(
+                                conn,
+                            )
+                            .map_err(|e| AdminError::SqlExecution { message: e })?;
+                        // The build role and its grants follow each
+                        // migration, whatever role ran it (CLOACINA-T-1063).
+                        ensure_build_role_in(conn, &schema_name)?;
+                        Ok(ran)
                     });
                 // As in `create_tenant`: a pooled admin connection never
                 // leaves with a tenant search_path.
@@ -569,6 +588,205 @@ mod postgres_impl {
             .map_err(|e| AdminError::SqlExecution {
                 message: format!("Transaction failed: {}", e),
             })?
+        }
+    }
+
+    /// The tables a tenant's compiler uses, all in the tenant's own schema,
+    /// and the verbs its build role gets on each (CLOACINA-T-1063). Nothing
+    /// else is granted: no other table, no `CREATE`, no default privileges.
+    ///
+    /// A table that a later migration adds for the compiler is one more line
+    /// here: the grants are given again after each migration.
+    pub const BUILD_ROLE_GRANTS: &[(&str, &str)] = &[
+        ("workflow_packages", "SELECT, UPDATE"),
+        ("workflow_registry", "SELECT"),
+        ("package_providers", "SELECT, INSERT, DELETE"),
+        ("package_artifacts", "SELECT, INSERT, DELETE"),
+    ];
+
+    /// The name of a tenant's build role (CLOACINA-T-1063): `<tenant>$build`,
+    /// lower case. A tenant name cannot hold `$`, so no tenant role has this
+    /// name. A name that would pass Postgres' 63 bytes is its first 40
+    /// characters, `$build$` and 16 hex digits of the SHA-256 of the name.
+    /// `public` gets `public$build`.
+    ///
+    /// The caller passes a schema name that is already checked.
+    pub fn build_role_name(schema_name: &str) -> String {
+        use sha2::Digest;
+        let name = schema_name.to_lowercase();
+        if name.len() + "$build".len() <= 63 {
+            format!("{name}$build")
+        } else {
+            let digest = sha2::Sha256::digest(name.as_bytes());
+            let short = hex::encode(&digest[..8]);
+            format!("{}$build${}", &name[..40], short)
+        }
+    }
+
+    /// A schema that can have a build role: a tenant schema, or `public`.
+    fn validate_build_schema(schema_name: &str) -> Result<(), AdminError> {
+        if schema_name == "public" {
+            return Ok(());
+        }
+        validate_schema_name(schema_name)?;
+        Ok(())
+    }
+
+    /// A build role and the password the server just gave it. The password
+    /// is in no log and no `Debug` output.
+    pub struct BuildCredential {
+        pub role: String,
+        pub password: String,
+    }
+
+    impl std::fmt::Debug for BuildCredential {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("BuildCredential")
+                .field("role", &self.role)
+                .field("password", &"<redacted>")
+                .finish()
+        }
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct TablePresent {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+
+    /// Takes the migration lock for the rest of the transaction
+    /// (CLOACINA-T-1042). Taking it again in one session is allowed.
+    fn take_migration_lock(conn: &mut diesel::PgConnection) -> Result<(), AdminError> {
+        diesel::sql_query("SELECT pg_advisory_xact_lock($1)")
+            .bind::<diesel::sql_types::BigInt, _>(
+                crate::database::migration_lock::MIGRATION_LOCK_KEY,
+            )
+            .execute(conn)
+            .map(|_| ())
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to take the migration lock: {}", e),
+            })
+    }
+
+    /// Makes the build role of `schema_name` if it is absent and gives it the
+    /// grants of [`BUILD_ROLE_GRANTS`] on each of those tables that exists
+    /// (CLOACINA-T-1063). Safe to run again. Runs inside a transaction that
+    /// holds the migration lock, so two servers never grant at once.
+    fn ensure_build_role_in(
+        conn: &mut diesel::PgConnection,
+        schema_name: &str,
+    ) -> Result<(), AdminError> {
+        let role = build_role_name(schema_name);
+        let existing = diesel::sql_query("SELECT COUNT(*) AS n FROM pg_roles WHERE rolname = $1")
+            .bind::<diesel::sql_types::Text, _>(&role)
+            .get_result::<RoleCount>(conn)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to check for role '{}': {}", role, e),
+            })?;
+        if existing.n == 0 {
+            // No password: no one logs in until the server sets one.
+            let sql = format!("CREATE ROLE \"{}\" LOGIN NOINHERIT", role);
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Failed to create role '{}': {}", role, e),
+                })?;
+        }
+        let mut grants = vec![format!(
+            "GRANT USAGE ON SCHEMA {} TO \"{}\"",
+            schema_name, role
+        )];
+        for (table, verbs) in BUILD_ROLE_GRANTS {
+            let qualified = format!("{}.{}", schema_name, table);
+            let present = diesel::sql_query("SELECT to_regclass($1) IS NOT NULL AS present")
+                .bind::<diesel::sql_types::Text, _>(&qualified)
+                .get_result::<TablePresent>(conn)
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Failed to look up table '{}': {}", qualified, e),
+                })?
+                .present;
+            if present {
+                grants.push(format!("GRANT {} ON {} TO \"{}\"", verbs, qualified, role));
+            }
+        }
+        for sql in grants {
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Failed to grant to role '{}': {}", role, e),
+                })?;
+        }
+        Ok(())
+    }
+
+    impl DatabaseAdmin {
+        /// Makes the build role of `schema_name` if it is absent and gives it
+        /// its grants, under the migration lock (CLOACINA-T-1063). For
+        /// `public` and for a tenant schema. The server runs it for `public`
+        /// at start; a tenant schema gets it with each migration run.
+        pub async fn ensure_build_role(&self, schema_name: &str) -> Result<(), AdminError> {
+            validate_build_schema(schema_name)?;
+            let schema_name = schema_name.to_string();
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            conn.interact(move |conn| {
+                conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                    take_migration_lock(conn)?;
+                    ensure_build_role_in(conn, &schema_name)
+                })
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
+
+        /// Gives the build role of `schema_name` a new random password and
+        /// returns it (CLOACINA-T-1063). The role is made first if absent.
+        /// The server keeps the password nowhere: the caller writes it only
+        /// where the tenant's compiler reads it, and sets a new one at each
+        /// start of that compiler.
+        pub async fn issue_build_password(
+            &self,
+            schema_name: &str,
+        ) -> Result<BuildCredential, AdminError> {
+            validate_build_schema(schema_name)?;
+            let schema_name = schema_name.to_string();
+            let password = generate_secure_password(32);
+            let role = build_role_name(&schema_name);
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            let sql_role = role.clone();
+            let sql = format!(
+                "ALTER ROLE \"{}\" WITH LOGIN PASSWORD '{}'",
+                role,
+                escape_password(&password)
+            );
+            conn.interact(move |conn| {
+                conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                    take_migration_lock(conn)?;
+                    ensure_build_role_in(conn, &schema_name)?;
+                    // The statement holds the password: its error text is
+                    // not passed on.
+                    diesel::sql_query(&sql).execute(conn).map_err(|_| {
+                        AdminError::SqlExecution {
+                            message: format!("Failed to set the password of role '{}'", sql_role),
+                        }
+                    })?;
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })??;
+            Ok(BuildCredential { role, password })
         }
     }
 
@@ -770,6 +988,36 @@ mod postgres_impl {
         fn create_user_error_keeps_other_failures_as_sql_errors() {
             let e = create_user_error("team_a", "permission denied to create role");
             assert!(matches!(e, AdminError::SqlExecution { .. }));
+        }
+
+        /// CLOACINA-T-1063: the build role's name never is a tenant role's
+        /// name, and fits Postgres' 63 bytes.
+        #[test]
+        fn build_role_name_is_no_tenant_name_and_fits() {
+            assert_eq!(build_role_name("acme"), "acme$build");
+            assert_eq!(build_role_name("Acme"), "acme$build");
+            assert_eq!(build_role_name("public"), "public$build");
+            assert!(validate_username(&build_role_name("acme")).is_err());
+
+            let long_a = format!("{}a", "x".repeat(60));
+            let long_b = format!("{}b", "x".repeat(60));
+            let a = build_role_name(&long_a);
+            let b = build_role_name(&long_b);
+            assert!(a.len() <= 63, "{a}");
+            assert_ne!(a, b, "two long names with one prefix differ");
+            assert!(a.starts_with(&"x".repeat(40)));
+            // 57 characters still fit with the plain suffix.
+            let fits = "y".repeat(57);
+            assert_eq!(build_role_name(&fits), format!("{fits}$build"));
+        }
+
+        #[test]
+        fn a_build_credential_prints_no_password() {
+            let c = BuildCredential {
+                role: "acme$build".into(),
+                password: "not-for-logs".into(),
+            };
+            assert!(!format!("{c:?}").contains("not-for-logs"));
         }
 
         #[test]

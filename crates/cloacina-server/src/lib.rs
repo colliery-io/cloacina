@@ -3125,6 +3125,9 @@ mod tests {
     /// Tenant delete reports a failed drop (CLOACINA-T-1068).
     mod tenant_removal;
 
+    /// The build role of a tenant's compiler (CLOACINA-T-1063).
+    mod build_role;
+
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.

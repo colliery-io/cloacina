@@ -80,6 +80,17 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
     // CLOACI-T-0779: a tenant-scoped compiler binds to that tenant's Postgres
     // schema (build isolation — it claims/builds ONLY that tenant's packages).
     let database = match &config.tenant_schema {
+        // `public` is a tenant like the others (CLOACINA-T-1063): the server
+        // starts its compiler with the build role of `public`, which cannot
+        // migrate. The schema check refuses the name `public` for a tenant
+        // schema, so it is opened as the default schema.
+        Some(schema) if schema == "public" => {
+            info!(
+                tenant_schema = "public",
+                "compiler scoped to the public schema (build isolation)"
+            );
+            Database::new(&config.database_url, "", 5)
+        }
         Some(schema) => {
             info!(tenant_schema = %schema, "compiler scoped to tenant schema (build isolation)");
             Database::try_new_with_schema(&config.database_url, "", 5, Some(schema))

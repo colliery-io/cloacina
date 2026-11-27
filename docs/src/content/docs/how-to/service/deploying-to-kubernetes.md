@@ -354,10 +354,13 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
 
 ### A compiler per tenant
 
-The chart's own compiler (`compiler.enabled`) serves the `public` schema only.
-With `fleet.actuator=kubernetes` the server also runs one compiler for each
-other tenant (`fleet.compiler.enabled`, default `true`): a Deployment
-`cloacina-compiler` in the tenant's namespace with `--tenant-schema <tenant>`.
+With `fleet.actuator=kubernetes` the server runs one compiler for each
+tenant, `public` included (`fleet.compiler.enabled`, default `true`): a
+Deployment `cloacina-compiler` in the tenant's namespace
+(`cloacina-tenant-public` for `public`) with `--tenant-schema <tenant>`. The
+chart's own compiler (`compiler.enabled`) is then not rendered. It is rendered
+only with the fleet compilers off, for `public`, with the chart's database URL:
+the single-trust install.
 The server creates it when the tenant's build queue first has a package, sets
 it to 0 replicas when the queue has been empty for
 `fleet.compiler.cooldownSeconds`, and deletes it when the tenant is removed. A
@@ -388,7 +391,7 @@ fleet:
 | `fleet.compiler.cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
 | `fleet.compiler.hardened` | `true` | Not root, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. |
 | `fleet.compiler.resources` | `500m`/`1Gi` requests, `2`/`4Gi` limits | Requests and limits of the compiler container. |
-| `fleet.compiler.databaseUrlSecretRef` | empty (the server's URL) | A Secret in the release namespace with the database URL of the tenant compilers. |
+| `fleet.compiler.databaseUrlSecretRef` | empty (the server's URL) | A Secret in the release namespace with a URL that says where the tenant compilers reach the database. Its user and password are not used: each compiler connects as its tenant's build role. |
 | `fleet.compiler.egress` | `internet` | Crate egress of the compiler pods: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. |
 | `fleet.compiler.egressCidrs` | `[]` | More egress CIDR blocks, every port (a mirror, a git host, a proxy). |
 | `fleet.compiler.databaseCidrs` | `[]` | CIDR blocks of the database; empty allows the database port to every destination. |
@@ -410,10 +413,14 @@ start.
 
 What the server writes in a tenant namespace for the compiler:
 
-- the Deployment `cloacina-compiler`;
-- the Secret `cloacina-compiler-db`, with the database URL the pod reads as
-  `DATABASE_URL`, and the Python index URL (key `python-index-url`) when one
-  is set;
+- the Deployment `cloacina-compiler`, whose pod template carries the
+  annotation `cloacina.io/build-credential`;
+- the Secret `cloacina-compiler-db`, with the URL of the tenant's build role
+  (`<tenant>$build`) the pod reads as `DATABASE_URL`, and the Python index URL
+  (key `python-index-url`) when one is set. The server sets a new password
+  each time it starts the compiler, writes the Secret only then, and keeps no
+  copy. The role reaches the four build tables of the tenant's schema and
+  nothing else;
 - the PersistentVolumeClaim `cloacina-compiler-cache` (with
   `fleet.compiler.cacheClaim.enabled` and `hardened`), made once with `create`
   after a `get`, and deleted with the tenant. This needs the RBAC rule on

@@ -97,8 +97,13 @@ fn make_old_tenant(label: &str) -> (String, i64) {
 fn drop_tenants(tenants: &[&str]) {
     let mut conn = connect();
     for tenant in tenants {
-        conn.batch_execute(&format!("DROP SCHEMA IF EXISTS {tenant} CASCADE;"))
-            .expect("drop schema");
+        // The build role that the migration run made (CLOACINA-T-1063)
+        // goes too; its grants went with the schema.
+        conn.batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS {tenant} CASCADE; DROP ROLE IF EXISTS \"{}\";",
+            cloacina::database::build_role_name(tenant)
+        ))
+        .expect("drop schema");
     }
 }
 

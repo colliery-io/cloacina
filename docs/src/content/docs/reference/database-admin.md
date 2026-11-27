@@ -206,6 +206,24 @@ The method performs these operations in a single transaction:
    - Sets search_path to the tenant schema
    - Executes all Cloacina migrations in that schema
 
+5. **Make the Build Role** (CLOACINA-T-1063)
+   - `CREATE ROLE "tenant_xyz$build" LOGIN NOINHERIT`, with no password
+   - Grants on the tenant's build tables only:
+   ```sql
+   GRANT USAGE ON SCHEMA tenant_xyz TO "tenant_xyz$build";
+   GRANT SELECT, UPDATE ON tenant_xyz.workflow_packages TO "tenant_xyz$build";
+   GRANT SELECT ON tenant_xyz.workflow_registry TO "tenant_xyz$build";
+   GRANT SELECT, INSERT, DELETE ON tenant_xyz.package_providers TO "tenant_xyz$build";
+   GRANT SELECT, INSERT, DELETE ON tenant_xyz.package_artifacts TO "tenant_xyz$build";
+   ```
+   The name is `build_role_name(schema)`: the schema name, lower case, with
+   `$build`. `migrate_tenant_schema` gives the grants again after each
+   migration run, and makes the role if it is absent; `ensure_build_role`
+   does the same for `public` (`public$build`). Both run under the migration
+   lock. `issue_build_password(schema)` sets a new random password and gives
+   it back; the server calls it each time it starts the tenant's compiler and
+   writes the password only into that compiler's URL.
+
 ### What `remove_tenant` Does
 
 The method performs these operations in a single transaction, with each lock
@@ -215,10 +233,11 @@ wait bounded to 5 s (`REMOVE_LOCK_TIMEOUT`):
 2. **Write one `tenant.removed` audit row**, while the schema exists.
 3. **Drop Schema**: `DROP SCHEMA IF EXISTS tenant_xyz CASCADE`
 4. **Drop User**: `DROP USER IF EXISTS xyz_user` (the user may have another name than the schema)
+5. **Drop the Build Role**: `DROP ROLE IF EXISTS "tenant_xyz$build"`; its
+   grants went with the schema
 
 A failure rolls everything back and returns the error; a second call finishes
 the removal. A call for a tenant that is gone returns `Ok`.
-
 > **Production callers: use the HTTP route, not this library call.**
 > Per CLOACI-T-0581 and CLOACINA-T-1095, the server's `DELETE /v1/tenants/{name}` route
 > performs an orchestrated teardown around this call:

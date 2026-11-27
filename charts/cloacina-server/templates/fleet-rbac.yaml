@@ -58,8 +58,9 @@ rules:
   # Deployment by name, and only after it checked that the pool has no agents.
   # A tenant's deprovision still scales to zero and deletes nothing. No `list`
   # (addressed by name). The tenant's compiler Deployment (CLOACINA-T-1034)
-  # uses the same four: applied, read for its replica count, scaled, and
-  # deleted when the tenant is removed.
+  # uses the same four: applied, read for its replica count and the marker of
+  # its build role password (CLOACINA-T-1063), scaled, and deleted when the
+  # tenant is removed.
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["create", "delete", "get", "patch"]

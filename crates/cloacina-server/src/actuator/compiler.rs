@@ -16,10 +16,10 @@
 
 //! A compiler per tenant (CLOACINA-T-1034).
 //!
-//! A `cloacina-compiler` serves one schema (`--tenant-schema`). The chart's
-//! own compiler serves `public`. For every other tenant the fleet actuator
-//! runs one compiler, next to the tenant's agents, and only while the
-//! tenant's build queue has work:
+//! A `cloacina-compiler` serves one schema (`--tenant-schema`). For every
+//! tenant, `public` included (CLOACINA-T-1063), the fleet actuator runs one
+//! compiler, next to the tenant's agents, and only while the tenant's build
+//! queue has work:
 //!
 //! - the fleet loop reads each tenant's queue on every tick
 //!   ([`run_compiler_pass`]) and decides with [`compiler_want`];
@@ -34,6 +34,11 @@
 //!
 //! Every package waits in the queue, Python ones too: the compiler runs no
 //! cargo for them, but it is the only process that completes the row.
+//!
+//! A compiler connects with its tenant's build role (CLOACINA-T-1063), which
+//! reaches the four build tables of that tenant's schema only. The server
+//! sets a new password at each start of the compiler and writes the URL only
+//! where that compiler reads it ([`BuildCredentials`]); it keeps no copy.
 //!
 //! The Kubernetes side is behind [`CompilerKubeOps`] and the Docker side
 //! behind [`CompilerContainerOps`], so both are tested without a cluster or a
@@ -96,6 +101,79 @@ const NOT_INTERNET: [&str; 5] = [
 /// the agent reconcile counts every container with that label as an agent.
 const DOCKER_LABEL_COMPILER: &str = "cloacina.compiler";
 const DOCKER_LABEL_TENANT: &str = "cloacina.compiler-tenant";
+/// Docker label of a compiler container that connects with its tenant's
+/// build role (CLOACINA-T-1063). A compiler container without it was started
+/// by an older server with the server's own URL, and is stopped.
+pub const DOCKER_LABEL_CREDENTIAL: &str = "cloacina.compiler-credential";
+/// The value of [`DOCKER_LABEL_CREDENTIAL`].
+pub const DOCKER_CREDENTIAL_BUILD_ROLE: &str = "build-role";
+
+/// Annotation on the pod template of a tenant's compiler: an id of the build
+/// role password in its Secret (CLOACINA-T-1063). A new password comes with a
+/// new id, so the pod is replaced and reads the new Secret. A Deployment
+/// without it was made by an older server, with the server's own URL.
+pub const BUILD_CREDENTIAL_ANNOTATION: &str = "cloacina.io/build-credential";
+
+// ---------------------------------------------------------------------------
+// The build role's credential (CLOACINA-T-1063)
+// ---------------------------------------------------------------------------
+
+/// Gives a tenant's build role a new password. The compiler side calls it
+/// each time it starts a tenant's compiler, and writes the URL only where
+/// that compiler reads it. Nothing keeps the password.
+#[async_trait]
+pub trait BuildCredentials: Send + Sync {
+    async fn issue(
+        &self,
+        tenant_id: &str,
+    ) -> Result<cloacina::database::BuildCredential, ActuatorError>;
+}
+
+/// [`BuildCredentials`] over the server's admin database.
+pub struct AdminBuildCredentials {
+    admin: cloacina::database::Database,
+}
+
+impl AdminBuildCredentials {
+    pub fn new(admin: cloacina::database::Database) -> Self {
+        Self { admin }
+    }
+}
+
+#[async_trait]
+impl BuildCredentials for AdminBuildCredentials {
+    async fn issue(
+        &self,
+        tenant_id: &str,
+    ) -> Result<cloacina::database::BuildCredential, ActuatorError> {
+        cloacina::database::DatabaseAdmin::new(self.admin.clone())
+            .issue_build_password(tenant_id)
+            .await
+            .map_err(|e| {
+                ActuatorError::Substrate(format!(
+                    "build role password for tenant '{tenant_id}': {e}"
+                ))
+            })
+    }
+}
+
+/// The URL a tenant's compiler connects with: the compilers' database URL
+/// (where they reach the database) with the build role as its user.
+pub fn build_role_url(
+    database_url: &str,
+    credential: &cloacina::database::BuildCredential,
+) -> Result<String, ActuatorError> {
+    cloacina::database::connection::inject_credentials(
+        database_url,
+        &credential.role,
+        &credential.password,
+    )
+    .ok_or_else(|| {
+        ActuatorError::Substrate(
+            "the compilers' database URL cannot take the build role's credentials".to_string(),
+        )
+    })
+}
 
 // ---------------------------------------------------------------------------
 // The scale decision
@@ -818,6 +896,13 @@ pub trait CompilerKubeOps: Send + Sync {
     ) -> Result<bool, ActuatorError>;
     /// Delete a PersistentVolumeClaim. Absent is not an error.
     async fn delete_claim(&self, namespace: &str, name: &str) -> Result<(), ActuatorError>;
+    /// The [`BUILD_CREDENTIAL_ANNOTATION`] of a Deployment's pod template.
+    /// `None`: no such Deployment, or none with the annotation.
+    async fn build_credential_marker(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<String>, ActuatorError>;
 }
 
 /// The cache claim of one tenant's compiler (CLOACINA-T-1117). Pure.
@@ -851,6 +936,20 @@ pub fn compiler_cache_claim_manifest(
     manifest
 }
 
+/// Put the build credential's id on the pod template of a compiler
+/// Deployment (CLOACINA-T-1063).
+pub fn with_build_credential_marker(
+    mut deployment: serde_json::Value,
+    marker: &str,
+) -> serde_json::Value {
+    let template = &mut deployment["spec"]["template"]["metadata"];
+    if !template["annotations"].is_object() {
+        template["annotations"] = serde_json::json!({});
+    }
+    template["annotations"][BUILD_CREDENTIAL_ANNOTATION] = serde_json::json!(marker);
+    deployment
+}
+
 /// The tenant namespace manifest: the same object the agent side applies.
 fn namespace_manifest(namespace: &str) -> serde_json::Value {
     serde_json::json!({
@@ -875,11 +974,15 @@ pub fn database_secret_manifest(namespace: &str, database_url: &str) -> serde_js
     })
 }
 
-/// The Secret a running tenant compiler reads: the database URL and, when
-/// one is set, the Python package index URL (CLOACINA-T-1117), both of which
-/// can hold a password.
-pub fn compiler_secret_manifest(namespace: &str, settings: &CompilerSettings) -> serde_json::Value {
-    let mut secret = database_secret_manifest(namespace, &settings.database_url);
+/// The Secret a running tenant compiler reads: the database URL (the build
+/// role's, CLOACINA-T-1063) and, when one is set, the Python package index
+/// URL (CLOACINA-T-1117), both of which can hold a password.
+pub fn compiler_secret_manifest(
+    namespace: &str,
+    settings: &CompilerSettings,
+    database_url: &str,
+) -> serde_json::Value {
+    let mut secret = database_secret_manifest(namespace, database_url);
     if let Some(url) = &settings.python.index_url {
         secret["stringData"][COMPILER_SECRET_INDEX_KEY] = serde_json::json!(url);
     }
@@ -1112,6 +1215,8 @@ pub struct KubeCompilers {
     /// (`CLOACINA_FLEET_NETWORK_POLICY`, the agents' switch).
     network_policy: bool,
     dns_namespace: String,
+    /// Issues the build role's password at each start (CLOACINA-T-1063).
+    credentials: Arc<dyn BuildCredentials>,
 }
 
 impl KubeCompilers {
@@ -1120,12 +1225,14 @@ impl KubeCompilers {
         settings: CompilerSettings,
         network_policy: bool,
         dns_namespace: String,
+        credentials: Arc<dyn BuildCredentials>,
     ) -> Self {
         Self {
             ops,
             settings,
             network_policy,
             dns_namespace,
+            credentials,
         }
     }
 
@@ -1162,10 +1269,10 @@ impl KubeCompilers {
             });
         }
 
-        // Run. Everything is applied on each tick with work, so a changed
-        // server setting reaches the compiler. The Secret and the policy come
-        // before the Deployment: the pod needs the first to start and must
-        // not run without the second.
+        // Run. The namespace, the policy and the Deployment are applied on
+        // each tick with work, so a changed server setting reaches the
+        // compiler. The Secret and the policy come before the Deployment: the
+        // pod needs the first to start and must not run without the second.
         self.ops
             .apply(
                 KubeKind::Namespace,
@@ -1174,14 +1281,33 @@ impl KubeCompilers {
                 &namespace_manifest(&namespace),
             )
             .await?;
-        self.ops
-            .apply(
-                KubeKind::Secret,
-                &namespace,
-                COMPILER_SECRET_NAME,
-                &compiler_secret_manifest(&namespace, &self.settings),
-            )
+        // CLOACINA-T-1063: the Secret holds the build role's URL with a
+        // password set at this start. It is written only when no pod runs
+        // (no Deployment, or 0 replicas), or when the Deployment has no
+        // marker (made by an older server with the server's own URL: the new
+        // marker replaces the pod). Else the running pod's password stays.
+        let marker = self
+            .ops
+            .build_credential_marker(&namespace, COMPILER_NAME)
             .await?;
+        let marker = match marker {
+            Some(marker) if current.unwrap_or(0) > 0 => marker,
+            _ => {
+                let credential = self.credentials.issue(tenant_id).await?;
+                let url = build_role_url(&self.settings.database_url, &credential)?;
+                self.ops
+                    .apply(
+                        KubeKind::Secret,
+                        &namespace,
+                        COMPILER_SECRET_NAME,
+                        // CLOACINA-T-1117: with the index URL, when set.
+                        &compiler_secret_manifest(&namespace, &self.settings, &url),
+                    )
+                    .await?;
+                info!(tenant = %tenant_id, namespace = %namespace, role = %credential.role, "tenant compiler: new build role password written to its Secret");
+                uuid::Uuid::new_v4().simple().to_string()
+            }
+        };
         if self.network_policy {
             self.ops
                 .apply(
@@ -1220,7 +1346,10 @@ impl KubeCompilers {
                 KubeKind::Deployment,
                 &namespace,
                 COMPILER_NAME,
-                &compiler_deployment_manifest(&namespace, tenant_id, &self.settings),
+                &with_build_credential_marker(
+                    compiler_deployment_manifest(&namespace, tenant_id, &self.settings),
+                    &marker,
+                ),
             )
             .await?;
         if current != Some(1) {
@@ -1447,6 +1576,22 @@ mod kube_api {
                     .await,
             )
         }
+
+        async fn build_credential_marker(
+            &self,
+            namespace: &str,
+            name: &str,
+        ) -> Result<Option<String>, ActuatorError> {
+            let found = Api::<Deployment>::namespaced(self.client.clone(), namespace)
+                .get_opt(name)
+                .await
+                .map_err(|e| failed("deployment read", e))?;
+            Ok(found
+                .and_then(|d| d.spec)
+                .and_then(|s| s.template.metadata)
+                .and_then(|m| m.annotations)
+                .and_then(|a| a.get(super::BUILD_CREDENTIAL_ANNOTATION).cloned()))
+        }
     }
 }
 
@@ -1474,6 +1619,13 @@ pub trait CompilerContainerOps: Send + Sync {
     async fn start_compiler(&self, spec: CompilerContainer) -> Result<(), ActuatorError>;
     /// Stop and remove a container.
     async fn stop_compiler(&self, id: &str) -> Result<(), ActuatorError>;
+    /// Ids of the tenant's running compiler containers that lack
+    /// [`DOCKER_LABEL_CREDENTIAL`]: started by an older server, with the
+    /// server's own URL (CLOACINA-T-1063).
+    async fn list_compilers_without_build_role(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<String>, ActuatorError>;
 }
 
 /// The compiler side of the Docker actuator: one container per tenant with
@@ -1484,26 +1636,53 @@ pub trait CompilerContainerOps: Send + Sync {
 pub struct DockerCompilers {
     ops: Arc<dyn CompilerContainerOps>,
     settings: CompilerSettings,
+    /// Issues the build role's password at each start (CLOACINA-T-1063).
+    credentials: Arc<dyn BuildCredentials>,
 }
 
 impl DockerCompilers {
-    pub fn new(ops: Arc<dyn CompilerContainerOps>, settings: CompilerSettings) -> Self {
-        Self { ops, settings }
+    pub fn new(
+        ops: Arc<dyn CompilerContainerOps>,
+        settings: CompilerSettings,
+        credentials: Arc<dyn BuildCredentials>,
+    ) -> Self {
+        Self {
+            ops,
+            settings,
+            credentials,
+        }
     }
 
     pub fn cooldown(&self) -> Duration {
         self.settings.cooldown
     }
 
-    /// The container a tenant's compiler runs as.
-    pub fn container(&self, tenant_id: &str) -> CompilerContainer {
+    /// Stop the tenant's compiler containers that an older server started
+    /// with its own URL (CLOACINA-T-1063). Returns whether there were any.
+    async fn stop_legacy(&self, tenant_id: &str) -> Result<bool, ActuatorError> {
+        let legacy = self
+            .ops
+            .list_compilers_without_build_role(tenant_id)
+            .await?;
+        for id in &legacy {
+            self.ops.stop_compiler(id).await?;
+        }
+        if !legacy.is_empty() {
+            info!(tenant = %tenant_id, stopped = legacy.len(), "tenant compiler with the server's URL stopped (docker)");
+        }
+        Ok(!legacy.is_empty())
+    }
+
+    /// The container a tenant's compiler runs as, connecting with
+    /// `database_url` (the build role's).
+    pub fn container(&self, tenant_id: &str, database_url: &str) -> CompilerContainer {
         // The image's own filesystem is used: the hardened paths are volumes
         // of the Kubernetes pod only.
         let plain = CompilerSettings {
             hardened: false,
             ..self.settings.clone()
         };
-        let mut env = vec![format!("DATABASE_URL={}", self.settings.database_url)];
+        let mut env = vec![format!("DATABASE_URL={database_url}")];
         // CLOACINA-T-1117: next to the database URL, in the environment only.
         if let Some(url) = &self.settings.python.index_url {
             env.push(format!("CLOACINA_COMPILER_PYTHON_INDEX_URL={url}"));
@@ -1532,6 +1711,7 @@ impl DockerCompilers {
         if want == CompilerWant::Keep {
             return Ok(CompilerOutcome::default());
         }
+        let stopped_legacy = self.stop_legacy(tenant_id).await?;
         let running = self.ops.list_compilers(tenant_id).await?;
         if want == CompilerWant::Stop {
             for id in &running {
@@ -1539,7 +1719,7 @@ impl DockerCompilers {
             }
             return Ok(CompilerOutcome {
                 started: false,
-                stopped: !running.is_empty(),
+                stopped: stopped_legacy || !running.is_empty(),
             });
         }
         if !running.is_empty() {
@@ -1550,8 +1730,14 @@ impl DockerCompilers {
             "docker actuator ignores the compiler's resources, hardening, cache volumes and \
              network policy: they have no Docker counterpart here"
         );
-        self.ops.start_compiler(self.container(tenant_id)).await?;
-        info!(tenant = %tenant_id, "tenant compiler started: build queue has work (docker)");
+        // CLOACINA-T-1063: a new build role password at each start, in the
+        // container's environment only.
+        let credential = self.credentials.issue(tenant_id).await?;
+        let url = build_role_url(&self.settings.database_url, &credential)?;
+        self.ops
+            .start_compiler(self.container(tenant_id, &url))
+            .await?;
+        info!(tenant = %tenant_id, role = %credential.role, "tenant compiler started: build queue has work (docker)");
         Ok(CompilerOutcome {
             started: true,
             stopped: false,
@@ -1559,6 +1745,7 @@ impl DockerCompilers {
     }
 
     pub async fn remove(&self, tenant_id: &str) -> Result<(), ActuatorError> {
+        self.stop_legacy(tenant_id).await?;
         for id in self.ops.list_compilers(tenant_id).await? {
             self.ops.stop_compiler(&id).await?;
         }
@@ -1583,7 +1770,8 @@ mod docker_api {
     use super::super::ActuatorError;
     use super::super::docker::BollardOps;
     use super::{
-        CompilerContainer, CompilerContainerOps, DOCKER_LABEL_COMPILER, DOCKER_LABEL_TENANT,
+        CompilerContainer, CompilerContainerOps, DOCKER_CREDENTIAL_BUILD_ROLE,
+        DOCKER_LABEL_COMPILER, DOCKER_LABEL_CREDENTIAL, DOCKER_LABEL_TENANT,
     };
 
     fn failed(what: &str, e: impl std::fmt::Display) -> ActuatorError {
@@ -1613,10 +1801,47 @@ mod docker_api {
             Ok(found.into_iter().filter_map(|c| c.id).collect())
         }
 
+        async fn list_compilers_without_build_role(
+            &self,
+            tenant_id: &str,
+        ) -> Result<Vec<String>, ActuatorError> {
+            let mut filters: HashMap<String, Vec<String>> = HashMap::new();
+            filters.insert(
+                "label".to_string(),
+                vec![
+                    format!("{DOCKER_LABEL_TENANT}={tenant_id}"),
+                    format!("{DOCKER_LABEL_COMPILER}=true"),
+                ],
+            );
+            let options = ListContainersOptionsBuilder::default()
+                .all(false)
+                .filters(&filters)
+                .build();
+            let found = self
+                .docker
+                .list_containers(Some(options))
+                .await
+                .map_err(|e| failed("list_containers", e))?;
+            Ok(found
+                .into_iter()
+                .filter(|c| {
+                    c.labels
+                        .as_ref()
+                        .and_then(|l| l.get(DOCKER_LABEL_CREDENTIAL))
+                        != Some(&DOCKER_CREDENTIAL_BUILD_ROLE.to_string())
+                })
+                .filter_map(|c| c.id)
+                .collect())
+        }
+
         async fn start_compiler(&self, spec: CompilerContainer) -> Result<(), ActuatorError> {
             let mut labels: HashMap<String, String> = HashMap::new();
             labels.insert(DOCKER_LABEL_COMPILER.to_string(), "true".to_string());
             labels.insert(DOCKER_LABEL_TENANT.to_string(), spec.tenant_id.clone());
+            labels.insert(
+                DOCKER_LABEL_CREDENTIAL.to_string(),
+                DOCKER_CREDENTIAL_BUILD_ROLE.to_string(),
+            );
             let body = ContainerCreateBody {
                 image: Some(spec.image.clone()),
                 cmd: Some(spec.args.clone()),
@@ -1664,8 +1889,8 @@ mod docker_api {
 /// Where the fleet loop reads each tenant's build queue from.
 #[async_trait]
 pub trait BuildQueueSource: Send + Sync {
-    /// Every tenant (not `public`) with its queue. A tenant whose queue could
-    /// not be read is left out: its compiler stays as it is.
+    /// Every tenant, `public` included, with its queue. A tenant whose queue
+    /// could not be read is left out: its compiler stays as it is.
     async fn queues(&self) -> Result<Vec<(String, BuildQueue)>, String>;
 }
 
@@ -1692,7 +1917,17 @@ impl BuildQueueSource for DalBuildQueues {
             .list_tenant_schemas()
             .await
             .map_err(|e| e.to_string())?;
-        let mut out = Vec::with_capacity(schemas.len());
+        let mut out = Vec::with_capacity(schemas.len() + 1);
+        // `public` is a tenant like the others (CLOACINA-T-1063, decision 4
+        // of CLOACINA-A-0019): its compiler is made here too, and the chart
+        // renders none while the fleet compilers are on. Its queue is in the
+        // admin schema.
+        match cloacina::registry::workflow_registry::build_queue_stats(&self.admin).await {
+            Ok(stats) => out.push(("public".to_string(), BuildQueue::from(&stats))),
+            Err(e) => {
+                warn!(tenant = "public", error = %e, "tenant compilers: build queue read failed; skipped");
+            }
+        }
         for tenant in schemas {
             let db = match self.tenants.resolve(&tenant, &self.admin).await {
                 Ok(db) => db,
@@ -1724,9 +1959,9 @@ pub fn describe_metrics() {
     metrics::describe_gauge!(
         "cloacina_tenant_compiler_tenants_pending",
         "Tenants whose build queue has a `pending` or `building` package, as \
-         read on the last tick of the fleet loop (CLOACINA-T-1034). The \
-         `public` schema is not counted: the chart's own compiler serves it. \
-         Set only by the replica that led the tick."
+         read on the last tick of the fleet loop (CLOACINA-T-1034). `public` \
+         is counted like any tenant (CLOACINA-T-1063). Set only by the \
+         replica that led the tick."
     );
 }
 
@@ -1786,6 +2021,8 @@ mod tests {
         replicas: Mutex<Option<u32>>,
         /// The database URL in the Secret. `None`: no Secret.
         secret: Mutex<Option<String>>,
+        /// The build credential marker of the Deployment's pod template.
+        marker: Mutex<Option<String>>,
         applied: Mutex<Vec<Applied>>,
         deleted: Mutex<Vec<(KubeKind, String, String)>>,
         scaled: Mutex<Vec<(String, String, u32)>>,
@@ -1805,6 +2042,14 @@ mod tests {
         fn with_replicas(replicas: Option<u32>) -> Arc<Self> {
             Arc::new(Self {
                 replicas: Mutex::new(replicas),
+                ..Default::default()
+            })
+        }
+        /// A Deployment made by this server version: it has a marker.
+        fn running_with_marker(replicas: u32, marker: &str) -> Arc<Self> {
+            Arc::new(Self {
+                replicas: Mutex::new(Some(replicas)),
+                marker: Mutex::new(Some(marker.to_string())),
                 ..Default::default()
             })
         }
@@ -1844,6 +2089,11 @@ mod tests {
                 if replicas.is_none() {
                     *replicas = Some(1);
                 }
+                *self.marker.lock().unwrap() =
+                    manifest["spec"]["template"]["metadata"]["annotations"]
+                        [BUILD_CREDENTIAL_ANNOTATION]
+                        .as_str()
+                        .map(str::to_string);
             }
             if kind == KubeKind::Secret {
                 // An apply makes the Secret when it is absent.
@@ -1872,6 +2122,16 @@ mod tests {
                     Ok(true)
                 }
             }
+        }
+        async fn build_credential_marker(
+            &self,
+            _namespace: &str,
+            _name: &str,
+        ) -> Result<Option<String>, ActuatorError> {
+            if self.replicas.lock().unwrap().is_none() {
+                return Ok(None);
+            }
+            Ok(self.marker.lock().unwrap().clone())
         }
         async fn delete(
             &self,
@@ -1943,12 +2203,41 @@ mod tests {
 
     const URL: &str = "postgres://cloacina:s3cret@db.example:6432/cloacina";
 
+    /// Fake [`BuildCredentials`]: `<tenant>$build` and a numbered password.
+    #[derive(Default)]
+    struct FakeCredentials {
+        issued: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl BuildCredentials for FakeCredentials {
+        async fn issue(
+            &self,
+            tenant_id: &str,
+        ) -> Result<cloacina::database::BuildCredential, ActuatorError> {
+            let mut issued = self.issued.lock().unwrap();
+            issued.push(tenant_id.to_string());
+            Ok(cloacina::database::BuildCredential {
+                role: cloacina::database::build_role_name(tenant_id),
+                password: format!("buildpw{}", issued.len()),
+            })
+        }
+    }
+
     fn settings() -> CompilerSettings {
         CompilerSettings::with_database_url(URL)
     }
 
     fn compilers(ops: Arc<FakeKube>, settings: CompilerSettings) -> KubeCompilers {
-        KubeCompilers::new(ops, settings, true, "kube-system".to_string())
+        compilers_with(ops, settings, Arc::new(FakeCredentials::default()))
+    }
+
+    fn compilers_with(
+        ops: Arc<FakeKube>,
+        settings: CompilerSettings,
+        credentials: Arc<FakeCredentials>,
+    ) -> KubeCompilers {
+        KubeCompilers::new(ops, settings, true, "kube-system".to_string(), credentials)
     }
 
     fn at(secs: i64) -> DateTime<Utc> {
@@ -2076,15 +2365,158 @@ mod tests {
 
     #[tokio::test]
     async fn a_running_compiler_with_work_is_not_counted_as_a_start() {
-        let ops = FakeKube::with_replicas(Some(1));
-        let c = compilers(ops.clone(), settings());
+        let ops = FakeKube::running_with_marker(1, "m1");
+        let creds = Arc::new(FakeCredentials::default());
+        let c = compilers_with(ops.clone(), settings(), creds.clone());
 
         let out = c.reconcile("acme", CompilerWant::Run).await.unwrap();
 
         assert_eq!(out, CompilerOutcome::default());
         assert!(ops.scaled.lock().unwrap().is_empty());
-        // The objects are applied again, so a changed setting gets through.
-        assert_eq!(ops.applied_kinds().len(), 4);
+        // The objects are applied again, so a changed setting gets through;
+        // the Secret is not: the running pod keeps its password
+        // (CLOACINA-T-1063).
+        assert_eq!(
+            ops.applied_kinds(),
+            vec![
+                KubeKind::Namespace,
+                KubeKind::NetworkPolicy,
+                KubeKind::Deployment
+            ]
+        );
+        assert!(creds.issued.lock().unwrap().is_empty());
+        assert_eq!(ops.marker.lock().unwrap().as_deref(), Some("m1"));
+    }
+
+    // -- the build role's credential (CLOACINA-T-1063) ----------------------
+
+    #[tokio::test]
+    async fn a_start_writes_the_build_role_url_and_never_the_servers() {
+        let ops = FakeKube::with_replicas(None);
+        let creds = Arc::new(FakeCredentials::default());
+        let c = compilers_with(ops.clone(), settings(), creds.clone());
+
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+
+        let secret = ops.last(KubeKind::Secret);
+        let url = secret["stringData"][COMPILER_SECRET_KEY].as_str().unwrap();
+        // The user is the build role (its `$` may be percent-encoded); host,
+        // port and database are the compilers' URL's.
+        assert_eq!(
+            url.replace("%24", "$"),
+            "postgres://acme$build:buildpw1@db.example:6432/cloacina"
+        );
+        assert!(!secret.to_string().contains("s3cret"), "no server password");
+        assert_eq!(
+            creds.issued.lock().unwrap().as_slice(),
+            &["acme".to_string()]
+        );
+        // The pod template carries the marker of this password.
+        let deployment = ops.last(KubeKind::Deployment);
+        let marker = deployment["spec"]["template"]["metadata"]["annotations"]
+            [BUILD_CREDENTIAL_ANNOTATION]
+            .as_str()
+            .unwrap();
+        assert!(!marker.is_empty());
+        assert!(
+            !deployment.to_string().contains("buildpw"),
+            "no password in the pod spec"
+        );
+    }
+
+    #[tokio::test]
+    async fn each_start_from_zero_sets_a_new_password_and_a_new_marker() {
+        let ops = FakeKube::running_with_marker(0, "old");
+        let creds = Arc::new(FakeCredentials::default());
+        let c = compilers_with(ops.clone(), settings(), creds.clone());
+
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        let first = ops.marker.lock().unwrap().clone().unwrap();
+        assert_ne!(first, "old");
+        // Running: nothing new.
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(creds.issued.lock().unwrap().len(), 1);
+        // Stopped, then started again: a new password.
+        c.reconcile("acme", CompilerWant::Stop).await.unwrap();
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(creds.issued.lock().unwrap().len(), 2);
+        let second = ops.marker.lock().unwrap().clone().unwrap();
+        assert_ne!(first, second);
+        let secret = ops.last(KubeKind::Secret);
+        assert!(secret.to_string().contains("buildpw2"));
+    }
+
+    #[tokio::test]
+    async fn a_running_compiler_of_an_older_server_is_moved_to_the_build_role() {
+        // Made by an older server: running, no marker, the server's URL in
+        // its Secret.
+        let ops = FakeKube::with_replicas(Some(1));
+        let creds = Arc::new(FakeCredentials::default());
+        let c = compilers_with(ops.clone(), settings(), creds.clone());
+
+        let out = c.reconcile("acme", CompilerWant::Run).await.unwrap();
+
+        assert!(!out.started, "a running compiler is not counted as a start");
+        assert_eq!(creds.issued.lock().unwrap().len(), 1);
+        let secret = ops.last(KubeKind::Secret);
+        assert!(
+            secret
+                .to_string()
+                .replace("%24", "$")
+                .contains("acme$build")
+        );
+        assert!(!secret.to_string().contains("s3cret"));
+        // The new marker on the pod template replaces the pod.
+        assert!(ops.marker.lock().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_failed_password_issue_writes_nothing_and_starts_nothing() {
+        struct Refusing;
+        #[async_trait]
+        impl BuildCredentials for Refusing {
+            async fn issue(
+                &self,
+                _tenant_id: &str,
+            ) -> Result<cloacina::database::BuildCredential, ActuatorError> {
+                Err(ActuatorError::Substrate("no role".to_string()))
+            }
+        }
+        let ops = FakeKube::with_replicas(None);
+        let c = KubeCompilers::new(
+            ops.clone(),
+            settings(),
+            true,
+            "kube-system".to_string(),
+            Arc::new(Refusing),
+        );
+        assert!(c.reconcile("acme", CompilerWant::Run).await.is_err());
+        assert_eq!(ops.applied_kinds(), vec![KubeKind::Namespace]);
+        assert_eq!(*ops.replicas.lock().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn public_gets_a_compiler_like_a_tenant() {
+        let ops = FakeKube::with_replicas(None);
+        let c = compilers(ops.clone(), settings());
+        c.reconcile("public", CompilerWant::Run).await.unwrap();
+        let deployment = ops.last(KubeKind::Deployment);
+        assert_eq!(
+            deployment["metadata"]["namespace"],
+            "cloacina-tenant-public"
+        );
+        assert!(
+            deployment
+                .to_string()
+                .contains("\"--tenant-schema\",\"public\"")
+        );
+        let secret = ops.last(KubeKind::Secret);
+        assert!(
+            secret
+                .to_string()
+                .replace("%24", "$")
+                .contains("public$build")
+        );
     }
 
     #[tokio::test]
@@ -2134,7 +2566,8 @@ mod tests {
         let ops = FakeKube::with_replicas(None);
         let c = compilers(ops.clone(), settings());
         c.reconcile("acme", CompilerWant::Run).await.unwrap();
-        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(URL));
+        // The build role's URL (CLOACINA-T-1063).
+        assert!(ops.secret.lock().unwrap().as_deref().unwrap().contains("buildpw1"));
 
         c.remove("acme").await.unwrap();
 
@@ -2149,9 +2582,11 @@ mod tests {
         // The Secret is written over with an empty value, by a patch: the
         // last apply of the Secret is the one that made it.
         assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(""));
-        assert_eq!(
-            ops.last(KubeKind::Secret)["stringData"][COMPILER_SECRET_KEY],
-            URL
+        assert!(
+            ops.last(KubeKind::Secret)["stringData"][COMPILER_SECRET_KEY]
+                .as_str()
+                .unwrap()
+                .contains("buildpw1")
         );
         assert_eq!(
             empty_database_secret_patch(),
@@ -2177,7 +2612,7 @@ mod tests {
         let ops = FakeKube::with_replicas(None);
         let c = compilers(ops.clone(), settings());
         c.reconcile("acme", CompilerWant::Run).await.unwrap();
-        assert_eq!(ops.secret.lock().unwrap().as_deref(), Some(URL));
+        assert!(ops.secret.lock().unwrap().as_deref().unwrap().contains("buildpw1"));
 
         // The first removal deletes the Deployment and then fails.
         *ops.fail_delete_once.lock().unwrap() = Some(KubeKind::NetworkPolicy);
@@ -2228,7 +2663,13 @@ mod tests {
     #[tokio::test]
     async fn the_policy_is_not_written_when_fleet_policies_are_off() {
         let ops = FakeKube::with_replicas(None);
-        let c = KubeCompilers::new(ops.clone(), settings(), false, "kube-system".to_string());
+        let c = KubeCompilers::new(
+            ops.clone(),
+            settings(),
+            false,
+            "kube-system".to_string(),
+            Arc::new(FakeCredentials::default()),
+        );
         c.reconcile("acme", CompilerWant::Run).await.unwrap();
         assert!(!ops.applied_kinds().contains(&KubeKind::NetworkPolicy));
     }
@@ -2633,7 +3074,7 @@ mod tests {
         assert!(!m.to_string().contains("idx-pw"));
         assert!(!format!("{s:?}").contains("idx-pw"));
 
-        let secret = compiler_secret_manifest("cloacina-tenant-acme", &s);
+        let secret = compiler_secret_manifest("cloacina-tenant-acme", &s, URL);
         assert_eq!(secret["stringData"][COMPILER_SECRET_KEY], URL);
         assert_eq!(
             secret["stringData"][COMPILER_SECRET_INDEX_KEY],
@@ -2660,7 +3101,7 @@ mod tests {
             .filter(|n| n.starts_with("CLOACINA_COMPILER_PYTHON_"))
             .collect();
         assert_eq!(python, ["CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR"]);
-        let secret = compiler_secret_manifest("cloacina-tenant-acme", &settings());
+        let secret = compiler_secret_manifest("cloacina-tenant-acme", &settings(), URL);
         assert!(
             secret["stringData"]
                 .get(COMPILER_SECRET_INDEX_KEY)
@@ -3074,6 +3515,8 @@ mod tests {
     #[derive(Default)]
     struct FakeDocker {
         running: Mutex<Vec<String>>,
+        /// Running containers of an older server: no credential label.
+        legacy: Mutex<Vec<String>>,
         started: Mutex<Vec<CompilerContainer>>,
         stopped: Mutex<Vec<String>>,
     }
@@ -3081,7 +3524,15 @@ mod tests {
     #[async_trait]
     impl CompilerContainerOps for FakeDocker {
         async fn list_compilers(&self, _tenant_id: &str) -> Result<Vec<String>, ActuatorError> {
-            Ok(self.running.lock().unwrap().clone())
+            let mut all = self.running.lock().unwrap().clone();
+            all.extend(self.legacy.lock().unwrap().iter().cloned());
+            Ok(all)
+        }
+        async fn list_compilers_without_build_role(
+            &self,
+            _tenant_id: &str,
+        ) -> Result<Vec<String>, ActuatorError> {
+            Ok(self.legacy.lock().unwrap().clone())
         }
         async fn start_compiler(&self, spec: CompilerContainer) -> Result<(), ActuatorError> {
             self.running
@@ -3093,9 +3544,14 @@ mod tests {
         }
         async fn stop_compiler(&self, id: &str) -> Result<(), ActuatorError> {
             self.running.lock().unwrap().retain(|c| c != id);
+            self.legacy.lock().unwrap().retain(|c| c != id);
             self.stopped.lock().unwrap().push(id.to_string());
             Ok(())
         }
+    }
+
+    fn docker(ops: Arc<FakeDocker>, settings: CompilerSettings) -> DockerCompilers {
+        DockerCompilers::new(ops, settings, Arc::new(FakeCredentials::default()))
     }
 
     #[tokio::test]
@@ -3103,7 +3559,7 @@ mod tests {
         let ops = Arc::new(FakeDocker::default());
         let mut s = settings();
         s.docker_network = Some("cloacina".to_string());
-        let c = DockerCompilers::new(ops.clone(), s);
+        let c = docker(ops.clone(), s);
 
         // No work, no container.
         assert_eq!(
@@ -3130,9 +3586,20 @@ mod tests {
             assert_eq!(started.len(), 1);
             let spec = &started[0];
             assert_eq!(spec.network.as_deref(), Some("cloacina"));
-            assert!(spec.env.contains(&format!("DATABASE_URL={URL}")));
+            // The build role's URL (CLOACINA-T-1063), never the server's.
+            let url = spec
+                .env
+                .iter()
+                .find_map(|e| e.strip_prefix("DATABASE_URL="))
+                .unwrap()
+                .replace("%24", "$");
+            assert_eq!(
+                url,
+                "postgres://acme$build:buildpw1@db.example:6432/cloacina"
+            );
+            assert!(!spec.env.iter().any(|e| e.contains("s3cret")));
             // The URL is in the environment, not in the arguments.
-            assert!(!spec.args.iter().any(|a| a.contains("s3cret")));
+            assert!(!spec.args.iter().any(|a| a.contains("buildpw")));
             let i = spec
                 .args
                 .iter()
@@ -3161,9 +3628,33 @@ mod tests {
     #[tokio::test]
     async fn docker_removes_the_container_of_a_removed_tenant() {
         let ops = Arc::new(FakeDocker::default());
-        let c = DockerCompilers::new(ops.clone(), settings());
+        let c = docker(ops.clone(), settings());
         c.reconcile("acme", CompilerWant::Run).await.unwrap();
         c.remove("acme").await.unwrap();
+        assert!(ops.running.lock().unwrap().is_empty());
+    }
+
+    /// CLOACINA-T-1063: a compiler container an older server started with
+    /// the server's URL is stopped, and a new one starts with the build role.
+    #[tokio::test]
+    async fn docker_replaces_a_container_that_has_the_servers_url() {
+        let ops = Arc::new(FakeDocker::default());
+        ops.legacy.lock().unwrap().push("old-acme".to_string());
+        let c = docker(ops.clone(), settings());
+
+        let out = c.reconcile("acme", CompilerWant::Run).await.unwrap();
+
+        assert!(out.started);
+        assert_eq!(
+            ops.stopped.lock().unwrap().as_slice(),
+            &["old-acme".to_string()]
+        );
+        assert_eq!(ops.started.lock().unwrap().len(), 1);
+
+        // Also on remove.
+        ops.legacy.lock().unwrap().push("old-acme-2".to_string());
+        c.remove("acme").await.unwrap();
+        assert!(ops.legacy.lock().unwrap().is_empty());
         assert!(ops.running.lock().unwrap().is_empty());
     }
 

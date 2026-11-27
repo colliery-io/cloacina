@@ -62,13 +62,21 @@ compiler needs:
 - Read/write to its `--home` directory (logs, build tmp).
 - Read/write to its `CARGO_TARGET_DIR` (shared target cache, if set).
 - Read access to the configured `--vendor-dir` (curated `CARGO_HOME`).
-- A database role with `SELECT`/`UPDATE` on `workflow_packages` and
-  `INSERT` on the audit-event sink, **nothing more**. In particular,
-  the compiler must **not** share the admin DB role that the server
-  uses. A build does not inherit `DATABASE_URL`, but build code has the
-  compiler's UID: on Linux it can read the compiler's command line and
-  environment through `/proc`, and with the admin role it would gain
-  admin DB access to every tenant.
+- A database role with the rights of a build, **nothing more**: in the
+  schema it serves, `SELECT, UPDATE` on `workflow_packages`, `SELECT` on
+  `workflow_registry`, `SELECT, INSERT, DELETE` on `package_providers` and
+  `package_artifacts`, and `USAGE` on the schema. The server makes such a
+  role for each tenant and for `public`: `<tenant>$build` and
+  `public$build`, with no password (see
+  [The build role](#the-build-role-of-a-tenant)). For a compiler you run by
+  hand, set one with `ALTER ROLE "<tenant>$build" WITH PASSWORD '…'`. In
+  particular, the compiler must **not** share the admin DB role that the
+  server uses. A build does not inherit `DATABASE_URL`, but build code has
+  the compiler's UID: on Linux it can read the compiler's command line and
+  environment through `/proc`, and with the admin role it would gain admin
+  DB access to every tenant. A compiler with a build role runs with
+  `--tenant-schema <tenant>` (`--tenant-schema public` for `public`): a
+  build role cannot run the migrations a compiler without it runs at start.
 
 ### 2. No outbound network beyond the vendor dir
 
@@ -184,10 +192,11 @@ packages can resolve under `--offline`. Curate it explicitly.
 
 A compiler serves one schema. A deployment runs:
 
-- **One compiler for `public`**, that you deploy: the Helm chart's
-  `compiler.enabled=true`, or your own process. It runs all the time.
-- **One compiler per tenant**, that you deploy with `--tenant-schema`, or that
-  the server makes for you. Without one, a package published to the tenant
+- **One compiler per tenant, `public` included**, that the server makes for
+  you (below), or that you deploy with `--tenant-schema`. Without the server's
+  compilers, `public`'s is the Helm chart's `compiler.enabled=true` or your
+  own process, and runs all the time. Without one, a package published to the
+  tenant
   stays `pending`: a Rust package and a Python package alike, because the
   compiler is the process that completes every package (it runs no cargo for
   a Python one).
@@ -198,7 +207,9 @@ With a fleet actuator (`CLOACINA_FLEET_ACTUATOR=kubernetes` or `docker`) and
 `CLOACINA_TENANT_COMPILERS=true`, the server runs the tenant compilers itself.
 The Helm chart sets both with `fleet.actuator=kubernetes`
 (`fleet.compiler.enabled` is `true` by default). No step is needed when a
-tenant is created.
+tenant is created. `public` is a tenant like the others: its compiler is made
+the same way, in `cloacina-tenant-public`, and the chart then renders no
+compiler of its own.
 
 On each tick of the fleet loop (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30 s)
 the server reads the build queue of every tenant schema: the `pending` and
@@ -220,12 +231,12 @@ value over the database URL and the Python index URL in the Secret.
 On Kubernetes the compiler of a tenant is a Deployment `cloacina-compiler` in
 the tenant's namespace (`cloacina-tenant-<tenant>`), next to its agents. With
 the Docker actuator it is one container with the labels
-`cloacina.compiler=true` and `cloacina.compiler-tenant=<tenant>`; the
-resources, the hardening, the cache volumes, the cache claim and the
-NetworkPolicy below do not apply there. The container runs on the image's own
-filesystem, and its cargo home holds the toolchain: a volume kept over it
-would keep an old toolchain after an image upgrade, so the Docker actuator
-keeps no cache between starts.
+`cloacina.compiler=true`, `cloacina.compiler-tenant=<tenant>` and
+`cloacina.compiler-credential=build-role`; the resources, the hardening, the
+cache volumes, the cache claim and the NetworkPolicy below do not apply there.
+The container runs on the image's own filesystem, and its cargo home holds the
+toolchain: a volume kept over it would keep an old toolchain after an image
+upgrade, so the Docker actuator keeps no cache between starts.
 
 **The caches are kept on a claim.** A hardened tenant compiler mounts a
 PersistentVolumeClaim `cloacina-compiler-cache` in the tenant's namespace,
@@ -263,7 +274,7 @@ compiler longer; it also keeps the pod's requested CPU and memory reserved.
 | `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE` | `cacheClaim.size` | `20Gi` | Requested size of the claim: the sum of the `emptyDir` limits it replaces (8Gi, 8Gi, 4Gi). |
 | `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS` | `cacheClaim.storageClass` | unset (the cluster's default class) | Storage class of the claim. |
 | `CLOACINA_TENANT_COMPILER_HARDENED` | `hardened` | `true` | The pod hardening below. |
-| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | `databaseUrlSecretRef` | the server's own URL | The database URL of the tenant compilers. |
+| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | `databaseUrlSecretRef` | the server's own URL | Where the tenant compilers reach the database: host, port, database and parameters. Its user and password are not used: each compiler connects as its tenant's build role. |
 | `CLOACINA_TENANT_COMPILER_EGRESS` | `egress` | `internet` | Where a build may fetch crates from: `internet`, `all` or `none`. |
 | `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | `egressCidrs` | empty | More egress CIDR blocks, every port. |
 | `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | `databaseCidrs` | empty | CIDR blocks of the database. |
@@ -308,19 +319,72 @@ probe.
 
 **The database URL.** The server writes the URL into a Secret
 `cloacina-compiler-db` in the tenant's namespace, and the pod reads it as the
-environment variable `DATABASE_URL`. It is not on the pod's command line. By
-default it is the server's own URL, which reaches every schema: the same
-credential the chart's own compiler has. To give the tenant compilers a
-weaker one, set `CLOACINA_TENANT_COMPILER_DATABASE_URL` (chart:
-`fleet.compiler.databaseUrlSecretRef`) to the URL of a role you made for
-builds. A tenant compiler reads and writes four tables of its tenant's
-schema, `workflow_packages`, `workflow_registry`, `package_providers` and
-`package_artifacts`, and nothing in `public`. All tenant compilers get the
-same URL. The host in the URL must resolve from the tenant namespaces: use a
-full Service name (`<service>.<namespace>.svc.cluster.local`), not a short
-one. A changed URL reaches a compiler when it next starts. A Python package
-index URL, when one is set, is a second key of the same Secret,
-`python-index-url`, read as `CLOACINA_COMPILER_PYTHON_INDEX_URL`.
+environment variable `DATABASE_URL`. It is not on the pod's command line. Its
+user is the tenant's build role (below), with a password the server set for
+this start; host, port, database and parameters come from
+`CLOACINA_TENANT_COMPILER_DATABASE_URL` (chart:
+`fleet.compiler.databaseUrlSecretRef`), or the server's own URL. The host must
+resolve from the tenant namespaces: use a full Service name
+(`<service>.<namespace>.svc.cluster.local`), not a short one. A changed host
+reaches a compiler when it next starts. A Python package index URL, when one
+is set, is a second key of the same Secret, `python-index-url`, read as
+`CLOACINA_COMPILER_PYTHON_INDEX_URL`. The Secret is written only when the
+compiler starts, so a changed index URL also reaches a compiler at its next
+start.
+
+### The build role of a tenant
+
+Each tenant has a second Postgres role, for builds only: `<tenant>$build`,
+lower case (`public$build` for `public`). A tenant name cannot hold `$`, so
+no tenant role has that name; a name longer than 57 characters becomes its
+first 40 characters, `$build$` and 16 hex digits of its SHA-256. The server
+makes it, and it has these rights and no other:
+
+| Table, in the tenant's own schema | Rights |
+|---|---|
+| `workflow_packages` | `SELECT`, `UPDATE` |
+| `workflow_registry` | `SELECT` |
+| `package_providers` | `SELECT`, `INSERT`, `DELETE` |
+| `package_artifacts` | `SELECT`, `INSERT`, `DELETE` |
+
+plus `USAGE` on the schema. No right on another schema, on any table of
+`public`, or to create a table. A table the tenant schema lacks is refused,
+not read from `public`. `public$build` has the four tables of `public` and
+nothing else there.
+
+- **When it is made.** At tenant create; for every tenant at each server
+  start, after the tenant's migrations; and `public$build` at each server
+  start. Each time under the migration lock,
+  so a tenant made before this version gets its build role at the next start
+  with no step.
+- **Grants after a migration.** The grants are given again after each
+  migration of the tenant schema, whatever role ran it. A table added later
+  for builds reaches the role at the start that makes it.
+- **The password.** Made with no password: no one can log in. The server sets
+  a random password each time it starts the tenant's compiler (no Deployment,
+  0 replicas, or no container), writes the URL only into the compiler's
+  Secret (Kubernetes) or the container's environment (Docker), and keeps no
+  copy. While the compiler runs, the Secret is not written again, so a pod
+  that restarts reads a password that still works.
+- **Rotation.** At each start of the compiler, so after each scale to zero
+  (300 s of empty queue by default). A compiler that never runs out of work
+  keeps its password until it stops. To rotate now, scale the tenant's
+  `cloacina-compiler` Deployment to 0: the next tick with work starts it with
+  a new password.
+- **After an upgrade.** A tenant compiler made by an older server holds the
+  server's own URL. On Kubernetes its pod template has no annotation
+  `cloacina.io/build-credential`: at the first tick with work the server sets
+  a build role password, writes the Secret and applies the Deployment with the
+  annotation, which replaces the pod. A build in progress is cut; the sweeper
+  puts it back in the queue. On Docker a compiler container without the label
+  `cloacina.compiler-credential=build-role` is stopped, and a new one starts
+  if there is work.
+- **The tenant's own role.** Tenant create also makes the tenant role, with
+  the password given back once. The server stores it nowhere and does not use
+  it; whoever holds it can use it by hand.
+- **What the server's database user needs.** `CREATEROLE`, as for tenant
+  create, and to own the tenant tables (it runs the migrations). On Postgres
+  16 a role with `CREATEROLE` can set the password only of roles it made.
 
 **The network.** With `CLOACINA_FLEET_NETWORK_POLICY` on (the default), the
 server writes a NetworkPolicy `cloacina-compiler` for the compiler pods:

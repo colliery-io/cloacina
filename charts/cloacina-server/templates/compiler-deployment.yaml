@@ -1,8 +1,10 @@
-{{- if .Values.compiler.enabled }}
+{{- if include "cloacina-server.chartCompiler" . }}
 {{- include "cloacina-server.validateDatabase" . -}}
-# The cloacina-compiler builds uploaded packages. Tenant-level isolation is
-# the security boundary (one compiler per tenant via --tenant-schema); the
-# per-build process sandbox was excised 2026-07-11 (possible future layer).
+# The cloacina-compiler builds the packages of the public schema, with the
+# database URL the chart is given: the single-trust install. With the fleet
+# compilers on (fleet.actuator=kubernetes, fleet.compiler.enabled), the server
+# runs public's compiler like every tenant's, with public's build role, and
+# this Deployment is not rendered (CLOACINA-T-1063).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,8 +13,7 @@ metadata:
     {{- include "cloacina-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: compiler
 spec:
-  # A single compiler claims pending builds; scale per-tenant compilers by
-  # running additional releases with --tenant-schema (see values.compiler.args).
+  # One compiler claims the pending builds of public.
   replicas: {{ .Values.compiler.replicaCount }}
   strategy:
     type: Recreate
