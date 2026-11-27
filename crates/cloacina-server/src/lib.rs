@@ -47,6 +47,7 @@ pub mod ops_metrics;
 pub mod retention;
 pub mod routes;
 pub mod secrets;
+pub mod startup_migrations;
 pub mod tenant_runner_cache;
 
 /// CORS configuration (CLOACI-T-0643 / REQ-009). Disabled unless at least
@@ -842,10 +843,14 @@ pub async fn run(
         tracing::error!("{e}");
         anyhow::anyhow!(e)
     })?;
-    admin_database
-        .run_migrations()
+    // CLOACINA-T-1056: `public`, then each tenant schema. A tenant schema
+    // that cannot be migrated stops the start.
+    startup_migrations::migrate_at_start(&admin_database, startup_migrations::TenantSchemas::All)
         .await
-        .map_err(|e| anyhow::anyhow!("failed to run migrations: {e}"))?;
+        .map_err(|e| {
+            tracing::error!("{e}");
+            anyhow::anyhow!(e)
+        })?;
     let public_secret_resolver = secrets::runner_secret_resolver("public", &admin_database);
     let runner = DefaultRunner::with_database_secrets(
         admin_database,
@@ -2768,6 +2773,9 @@ mod tests {
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;
+
+    /// Server start migrates each tenant schema (CLOACINA-T-1056).
+    mod tenant_migrations;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 

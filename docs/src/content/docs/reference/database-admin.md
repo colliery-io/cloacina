@@ -33,8 +33,20 @@ impl DatabaseAdmin {
 
     /// Remove a tenant (user + schema)
     pub fn remove_tenant(&self, schema_name: &str, username: &str) -> Result<(), AdminError>;
+
+    /// The tenant schemas that hold migrations: each non-system schema
+    /// with a `__diesel_schema_migrations` table
+    pub async fn list_migrated_tenant_schemas(&self) -> Result<Vec<String>, AdminError>;
+
+    /// Run the pending migrations of one tenant schema, in one transaction
+    /// under the migration lock. Returns how many ran
+    pub async fn migrate_tenant_schema(&self, schema_name: &str) -> Result<usize, AdminError>;
 }
 ```
+
+The API server calls the last two at each start: it migrates the `public`
+schema and then each tenant schema. See
+[Upgrading the server](../../how-to/service/production-deployment/#upgrading-the-server).
 
 ### TenantConfig
 

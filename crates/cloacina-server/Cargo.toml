@@ -102,6 +102,8 @@ opentelemetry_sdk = { version = "0.33", optional = true, features = ["rt-tokio"]
 
 [dev-dependencies]
 serial_test = "4"
+# CLOACINA-T-1056: a test makes a tenant schema with the older migrations only.
+diesel_migrations = { version = "2.1.0" }
 # T-0570 contract test signs a temp-file payload before driving the upload
 # handler. Used in tests only.
 tempfile = "3"

@@ -165,7 +165,7 @@ Each tenant gets a completely separate SQLite database file, providing physical 
    - No possibility of cross-tenant data leakage through normal operations
 
 2. **Operational Isolation**
-   - Migration failures affect only one tenant
+   - A migration that fails changes no schema but its own: each schema is migrated in its own transaction. The API server migrates every tenant schema at start and does not start while one of them fails (see [Upgrading the server](../../../how-to/service/production-deployment/#upgrading-the-server))
    - Recovery operations are scoped per tenant
    - Workflow execution is isolated
 
