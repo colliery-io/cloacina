@@ -39,7 +39,7 @@ On Kubernetes, the tenant's namespace `cloacina-tenant-<name>` stays, emptied: t
 
 ### How long a key of the deleted tenant still passes
 
-On the server that runs the delete: not after step 1. On another server: until the revocation notice arrives. A server whose notice listener is disconnected clears its cache when the listener connects again; in the worst case its key cache answers for at most 30 s (the cache TTL). Another server stops its runner for the tenant at its next runner pass (every 30 s).
+On the server that runs the delete: not after step 1. On another server: until the revocation notice arrives. A server whose notice listener is disconnected clears its cache when the listener connects again; in the worst case its key cache answers for at most 30 s (the cache TTL). Another server stops its runner for the tenant at its next runner pass (every 30 s), also when a tenant of the same name was made again before that pass; it then makes a new runner for the new tenant.
 
 ### While a delete is part-done
 
