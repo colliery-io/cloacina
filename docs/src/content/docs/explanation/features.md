@@ -80,8 +80,9 @@ first if those terms are new.
   See [Running the Daemon](../../how-to/embed/running-the-daemon/).
 - **Server** — `cloacina-server`, an HTTP + WebSocket control plane. See
   [Deploy a Server](../../tutorials/service/01-deploy-a-server/).
-- **Compiler service** — `cloacina-compiler` builds uploaded packages in a
-  sandbox. See [Running the Compiler](../../how-to/service/running-the-compiler/).
+- **Compiler service** — `cloacina-compiler` builds uploaded packages, with a
+  cleared environment, a time limit and resource limits on each build. See
+  [Running the Compiler](../../how-to/service/running-the-compiler/).
 - **Execution-agent fleet** — `cloacina-agent` workers run tasks off the server
   for horizontal scale. See
   [Deploy an Execution-Agent Fleet](../../how-to/service/deploy-an-execution-agent-fleet/)
@@ -127,8 +128,10 @@ first if those terms are new.
   rather than silently producing an unsigned archive. See
   [Package Signing](../../how-to/service/security/package-signing/)
   and [Require Signed Packages](../../how-to/service/require-signed-packages/).
-- **Build sandboxing** — the compiler builds untrusted packages in an isolated
-  environment (Linux). See [Security Model](../service/security-model/).
+- **Build limits** — the compiler gives each build a cleared environment, a
+  time limit and kernel resource limits (Linux). It is not a sandbox: the
+  isolation boundary is one compiler per tenant. See
+  [Security Model](../service/security-model/).
 - **Horizontal scaling** — stateless schedulers coordinate through the database.
   See [Horizontal Scaling](../service/horizontal-scaling/).
 

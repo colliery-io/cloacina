@@ -125,6 +125,11 @@ cel-interpreter = "0.10"
 # would false-reject valid macros. Same parser cel-interpreter already uses.
 cel-parser = "0.10"
 
+# CLOACINA-T-1054: `packaging::build_child` kills a timed-out build child's
+# process group and, on Linux, sets its rlimits before exec.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.2"
 # CLOACI-T-0827: signed-provider e2e test signs/verifies with the same Ed25519
