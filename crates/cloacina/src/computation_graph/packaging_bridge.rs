@@ -200,16 +200,6 @@ pub fn build_declaration_from_ffi_in(
     library_data: Vec<u8>,
     provider_root: Option<&std::path::Path>,
 ) -> ComputationGraphDeclaration {
-    let criteria = match graph_meta.reaction_mode.as_str() {
-        "when_all" => ReactionCriteria::WhenAll,
-        _ => ReactionCriteria::WhenAny,
-    };
-
-    let strategy = match graph_meta.input_strategy.as_str() {
-        "sequential" => InputStrategy::Sequential,
-        _ => InputStrategy::Latest,
-    };
-
     // Load the library once and keep the handle for reuse.
     // If loading fails (e.g., in tests with fake data), the graph function
     // returns an error on every call instead of panicking at construction.
@@ -229,6 +219,41 @@ pub fn build_declaration_from_ffi_in(
                 Box::pin(async move { GraphResult::error(GraphError::Execution(msg)) })
             })
         }
+    };
+
+    declaration_with_graph_fn(graph_meta, graph_fn, provider_root)
+}
+
+/// A `ComputationGraphDeclaration` from a package's metadata document, with no
+/// code behind its graph (CLOACINA-T-1075). Nothing is opened: the graph
+/// function fails each firing it is asked to run with `reason`. A server that
+/// loads packages from metadata only uses this; its graph executor sends each
+/// firing to an agent of the tenant, which runs the graph.
+pub fn build_declaration_without_code(
+    graph_meta: &GraphPackageMetadata,
+    provider_root: Option<&std::path::Path>,
+    reason: String,
+) -> ComputationGraphDeclaration {
+    let graph_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+        let msg = reason.clone();
+        Box::pin(async move { GraphResult::error(GraphError::Execution(msg)) })
+    });
+    declaration_with_graph_fn(graph_meta, graph_fn, provider_root)
+}
+
+fn declaration_with_graph_fn(
+    graph_meta: &GraphPackageMetadata,
+    graph_fn: CompiledGraphFn,
+    provider_root: Option<&std::path::Path>,
+) -> ComputationGraphDeclaration {
+    let criteria = match graph_meta.reaction_mode.as_str() {
+        "when_all" => ReactionCriteria::WhenAll,
+        _ => ReactionCriteria::WhenAny,
+    };
+
+    let strategy = match graph_meta.input_strategy.as_str() {
+        "sequential" => InputStrategy::Sequential,
+        _ => InputStrategy::Latest,
     };
 
     // Create accumulator factories from FFI metadata

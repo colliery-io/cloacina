@@ -31,6 +31,7 @@
 //! - `ReconcileResult`: Result of a reconciliation operation
 //! - `PackageState`: Tracking loaded package state
 
+mod from_document;
 mod loading;
 
 use std::collections::{HashMap, HashSet};
@@ -77,6 +78,30 @@ pub struct ReconcilerConfig {
     /// `require_signatures` is false. Mirrors
     /// `cloacina-server`'s `--verification-org-id` CLI flag.
     pub verification_org_id: Option<crate::UniversalUuid>,
+
+    /// How a package is loaded (CLOACINA-T-1075). The default,
+    /// [`PackageLoadMode::InProcess`], opens the package's library or
+    /// imports its Python module in this process. `cloacina-server` sets
+    /// [`PackageLoadMode::MetadataOnly`] unless it runs with single trust.
+    pub package_load_mode: PackageLoadMode,
+}
+
+/// How the reconciler loads a package (CLOACINA-T-1075, CLOACINA-A-0019).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PackageLoadMode {
+    /// Open the package's library, or import its Python module, in this
+    /// process. The package's code runs here: its load-time code, its
+    /// triggers, its graph and, with the in-process executor, its tasks. The
+    /// mode of the embedded library and of `cloacinactl daemon`.
+    #[default]
+    InProcess,
+    /// Register the package from the metadata document its compiler stored
+    /// (CLOACINA-T-1074). No library is opened and no module is imported:
+    /// the tasks are entries with no code, which an executor that sends work
+    /// to agents runs there. A package with no document does not load; a
+    /// package that needs its code in this process (a poll trigger, a native
+    /// provider, Python reactive code) is refused with the reason.
+    MetadataOnly,
 }
 
 impl Default for ReconcilerConfig {
@@ -89,6 +114,7 @@ impl Default for ReconcilerConfig {
             default_tenant_id: "public".to_string(),
             require_signatures: false,
             verification_org_id: None,
+            package_load_mode: PackageLoadMode::InProcess,
         }
     }
 }
@@ -823,6 +849,7 @@ mod tests {
             default_tenant_id: "tenant-42".to_string(),
             require_signatures: false,
             verification_org_id: None,
+            package_load_mode: PackageLoadMode::MetadataOnly,
         };
 
         assert_eq!(config.reconcile_interval, Duration::from_secs(60));

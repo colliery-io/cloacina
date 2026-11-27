@@ -213,6 +213,8 @@ impl DefaultRunner {
             // already plumbed via --require-signatures + --verification-org-id.
             require_signatures: self.config.require_signatures(),
             verification_org_id: self.config.verification_org_id(),
+            // CLOACINA-T-1075: in process unless the server says otherwise.
+            package_load_mode: self.config.package_load_mode(),
         };
 
         let workflow_registry_result = match self.config.registry_storage_backend() {

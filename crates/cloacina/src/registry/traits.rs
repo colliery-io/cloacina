@@ -291,6 +291,22 @@ pub trait WorkflowRegistry: Send + Sync {
         let _ = (package_id, reason);
         Ok(false)
     }
+
+    /// CLOACINA-T-1075: the metadata document the compiler stored for a
+    /// package row (CLOACINA-T-1074), with the reason of a failed describe.
+    /// `None` when the row does not exist.
+    ///
+    /// The reconciler reads it to load a package without its code
+    /// ([`PackageLoadMode::MetadataOnly`](crate::registry::PackageLoadMode)).
+    /// Default impl: no document store (filesystem, in-memory, mocks), so no
+    /// package loads in that mode.
+    async fn get_package_description(
+        &self,
+        package_id: WorkflowPackageId,
+    ) -> Result<Option<crate::registry::workflow_registry::StoredDescription>, RegistryError> {
+        let _ = package_id;
+        Ok(None)
+    }
 }
 
 /// Trait for binary storage backends.

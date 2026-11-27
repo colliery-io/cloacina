@@ -96,6 +96,10 @@ pub struct DefaultRunnerConfig {
     /// when the existence check fails. Mirrors `cloacina-server`'s
     /// `--verification-org-id`.
     verification_org_id: Option<crate::UniversalUuid>,
+    /// CLOACINA-T-1075: how the reconciler loads a package. In process by
+    /// default; `cloacina-server` loads from metadata only unless it runs
+    /// with single trust.
+    package_load_mode: crate::registry::PackageLoadMode,
     enable_claiming: bool,
     heartbeat_interval: Duration,
     stale_claim_sweep_interval: Duration,
@@ -235,6 +239,11 @@ impl DefaultRunnerConfig {
         self.require_signatures
     }
 
+    /// CLOACINA-T-1075: how the reconciler loads a package.
+    pub fn package_load_mode(&self) -> crate::registry::PackageLoadMode {
+        self.package_load_mode
+    }
+
     /// The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
     pub fn tenant_id(&self) -> &str {
         &self.tenant_id
@@ -354,6 +363,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 registry_storage_backend: "filesystem".to_string(),
                 require_signatures: false,
                 verification_org_id: None,
+                package_load_mode: crate::registry::PackageLoadMode::InProcess,
                 enable_claiming: true,
                 heartbeat_interval: Duration::from_secs(10),
                 stale_claim_sweep_interval: Duration::from_secs(30),
@@ -515,6 +525,14 @@ impl DefaultRunnerConfigBuilder {
     /// `--verification-org-id` CLI flag.
     pub fn verification_org_id(mut self, value: Option<crate::UniversalUuid>) -> Self {
         self.config.verification_org_id = value;
+        self
+    }
+
+    /// CLOACINA-T-1075: how the reconciler loads a package. The default,
+    /// in process, runs the package's code in this process; a server with no
+    /// single trust sets [`PackageLoadMode::MetadataOnly`](crate::registry::PackageLoadMode).
+    pub fn package_load_mode(mut self, mode: crate::registry::PackageLoadMode) -> Self {
+        self.config.package_load_mode = mode;
         self
     }
 

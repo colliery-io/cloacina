@@ -869,6 +869,13 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
     ) -> Result<bool, RegistryError> {
         self.refuse_package(package_id, reason).await
     }
+
+    async fn get_package_description(
+        &self,
+        package_id: crate::registry::types::WorkflowPackageId,
+    ) -> Result<Option<StoredDescription>, RegistryError> {
+        self.get_package_description(package_id).await
+    }
 }
 
 /// Unpack a `.cloacina` source archive in a temp dir and collect its UTF-8
