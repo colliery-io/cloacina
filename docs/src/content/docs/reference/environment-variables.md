@@ -63,6 +63,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `--alert-webhook-timeout-s` | `10` | Seconds allowed for one alert request |
 | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `--alert-webhook-max-attempts` | `8` | The most sends of one alert before it is dropped |
 | `CLOACINA_PUBLIC_BASE_URL` | `--public-base-url` | None | Public URL of the server, for the absolute links in an alert |
+| `CLOACINA_MAX_PACKAGE_BYTES` | `--max-package-bytes` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload is refused with status 413 and an error that names the size and the limit |
+| `CLOACINA_MAX_UNPACKED_BYTES` | `--max-unpacked-bytes` | `524288000` | The largest size, in bytes, that a package archive may unpack to (500 MiB). A larger archive is refused at upload and at load. Also read by `cloacina-compiler`, `cloacina-agent`, `cloacinactl daemon` and `cloacinactl package validate`, `pack` and `publish`: give each the same value |
 | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `--database-wait-timeout-s` | `60` | Seconds the server waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s), then exits with an error. `0` = one try, no wait |
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Server-wide trusted org UUID (optional) |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner warning limit |
@@ -145,6 +147,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_API_KEY` | API key the agent authenticates with. Its tenant scope determines which tenants' work the agent may receive (REQ-008 tenant isolation). Equivalent to `--api-key`. The agent removes it from its environment at start. | None | `sk-...` | Agent | Yes, or `CLOACINA_API_KEY_FILE` |
 | `CLOACINA_API_KEY_FILE` | Path of a file that holds the agent's API key (surrounding whitespace is ignored). Use it in place of `CLOACINA_API_KEY`; setting both is an error. The agent does not delete the file. Equivalent to `--api-key-file`. | None | `/run/secrets/cloacina/api-key` | Agent | No |
 | `CLOACINA_AGENT_CACHE_DIR` | Directory used to cache fetched workflow cdylibs by digest, so a cache hit skips the REST fetch. Equivalent to `--cache-dir`. | `<TMPDIR>/cloacina-agent-cache` | `/var/lib/cloacina-agent/cache` | Agent | No |
+| `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package or provider archive may unpack to. The agent refuses to load a larger one. Equivalent to `--max-unpacked-bytes`. Use the value of the server. The fleet actuator sets it to the server's value when that is not the default. | `524288000` | `629145600` | Agent | No |
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | How many work packets the agent runs at the same time. Equivalent to `--max-concurrency`. The fleet actuator sets it from the pool's `max_concurrency` setting. | `4` | `1` | Agent | No |
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
@@ -464,6 +467,7 @@ Exposed on `localhost:9092`.
 | Variable | Purpose | Default | Component | Notes |
 |----------|---------|---------|-----------|-------|
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build (seconds). | `600` | Compiler | Past timeout, the build is killed and the row is left for the stale-build sweeper to reclaim. |
+| `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package archive may unpack to. The compiler refuses to build a larger one. | `524288000` | Compiler | Also settable via `--max-unpacked-bytes`. Use the value of the server. |
 | `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
 | `CLOACINA_COMPILER_DEV_WORKSPACE` | **Dev escape hatch** (CLOACI-T-0887): injects `[patch.crates-io]` entries pointing at a local workspace so package builds resolve local dev crates instead of crates.io. Not for production. | (unset) | Compiler | Also settable via `--dev-workspace`. The demo compose uses it because cloacina crates aren't on crates.io yet. |
@@ -501,6 +505,9 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | Server | Per-tenant runner warning limit |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | Server | Drain timeout during tenant teardown |
 | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | Server | Wait for the database at start |
+| `CLOACINA_MAX_PACKAGE_BYTES` | Server | Largest package upload, in bytes (default `104857600`) |
+| `CLOACINA_MAX_UNPACKED_BYTES` | Server, Compiler, Agent, Daemon, `cloacinactl` | Largest unpacked size of a package archive, in bytes (default `524288000`) |
+| `CLOACINA_UV` | `cloacinactl` | Path of the `uv` program that `package build` runs (default: `uv` on `PATH`) |
 | `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |

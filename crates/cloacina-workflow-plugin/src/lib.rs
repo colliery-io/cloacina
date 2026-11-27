@@ -40,9 +40,11 @@
 
 pub mod inventory_entries;
 pub mod manifest;
+pub mod python_env;
 /// Packaged counterpart of the engine's `TaskHandle` (CLOACI-T-0897).
 pub mod task_handle;
 pub mod types;
+pub mod unpack_limit;
 
 pub use task_handle::{TaskExecutionIdGuard, TaskHandle};
 

@@ -282,6 +282,29 @@ struct Cli {
     #[arg(long, env = "CLOACINA_DATABASE_WAIT_TIMEOUT_S", default_value_t = 60)]
     database_wait_timeout_s: u64,
 
+    /// The largest package archive, in bytes, that an upload accepts. A
+    /// larger upload is refused with status 413 and an error that names the
+    /// size and this limit. Default: 104857600 (100 MiB). A Python package
+    /// carries its vendored dependencies, one folder per platform.
+    /// CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_PACKAGE_BYTES",
+        default_value_t = cloacina_server::upload_limit::DEFAULT_MAX_PACKAGE_BYTES
+    )]
+    max_package_bytes: u64,
+
+    /// The largest size, in bytes, that a package archive may unpack to.
+    /// The server refuses an
+    /// upload that unpacks to more, and so does its package loader. Default: 524288000 (500 MiB). The limits of 10,000 entries and
+    /// of 10 times the archive size stay. CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_UNPACKED_BYTES",
+        default_value_t = cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
+    )]
+    max_unpacked_bytes: u64,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -349,6 +372,14 @@ async fn main() -> Result<()> {
         .map_err(anyhow::Error::msg)?;
         cloacina_server::alerts::install(config);
     }
+
+    // The package upload limit (CLOACINA-T-1048).
+    cloacina_server::upload_limit::set_max_package_bytes(cli.max_package_bytes)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
+        cli.max_unpacked_bytes,
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     // Fail at start on limits the server cannot run with (CLOACINA-T-1014).
     let fleet_task_time_limits =
@@ -432,5 +463,16 @@ mod tests {
             Some(std::time::Duration::from_secs(3_600))
         );
         assert!(cfg.enabled());
+    }
+
+    // CLOACINA-T-1048: the unpack limit is a setting next to the upload limit.
+    #[test]
+    fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 524_288_000);
+        assert_eq!(cli.max_package_bytes, 104_857_600);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--max-unpacked-bytes", "1073741824"]).unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 1_073_741_824);
     }
 }

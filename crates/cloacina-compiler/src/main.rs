@@ -183,6 +183,17 @@ struct Cli {
     /// CLOACI-I-0109 / T-0592.
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
+
+    /// The largest size, in bytes, that a package archive may unpack to.
+    /// The compiler refuses
+    /// to build a package that unpacks to more. Default: 524288000 (500 MiB). The limits of 10,000 entries and
+    /// of 10 times the archive size stay. CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_UNPACKED_BYTES",
+        default_value_t = cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
+    )]
+    max_unpacked_bytes: u64,
 }
 
 /// Parse a byte-size string with an optional `K`/`M`/`G` suffix (base-1024).
@@ -228,6 +239,8 @@ fn default_home() -> PathBuf {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(cli.max_unpacked_bytes)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // Default flags include `--frozen --offline` so package builds resolve
     // only against the operator's vendor dir (CLOACI-T-0574 / SEC-06).
@@ -347,5 +360,23 @@ mod tests {
             err.contains("invalid number") || err.contains("overflow"),
             "expected overflow / parse error, got: {err}"
         );
+    }
+
+    // CLOACINA-T-1048: the unpack limit is a setting.
+    #[test]
+    fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
+        use clap::Parser;
+        let db = ["--database-url", "postgres://u:p@h:5432/d"];
+        let cli = super::Cli::try_parse_from(["cloacina-compiler", db[0], db[1]]).unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 524_288_000);
+        let cli = super::Cli::try_parse_from([
+            "cloacina-compiler",
+            db[0],
+            db[1],
+            "--max-unpacked-bytes",
+            "1073741824",
+        ])
+        .unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 1_073_741_824);
     }
 }

@@ -107,13 +107,15 @@ impl FilesystemWorkflowRegistry {
                     }
                 };
 
-                let source_dir = match fidius_core::package::unpack_package(&path, tmp.path()) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        warn!("Skipping unreadable package {}: {}", path.display(), e);
-                        continue;
-                    }
-                };
+                let source_dir =
+                    match cloacina_workflow_plugin::unpack_limit::unpack_package(&path, tmp.path())
+                    {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!("Skipping unreadable package {}: {}", path.display(), e);
+                            continue;
+                        }
+                    };
 
                 match cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir) {
                     Ok(manifest) => {
@@ -197,10 +199,14 @@ impl WorkflowRegistry for FilesystemWorkflowRegistry {
         let extract_dir = tmp.path().join("source");
         std::fs::create_dir_all(&extract_dir)
             .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
-        let source_dir = fidius_core::package::unpack_package(&archive_path, &extract_dir)
-            .map_err(|e| {
-                RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
-            })?;
+        let source_dir =
+            cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+                .map_err(|e| {
+                    RegistryError::Internal(format!(
+                        "Failed to read manifest from package data: {}",
+                        e
+                    ))
+                })?;
         let manifest = cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir)
             .map_err(|e| {
                 RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))

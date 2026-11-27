@@ -47,6 +47,7 @@ async fn test_store_and_get_package_metadata() {
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     };
 
     // Create a corresponding workflow_registry entry first
@@ -109,6 +110,7 @@ async fn test_store_duplicate_package_metadata() {
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     };
 
     // Create a corresponding workflow_registry entry first
@@ -190,6 +192,7 @@ async fn test_list_all_packages() {
             declared_params: vec![],
             declared_surfaces: vec![],
             task_docs: Default::default(),
+            python_platforms: None,
         };
 
         package_names.push(test_metadata.package_name.clone());
@@ -243,6 +246,7 @@ async fn test_delete_package_metadata() {
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     };
 
     // Create a corresponding workflow_registry entry first
@@ -380,6 +384,7 @@ async fn test_store_package_with_complex_metadata() {
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     };
 
     // Create a corresponding workflow_registry entry first
@@ -457,6 +462,7 @@ async fn test_store_package_with_invalid_uuid() {
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     };
 
     // Try to store with invalid UUID
@@ -520,6 +526,7 @@ async fn test_package_versioning() {
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     };
     workflow_packages_dal
         .store_package_metadata(&registry_id, &meta_v1, storage_type, None)

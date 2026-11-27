@@ -930,6 +930,12 @@ pub struct DispatchPackage {
     pub content_hash: String,
     /// `"python"` when the build produced no cdylib, else `"rust"`.
     pub language: String,
+    /// CLOACINA-T-1048: the platforms (`<arch>-<os>`, the form of an agent's
+    /// `target_triple`) a Python package can run on. `None` means any
+    /// platform: the package has no vendored dependencies with compiled code.
+    /// Always `None` for a Rust package: its platforms are its per-target
+    /// artifacts.
+    pub python_platforms: Option<Vec<String>>,
 }
 
 impl DispatchPackage {
@@ -938,13 +944,32 @@ impl DispatchPackage {
             .compiled_data
             .map(|b| !b.into_inner().is_empty())
             .unwrap_or(false);
+        let python_platforms = if has_cdylib {
+            None
+        } else {
+            python_platforms_of_metadata(&row.metadata)
+        };
         Self {
             package_id: row.id.0,
             version: row.version,
             content_hash: row.content_hash,
             language: if has_cdylib { "rust" } else { "python" }.to_string(),
+            python_platforms,
         }
     }
+}
+
+/// CLOACINA-T-1048: the `python_platforms` of a stored `metadata` JSON.
+/// `None` (any platform) when the key is absent, null, empty or not readable.
+pub fn python_platforms_of_metadata(metadata_json: &str) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_str(metadata_json).ok()?;
+    let list: Vec<String> = value
+        .get("python_platforms")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    if list.is_empty() { None } else { Some(list) }
 }
 
 /// CLOACI-T-0908 (consumer): pick the provider rows THIS host should stage from
@@ -1023,6 +1048,7 @@ mod tests {
             declared_params: vec![],
             declared_surfaces: vec![],
             task_docs: Default::default(),
+            python_platforms: None,
         }
     }
 
@@ -1285,6 +1311,94 @@ mod tests {
                 .execute(conn)
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_python_platforms_of_metadata() {
+        assert_eq!(python_platforms_of_metadata("{}"), None);
+        assert_eq!(
+            python_platforms_of_metadata(r#"{"python_platforms":null}"#),
+            None
+        );
+        assert_eq!(
+            python_platforms_of_metadata(r#"{"python_platforms":[]}"#),
+            None
+        );
+        assert_eq!(python_platforms_of_metadata("not json"), None);
+        assert_eq!(
+            python_platforms_of_metadata(
+                r#"{"python_platforms":["aarch64-linux","x86_64-linux"]}"#
+            ),
+            Some(vec![
+                "aarch64-linux".to_string(),
+                "x86_64-linux".to_string()
+            ])
+        );
+    }
+
+    /// CLOACINA-T-1048: dispatch gets the platforms of a Python package with
+    /// native vendored dependencies, and "any" for one without, and for a
+    /// Rust package.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_dispatch_package_carries_python_platforms() {
+        use crate::database::universal_types::UniversalBinary;
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+
+        async fn store(dal: &DAL, name: &str, platforms: Option<Vec<String>>, compiled: Vec<u8>) {
+            let mut meta = sample_metadata(name, "1.0.0");
+            meta.python_platforms = platforms;
+            let id = dal
+                .workflow_packages()
+                .store_package_metadata(
+                    &Uuid::new_v4().to_string(),
+                    &meta,
+                    crate::models::workflow_packages::StorageType::Database,
+                    None,
+                )
+                .await
+                .unwrap();
+            let (pid, hash) = (UniversalUuid(id), format!("hash-{name}"));
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::content_hash.eq(hash),
+                        workflow_packages::compiled_data.eq(Some(UniversalBinary::new(compiled))),
+                    ))
+                    .execute(conn)
+            })
+            .unwrap();
+        }
+
+        let linux = vec!["aarch64-linux".to_string(), "x86_64-linux".to_string()];
+        store(&dal, "py-native", Some(linux.clone()), Vec::new()).await;
+        store(&dal, "py-pure", None, Vec::new()).await;
+        store(&dal, "rust-pkg", Some(linux.clone()), vec![1, 2, 3]).await;
+
+        let native = wp
+            .get_active_dispatch("py-native", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(native.language, "python");
+        assert_eq!(native.python_platforms, Some(linux));
+
+        let pure = wp
+            .get_active_dispatch("py-pure", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pure.python_platforms, None);
+
+        let rust = wp
+            .get_active_dispatch("rust-pkg", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(rust.language, "rust");
+        assert_eq!(rust.python_platforms, None);
     }
 
     /// An execution runs all its tasks on the version its first task was

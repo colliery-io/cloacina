@@ -633,6 +633,11 @@ fn spawn_env(spec: &SpawnSpec) -> Vec<String> {
     if let Some(bytes) = spec.settings.memory_bytes.filter(|b| *b > 0) {
         env.push(format!("CLOACINA_AGENT_MEMORY={bytes}"));
     }
+    // The agent unpacks packages with the server's limit (CLOACINA-T-1048).
+    // Not set for the default, so the environment is as before.
+    if let Some(bytes) = cloacina::cloacina_workflow_plugin::unpack_limit::child_env_value() {
+        env.push(format!("CLOACINA_MAX_UNPACKED_BYTES={bytes}"));
+    }
     env
 }
 

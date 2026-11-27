@@ -18,16 +18,17 @@ use std::path::Path;
 use std::process::Command;
 
 use super::manifest::{self, PackageLanguage};
+use super::vendor::VendorArgs;
 use crate::shared::error::CliError;
 
-pub fn run(dir: &Path, release: bool) -> Result<(), CliError> {
-    // CLOACI-T-0665: Python packages have nothing to compile — `pack` archives
-    // the source tree directly. Detect the language from `[metadata].language`
-    // and no-op for Python so `package build` (and `publish`, which calls this)
-    // work uniformly for both languages.
+pub fn run(dir: &Path, release: bool, vendor: &VendorArgs) -> Result<(), CliError> {
+    // A Python package has nothing to compile. Its build step vendors the
+    // dependencies that pyproject.toml declares into vendor/<platform>/
+    // (CLOACINA-T-1048). `publish` calls this, so a publish vendors too.
     if manifest::read_language(dir)? == PackageLanguage::Python {
+        super::vendor::run(dir, vendor)?;
         println!(
-            "{} is a python package — nothing to compile (use `package pack` to archive it)",
+            "built {} (python: nothing to compile; use `package pack` to archive it)",
             dir.display()
         );
         return Ok(());

@@ -117,6 +117,16 @@ struct Args {
     /// packets to skip the REST fetch on cache hit.
     #[arg(long, env = "CLOACINA_AGENT_CACHE_DIR")]
     cache_dir: Option<std::path::PathBuf>,
+    /// The largest size, in bytes, that a package archive may unpack to.
+    /// The agent refuses to
+    /// load a package or a provider archive that unpacks to more. Default: 524288000 (500 MiB). The limits of 10,000 entries and
+    /// of 10 times the archive size stay. CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_UNPACKED_BYTES",
+        default_value_t = cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
+    )]
+    max_unpacked_bytes: u64,
 }
 
 /// The environment variable the agent's key may arrive in.
@@ -187,6 +197,10 @@ fn main() -> Result<()> {
     // SAFETY: no thread has been started yet.
     unsafe { remove_api_key_from_env() };
     resolve_api_key(&mut args)?;
+    cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
+        args.max_unpacked_bytes,
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -2300,6 +2314,7 @@ fn synthetic_package_metadata(
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     }
 }
 
@@ -3238,5 +3253,16 @@ mod tests {
         unsafe { remove_api_key_from_env() };
         let after = std::fs::read("/proc/self/environ").unwrap();
         assert!(!holds_key(&after), "the key is still in /proc/self/environ");
+    }
+
+    // ── CLOACINA-T-1048: the unpack limit is a setting ───────────────────
+
+    #[test]
+    fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
+        assert_eq!(parse_args(&[]).max_unpacked_bytes, 524_288_000);
+        assert_eq!(
+            parse_args(&["--max-unpacked-bytes", "1073741824"]).max_unpacked_bytes,
+            1_073_741_824
+        );
     }
 }

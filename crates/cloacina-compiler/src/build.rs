@@ -213,11 +213,14 @@ async fn run_build(
     let archive_path_inner = archive_path.clone();
     let extract_dir_inner = extract_dir.clone();
     let source_dir = tokio::task::spawn_blocking(move || {
-        fidius_core::package::unpack_package(&archive_path_inner, &extract_dir_inner)
+        cloacina_workflow_plugin::unpack_limit::unpack_package(
+            &archive_path_inner,
+            &extract_dir_inner,
+        )
     })
     .await
     .map_err(|e| BuildError::internal(format!("unpack task panicked: {e}")))?
-    .map_err(|e| BuildError::internal(format!("fidius_core::unpack_package failed: {e}")))?;
+    .map_err(|e| BuildError::internal(format!("unpack of the package archive failed: {e}")))?;
 
     let manifest = load_manifest(&source_dir).map_err(BuildError::internal)?;
     let language = manifest_language(&manifest);

@@ -19,7 +19,7 @@
 use axum::{
     Extension, Json,
     extract::{Multipart, Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use tracing::{info, warn};
@@ -63,13 +63,35 @@ pub async fn upload_workflow(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    // CLOACINA-T-1048: refuse an upload over the limit with its size and the
+    // limit, before the body is read.
+    let limit = crate::upload_limit::max_package_bytes();
+    let declared = headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if let Some(size) = declared
+        && size > limit.saturating_add(crate::upload_limit::MULTIPART_OVERHEAD_BYTES)
+    {
+        return package_too_large(Some(size), limit).into_response();
+    }
+
     // Extract file from multipart
     let package_data = match extract_file_field(&mut multipart).await {
         Ok(data) => data,
-        Err(msg) => return ApiError::bad_request("invalid_request", msg).into_response(),
+        Err(FileFieldError::TooLarge) => {
+            return package_too_large(declared, limit).into_response();
+        }
+        Err(FileFieldError::Invalid(msg)) => {
+            return ApiError::bad_request("invalid_request", msg).into_response();
+        }
     };
+    if package_data.len() as u64 > limit {
+        return package_too_large(Some(package_data.len() as u64), limit).into_response();
+    }
 
     if package_data.is_empty() {
         return ApiError::bad_request("invalid_request", "empty package file").into_response();
@@ -923,16 +945,48 @@ pub async fn activate_workflow_version(
     }
 }
 
+/// 413 for an upload over the server's package size limit.
+fn package_too_large(size: Option<u64>, limit: u64) -> ApiError {
+    ApiError::new(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "package_too_large",
+        crate::upload_limit::too_large_message(size, limit),
+    )
+}
+
+/// Why the file of an upload could not be read.
+enum FileFieldError {
+    /// The body is larger than the server's limit.
+    TooLarge,
+    /// The request is not a multipart upload with a `file` field.
+    Invalid(String),
+}
+
 /// Extract the first file field from a multipart request.
-async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, String> {
-    while let Ok(Some(field)) = multipart.next_field().await {
+async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, FileFieldError> {
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+                return Err(FileFieldError::TooLarge);
+            }
+            Err(_) => break,
+        };
         if field.name() == Some("file") {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| format!("failed to read file: {}", e))?;
-            return Ok(data.to_vec());
+            return match field.bytes().await {
+                Ok(data) => Ok(data.to_vec()),
+                Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+                    Err(FileFieldError::TooLarge)
+                }
+                Err(e) => Err(FileFieldError::Invalid(format!(
+                    "failed to read file: {}",
+                    e
+                ))),
+            };
         }
     }
-    Err("no 'file' field in multipart request".to_string())
+    Err(FileFieldError::Invalid(
+        "no 'file' field in multipart request".to_string(),
+    ))
 }
