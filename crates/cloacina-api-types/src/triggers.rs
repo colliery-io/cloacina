@@ -59,6 +59,12 @@ pub struct TriggerScheduleSummary {
     /// The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
     #[serde(default)]
     pub last_poll_at: Option<String>,
+    /// Why the last poll of this trigger gave no answer: no agent of the
+    /// tenant could take it, no answer came in time, the agent refused it, or
+    /// the trigger returned an error. Nothing fired for that poll. `None`
+    /// after a poll that answered fire or skip (CLOACINA-T-1077).
+    #[serde(default)]
+    pub last_poll_error: Option<String>,
 }
 
 /// Schedule fields in the trigger detail response.
@@ -83,6 +89,12 @@ pub struct TriggerScheduleInfo {
     /// RFC 3339 timestamp of when it was paused, if paused.
     #[serde(default)]
     pub paused_at: Option<String>,
+    /// Why the last poll of this trigger gave no answer: no agent of the
+    /// tenant could take it, no answer came in time, the agent refused it, or
+    /// the trigger returned an error. Nothing fired for that poll. `None`
+    /// after a poll that answered fire or skip (CLOACINA-T-1077).
+    #[serde(default)]
+    pub last_poll_error: Option<String>,
 }
 
 /// `POST /tenants/{tenant_id}/triggers/{name}/pause` and `/resume` response

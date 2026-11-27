@@ -25,6 +25,10 @@ class TriggerScheduleSummary:
         last_poll_at (None | str | Unset): RFC 3339 timestamp of the scheduler's last poll of this trigger
             (`trigger`-type schedules only; `None` for cron or never-polled).
             The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
+        last_poll_error (None | str | Unset): Why the last poll of this trigger gave no answer: no agent of the
+            tenant could take it, no answer came in time, the agent refused it, or
+            the trigger returned an error. Nothing fired for that poll. `None`
+            after a poll that answered fire or skip (CLOACINA-T-1077).
         last_run_at (None | str | Unset): RFC 3339 timestamp.
         next_run_at (None | str | Unset): RFC 3339 timestamp.
         paused (bool | Unset): Whether the schedule is paused (CLOACI-T-0749). A paused schedule is not
@@ -41,6 +45,7 @@ class TriggerScheduleSummary:
     workflow_name: str
     cron_expression: None | str | Unset = UNSET
     last_poll_at: None | str | Unset = UNSET
+    last_poll_error: None | str | Unset = UNSET
     last_run_at: None | str | Unset = UNSET
     next_run_at: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
@@ -71,6 +76,12 @@ class TriggerScheduleSummary:
             last_poll_at = UNSET
         else:
             last_poll_at = self.last_poll_at
+
+        last_poll_error: None | str | Unset
+        if isinstance(self.last_poll_error, Unset):
+            last_poll_error = UNSET
+        else:
+            last_poll_error = self.last_poll_error
 
         last_run_at: None | str | Unset
         if isinstance(self.last_run_at, Unset):
@@ -119,6 +130,8 @@ class TriggerScheduleSummary:
             field_dict["cron_expression"] = cron_expression
         if last_poll_at is not UNSET:
             field_dict["last_poll_at"] = last_poll_at
+        if last_poll_error is not UNSET:
+            field_dict["last_poll_error"] = last_poll_error
         if last_run_at is not UNSET:
             field_dict["last_run_at"] = last_run_at
         if next_run_at is not UNSET:
@@ -164,6 +177,15 @@ class TriggerScheduleSummary:
             return cast(None | str | Unset, data)
 
         last_poll_at = _parse_last_poll_at(d.pop("last_poll_at", UNSET))
+
+        def _parse_last_poll_error(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        last_poll_error = _parse_last_poll_error(d.pop("last_poll_error", UNSET))
 
         def _parse_last_run_at(data: object) -> None | str | Unset:
             if data is None:
@@ -220,6 +242,7 @@ class TriggerScheduleSummary:
             workflow_name=workflow_name,
             cron_expression=cron_expression,
             last_poll_at=last_poll_at,
+            last_poll_error=last_poll_error,
             last_run_at=last_run_at,
             next_run_at=next_run_at,
             paused=paused,

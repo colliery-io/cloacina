@@ -8766,6 +8766,13 @@
                   ],
                   "description": "RFC 3339 timestamp of the scheduler's last poll of this trigger\n(`trigger`-type schedules only; `None` for cron or never-polled).\nThe next poll is due `poll_interval_ms` after this (CLOACI-T-0938)."
                 },
+                "last_poll_error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the last poll of this trigger gave no answer: no agent of the\ntenant could take it, no answer came in time, the agent refused it, or\nthe trigger returned an error. Nothing fired for that poll. `None`\nafter a poll that answered fire or skip (CLOACINA-T-1077)."
+                },
                 "last_run_at": {
                   "type": [
                     "string",
@@ -9240,6 +9247,13 @@
             "type": "string",
             "description": "Schedule UUID."
           },
+          "last_poll_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last poll of this trigger gave no answer: no agent of the\ntenant could take it, no answer came in time, the agent refused it, or\nthe trigger returned an error. Nothing fired for that poll. `None`\nafter a poll that answered fire or skip (CLOACINA-T-1077)."
+          },
           "paused": {
             "type": "boolean",
             "description": "Whether the schedule is paused (CLOACI-T-0749)."
@@ -9308,6 +9322,13 @@
               "null"
             ],
             "description": "RFC 3339 timestamp of the scheduler's last poll of this trigger\n(`trigger`-type schedules only; `None` for cron or never-polled).\nThe next poll is due `poll_interval_ms` after this (CLOACI-T-0938)."
+          },
+          "last_poll_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last poll of this trigger gave no answer: no agent of the\ntenant could take it, no answer came in time, the agent refused it, or\nthe trigger returned an error. Nothing fired for that poll. `None`\nafter a poll that answered fire or skip (CLOACINA-T-1077)."
           },
           "last_run_at": {
             "type": [

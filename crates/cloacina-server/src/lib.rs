@@ -41,6 +41,7 @@ pub mod execution_mode;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
 pub mod fleet_graph_executor;
+pub mod fleet_poll_dispatcher;
 pub mod identity;
 pub mod oidc;
 pub mod openapi;
@@ -761,6 +762,7 @@ pub async fn run(
     // CLOACINA-T-1024: the alert webhook counters.
     crate::alerts::describe_metrics();
     crate::actuator::compiler::describe_metrics();
+    crate::fleet_poll_dispatcher::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -1230,6 +1232,19 @@ pub async fn run(
             let registrar: crate::tenant_runner_cache::FleetRegistrar =
                 Arc::new(move |runner: &cloacina::DefaultRunner| {
                     let dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+                    // CLOACINA-T-1077: the tenant's poll triggers poll on its
+                    // agents. Set on every runner; only a package loaded from
+                    // its metadata registers a trigger that uses it.
+                    runner.set_poll_dispatcher(Arc::new(
+                        crate::fleet_poll_dispatcher::FleetPollDispatcher::new(
+                            dal.clone(),
+                            reg_outbox_dal.clone(),
+                            reg_registry.clone(),
+                            reg_coordinator.clone(),
+                            reg_wake.clone(),
+                            crate::fleet_poll_dispatcher::poll_timeout(),
+                        ),
+                    ));
                     let result_handler = cloacina::executor::TaskResultHandler::new(
                         dal.clone(),
                         Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -1446,6 +1461,18 @@ pub async fn run(
         .with_secret_resolver_factory(secret_resolver_factory.clone())
         .with_task_time_limits(fleet_task_time_limits)
         .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
+        // CLOACINA-T-1077: the poll triggers of the global runner's packages
+        // poll on the agents of their tenant.
+        state.runner.set_poll_dispatcher(Arc::new(
+            crate::fleet_poll_dispatcher::FleetPollDispatcher::new(
+                unified_dal.clone(),
+                unified_dal.clone(),
+                agent_registry.clone(),
+                fleet_coordinator.clone(),
+                delivery_wake.clone(),
+                crate::fleet_poll_dispatcher::poll_timeout(),
+            ),
+        ));
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))
@@ -1676,6 +1703,10 @@ pub async fn run(
             state.tenant_databases.clone(),
         );
         let mut loop_shutdown = substrate_shutdown_rx.clone();
+        // CLOACINA-T-1077: with packages loaded from their metadata, a poll
+        // trigger runs on its tenant's agents, so such a tenant keeps one.
+        let loop_poll_floor = package_load_mode == cloacina::registry::PackageLoadMode::MetadataOnly;
+        let loop_tenant_databases = state.tenant_databases.clone();
         let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
         let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
             .ok()
@@ -1713,6 +1744,26 @@ pub async fn run(
                         // Whole body is leader-gated: only the replica holding the
                         // advisory lock runs it; others skip this tick.
                         crate::autoscaler::leader::with_fleet_leadership(&loop_db, || async {
+                            // CLOACINA-T-1077: the tenants that keep one agent
+                            // for their poll triggers.
+                            let poll_tenants: std::collections::HashSet<String> = if loop_poll_floor {
+                                match crate::fleet_poll_dispatcher::tenants_with_poll_triggers(
+                                    &loop_db,
+                                    &loop_tenant_databases,
+                                )
+                                .await
+                                {
+                                    Ok(t) => t,
+                                    Err(e) => {
+                                        warn!(error = %e, "fleet: tenants with poll triggers could not be read; no poll floor this tick");
+                                        std::collections::HashSet::new()
+                                    }
+                                }
+                            } else {
+                                std::collections::HashSet::new()
+                            };
+                            metrics::gauge!("cloacina_fleet_poll_floor_tenants").set(poll_tenants.len() as f64);
+
                             // (a) AUTOSCALE — adjust desired_count from utilization.
                             if autoscale_enabled {
                                 // CLOACI-T-0916: utilization from the DB-backed live
@@ -1739,6 +1790,7 @@ pub async fn run(
                                 let mut tenants: std::collections::HashSet<String> =
                                     desired_rows.iter().map(|(t, _, _)| t.clone()).collect();
                                 tenants.extend(utils.keys().cloned());
+                                tenants.extend(poll_tenants.iter().cloned());
                                 let desired_map: std::collections::HashMap<String, u32> =
                                     desired_rows.iter().map(|(t, d, _)| (t.clone(), *d)).collect();
                                 let last_autoscaled_map: std::collections::HashMap<String, chrono::NaiveDateTime> =
@@ -1762,7 +1814,13 @@ pub async fn run(
                                             continue;
                                         }
                                     };
-                                    let action = decide(util, desired, effective_limit, scale_cfg.floor, &scale_cfg);
+                                    // CLOACINA-T-1077: a tenant with a poll trigger
+                                    // never scales below one agent.
+                                    let floor = crate::fleet_poll_dispatcher::tenant_floor(
+                                        scale_cfg.floor,
+                                        poll_tenants.contains(&tenant),
+                                    );
+                                    let action = decide(util, desired, effective_limit, floor, &scale_cfg);
                                     if matches!(action, ScaleAction::Hold) {
                                         continue;
                                     }
@@ -1771,7 +1829,7 @@ pub async fn run(
                                     }
                                     let new_desired = match action {
                                         ScaleAction::Up => (desired + 1).min(effective_limit),
-                                        ScaleAction::Down => desired.saturating_sub(1).max(scale_cfg.floor),
+                                        ScaleAction::Down => desired.saturating_sub(1).max(floor),
                                         ScaleAction::Hold => desired,
                                     };
                                     if new_desired == desired {
@@ -1815,6 +1873,9 @@ pub async fn run(
                                 }
                                 Err(e) => warn!(error = %e, "fleet reconcile: failed to read agent pool tenants"),
                             }
+                            // CLOACINA-T-1077: one agent at least for a tenant
+                            // with a poll trigger, also with no desired count.
+                            let desired = crate::fleet_poll_dispatcher::apply_poll_floor(desired, &poll_tenants);
                             for (tenant, want) in desired {
                                 match loop_actuator.reconcile(&tenant, want).await {
                                     Ok(out) if out.spawned > 0 || out.stopped > 0 => {

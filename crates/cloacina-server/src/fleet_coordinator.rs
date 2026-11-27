@@ -481,6 +481,10 @@ fn packet_ids(kind: &str, payload: &[u8]) -> Option<(UniversalUuid, i32, Option<
     } else if kind == GRAPH_PACKET_KIND {
         let id = uuid::Uuid::parse_str(text("firing_id")?).ok()?;
         Some((UniversalUuid(id), 1, None))
+    } else if kind == cloacina::fleet::POLL_PACKET_KIND {
+        // CLOACINA-T-1077: a poll ends with the failure; nothing fires.
+        let id = uuid::Uuid::parse_str(text("poll_id")?).ok()?;
+        Some((UniversalUuid(id), 1, None))
     } else {
         None
     }
@@ -660,6 +664,23 @@ mod tests {
 
     const TENANT: &str = "tenant-a";
     const AGENT: &str = "agent-a";
+
+    /// CLOACINA-T-1077: the server reads the poll id of its own poll packet,
+    /// so an agent that cannot decode one ends the poll's wait at once.
+    #[test]
+    fn the_poll_id_of_a_poll_packet_is_read() {
+        let id = uuid::Uuid::new_v4();
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "poll_id": id.to_string(),
+            "trigger_name": "watch_inbox",
+        }))
+        .unwrap();
+        let (read, attempt, dispatch) =
+            packet_ids(cloacina::fleet::POLL_PACKET_KIND, &payload).expect("ids");
+        assert_eq!(read, UniversalUuid(id));
+        assert_eq!(attempt, 1);
+        assert!(dispatch.is_none());
+    }
 
     /// A task dispatch `dispatch` to [`AGENT`] in [`TENANT`].
     fn task_target(dispatch: &str) -> DispatchTarget {
