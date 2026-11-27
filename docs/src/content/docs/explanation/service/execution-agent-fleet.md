@@ -151,8 +151,56 @@ the terminal write is still made by the executor that holds the claim, and a
 report that no replica waits for changes no state. Such a row is deleted after
 about 15 minutes and counted in `cloacina_fleet_orphan_results_total`.
 
-What this does not cover: a replica that stops takes its waits with it. The
-task is then picked up by the stale-claim sweep and runs again, as before.
+### A replica that stops: another one takes over the wait
+
+A server restart or a rolling upgrade stops the replica that waits for a
+report. The agent keeps running the task. So the dispatch is also recorded on
+the task row: when the server hands the packet to the agent, the executor
+writes the packet's `dispatch_id` and its `delivery_outbox` row id next to its
+claim, and clears them with the claim.
+
+Every 15 s each fleet executor looks for rows of its tenant with a recorded
+dispatch and a claim heartbeat older than 60 s: their replica stopped. For
+each one it reads the packet's outbox row, then the stored reports:
+
+- **The packet is not acked yet, or the agent's report of this dispatch is
+  stored.** The executor takes the claim (a compare and set on the old claim,
+  so of two replicas one wins) and waits for the report in the place of the
+  stopped replica. The wait ends when the first one would have: at the start
+  time plus the task's time limit plus 30 s. A report that a replica stored
+  while nobody waited is taken at once. The report then has the same effect
+  as on the first wait: the task finishes once, on its first dispatch.
+- **The packet is acked and no report is stored, or the row is gone.** No
+  report comes. The executor clears the recorded dispatch and the stale-claim
+  sweep makes the task `Ready`, with its recovery count. The task runs again,
+  once.
+
+An agent stores its report (through any replica) before it acks the packet,
+so an acked packet with no stored report has no report to come. If the agent
+dies too, the dead-agent reclaim moves the packet to a live agent with the
+same `dispatch_id`, and the wait takes that agent's report.
+
+While a server sends tasks to the fleet (`--default-executor fleet`), its
+stale-claim sweep leaves rows with a recorded dispatch to the fleet executor.
+A server that does not use the fleet sweeps them as any stale claim.
+
+Each takeover is counted in `cloacina_fleet_dispatches_taken_over_total`, by
+`outcome`.
+
+Limits:
+
+- A takeover comes 60 to 75 s after the replica stops. Until then the task's
+  slot on the agent stays taken, and a report waits in the inbox.
+- The dispatch is recorded right after the packet is enqueued. A replica that
+  stops in between leaves no record; the sweep makes that task `Ready` and it
+  can run twice.
+- During the roll that first brings this, the replicas of the older version
+  record no dispatch, and their stale-claim sweep makes a stale fleet task
+  `Ready` after 60 s as before. A task dispatched by a new replica can be swept
+  by an old replica before a new one takes it over. From the next roll on,
+  every replica takes over.
+- A graph firing has no task row and no claim: a replica that stops ends its
+  firings, as before.
 
 ### A packet the agent cannot decode
 

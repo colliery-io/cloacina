@@ -47,8 +47,11 @@ affinity: {}
 #     did not dispatch the task stores the result in Postgres and the replica
 #     that waits for it takes it (CLOACINA-T-1015). No session affinity is
 #     needed on the Service.
-# A replica that stops loses the result waits it held; those tasks run again
-# (tasks on the fleet must be safe to run twice).
+#   - when a replica stops, another replica takes over the result waits it
+#     held, so a task on an agent finishes once across a restart or a rolling
+#     upgrade (CLOACINA-T-1084).
+# Tasks on the fleet must still be safe to run twice: a dispatch with no
+# report to come runs again.
 # A PodDisruptionBudget keeps a minimum available during voluntary disruptions
 # (node drains, rolling updates).
 #
