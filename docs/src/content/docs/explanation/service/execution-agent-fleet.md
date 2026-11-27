@@ -500,8 +500,11 @@ This is **defense-in-depth** — a tenant namespace that is network-isolated by
 default — and it deliberately does **not** replace any server-side check: the
 server-side ABAC (NFR-004) remains the real tenant-isolation boundary, and a
 tenant is still isolated primarily by *being its own tenant*, not by the policy.
-If the chart cannot supply the server's coordinates the actuator skips the policy
-(fail-open) rather than strand a fleet that can no longer reach the server.
+With the policy on, a server that cannot write it does not start
+(CLOACINA-T-1069): the server's coordinates (`CLOACINA_SERVER_NAMESPACE`,
+`CLOACINA_SERVER_POD_SELECTOR`) are unset, or its RBAC lacks `create`, `patch`
+or `delete` on `networkpolicies`. The log names what is missing. It runs no
+agents without their policy.
 
 ## Agent pools
 

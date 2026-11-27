@@ -60,8 +60,14 @@ The chart fails fast if you don't configure exactly one of:
 | `serviceMonitor.enabled` | `false` | Emit a Prometheus operator `ServiceMonitor` |
 | `metrics.enabled` | `true` | Serve `/metrics` on its own port and Service; the API port answers 404 for it |
 | `metrics.port` | `9090` | Port of the metrics listener |
-| `metrics.networkPolicy.enabled` | `true` | NetworkPolicy for the server pods: API port open, metrics port open only to `from` |
+| `metrics.networkPolicy.enabled` | `true` | The metrics port of the server (and compiler) pods open only to `from`; `false` opens it to every source |
 | `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the metrics port; empty admits nobody |
+| `server.networkPolicy.enabled` | `true` | The API port open only to the server pods, the managed agents and `from`; `false` opens it to every source |
+| `server.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the API port: the ingress controller or gateway, agents you run, tools |
+| `compiler.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to reach the chart compiler's port 9000; empty admits nobody |
+| `postgresql.networkPolicy.enabled` | `true` | Bundled Postgres open only to the server, the compilers and `from` |
+| `postgresql.networkPolicy.from` | `[]` | More NetworkPolicy peers allowed to reach bundled Postgres |
+| `postgresql.auth.password` | `""` | Bundled Postgres password; empty generates one and keeps it across upgrades |
 | `server.databaseWaitTimeoutSeconds` | `60` | Seconds the server waits at start for the database, with retries; `0` = one try (`CLOACINA_DATABASE_WAIT_TIMEOUT_S`) |
 | `retention.runHistoryDays` | `0` | Days to keep a finished run; `0` keeps run history for ever (`CLOACINA_RUN_HISTORY_RETENTION_DAYS`) |
 | `retention.outboxAckedSeconds` | `0` | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever (`CLOACINA_OUTBOX_ACKED_RETENTION_S`) |
@@ -105,6 +111,54 @@ volumes. All Linux capabilities are dropped.
 If you run with PodSecurity admission `restricted`, the defaults pass
 without further changes.
 
+## Network policies and TLS
+
+The server listens on plain HTTP. TLS between clients, agents and the
+server ends in the cluster: a service mesh with mTLS, or a gateway or
+ingress in front of the server. An install with neither sends API keys in
+clear text inside the cluster. See the
+[Transport Security](https://cloacina.dev/platform/how-to-guides/transport-security)
+page.
+
+The chart's NetworkPolicies are closed by default (CLOACINA-T-1069). They
+need a CNI that enforces NetworkPolicy; on a CNI that does not, they
+change nothing. Traffic from a pod's own node (the kubelet probes) is
+allowed whatever the policy.
+
+| Port | Open to by default | Value to open it |
+|---|---|---|
+| Server API, 8080 | the server pods; with `fleet.actuator=kubernetes`, the agent pods of the tenant namespaces | `server.networkPolicy.from` |
+| Server metrics, 9090 | nobody | `metrics.networkPolicy.from` |
+| Chart compiler, 9000 (`/health`, `/v1/status`) | nobody | `compiler.networkPolicy.from` |
+| Bundled Postgres, 5432 | the server pods, the chart's compiler, the tenant compilers | `postgresql.networkPolicy.from` |
+
+Each `from` is a list of NetworkPolicy peers. The ingress controller or
+gateway goes in `server.networkPolicy.from`, with agents you run yourself
+(`fleet.externalAgents`, the `cloacina-agent` chart):
+
+```yaml
+server:
+  networkPolicy:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: cloacina-agents
+```
+
+`server.networkPolicy.enabled=false` opens the API port (and the
+compiler's port) to every source; `postgresql.networkPolicy.enabled=false`
+opens bundled Postgres.
+
+Bundled Postgres gets a generated password when `postgresql.auth.password`
+is empty (the default). The chart keeps it in the Secret
+`<release>-postgresql` (key `POSTGRES_PASSWORD`) and reads it back on each
+`helm upgrade`; the server and the compiler take it from that Secret. A
+password you set is used as it is; it goes into a URL, so use letters and
+digits.
+
 ## Observability
 
 `/metrics` has no authentication, and its labels hold tenant names,
@@ -114,11 +168,10 @@ keeps it off the API port:
 - the server starts with `--metrics-bind 0.0.0.0:9090`; `:8080/metrics`
   answers 404;
 - the ClusterIP Service `<fullname>-metrics` exposes port 9090;
-- a NetworkPolicy keeps the API port open to every source and opens the
-  metrics port only to the peers in `metrics.networkPolicy.from`. The
-  list is empty by default: nobody reaches the metrics port until you
-  name your Prometheus. It refuses every other ingress to the server
-  pods. It needs a CNI that enforces NetworkPolicy.
+- the NetworkPolicy of the server pods opens the metrics port only to the
+  peers in `metrics.networkPolicy.from`. The list is empty by default:
+  nobody reaches the metrics port until you name your Prometheus. It
+  needs a CNI that enforces NetworkPolicy.
 
 To scrape:
 
@@ -139,7 +192,7 @@ With `compiler.enabled=true` the compiler pods get the same:
 
 `metrics.enabled=false` puts `/metrics` back on the API port, where
 every client that can reach the API can read it, tenant agents included.
-No metrics Service and no NetworkPolicy is rendered then.
+No metrics Service is rendered then.
 
 ## Retention, time limits and alerts
 
@@ -196,6 +249,32 @@ helm upgrade cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
 The deployment uses a `RollingUpdate` strategy with `maxSurge=1` /
 `maxUnavailable=0`, so the old pod stays serving until the new one is
 ready.
+
+### Upgrade note: the API port and bundled Postgres are closed
+
+`server.networkPolicy.enabled` and `postgresql.networkPolicy.enabled` are
+new and `true` (CLOACINA-T-1069). After an upgrade with the old values, on
+a CNI that enforces NetworkPolicy:
+
+- The API port admits only the server pods and, with
+  `fleet.actuator=kubernetes`, the managed agents. List every other client
+  in `server.networkPolicy.from` before the upgrade: the ingress
+  controller or gateway (the UI and `cloacinactl` from outside the cluster
+  come through it), agents you run yourself, and tools in the cluster.
+  `kubectl port-forward` still works.
+- The chart's compiler port (9000) admits nobody; list a reader of
+  `/v1/status` in `compiler.networkPolicy.from`.
+- Bundled Postgres admits only the server and the compilers; list other
+  clients (a backup job) in `postgresql.networkPolicy.from`.
+- Bundled Postgres keeps its password: the chart reads it from the Secret
+  `<release>-postgresql`, `cloacina` included on an install that kept the
+  old default. To change it, `ALTER ROLE` in the database, then set
+  `postgresql.auth.password` to the new value.
+- With `fleet.actuator=kubernetes` and `fleet.networkPolicy.enabled`, the
+  server does not start when it cannot write the agent NetworkPolicy: its
+  log names the missing RBAC or variable.
+- To keep the old behaviour, set `server.networkPolicy.enabled=false` and
+  `postgresql.networkPolicy.enabled=false`.
 
 ### Upgrade note: `/metrics` moves off the API port
 

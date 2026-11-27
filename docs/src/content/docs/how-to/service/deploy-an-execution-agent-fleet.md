@@ -123,6 +123,9 @@ Useful options (full list in the [CLI reference](../../../reference/cli/#agent))
   server's environment. See [Find a Task's Logs](../find-a-tasks-logs/).
 - `--api-key-file <PATH>` / `CLOACINA_API_KEY_FILE` — read the key from a file
   in place of `CLOACINA_API_KEY`.
+- `--ca-file <PATH>` / `CLOACINA_AGENT_CA_FILE` — trust the CA certificates of
+  a PEM file, in addition to the system roots, for an `https://` server behind
+  a gateway with a private CA. See [Transport Security](../transport-security/).
 
 **The key and task code.** A task runs in a worker process that the agent
 starts, with the agent's user id and the agent's environment; a task marked
