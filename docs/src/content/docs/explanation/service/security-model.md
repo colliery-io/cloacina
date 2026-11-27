@@ -166,6 +166,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | `keys.manage` | Create, list and revoke API keys |  |  | yes |  | yes |
 | `accounts.manage` | Create, list and disable local accounts; reset a password |  |  | yes |  | yes |
 | `secrets.manage` | Read secret metadata; create, rotate and delete secrets |  |  | yes |  | yes |
+| `trusted_keys.manage` | Add, list and revoke the tenant's trusted package-signing keys |  |  | yes |  | yes |
 | `audit.read` | Read the audit record |  |  | yes |  | yes |
 | `agent.act` | Act as an agent: register, heartbeat, top up one-time keys, report a result, fetch packages; the `agent:<id>` stream |  |  |  | yes | no |
 | `tenants.manage` | Create, list and delete tenants |  |  |  |  | yes |
@@ -213,6 +214,9 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | GET | `/v1/tenants/{tenant_id}/secrets/{name}` | tenant in the path | `secrets.manage` | none (read) |
 | PUT | `/v1/tenants/{tenant_id}/secrets/{name}` | tenant in the path | `secrets.manage` | `secret.rotate` |
 | DELETE | `/v1/tenants/{tenant_id}/secrets/{name}` | tenant in the path | `secrets.manage` | `secret.delete` |
+| POST | `/v1/tenants/{tenant_id}/trusted-keys` | tenant in the path | `trusted_keys.manage` | `trusted_key.add` |
+| GET | `/v1/tenants/{tenant_id}/trusted-keys` | tenant in the path | `trusted_keys.manage` | none (read) |
+| DELETE | `/v1/tenants/{tenant_id}/trusted-keys/{key_id}` | tenant in the path | `trusted_keys.manage` | `trusted_key.revoke` |
 | POST | `/v1/tenants/{tenant_id}/fleet/provision` | tenant in the path | `fleet.scale` | `fleet.provision` |
 | POST | `/v1/tenants/{tenant_id}/fleet/deprovision` | tenant in the path | `fleet.scale` | `fleet.deprovision` |
 | GET | `/v1/agents` | caller's key | `agents.read` | none (read) |
@@ -355,14 +359,16 @@ In production, set `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) to pin the in
 
 ### What it is, why it's optional
 
-When the server is started with `--require-signatures` + `--verification-org-id <UUID>`, every package upload runs through cryptographic signature verification before the package is registered. The verification:
+When the server is started with `--require-signatures`, every package upload runs through cryptographic signature verification before the package is registered. The verification:
 
-1. Resolves the package signer for the target tenant.
-2. Looks up the trusted public key for the configured org ID.
-3. Verifies the package bytes against the signature stored in the trust database.
+1. Reads the signature stored for the hash of the uploaded bytes.
+2. Looks the signer's key up in the trusted keys of the tenant in the path, then in the trusted keys of the server-wide org if `--verification-org-id` is set.
+3. Verifies the signature against the trusted public key.
 4. Logs the outcome (success or failure) to the audit log with the package fingerprint.
 
-The pair is **fail-fast** — if `--require-signatures` is set but `--verification-org-id` is unconfigured, the server refuses to start (`signature_verification_unconfigured`). There is no soft-fail path: a misconfigured signature pipeline means *no uploads are accepted*, not "uploads accepted unverified."
+There is no soft-fail path: an upload with no signature, or signed by a key that neither list holds live, is refused.
+
+Trust is **per tenant**. Each tenant has its own trusted keys, and its `admin` adds and revokes them (`cloacinactl trusted-key`, or the `/v1/tenants/{tenant_id}/trusted-keys` routes); a platform admin can do the same for any tenant. A package signed for one tenant is not accepted by another. The server-wide org is the operator's own key set: a key in it is trusted for every tenant. An operator that wants strict per-tenant trust sets no `--verification-org-id`; each tenant then trusts only its own keys.
 
 It's optional because the threat models diverge:
 
@@ -381,7 +387,7 @@ Package signing uses **Ed25519** asymmetric cryptography. Each key is a pair:
 - **Key fingerprint** — the SHA-256 hash of the public key, used to identify
   which key signed a package.
 
-Keys are managed **per-organization**, and the trust model has three roles:
+Keys are managed **per-organization**. On a server, the organization of a tenant is derived from the tenant's name, and the server-wide org is the UUID of `--verification-org-id`. The trust model has three roles:
 
 - **Signing keys** — owned by an organization and used to sign its packages.
 - **Trusted keys** — public keys an organization accepts signatures from during
@@ -490,7 +496,7 @@ Deployments where this is unacceptable should start the server with `--metrics-b
 - [Multi-tenancy](../multi-tenancy/) — operational mechanics of tenant isolation.
 - [Package Format](../../engine/package-format/) — how `.cloacina` archives are structured.
 - [Packaged Workflow Architecture](../../engine/packaged-workflow-architecture/) — the FFI / cdylib trust boundary.
-- [Require Signed Packages](../../../how-to/service/require-signed-packages/) — the operator-side mechanics of turning on signature enforcement: `--require-signatures` + `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
+- [Require Signed Packages](../../../how-to/service/require-signed-packages/) — the operator-side mechanics of turning on signature enforcement: `--require-signatures`, the trusted keys of each tenant and the optional `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
 - [Package Signing](../../../how-to/service/security/package-signing/) — how to set up the signing pipeline.
 - [Running the Compiler](../../../how-to/service/running-the-compiler/) — compiler threat model + Phase 1 hardening flags.
 - **CLOACI-A-0005** — Deployment-mode trust model (the authoritative ADR for this page).

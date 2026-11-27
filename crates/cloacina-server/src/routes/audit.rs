@@ -91,6 +91,8 @@ pub mod actions {
     pub const SECRET_CREATE: Action = action("secret.create", "secret");
     pub const SECRET_ROTATE: Action = action("secret.rotate", "secret");
     pub const SECRET_DELETE: Action = action("secret.delete", "secret");
+    pub const TRUSTED_KEY_ADD: Action = action("trusted_key.add", "trusted_key");
+    pub const TRUSTED_KEY_REVOKE: Action = action("trusted_key.revoke", "trusted_key");
     pub const FLEET_PROVISION: Action = action("fleet.provision", "fleet");
     pub const FLEET_DEPROVISION: Action = action("fleet.deprovision", "fleet");
     pub const LIMIT_SET: Action = action("limit.set", "limit");

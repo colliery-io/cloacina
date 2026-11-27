@@ -56,13 +56,16 @@ struct Cli {
     #[arg(long, env = "CLOACINA_BOOTSTRAP_KEY")]
     bootstrap_key: Option<String>,
 
-    /// Require package signatures for workflow uploads.
+    /// Require package signatures for workflow uploads. The signer must be a
+    /// trusted key of the tenant, or of `--verification-org-id` if one is set.
     #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
     require_signatures: bool,
 
-    /// Trusted organization id (UUID) used to verify package signatures.
-    /// Required when `--require-signatures` is set; otherwise startup fails fast.
-    /// CLOACI-I-0103 / T-0567.
+    /// Server-wide trusted organization id (UUID). With `--require-signatures`,
+    /// an upload is checked against the trusted keys of its tenant first, then
+    /// against the keys of this organization: a key in it is trusted for every
+    /// tenant. Optional: with none, each tenant trusts only its own keys
+    /// (CLOACINA-A-0018).
     #[arg(long, env = "CLOACINA_VERIFICATION_ORG_ID")]
     verification_org_id: Option<Uuid>,
 

@@ -75,33 +75,21 @@ pub async fn upload_workflow(
         return ApiError::bad_request("invalid_request", "empty package file").into_response();
     }
 
-    // T-0557 Bug 2: signature verification at upload time.
+    // Signature verification at upload time (T-0557; CLOACINA-A-0018).
     //
-    // When `require_signatures` is enabled AND a `verification_org_id`
-    // is configured, run real verification against the trusted-key list
-    // for that org. The signature is looked up by package hash from the
-    // `package_signatures` table (`SignatureSource::Database`); the
-    // signing flow (`cloacinactl pack`/`publish` + the future T-0514
-    // sidecar) is responsible for inserting the row before upload.
-    //
-    // When `require_signatures` is enabled but no org is configured
-    // we fail-safe with a clearer error than the old "TODO" stub —
-    // the operator knows verification is enabled but unwired, not
-    // that signing is required for the upload itself.
+    // With `require_signatures` on, the signer of the upload must be a live
+    // trusted key of the tenant in the path, or of the server-wide org if one
+    // is set (`--verification-org-id`). The tenant's org is asked first. The
+    // signature is looked up by package hash in `package_signatures`
+    // (`SignatureSource::Database`).
     if state.security_config.require_signatures {
-        let Some(org_id) = state.security_config.verification_org_id else {
-            warn!(
-                "Package upload rejected: require_signatures=true but no \
-                 verification_org_id configured. Set SecurityConfig::verification_org_id \
-                 before enabling signature requirements."
-            );
-            return ApiError::forbidden(
-                "signature_verification_unconfigured",
-                "signature verification is required but server is not configured \
-                 with a verification_org_id; contact the server operator",
-            )
-            .into_response();
-        };
+        let tenant_org = cloacina::security::tenant_org_id(&tenant_id);
+        let mut orgs = vec![tenant_org];
+        if let Some(server_org) = state.security_config.verification_org_id
+            && server_org != tenant_org
+        {
+            orgs.push(server_org);
+        }
         let dal = cloacina::dal::DAL::new(state.database.clone());
         let package_signer = cloacina::security::DbPackageSigner::new(dal.clone());
         let key_manager = cloacina::security::DbKeyManager::new(dal);
@@ -111,22 +99,23 @@ pub async fn upload_workflow(
         // info!/warn! lines stay because they carry message-level context
         // operators tail in real time.
         let audit_path = format!("upload:tenant={}", tenant_id);
-        match cloacina::security::verify_package_bytes(
+        match cloacina::security::verify_package_bytes_for_orgs(
             &package_data,
-            org_id,
+            &orgs,
             cloacina::security::SignatureSource::Database,
             &package_signer,
             &key_manager,
         )
         .await
         {
-            Ok(result) => {
+            // `trusted_by` is the org whose key list held the signer.
+            Ok((result, trusted_by)) => {
                 info!(
-                    "Package signature verified: hash={} signer={}",
-                    result.package_hash, result.signer_fingerprint
+                    "Package signature verified: hash={} signer={} org={}",
+                    result.package_hash, result.signer_fingerprint, trusted_by
                 );
                 audit::log_package_load_success(
-                    org_id,
+                    trusted_by,
                     &audit_path,
                     &result.package_hash,
                     Some(&result.signer_fingerprint),
@@ -155,7 +144,7 @@ pub async fn upload_workflow(
                     ),
                     _ => ("signature_verification_error", format!("{}", e)),
                 };
-                audit::log_package_load_failure(org_id, &audit_path, &e.to_string(), code);
+                audit::log_package_load_failure(tenant_org, &audit_path, &e.to_string(), code);
                 return ApiError::forbidden(code, msg).into_response();
             }
         }

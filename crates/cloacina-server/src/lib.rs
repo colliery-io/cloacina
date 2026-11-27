@@ -335,26 +335,6 @@ fn runner_config_for_tenant_cache(
         .expect("default tenant runner config builds cleanly")
 }
 
-/// Validate security-related CLI args at server boot.
-///
-/// Extracted from `run()` so it's unit-testable without spinning up the
-/// full server. Currently enforces: `--require-signatures` is only meaningful
-/// paired with `--verification-org-id`; reject the combo at boot rather than
-/// surface a 403 on first upload (CLOACI-I-0103 / T-0567).
-fn validate_security_args(
-    require_signatures: bool,
-    verification_org_id: Option<&uuid::Uuid>,
-) -> Result<()> {
-    if require_signatures && verification_org_id.is_none() {
-        anyhow::bail!(
-            "--require-signatures requires --verification-org-id <UUID> \
-             (or set CLOACINA_VERIFICATION_ORG_ID env var). Without a trusted \
-             org_id the server has no way to verify uploaded signatures."
-        );
-    }
-    Ok(())
-}
-
 /// Run the API server.
 ///
 /// Argument count is over clippy's default threshold; the right long-term fix
@@ -402,8 +382,8 @@ pub async fn run(
 ) -> Result<()> {
     // Validate CORS config before any heavy startup work.
     let cors_layer = cors.layer()?;
-    // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
-    validate_security_args(require_signatures, verification_org_id.as_ref())?;
+    // CLOACINA-A-0018: `--require-signatures` with no `--verification-org-id`
+    // is a valid posture. Each tenant then trusts only its own keys.
     // CLOACINA-T-1055: every route has a row in the authorization table, or
     // the server does not start. Checked before any heavy start-up work.
     check_route_coverage(&crate::routes::authz::build_authz_table())
@@ -2157,6 +2137,19 @@ fn registered_routes(
             "/tenants/{tenant_id}/accounts/{account_id}/password",
             crate::routes::local_auth::reset_password,
         )
+        // CLOACINA-T-1061: the trusted keys of package signing, per tenant.
+        .post(
+            "/tenants/{tenant_id}/trusted-keys",
+            crate::routes::trusted_keys::add_trusted_key,
+        )
+        .get(
+            "/tenants/{tenant_id}/trusted-keys",
+            crate::routes::trusted_keys::list_trusted_keys,
+        )
+        .delete(
+            "/tenants/{tenant_id}/trusted-keys/{key_id}",
+            crate::routes::trusted_keys::revoke_trusted_key,
+        )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
         .post(
@@ -2913,6 +2906,8 @@ mod tests {
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;
+    /// Router tests of the trusted keys of package signing (CLOACINA-T-1061).
+    mod trusted_key_routes;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
@@ -3064,8 +3059,9 @@ mod tests {
     #[serial]
     async fn secret_factory_resolves_stored_secret_end_to_end() {
         use crate::fleet_executor::FleetSecretResolverFactory;
-        use crate::secrets::{ServerFleetSecretResolverFactory, tenant_org_id};
+        use crate::secrets::ServerFleetSecretResolverFactory;
         use base64::Engine;
+        use cloacina::security::tenant_org_id;
         use cloacina::security::{KEK_ENV_VAR, SecretStore};
 
         let state = test_state().await;
@@ -7493,7 +7489,7 @@ mod tests {
         // accepted it (failure further downstream is out of scope here).
     }
 
-    // ── Security args validation (CLOACI-I-0103 / T-0567) ─────────────────
+    // ── Signature config of the tenant runners ────────────────────────────
 
     /// CLOACINA-T-1037: the config of per-tenant runners carries the server's
     /// signature requirement, as the admin runner's config does.
@@ -7510,45 +7506,6 @@ mod tests {
         let off = runner_config_for_tenant_cache(None, "default", false, None);
         assert!(!off.require_signatures());
         assert_eq!(off.verification_org_id(), None);
-    }
-
-    #[test]
-    fn validate_security_args_default_passes() {
-        // Default config: no signature requirement, no org_id. Most common deployment.
-        assert!(validate_security_args(false, None).is_ok());
-    }
-
-    #[test]
-    fn validate_security_args_org_without_require_passes() {
-        // Configuring an org_id without enabling require_signatures is allowed
-        // (operator may want it pre-staged before flipping the flag).
-        let uuid = uuid::Uuid::new_v4();
-        assert!(validate_security_args(false, Some(&uuid)).is_ok());
-    }
-
-    #[test]
-    fn validate_security_args_require_with_org_passes() {
-        // The fully-configured opt-in posture.
-        let uuid = uuid::Uuid::new_v4();
-        assert!(validate_security_args(true, Some(&uuid)).is_ok());
-    }
-
-    #[test]
-    fn validate_security_args_require_without_org_fails() {
-        // The bad combo we want to catch at boot, not at first upload.
-        let result = validate_security_args(true, None);
-        let err = result.expect_err("expected validation failure");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("verification-org-id"),
-            "error must name the missing flag for the operator; got: {}",
-            msg
-        );
-        assert!(
-            msg.contains("CLOACINA_VERIFICATION_ORG_ID"),
-            "error must also name the env var alternative; got: {}",
-            msg
-        );
     }
 
     /// CLOACI-T-0811: leader election via a Postgres advisory lock.

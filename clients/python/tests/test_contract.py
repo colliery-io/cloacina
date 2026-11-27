@@ -181,6 +181,39 @@ def test_secret_lifecycle(client: Client) -> None:
     assert deleted.name == name
 
 
+# ---- trusted keys of package signing (CLOACINA-T-1061) ----
+
+
+def test_trusted_key_lifecycle(client: Client) -> None:
+    """add → list → revoke; a revoked key stays in the list, marked."""
+    public_key = os.urandom(32).hex()
+    name = f"py-contract-key-{int(time.time() * 1000)}"
+
+    added = client.add_trusted_key(public_key=public_key, name=name)
+    assert added.name == name
+    assert len(added.fingerprint) == 64
+    assert added.revoked is False
+
+    page = client.list_trusted_keys()
+    assert added.id in [k.id for k in page.items]
+
+    # The tenant holds a key once.
+    with pytest.raises(CloacinaApiError) as exc:
+        client.add_trusted_key(public_key=public_key)
+    assert exc.value.status == 409
+
+    revoked = client.revoke_trusted_key(added.id)
+    assert revoked.status == "revoked"
+    assert revoked.id == added.id
+
+    page = client.list_trusted_keys()
+    assert [k.revoked for k in page.items if k.id == added.id] == [True]
+
+    with pytest.raises(CloacinaApiError) as exc:
+        client.revoke_trusted_key("00000000-0000-4000-8000-000000000000")
+    assert exc.value.status == 404
+
+
 # ---- agent pools (CLOACINA-T-1021) ----
 
 

@@ -37,6 +37,7 @@ pub mod secret;
 pub mod server;
 pub mod tenant;
 pub mod trigger;
+pub mod trusted_key;
 pub mod workflow;
 
 /// Composite status — runs daemon + server + compiler status and prints all three.

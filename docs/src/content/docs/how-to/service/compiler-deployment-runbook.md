@@ -163,7 +163,7 @@ separate address. Key deployment-relevant flags are
 documented in [Deploying the API Server](../deploying-the-api-server/) and the full set is in [CLI Reference](../../../reference/cli/).
 
 For signature enforcement, the server accepts `--require-signatures`
-and `--verification-org-id <UUID>` (per I-0103) to enforce
+(and the optional `--verification-org-id <UUID>`) to enforce
 fail-closed package-signature verification at the canonical load
 path. For the operator-side setup, see
 [Require Signed Packages](../require-signed-packages/).

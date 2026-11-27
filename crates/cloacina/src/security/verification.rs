@@ -48,13 +48,11 @@ pub struct SecurityConfig {
     /// For verification-only scenarios (loading packages), this is not required.
     pub key_encryption_key: Option<[u8; 32]>,
 
-    /// Organization ID against which uploaded-package signatures are
-    /// verified. The verification flow looks up trusted keys scoped to
-    /// this org (`KeyManager::find_trusted_key(org_id, fingerprint)`).
-    /// `None` means "no org binding configured" — verification cannot
-    /// run, and `require_signatures = true` becomes fail-safe (reject
-    /// all uploads). Set this to the server's default-org UUID when
-    /// signature verification is enabled. (T-0557 Bug 2)
+    /// The server-wide organization (CLOACINA-A-0018). An upload to a tenant
+    /// is checked against the trusted keys of the tenant's own org first
+    /// ([`super::tenant_org_id`]), then against the keys of this org if one
+    /// is set: a key in it is trusted for every tenant. `None` means each
+    /// tenant trusts only its own keys.
     pub verification_org_id: Option<UniversalUuid>,
 }
 
@@ -384,7 +382,42 @@ pub async fn verify_package_bytes(
     package_signer: &DbPackageSigner,
     key_manager: &DbKeyManager,
 ) -> Result<VerificationResult, VerificationError> {
+    verify_package_bytes_for_orgs(
+        package_data,
+        &[org_id],
+        signature_source,
+        package_signer,
+        key_manager,
+    )
+    .await
+    .map(|(result, _)| result)
+}
+
+/// Verify a package signature against in-memory bytes, with the signer looked
+/// up in each organization of `org_ids`, in order (CLOACINA-A-0018: the
+/// tenant's org first, then the server org if one is set).
+///
+/// The first organization that trusts the signer's key decides: the result
+/// names it. A key that no organization of the list trusts (unknown, or
+/// revoked in each of them) is [`VerificationError::UntrustedSigner`]. An
+/// empty list trusts no key.
+///
+/// The failure lines of the audit log name the first organization of the
+/// list.
+pub async fn verify_package_bytes_for_orgs(
+    package_data: &[u8],
+    org_ids: &[UniversalUuid],
+    signature_source: SignatureSource,
+    package_signer: &DbPackageSigner,
+    key_manager: &DbKeyManager,
+) -> Result<(VerificationResult, UniversalUuid), VerificationError> {
     let package_hash = compute_package_hash(package_data)?;
+    // The org of the failure lines. With an empty list no key is trusted;
+    // the nil id marks that no org was asked.
+    let log_org = org_ids
+        .first()
+        .copied()
+        .unwrap_or(UniversalUuid(uuid::Uuid::nil()));
 
     let signature = match signature_source {
         SignatureSource::Database => load_signature_from_db(&package_hash, package_signer).await?,
@@ -399,7 +432,7 @@ pub async fn verify_package_bytes(
 
     if signature.package_hash != package_hash {
         audit::log_verification_failure(
-            org_id,
+            log_org,
             &package_hash,
             "tampered",
             Some(&signature.key_fingerprint),
@@ -410,23 +443,30 @@ pub async fn verify_package_bytes(
         });
     }
 
-    let trusted_key = key_manager
-        .find_trusted_key(org_id, &signature.key_fingerprint)
-        .await
-        .map_err(|e| VerificationError::KeyManagerError {
-            error: e.to_string(),
-        })?
-        .ok_or_else(|| {
-            audit::log_verification_failure(
-                org_id,
-                &package_hash,
-                "untrusted_signer",
-                Some(&signature.key_fingerprint),
-            );
-            VerificationError::UntrustedSigner {
-                fingerprint: signature.key_fingerprint.clone(),
-            }
-        })?;
+    let mut trusted = None;
+    for org_id in org_ids {
+        let found = key_manager
+            .find_trusted_key(*org_id, &signature.key_fingerprint)
+            .await
+            .map_err(|e| VerificationError::KeyManagerError {
+                error: e.to_string(),
+            })?;
+        if let Some(key) = found {
+            trusted = Some((key, *org_id));
+            break;
+        }
+    }
+    let Some((trusted_key, org_id)) = trusted else {
+        audit::log_verification_failure(
+            log_org,
+            &package_hash,
+            "untrusted_signer",
+            Some(&signature.key_fingerprint),
+        );
+        return Err(VerificationError::UntrustedSigner {
+            fingerprint: signature.key_fingerprint.clone(),
+        });
+    };
 
     let hash_bytes = hex::decode(&package_hash).map_err(|e| VerificationError::HashError {
         error: e.to_string(),
@@ -459,11 +499,14 @@ pub async fn verify_package_bytes(
         trusted_key.key_name.as_deref(),
     );
 
-    Ok(VerificationResult {
-        package_hash,
-        signer_fingerprint: signature.key_fingerprint,
-        signer_name: trusted_key.key_name,
-    })
+    Ok((
+        VerificationResult {
+            package_hash,
+            signer_fingerprint: signature.key_fingerprint,
+            signer_name: trusted_key.key_name,
+        },
+        org_id,
+    ))
 }
 
 /// Compute SHA256 hash of package data.

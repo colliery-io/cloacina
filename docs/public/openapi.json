@@ -3765,6 +3765,234 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/trusted-keys": {
+      "get": {
+        "tags": [
+          "trusted-keys"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/trusted-keys` — the tenant's trusted keys,\nthe revoked ones included and marked.",
+        "operationId": "list_trusted_keys",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's trusted keys, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_TrustedKeySummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "trusted-keys"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/trusted-keys` — add a public key to the\ntenant's trusted keys.",
+        "operationId": "add_trusted_key",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTrustedKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Key added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustedKeySummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No key, two keys, or a key that is not Ed25519",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant already has this key, live or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/trusted-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "trusted-keys"
+        ],
+        "summary": "`DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` — revoke a trusted\nkey of the tenant. The key of another tenant is not found, and is not\nrevoked.",
+        "operationId": "revoke_trusted_key",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Trusted key UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustedKeyRevokedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid key ID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such trusted key in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/workflows": {
       "get": {
         "tags": [
@@ -5725,6 +5953,33 @@
               "null"
             ],
             "description": "Owning tenant, or `None` for untagged single-tenant graphs."
+          }
+        }
+      },
+      "AddTrustedKeyRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/tenants/{tenant_id}/trusted-keys`.\n\nGive the key in exactly one of the two forms.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A name for the key, to tell the keys of the list apart."
+          },
+          "public_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The raw 32-byte Ed25519 public key as 64 hexadecimal characters."
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The public key as PEM (`-----BEGIN PUBLIC KEY-----`, Ed25519\nSubjectPublicKeyInfo)."
           }
         }
       },
@@ -7838,6 +8093,65 @@
           }
         }
       },
+      "ListResponse_TrustedKeySummary": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One trusted key of a tenant. The body of the add, and one row of the list.",
+              "required": [
+                "id",
+                "fingerprint",
+                "trusted_at",
+                "revoked"
+              ],
+              "properties": {
+                "fingerprint": {
+                  "type": "string",
+                  "description": "SHA-256 of the public key, as hexadecimal. A signature names its\nsigner by this value."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Key UUID: the id a revoke takes."
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The name given at the add, if any."
+                },
+                "revoked": {
+                  "type": "boolean",
+                  "description": "True when the key was revoked: no upload passes with it."
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp of the revoke; `null` for a live key."
+                },
+                "trusted_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "LocalLoginRequest": {
         "type": "object",
         "description": "A local-login attempt. `tenant` selects which tenant's account namespace to\nauthenticate against (`None` = a global account).",
@@ -9020,6 +9334,66 @@
           }
         }
       },
+      "TrustedKeyRevokedResponse": {
+        "type": "object",
+        "description": "`DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` response.",
+        "required": [
+          "status",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id of the revoked key."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"revoked\"`."
+          }
+        }
+      },
+      "TrustedKeySummary": {
+        "type": "object",
+        "description": "One trusted key of a tenant. The body of the add, and one row of the list.",
+        "required": [
+          "id",
+          "fingerprint",
+          "trusted_at",
+          "revoked"
+        ],
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "description": "SHA-256 of the public key, as hexadecimal. A signature names its\nsigner by this value."
+          },
+          "id": {
+            "type": "string",
+            "description": "Key UUID: the id a revoke takes."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name given at the add, if any."
+          },
+          "revoked": {
+            "type": "boolean",
+            "description": "True when the key was revoked: no upload passes with it."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the revoke; `null` for a live key."
+          },
+          "trusted_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          }
+        }
+      },
       "WhoamiResponse": {
         "type": "object",
         "description": "The caller's own identity + role (CLOACI-T-0803) — lets the UI gate\nwrite/admin controls to the key's role instead of offering actions that\nwould 403.",
@@ -9568,6 +9942,10 @@
     {
       "name": "keys",
       "description": "API key management"
+    },
+    {
+      "name": "trusted-keys",
+      "description": "Trusted keys of package signing, per tenant (admin)"
     },
     {
       "name": "tenants",

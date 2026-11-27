@@ -31,6 +31,7 @@ pub mod ownership;
 mod package_signer;
 mod secret_resolver;
 mod secret_store;
+mod tenant_org;
 mod verification;
 
 pub use db_key_manager::DbKeyManager;
@@ -46,7 +47,8 @@ pub use secret_resolver::{
     KEK_ENV_VAR, SecretAllow, SecretResolverConfigError, SecretStoreResolver,
 };
 pub use secret_store::{SecretError, SecretMetadata, SecretStore};
+pub use tenant_org::tenant_org_id;
 pub use verification::{
     SecurityConfig, SignatureSource, VerificationError, VerificationResult, verify_package,
-    verify_package_bytes, verify_package_offline,
+    verify_package_bytes, verify_package_bytes_for_orgs, verify_package_offline,
 };

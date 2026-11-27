@@ -19,14 +19,13 @@
 //! Two pieces the tenant secrets subsystem needs, shared by the CRUD routes and
 //! the fleet delivery path so they agree on identity:
 //!
-//! 1. [`tenant_org_id`] — the single tenant(schema-name) → `org_id`
-//!    ([`UniversalUuid`]) mapping. The [`SecretStore`] keys every row by an
-//!    `org_id`, but a tenant is identified server-side by its schema-name string
-//!    (there is no tenants table with a UUID PK — a tenant *is* a Postgres schema,
-//!    see `routes/tenants.rs`). We derive a **stable, deterministic** UUID from
-//!    the schema name (UUIDv5 under a fixed namespace) so the value is identical
-//!    across processes/restarts without a lookup table. Both the CRUD handlers
-//!    and [`ServerFleetSecretResolverFactory`] MUST route through this helper.
+//! 1. [`tenant_org_id`] — the single tenant(schema-name) → `org_id` mapping.
+//!    The [`SecretStore`] keys every row by an `org_id`, but a tenant is
+//!    identified server-side by its schema-name string (there is no tenants
+//!    table with a UUID PK — a tenant *is* a Postgres schema, see
+//!    `routes/tenants.rs`). The function lives in `cloacina::security`
+//!    (CLOACINA-A-0018): the secrets routes, [`ServerFleetSecretResolverFactory`]
+//!    and the trusted keys of package signing all call it there.
 //!
 //! 2. [`ServerFleetSecretResolverFactory`] — the concrete
 //!    [`FleetSecretResolverFactory`](crate::fleet_executor::FleetSecretResolverFactory)
@@ -41,30 +40,10 @@ use async_trait::async_trait;
 
 use cloacina::SecretResolver;
 use cloacina::database::Database;
-use cloacina::database::universal_types::UniversalUuid;
-use cloacina::security::{SecretStore, SecretStoreResolver};
+use cloacina::security::{SecretStore, SecretStoreResolver, tenant_org_id};
 
 use crate::TenantDatabaseCache;
 use crate::fleet_executor::FleetSecretResolverFactory;
-
-/// Fixed namespace for the tenant-schema → `org_id` UUIDv5 derivation. Chosen
-/// once and frozen: changing it re-keys every existing secret, so it is a
-/// stable constant, never regenerated.
-const TENANT_ORG_NAMESPACE: uuid::Uuid =
-    uuid::Uuid::from_u128(0xC10AC1A5_0133_5EC0_BABE_000000000000u128);
-
-/// Map a tenant's schema-name to its stable `org_id`.
-///
-/// Deterministic (UUIDv5 over [`TENANT_ORG_NAMESPACE`] + the schema name): the
-/// same tenant name always yields the same `org_id`, in every process, with no
-/// lookup table. This is the one mapping the whole secrets subsystem uses so the
-/// CRUD write path and the fleet resolve path key rows identically.
-pub fn tenant_org_id(tenant_id: &str) -> UniversalUuid {
-    UniversalUuid(uuid::Uuid::new_v5(
-        &TENANT_ORG_NAMESPACE,
-        tenant_id.as_bytes(),
-    ))
-}
 
 /// Concrete [`FleetSecretResolverFactory`] over the tenant secrets subsystem
 /// (CLOACI-T-0862; activates the T-0861 seam).
@@ -156,19 +135,6 @@ impl FleetSecretResolverFactory for ServerFleetSecretResolverFactory {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn tenant_org_id_is_deterministic_and_distinct() {
-        // Same name → same id across calls (the load-bearing property: the CRUD
-        // write path and the fleet resolve path must agree).
-        assert_eq!(tenant_org_id("acme"), tenant_org_id("acme"));
-        assert_eq!(tenant_org_id("public"), tenant_org_id("public"));
-        // Different names → different ids (tenant isolation is not aliased).
-        assert_ne!(tenant_org_id("acme"), tenant_org_id("beta"));
-        assert_ne!(tenant_org_id("acme"), tenant_org_id("public"));
-    }
-
     // Full end-to-end coverage of the factory (`resolver_for` resolving a stored
     // secret + tenant isolation) lives in the postgres integration lane
     // (`lib.rs mod tests::secret_factory_*`) since the server crate is

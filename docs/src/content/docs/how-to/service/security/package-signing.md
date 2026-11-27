@@ -6,18 +6,17 @@ sidebar:
 ---
 
 Cloacina supports cryptographic (Ed25519) signing of workflow packages so you can
-detect tampering and verify authenticity. This guide covers the library-side
-tasks: enabling verification, generating and trusting keys, signing, verifying,
-and rotating keys.
+detect tampering and verify authenticity. This guide covers the keys a tenant
+trusts on a server (`cloacinactl trusted-key`), and the library-side tasks:
+enabling verification, generating and trusting keys, signing, verifying, and
+rotating keys.
 
 :::caution[No CLI signing path yet]
-There is currently **no end-to-end CLI flow** for signing `.cloacina`
-workflow packages: `cloacinactl package pack --sign` (and
-`package publish --sign`) **fail hard** with an error — the flag is
-tracked under I-0103 and not implemented. What exists today is the
-**library-side** signing/verification API documented on this page, plus
-server-side *enforcement* (`--require-signatures`, which will reject
-uploads you have no CLI means to sign). Plan deployments accordingly.
+`cloacinactl package pack --sign` and `package publish --sign` **fail hard**
+with an error, and no route stores a signature. A signature row is written
+through the **library-side** API on this page. What the server and the CLI do:
+*enforcement* (`--require-signatures`) and the management of each tenant's
+trusted keys (`cloacinactl trusted-key add|list|revoke`).
 :::
 
 - For the **trust model and why signing is optional**, see
@@ -26,6 +25,56 @@ uploads you have no CLI means to sign). Plan deployments accordingly.
   variants), see [Package Signing API Reference](../../../../reference/package-signing-api/).
 - To **enforce signatures at the server upload boundary**, see
   [Require signed packages](../../require-signed-packages/).
+
+## Manage a tenant's trusted keys on a server
+
+A trusted key is an Ed25519 public key. With `--require-signatures` on the
+server, an upload to a tenant passes when its signer is a live trusted key of
+that tenant, or of the server-wide org if the operator set one. The lookup
+order is in [Require signed packages](../../require-signed-packages/#how-an-upload-is-checked).
+
+A tenant `admin` key manages the keys of its own tenant. A platform admin key
+manages the keys of any tenant: name it with `--tenant`. The `read`, `write`
+and `agent` roles are refused.
+
+**Add a key**, from a PEM file or from the raw key as 64 hexadecimal
+characters:
+
+```sh
+cloacinactl trusted-key add --pem-file release-key.pub.pem --name release-key-v1
+cloacinactl trusted-key add --public-key 3b6a27bc...29da29 --name ci
+```
+
+The answer has the key's `id` and its `fingerprint` (the SHA-256 of the public
+key). A tenant holds a key once: adding a key the tenant already has, live or
+revoked, is refused with `409 trusted_key_exists`.
+
+**List the keys.** A revoked key stays in the list, with `revoked: true` and
+its `revoked_at` time:
+
+```sh
+cloacinactl trusted-key list
+```
+
+**Revoke a key**, by its id:
+
+```sh
+cloacinactl trusted-key revoke 7c9e6679-7425-40de-944b-e07fc1f90ae7
+```
+
+A revoke takes effect at the next upload: the server does not cache keys. A
+revoked key cannot be added again; trust a new key instead. A key that the
+tenant revoked still passes if the server-wide org also trusts it.
+
+The same operations over HTTP are `POST`, `GET` and `DELETE` on
+`/v1/tenants/{tenant_id}/trusted-keys`: see the
+[HTTP API Reference](../../../../reference/http-api/#trusted-keys). Each add
+and each revoke writes a row to the [audit record](../../../../reference/http-api/#audit)
+(`trusted_key.add`, `trusted_key.revoke`).
+
+The org id of a tenant in the `trusted_keys` table is
+`cloacina::security::tenant_org_id("<tenant>")`. A key added through the
+library with that org id is the same row as one added through the route.
 
 ## Enable signature verification
 
@@ -39,9 +88,9 @@ let config = SecurityConfig {
     // 32-byte master key; only needed when SIGNING with database-stored
     // keys — verification-only loading doesn't require it.
     key_encryption_key: Some(master_key_bytes),
-    // The org whose trusted keys uploads are verified against. With
-    // require_signatures = true and no org set, verification fails safe
-    // (all uploads rejected).
+    // The server-wide org. `cloacina-server` checks an upload against the
+    // trusted keys of its tenant first, then against the keys of this org
+    // if one is set. With `None`, each tenant trusts only its own keys.
     verification_org_id: Some(org_id),
 };
 ```
@@ -154,6 +203,9 @@ let result = verify_package_offline(&package_path, &signature_path, &public_key_
    ```rust
    key_manager.revoke_trusted_key(org_id, old_trusted_key_id).await?;
    ```
+
+For a tenant's keys on a server, steps 2 and 5 are `cloacinactl trusted-key
+add` and `cloacinactl trusted-key revoke`.
 
 6. **Optionally, revoke the old signing key** to prevent new signatures:
    ```rust
