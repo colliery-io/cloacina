@@ -91,6 +91,13 @@ pub struct ServerSettingArgs {
     /// Overrides `[server].public_base_url`.
     #[arg(long, env = "CLOACINA_PUBLIC_BASE_URL")]
     pub public_base_url: Option<String>,
+
+    /// Template of the URL of a task's logs in your log stack, with the
+    /// placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`.
+    /// The UI then shows a log link on each task. Overrides
+    /// `[server].task_log_url_template`. CLOACINA-T-1024.
+    #[arg(long, env = "CLOACINA_TASK_LOG_URL_TEMPLATE")]
+    pub task_log_url_template: Option<String>,
 }
 
 /// What `server start` adds to the `cloacina-server` command for the settings
@@ -177,6 +184,15 @@ pub(crate) fn forwarded_settings(
             .clone()
             .or_else(|| config.public_base_url.clone()),
     );
+    // CLOACINA-T-1024: an empty template is "not set": no log link.
+    let not_blank = |t: &String| !t.trim().is_empty();
+    arg(
+        "--task-log-url-template",
+        cli.task_log_url_template
+            .clone()
+            .filter(not_blank)
+            .or_else(|| config.task_log_url_template.clone().filter(not_blank)),
+    );
 
     // The URL can hold a token: an env var of the server process, so it is
     // not in the process list.
@@ -195,7 +211,6 @@ pub async fn run(
     globals: &GlobalOpts,
     bind: SocketAddr,
     metrics_bind: Option<SocketAddr>,
-    task_log_url_template: Option<String>,
     database_url: Option<String>,
     bootstrap_key: Option<String>,
     require_signatures: bool,
@@ -223,7 +238,6 @@ pub async fn run(
         &globals.home,
         bind,
         metrics_bind,
-        task_log_url_template,
         &db_url,
         bootstrap_key,
         require_signatures,
@@ -246,7 +260,6 @@ fn server_command(
     home: &Path,
     bind: SocketAddr,
     metrics_bind: Option<SocketAddr>,
-    task_log_url_template: Option<String>,
     db_url: &str,
     bootstrap_key: Option<String>,
     require_signatures: bool,
@@ -265,10 +278,6 @@ fn server_command(
     // own default (`/metrics` on `--bind`) is as before.
     if let Some(addr) = metrics_bind {
         cmd.arg("--metrics-bind").arg(addr.to_string());
-    }
-    // CLOACINA-T-1024: passed on only when set; not set = no log link.
-    if let Some(template) = task_log_url_template.filter(|t| !t.trim().is_empty()) {
-        cmd.arg("--task-log-url-template").arg(template);
     }
     if let Some(key) = bootstrap_key {
         cmd.arg("--bootstrap-key").arg(key);
@@ -456,15 +465,10 @@ public_base_url = "https://cloacina.example.com"
     }
 
     fn args(metrics_bind: Option<SocketAddr>) -> Vec<String> {
-        args_with(metrics_bind, None)
-    }
-
-    fn args_with(metrics_bind: Option<SocketAddr>, log_url: Option<&str>) -> Vec<String> {
         server_command(
             Path::new("/tmp/cloacina-home"),
             "127.0.0.1:8080".parse().unwrap(),
             metrics_bind,
-            log_url.map(str::to_string),
             "postgres://u:p@h:5432/d",
             None,
             false,
@@ -510,23 +514,44 @@ public_base_url = "https://cloacina.example.com"
         assert_eq!(flags[7], "--database-wait-timeout-s");
     }
 
+    /// CLOACINA-T-1024: the flag (or its env var), then `[server]` of
+    /// `config.toml`; an empty value is "not set".
     #[test]
     fn task_log_url_template_is_passed_to_the_server_only_when_set() {
         let template = "https://logs.example.com/?run={execution_id}&task={task}";
-        let args = args_with(None, Some(template));
-        let at = args
-            .iter()
-            .position(|a| a == "--task-log-url-template")
-            .unwrap();
-        assert_eq!(args[at + 1], template);
+        let from_config = "[server]\ntask_log_url_template = \"https://other.example.com/{task}\"\n";
+        let forwarded = |flag: Option<&str>, config: &ServerSection| {
+            let cli = ServerSettingArgs {
+                task_log_url_template: flag.map(str::to_string),
+                ..ServerSettingArgs::default()
+            };
+            forwarded_settings(&cli, config).args
+        };
 
+        assert_eq!(
+            forwarded(Some(template), &ServerSection::default()),
+            ["--task-log-url-template", template]
+        );
+        assert_eq!(
+            forwarded(Some(template), &section(from_config)),
+            ["--task-log-url-template", template],
+            "the flag wins over config.toml"
+        );
+        assert_eq!(
+            forwarded(None, &section(from_config)),
+            [
+                "--task-log-url-template",
+                "https://other.example.com/{task}"
+            ]
+        );
         for unset in [None, Some(""), Some("  ")] {
-            assert!(
-                !args_with(None, unset)
-                    .iter()
-                    .any(|a| a == "--task-log-url-template")
-            );
+            assert!(forwarded(unset, &ServerSection::default()).is_empty());
         }
+
+        let flags = Flags::try_parse_from(["start", "--task-log-url-template", template])
+            .unwrap()
+            .settings;
+        assert_eq!(flags.task_log_url_template.as_deref(), Some(template));
     }
 
     #[test]

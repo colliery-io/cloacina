@@ -324,6 +324,7 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.alert_webhook_timeout_s` | not set | Seconds allowed for one alert request. Forwarded as `--alert-webhook-timeout-s`. |
 | `server.alert_webhook_max_attempts` | not set | The most sends of one alert. Forwarded as `--alert-webhook-max-attempts`. |
 | `server.public_base_url` | not set | Public URL of the server, for the links in an alert. Forwarded as `--public-base-url`. |
+| `server.task_log_url_template` | not set | URL of a task's logs in your log stack, with the placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`. Forwarded as `--task-log-url-template`. |
 
 A key that is not set is not forwarded, and the server uses its own default
 (see [Server flags](#server-flags-cloacina-server)). The signing secret of the

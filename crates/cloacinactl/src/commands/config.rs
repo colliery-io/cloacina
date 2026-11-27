@@ -185,6 +185,10 @@ pub struct ServerSection {
     /// (`--public-base-url`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_base_url: Option<String>,
+    /// Template of the URL of a task's logs in the log stack
+    /// (`--task-log-url-template`, CLOACINA-T-1024).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_log_url_template: Option<String>,
 }
 
 impl Default for ServerSection {
@@ -202,6 +206,7 @@ impl Default for ServerSection {
             alert_webhook_timeout_s: None,
             alert_webhook_max_attempts: None,
             public_base_url: None,
+            task_log_url_template: None,
         }
     }
 }

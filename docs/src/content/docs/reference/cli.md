@@ -226,8 +226,9 @@ See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
 
 `server start` takes `--database-wait-timeout-s`, the retention settings, the
-[fleet time limits](#fleet-agent-liveness-cloacina-server) and the
-[alert webhook settings](#alert-webhook-cloacina-server) in three ways: a
+[fleet time limits](#fleet-agent-liveness-cloacina-server), the
+[alert webhook settings](#alert-webhook-cloacina-server) and
+`--task-log-url-template` in three ways: a
 flag, the env var of the setting, or a key of `[server]` in `config.toml`
 with the flag's name in snake case (for example
 `fleet_task_timeout_s = 600`). The order is flag, env var, `config.toml`.
