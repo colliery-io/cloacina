@@ -136,20 +136,15 @@ fn cloacina_host_interface_round_trips() {
         "refused call must not record: {:?}",
         host.calls()
     );
-}
 
-/// A second bind is refused. Cloacina binds once per loaded library, so this
-/// pins the behavior we rely on rather than leaving it to chance.
-#[test]
-fn double_bind_is_refused() {
-    // This test binary shares the global cell with the test above; whichever
-    // runs first performs the real bind. Either way a SECOND bind must fail,
-    // which is the property being asserted.
-    let host = Arc::new(RecordingHost::default());
-    let first = CloacinaHostBinding::bind_in_process(host.clone() as Arc<dyn CloacinaHost>);
-    let second = CloacinaHostBinding::bind_in_process(host as Arc<dyn CloacinaHost>);
+    // A second bind is refused. Cloacina binds once per loaded library, so
+    // this pins the behavior we rely on. It is checked here, after the bind
+    // above, and not in a test of its own: the bound cell is global to the
+    // process, and a second test that ran first would take the bind
+    // (CLOACINA-T-1131).
+    let again = Arc::new(RecordingHost::default());
     assert!(
-        first.is_err() || second.is_err(),
+        CloacinaHostBinding::bind_in_process(again as Arc<dyn CloacinaHost>).is_err(),
         "binding twice in one process must be refused"
     );
 }
