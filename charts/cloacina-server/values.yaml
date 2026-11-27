@@ -240,12 +240,15 @@ fleet:
     dnsNamespace: kube-system
 
   # A compiler per tenant (CLOACINA-T-1034). Used only with
-  # actuator=kubernetes. The chart's own compiler (`compiler.*` below) serves
-  # the `public` schema. For every other tenant the server runs one
-  # `cloacina-compiler` Deployment in the tenant's namespace, with
-  # `--tenant-schema <tenant>`: it starts it when the tenant's build queue has
-  # a package, and scales it to 0 when the queue has been empty for
-  # `cooldownSeconds`. A tenant that never publishes a package gets none.
+  # actuator=kubernetes. For every tenant, `public` included, the server runs
+  # one `cloacina-compiler` Deployment in the tenant's namespace
+  # (`cloacina-tenant-<tenant>`), with `--tenant-schema <tenant>`: it starts
+  # it when the tenant's build queue has a package, and scales it to 0 when
+  # the queue has been empty for `cooldownSeconds`. A tenant that never
+  # publishes a package gets none. Each compiler connects with its tenant's
+  # build role, with a password the server sets at each start
+  # (CLOACINA-T-1063). With this on, the chart's own compiler (`compiler.*`
+  # below) is not rendered.
   compiler:
     enabled: true
     image:
@@ -485,11 +488,12 @@ podLabels: {}
 # ---------------------------------------------------------------------------
 # Compiler (CLOACI-I-0111)
 #
-# The cloacina-compiler builds uploaded Rust packages. Enable it to compile
-# packages in-cluster; without it, uploaded Rust packages stay `pending`.
-# Tenant-level isolation is the security boundary (run one compiler per
-# tenant via --tenant-schema); the per-build process sandbox was excised
-# 2026-07-11 and may return as an optional layer later.
+# The chart's own cloacina-compiler builds the packages of the `public`
+# schema, with the database URL the chart is given (the single-trust
+# install). It is rendered only when the fleet compilers are off
+# (`fleet.actuator` is not kubernetes, or `fleet.compiler.enabled` is false);
+# with them on, the server runs `public`'s compiler like every tenant's
+# (CLOACINA-T-1063).
 # ---------------------------------------------------------------------------
 compiler:
   enabled: false

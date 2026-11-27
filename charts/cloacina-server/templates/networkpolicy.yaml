@@ -34,7 +34,7 @@ spec:
         - protocol: TCP
           port: {{ $.Values.metrics.port }}
     {{- end }}
-{{- if .Values.compiler.enabled }}
+{{- if include "cloacina-server.chartCompiler" . }}
 ---
 # Ingress to the compiler pods (CLOACINA-T-1032): the bind port (/health and
 # /v1/status) stays open to every source, the metrics port only to the peers
