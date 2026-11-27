@@ -72,6 +72,12 @@ const CARGO_HOME_DIR: &str = "/var/cloacina/cargo";
 /// The `uv` cache of a hardened pod: its own emptyDir, so the cache does not
 /// fill the home, where the build folder is (CLOACINA-T-1117).
 const UV_CACHE_DIR: &str = "/var/cloacina/uv-cache";
+/// Where a hardened pod mounts its cache claim (CLOACINA-T-1117). The cargo
+/// home, the target directory and the `uv` cache are folders in it, made by
+/// the compiler's own user.
+const CACHE_CLAIM_DIR: &str = "/var/cloacina/cache";
+/// Name of a tenant compiler's PersistentVolumeClaim.
+pub const COMPILER_CACHE_CLAIM_NAME: &str = "cloacina-compiler-cache";
 
 /// Private and link-local IPv4 ranges. The `internet` crate egress leaves
 /// them out, so a build cannot reach the cluster, the node or a cloud
@@ -241,6 +247,65 @@ pub struct CompilerSettings {
     pub home_size: String,
     /// The Python settings of the compiler (CLOACINA-T-1117).
     pub python: TenantPythonSettings,
+    /// The cache claim of a hardened pod (CLOACINA-T-1117).
+    pub cache_claim: CacheClaimSettings,
+}
+
+/// A PersistentVolumeClaim per tenant compiler that holds its cargo home, its
+/// target directory and its `uv` cache, so a start from 0 replicas finds the
+/// caches of the last run (CLOACINA-T-1117). Hardened pods only: an
+/// unhardened pod runs on the image's own filesystem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CacheClaimSettings {
+    /// On by default (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM`). Off: the three
+    /// caches are emptyDirs, as before.
+    pub enabled: bool,
+    /// Requested size (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE`, default
+    /// `20Gi`: the sum of the emptyDir limits it replaces, 8Gi cargo home,
+    /// 8Gi target directory and 4Gi `uv` cache).
+    pub size: String,
+    /// Storage class (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS`).
+    /// `None`: no `storageClassName`, the cluster's default class.
+    pub storage_class: Option<String>,
+}
+
+impl Default for CacheClaimSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            size: "20Gi".to_string(),
+            storage_class: None,
+        }
+    }
+}
+
+/// Whether `raw` is a Kubernetes quantity of storage above zero: a number
+/// with an optional binary or decimal suffix (`20Gi`, `500M`, `1.5Ti`).
+fn valid_storage_quantity(raw: &str) -> bool {
+    const SUFFIXES: [&str; 12] = [
+        "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "k", "M", "G", "T", "P", "E",
+    ];
+    let number = SUFFIXES
+        .iter()
+        .find_map(|s| raw.strip_suffix(s))
+        .unwrap_or(raw);
+    let mut parts = number.splitn(2, '.');
+    let whole = parts.next().unwrap_or("");
+    let fraction = parts.next();
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    digits(whole)
+        && fraction.is_none_or(digits)
+        && number.chars().any(|c| c.is_ascii_digit() && c != '0')
+}
+
+/// Whether `raw` is a valid name of a storage class (a DNS subdomain).
+fn valid_storage_class(raw: &str) -> bool {
+    raw.len() <= 253
+        && raw
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+        && raw.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && raw.ends_with(|c: char| c.is_ascii_alphanumeric())
 }
 
 /// The Python vendoring settings of a tenant's compiler (CLOACINA-T-1117),
@@ -306,6 +371,7 @@ impl std::fmt::Debug for CompilerSettings {
             .field("docker_network", &self.docker_network)
             .field("home_size", &self.home_size)
             .field("python", &self.python)
+            .field("cache_claim", &self.cache_claim)
             .finish()
     }
 }
@@ -340,6 +406,21 @@ impl CompilerSettings {
                 cache_size: "4Gi".to_string(),
                 ..TenantPythonSettings::default()
             },
+            cache_claim: CacheClaimSettings::default(),
+        }
+    }
+
+    /// Whether the pod mounts the cache claim: on, and hardened.
+    pub fn uses_cache_claim(&self) -> bool {
+        self.hardened && self.cache_claim.enabled
+    }
+
+    /// The cargo target directory the compiler is given.
+    fn effective_target_dir(&self) -> String {
+        if self.uses_cache_claim() {
+            format!("{CACHE_CLAIM_DIR}/target")
+        } else {
+            self.target_dir.clone()
         }
     }
 
@@ -460,6 +541,26 @@ impl CompilerSettings {
         if let Some(v) = get("CLOACINA_TENANT_COMPILER_HOME_SIZE") {
             s.home_size = v;
         }
+        // CLOACINA-T-1117: the cache claim.
+        s.cache_claim.enabled = flag("CLOACINA_TENANT_COMPILER_CACHE_CLAIM", true)?;
+        if let Some(v) = get("CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE") {
+            if !valid_storage_quantity(&v) {
+                return Err(format!(
+                    "CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE: '{v}' is not a storage size \
+                     above zero, for example 20Gi"
+                ));
+            }
+            s.cache_claim.size = v;
+        }
+        if let Some(v) = get("CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS") {
+            if !valid_storage_class(&v) {
+                return Err(format!(
+                    "CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS: '{v}' is not a storage \
+                     class name (lower-case letters, digits, '-' and '.')"
+                ));
+            }
+            s.cache_claim.storage_class = Some(v);
+        }
 
         // CLOACINA-T-1117: the Python settings. Checked here, so a value the
         // compiler would refuse stops the server and not each compiler pod.
@@ -535,7 +636,7 @@ impl CompilerSettings {
             "--tenant-schema".to_string(),
             tenant_id.to_string(),
             "--cargo-target-dir".to_string(),
-            self.target_dir.clone(),
+            self.effective_target_dir(),
         ];
         if self.hardened {
             args.push("--home".to_string());
@@ -562,7 +663,12 @@ impl CompilerSettings {
         }
         if self.hardened {
             env.push(("HOME".to_string(), HOME_DIR.to_string()));
-            env.push(("CARGO_HOME".to_string(), CARGO_HOME_DIR.to_string()));
+            let cargo_home = if self.uses_cache_claim() {
+                format!("{CACHE_CLAIM_DIR}/cargo")
+            } else {
+                CARGO_HOME_DIR.to_string()
+            };
+            env.push(("CARGO_HOME".to_string(), cargo_home));
         }
         // CLOACINA-T-1117: the Python settings, as the compiler's own env
         // vars. The index URL is not here: it comes from the Secret.
@@ -590,6 +696,7 @@ impl CompilerSettings {
         }
         let uv_cache = match (&py.uv_cache_dir, self.hardened) {
             (Some(dir), _) => Some(dir.clone()),
+            (None, true) if self.uses_cache_claim() => Some(format!("{CACHE_CLAIM_DIR}/uv")),
             (None, true) => Some(UV_CACHE_DIR.to_string()),
             (None, false) => None,
         };
@@ -684,6 +791,48 @@ pub trait CompilerKubeOps: Send + Sync {
     ) -> Result<Option<u32>, ActuatorError>;
     /// Set `spec.replicas` of a Deployment.
     async fn scale(&self, namespace: &str, name: &str, replicas: u32) -> Result<(), ActuatorError>;
+    /// Make a PersistentVolumeClaim when there is none of that name
+    /// (CLOACINA-T-1117). A claim that exists is left as it is: its storage
+    /// class cannot change, and its data is the cache. `Ok(true)`: made now.
+    async fn ensure_claim(
+        &self,
+        namespace: &str,
+        name: &str,
+        manifest: &serde_json::Value,
+    ) -> Result<bool, ActuatorError>;
+    /// Delete a PersistentVolumeClaim. Absent is not an error.
+    async fn delete_claim(&self, namespace: &str, name: &str) -> Result<(), ActuatorError>;
+}
+
+/// The cache claim of one tenant's compiler (CLOACINA-T-1117). Pure.
+pub fn compiler_cache_claim_manifest(
+    namespace: &str,
+    tenant_id: &str,
+    claim: &CacheClaimSettings,
+) -> serde_json::Value {
+    let mut manifest = serde_json::json!({
+        "apiVersion": "v1",
+        "kind": "PersistentVolumeClaim",
+        "metadata": {
+            "name": COMPILER_CACHE_CLAIM_NAME,
+            "namespace": namespace,
+            "labels": {
+                LABEL_APP: COMPILER_NAME,
+                LABEL_COMPONENT: "compiler",
+                LABEL_MANAGED: "true",
+                LABEL_TENANT: tenant_id,
+            },
+        },
+        "spec": {
+            // One pod at a time (the Deployment is Recreate).
+            "accessModes": ["ReadWriteOnce"],
+            "resources": { "requests": { "storage": claim.size } },
+        },
+    });
+    if let Some(class) = &claim.storage_class {
+        manifest["spec"]["storageClassName"] = serde_json::json!(class);
+    }
+    manifest
 }
 
 /// The tenant namespace manifest: the same object the agent side applies.
@@ -831,20 +980,39 @@ pub fn compiler_deployment_manifest(
         // wheels uv downloads (uv cache, CLOACINA-T-1117). With a read-only
         // root each is an emptyDir, so a compiler that starts again starts
         // with empty caches.
-        pod["containers"][0]["volumeMounts"] = serde_json::json!([
-            { "name": "home", "mountPath": HOME_DIR },
-            { "name": "cargo-home", "mountPath": CARGO_HOME_DIR },
-            { "name": "target", "mountPath": settings.target_dir },
-            { "name": "tmp", "mountPath": "/tmp" },
-            { "name": "uv-cache", "mountPath": UV_CACHE_DIR },
-        ]);
-        pod["volumes"] = serde_json::json!([
-            { "name": "home", "emptyDir": { "sizeLimit": settings.home_size } },
-            { "name": "cargo-home", "emptyDir": { "sizeLimit": settings.cache_size } },
-            { "name": "target", "emptyDir": { "sizeLimit": settings.cache_size } },
-            { "name": "tmp", "emptyDir": { "sizeLimit": "1Gi" } },
-            { "name": "uv-cache", "emptyDir": { "sizeLimit": settings.python.cache_size } },
-        ]);
+        if settings.uses_cache_claim() {
+            // CLOACINA-T-1117: the three caches are folders of one claim, so
+            // a start from 0 replicas finds them. The home and /tmp stay
+            // emptyDirs: they hold one build's files.
+            pod["containers"][0]["volumeMounts"] = serde_json::json!([
+                { "name": "home", "mountPath": HOME_DIR },
+                { "name": "tmp", "mountPath": "/tmp" },
+                { "name": "cache", "mountPath": CACHE_CLAIM_DIR },
+            ]);
+            pod["volumes"] = serde_json::json!([
+                { "name": "home", "emptyDir": { "sizeLimit": settings.home_size } },
+                { "name": "tmp", "emptyDir": { "sizeLimit": "1Gi" } },
+                {
+                    "name": "cache",
+                    "persistentVolumeClaim": { "claimName": COMPILER_CACHE_CLAIM_NAME }
+                },
+            ]);
+        } else {
+            pod["containers"][0]["volumeMounts"] = serde_json::json!([
+                { "name": "home", "mountPath": HOME_DIR },
+                { "name": "cargo-home", "mountPath": CARGO_HOME_DIR },
+                { "name": "target", "mountPath": settings.target_dir },
+                { "name": "tmp", "mountPath": "/tmp" },
+                { "name": "uv-cache", "mountPath": UV_CACHE_DIR },
+            ]);
+            pod["volumes"] = serde_json::json!([
+                { "name": "home", "emptyDir": { "sizeLimit": settings.home_size } },
+                { "name": "cargo-home", "emptyDir": { "sizeLimit": settings.cache_size } },
+                { "name": "target", "emptyDir": { "sizeLimit": settings.cache_size } },
+                { "name": "tmp", "emptyDir": { "sizeLimit": "1Gi" } },
+                { "name": "uv-cache", "emptyDir": { "sizeLimit": settings.python.cache_size } },
+            ]);
+        }
     }
     manifest
 }
@@ -1014,6 +1182,25 @@ impl KubeCompilers {
                 )
                 .await?;
         }
+        // CLOACINA-T-1117: the cache claim, before the pod that mounts it.
+        // Made once; a scale to 0 keeps it.
+        if self.settings.uses_cache_claim() {
+            let made = self
+                .ops
+                .ensure_claim(
+                    &namespace,
+                    COMPILER_CACHE_CLAIM_NAME,
+                    &compiler_cache_claim_manifest(
+                        &namespace,
+                        tenant_id,
+                        &self.settings.cache_claim,
+                    ),
+                )
+                .await?;
+            if made {
+                info!(tenant = %tenant_id, namespace = %namespace, "tenant compiler cache claim made");
+            }
+        }
         self.ops
             .apply(
                 KubeKind::Deployment,
@@ -1052,6 +1239,11 @@ impl KubeCompilers {
         self.ops
             .delete(KubeKind::NetworkPolicy, &namespace, COMPILER_NAME)
             .await?;
+        // CLOACINA-T-1117: the cache claim goes with the tenant, whatever the
+        // setting is now (it may have been on before). Absent is fine.
+        self.ops
+            .delete_claim(&namespace, COMPILER_CACHE_CLAIM_NAME)
+            .await?;
         if existed {
             self.ops
                 .apply(
@@ -1073,10 +1265,10 @@ mod kube_api {
 
     use async_trait::async_trait;
     use k8s_openapi::api::apps::v1::Deployment;
-    use k8s_openapi::api::core::v1::{Namespace, Secret};
+    use k8s_openapi::api::core::v1::{Namespace, PersistentVolumeClaim, Secret};
     use k8s_openapi::api::networking::v1::NetworkPolicy;
     use kube::Api;
-    use kube::api::{DeleteParams, Patch, PatchParams};
+    use kube::api::{DeleteParams, Patch, PatchParams, PostParams};
 
     use super::super::ActuatorError;
     use super::super::kubernetes::KubeApiOps;
@@ -1186,6 +1378,42 @@ mod kube_api {
                 .await
                 .map(|_| ())
                 .map_err(|e| failed("scale", e))
+        }
+
+        async fn ensure_claim(
+            &self,
+            namespace: &str,
+            name: &str,
+            manifest: &serde_json::Value,
+        ) -> Result<bool, ActuatorError> {
+            // `get` then `create`: no `patch` on claims, so a claim that
+            // exists is never changed (its storage class cannot be).
+            let api = Api::<PersistentVolumeClaim>::namespaced(self.client.clone(), namespace);
+            if api
+                .get_opt(name)
+                .await
+                .map_err(|e| failed("claim read", e))?
+                .is_some()
+            {
+                return Ok(false);
+            }
+            let claim: PersistentVolumeClaim = serde_json::from_value(manifest.clone())
+                .map_err(|e| failed("claim manifest", e))?;
+            match api.create(&PostParams::default(), &claim).await {
+                Ok(_) => Ok(true),
+                // Made by another replica between the read and the create.
+                Err(kube::Error::Api(e)) if e.code == 409 => Ok(false),
+                Err(e) => Err(failed("claim create", e)),
+            }
+        }
+
+        async fn delete_claim(&self, namespace: &str, name: &str) -> Result<(), ActuatorError> {
+            deleted(
+                "claim delete",
+                Api::<PersistentVolumeClaim>::namespaced(self.client.clone(), namespace)
+                    .delete(name, &DeleteParams::default())
+                    .await,
+            )
         }
     }
 }
@@ -1527,6 +1755,12 @@ mod tests {
         applied: Mutex<Vec<Applied>>,
         deleted: Mutex<Vec<(KubeKind, String, String)>>,
         scaled: Mutex<Vec<(String, String, u32)>>,
+        /// The claims that exist: `(namespace, name)` to the manifest.
+        claims: Mutex<Vec<(String, String, serde_json::Value)>>,
+        /// Calls of `ensure_claim` that made a claim.
+        claims_made: Mutex<u32>,
+        /// Calls of `delete_claim`.
+        claim_deletes: Mutex<u32>,
     }
 
     impl FakeKube {
@@ -1608,6 +1842,28 @@ mod tests {
                 .unwrap()
                 .push((namespace.to_string(), name.to_string(), replicas));
             *self.replicas.lock().unwrap() = Some(replicas);
+            Ok(())
+        }
+        async fn ensure_claim(
+            &self,
+            namespace: &str,
+            name: &str,
+            manifest: &serde_json::Value,
+        ) -> Result<bool, ActuatorError> {
+            let mut claims = self.claims.lock().unwrap();
+            if claims.iter().any(|c| c.0 == namespace && c.1 == name) {
+                return Ok(false);
+            }
+            claims.push((namespace.to_string(), name.to_string(), manifest.clone()));
+            *self.claims_made.lock().unwrap() += 1;
+            Ok(true)
+        }
+        async fn delete_claim(&self, namespace: &str, name: &str) -> Result<(), ActuatorError> {
+            *self.claim_deletes.lock().unwrap() += 1;
+            self.claims
+                .lock()
+                .unwrap()
+                .retain(|c| !(c.0 == namespace && c.1 == name));
             Ok(())
         }
     }
@@ -1829,6 +2085,8 @@ mod tests {
     #[test]
     fn the_deployment_is_the_tenants_compiler_and_hardened() {
         let mut s = settings();
+        // The emptyDir layout; the claim has its own tests.
+        s.cache_claim.enabled = false;
         s.image = "registry.example/cloacina-compiler:1.2.3".to_string();
         s.cargo_flags = vec!["build".to_string(), "--lib".to_string()];
         s.build_timeout_s = Some(900);
@@ -1938,7 +2196,244 @@ mod tests {
             cache_size: "6Gi".to_string(),
         };
         s.home_size = "5Gi".to_string();
+        s.cache_claim.enabled = false;
         s
+    }
+
+    // -- the cache claim (CLOACINA-T-1117) -----------------------------------
+
+    fn mounts_of(m: &serde_json::Value) -> Vec<(String, String)> {
+        m["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                (
+                    v["name"].as_str().unwrap().to_string(),
+                    v["mountPath"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_claim_holds_the_three_caches_by_default() {
+        let s = settings();
+        assert!(s.uses_cache_claim());
+        let m = compiler_deployment_manifest("cloacina-tenant-acme", "acme", &s);
+        assert_eq!(
+            mounts_of(&m),
+            vec![
+                ("home".to_string(), "/var/cloacina/home".to_string()),
+                ("tmp".to_string(), "/tmp".to_string()),
+                ("cache".to_string(), "/var/cloacina/cache".to_string()),
+            ]
+        );
+        let volumes = m["spec"]["template"]["spec"]["volumes"].as_array().unwrap();
+        assert_eq!(volumes.len(), 3);
+        assert_eq!(volumes[0]["emptyDir"]["sizeLimit"], "4Gi");
+        assert_eq!(
+            volumes[2]["persistentVolumeClaim"]["claimName"],
+            COMPILER_CACHE_CLAIM_NAME
+        );
+
+        // The caches are folders of the claim.
+        let args = s.args("acme");
+        let i = args.iter().position(|a| a == "--cargo-target-dir").unwrap();
+        assert_eq!(args[i + 1], "/var/cloacina/cache/target");
+        let env = s.plain_env();
+        assert!(env.contains(&(
+            "CARGO_HOME".to_string(),
+            "/var/cloacina/cache/cargo".to_string()
+        )));
+        assert!(env.contains(&(
+            "CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR".to_string(),
+            "/var/cloacina/cache/uv".to_string()
+        )));
+    }
+
+    #[test]
+    fn the_claim_manifest_uses_the_default_class_unless_one_is_set() {
+        let claim = compiler_cache_claim_manifest(
+            "cloacina-tenant-acme",
+            "acme",
+            &CacheClaimSettings::default(),
+        );
+        assert_eq!(claim["kind"], "PersistentVolumeClaim");
+        assert_eq!(claim["metadata"]["name"], COMPILER_CACHE_CLAIM_NAME);
+        assert_eq!(claim["metadata"]["namespace"], "cloacina-tenant-acme");
+        assert_eq!(claim["metadata"]["labels"]["cloacina.tenant"], "acme");
+        assert_eq!(
+            claim["spec"]["accessModes"],
+            serde_json::json!(["ReadWriteOnce"])
+        );
+        assert_eq!(claim["spec"]["resources"]["requests"]["storage"], "20Gi");
+        assert!(claim["spec"].get("storageClassName").is_none());
+
+        let claim = compiler_cache_claim_manifest(
+            "ns",
+            "acme",
+            &CacheClaimSettings {
+                enabled: true,
+                size: "50Gi".to_string(),
+                storage_class: Some("fast-ssd".to_string()),
+            },
+        );
+        assert_eq!(claim["spec"]["storageClassName"], "fast-ssd");
+        assert_eq!(claim["spec"]["resources"]["requests"]["storage"], "50Gi");
+    }
+
+    #[test]
+    fn with_the_claim_off_or_unhardened_there_is_no_claim() {
+        let mut s = settings();
+        s.cache_claim.enabled = false;
+        let m = compiler_deployment_manifest("ns", "acme", &s);
+        assert!(!m.to_string().contains("persistentVolumeClaim"));
+        assert_eq!(mounts_of(&m).len(), 5);
+
+        let mut s = settings();
+        s.hardened = false;
+        assert!(!s.uses_cache_claim());
+        let m = compiler_deployment_manifest("ns", "acme", &s);
+        assert!(m["spec"]["template"]["spec"].get("volumes").is_none());
+        let args = s.args("acme");
+        let i = args.iter().position(|a| a == "--cargo-target-dir").unwrap();
+        assert_eq!(args[i + 1], "/workspace/target");
+    }
+
+    #[tokio::test]
+    async fn reconcile_makes_the_claim_once_and_a_stop_keeps_it() {
+        let ops = FakeKube::with_replicas(None);
+        let c = compilers(ops.clone(), settings());
+
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(*ops.claims_made.lock().unwrap(), 1);
+        assert_eq!(ops.claims.lock().unwrap()[0].0, "cloacina-tenant-acme");
+
+        // A tick with work finds the claim and makes none.
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(*ops.claims_made.lock().unwrap(), 1);
+
+        // Scale to zero keeps it; the next start uses it.
+        c.reconcile("acme", CompilerWant::Stop).await.unwrap();
+        assert_eq!(*ops.replicas.lock().unwrap(), Some(0));
+        assert_eq!(ops.claims.lock().unwrap().len(), 1);
+        assert!(
+            c.reconcile("acme", CompilerWant::Run)
+                .await
+                .unwrap()
+                .started
+        );
+        assert_eq!(*ops.claims_made.lock().unwrap(), 1);
+        assert_eq!(*ops.claim_deletes.lock().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn reconcile_with_an_existing_claim_leaves_it_as_it_is() {
+        let ops = FakeKube::with_replicas(Some(0));
+        let old =
+            serde_json::json!({ "spec": { "resources": { "requests": { "storage": "5Gi" } } } });
+        ops.claims.lock().unwrap().push((
+            "cloacina-tenant-acme".to_string(),
+            COMPILER_CACHE_CLAIM_NAME.to_string(),
+            old.clone(),
+        ));
+        let c = compilers(ops.clone(), settings());
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(*ops.claims_made.lock().unwrap(), 0);
+        assert_eq!(ops.claims.lock().unwrap()[0].2, old);
+    }
+
+    #[tokio::test]
+    async fn with_the_claim_off_reconcile_makes_no_claim() {
+        let ops = FakeKube::with_replicas(None);
+        let mut s = settings();
+        s.cache_claim.enabled = false;
+        let c = compilers(ops.clone(), s);
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert!(ops.claims.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn removal_deletes_the_claim_and_a_second_removal_succeeds() {
+        let ops = FakeKube::with_replicas(None);
+        let c = compilers(ops.clone(), settings());
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        assert_eq!(ops.claims.lock().unwrap().len(), 1);
+
+        c.remove("acme").await.unwrap();
+        assert!(ops.claims.lock().unwrap().is_empty());
+        c.remove("acme").await.unwrap();
+        assert_eq!(*ops.claim_deletes.lock().unwrap(), 2);
+
+        // With the setting off now, a claim made before still goes.
+        let ops = FakeKube::with_replicas(None);
+        ops.claims.lock().unwrap().push((
+            "cloacina-tenant-acme".to_string(),
+            COMPILER_CACHE_CLAIM_NAME.to_string(),
+            serde_json::json!({}),
+        ));
+        let mut s = settings();
+        s.cache_claim.enabled = false;
+        compilers(ops.clone(), s).remove("acme").await.unwrap();
+        assert!(ops.claims.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_claim_settings_are_read_and_checked() {
+        let s = CompilerSettings::from_lookup(
+            URL,
+            lookup(&[
+                ("CLOACINA_TENANT_COMPILERS", "true"),
+                ("CLOACINA_TENANT_COMPILER_CACHE_CLAIM", "false"),
+                ("CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE", "1.5Ti"),
+                (
+                    "CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS",
+                    "fast-ssd",
+                ),
+            ]),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            s.cache_claim,
+            CacheClaimSettings {
+                enabled: false,
+                size: "1.5Ti".to_string(),
+                storage_class: Some("fast-ssd".to_string()),
+            }
+        );
+        let d =
+            CompilerSettings::from_lookup(URL, lookup(&[("CLOACINA_TENANT_COMPILERS", "true")]))
+                .unwrap()
+                .unwrap();
+        assert_eq!(d.cache_claim, CacheClaimSettings::default());
+
+        for (key, value) in [
+            ("CLOACINA_TENANT_COMPILER_CACHE_CLAIM", "sometimes"),
+            ("CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE", "lots"),
+            ("CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE", "0Gi"),
+            ("CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE", "20GB"),
+            (
+                "CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS",
+                "Fast_SSD",
+            ),
+        ] {
+            let err = CompilerSettings::from_lookup(URL, move |k| {
+                if k == "CLOACINA_TENANT_COMPILERS" {
+                    Some("true".to_string())
+                } else if k == key {
+                    Some(value.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_err();
+            assert!(err.contains(key), "{key}={value}: {err}");
+        }
+        for ok in ["20Gi", "500M", "1", "0.5Ti", "100k"] {
+            assert!(valid_storage_quantity(ok), "{ok}");
+        }
     }
 
     fn env_of(m: &serde_json::Value) -> Vec<serde_json::Value> {
