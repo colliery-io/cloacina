@@ -320,6 +320,25 @@ pub fn tenant_namespace(tenant_id: &str) -> String {
     format!("{NAMESPACE_PREFIX}{segment}")
 }
 
+/// The tenant, among `existing`, whose namespace is the namespace of `tenant`
+/// and whose name is not `tenant` (CLOACINA-T-1070).
+///
+/// [`tenant_namespace`] is not one to one: `team_a`, `team__a`, `Team_A` and
+/// `team_a_` map to one namespace, and so do two names that agree in the
+/// characters the label keeps. Tenant create refuses a name this finds a
+/// tenant for, so two tenants never share a namespace, its agent-key Secret
+/// or its Deployments. A tenant of the same name is left to the
+/// tenant-exists check.
+pub fn namespace_holder<'a, I>(tenant: &str, existing: I) -> Option<&'a str>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let namespace = tenant_namespace(tenant);
+    existing
+        .into_iter()
+        .find(|other| *other != tenant && tenant_namespace(other) == namespace)
+}
+
 /// Everything [`KubeOps::ensure_deployment`] needs to materialize the agent
 /// `Deployment` of one pool of a tenant (replica count is driven separately by
 /// `scale_deployment` so it is intentionally absent here).
@@ -2929,6 +2948,38 @@ mod tests {
         let ns = tenant_namespace(&long);
         assert!(ns.len() <= 63, "namespace too long: {} ({})", ns.len(), ns);
         assert!(ns.starts_with("cloacina-tenant-"));
+    }
+
+    /// CLOACINA-T-1070: names that tenant create takes and that map to one
+    /// namespace. Each is a valid schema name.
+    #[test]
+    fn valid_tenant_names_can_share_a_namespace() {
+        let long = "a".repeat(47);
+        let long_b = format!("{long}_b");
+        let pairs = [
+            ("team_a", "team__a"),
+            ("team_a", "_team_a"),
+            ("team_a", "team_a_"),
+            ("team_a", "Team_A"),
+            (long.as_str(), long_b.as_str()),
+        ];
+        for (a, b) in pairs {
+            cloacina::database::connection::validate_schema_name(a).expect("valid");
+            cloacina::database::connection::validate_schema_name(b).expect("valid");
+            assert_eq!(tenant_namespace(a), tenant_namespace(b), "{a} / {b}");
+        }
+    }
+
+    /// CLOACINA-T-1070: the check finds the other tenant of a namespace, and
+    /// nothing for the same name or a namespace of its own.
+    #[test]
+    fn namespace_holder_finds_the_other_tenant() {
+        let existing = ["acme", "team_a", "zeta"];
+        assert_eq!(namespace_holder("team__a", existing), Some("team_a"));
+        assert_eq!(namespace_holder("Team_A", existing), Some("team_a"));
+        assert_eq!(namespace_holder("team_a", existing), None);
+        assert_eq!(namespace_holder("team_b", existing), None);
+        assert_eq!(namespace_holder("team_b", []), None);
     }
 
     #[test]
