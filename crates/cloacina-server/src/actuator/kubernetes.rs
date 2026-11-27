@@ -1045,6 +1045,13 @@ impl KubeApiOps {
         let config = Config::incluster().map_err(|e| {
             ActuatorError::Substrate(format!("in-cluster kube config unavailable: {e}"))
         })?;
+        Self::from_config(config)
+    }
+
+    /// Build the client and its TLS configuration from a given config. No API
+    /// round-trip. Split out of `in_cluster` so a unit test can build the same
+    /// client with no cluster (CLOACINA-T-1030).
+    pub fn from_config(config: Config) -> Result<Self, ActuatorError> {
         let client = Client::try_from(config).map_err(|e| {
             ActuatorError::Substrate(format!("kube client construction failed: {e}"))
         })?;
@@ -1218,6 +1225,19 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// CLOACINA-T-1030: the server panicked at start with
+    /// `fleet.actuator=kubernetes`: rustls had two crypto backends compiled in
+    /// and no process default. This does what the server does at start, with
+    /// no cluster: the call `main` makes first, then the client that
+    /// `KubeApiOps::in_cluster` builds. rustls panics here if it has no
+    /// provider.
+    #[tokio::test]
+    async fn kube_client_tls_config_builds_with_no_cluster() {
+        crate::install_default_crypto_provider();
+        let config = Config::new("https://kubernetes.default.svc".parse().unwrap());
+        KubeApiOps::from_config(config).expect("the kube client builds");
+    }
 
     /// `(namespace, name, annotations)` of one applied ServiceAccount.
     type AppliedServiceAccount = (String, String, BTreeMap<String, String>);

@@ -28,11 +28,21 @@ bound — happens on your infrastructure.
 Cloacina's isolation boundary is the **tenant**: run one compiler per
 tenant (`--tenant-schema`) so a tenant's source, build logs, and artifacts
 never mix with another's, and size the deployment so a hostile build only
-burns that tenant's compiler. Within a compiler, kernel `setrlimit` ceilings
-bound resource cost per build (see below), and the wall-clock timeout kills
-runaway builds. There is no per-build process sandbox; the operator
-responsibilities below bound *what* a build can resolve and *how much* it
-can consume.
+burns that tenant's compiler. Within a compiler, every child process of a
+build (`cargo fetch`, the build, and the provider bundling steps: `cargo
+metadata`, the provider crate's build and its manifest binary) gets a
+cleared environment, kernel `setrlimit` ceilings (see below) and the
+wall-clock timeout. The child inherits only `PATH`, `HOME`, `CARGO_HOME`,
+`RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `TMPDIR`, `TERM` and
+`CARGO_PROFILE_DEV_DEBUG`; `cargo fetch` and `cargo metadata` also inherit
+the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`
+and their lower-case forms), `SSL_CERT_FILE`, `SSL_CERT_DIR`,
+`CARGO_HTTP_PROXY`, `CARGO_HTTP_CAINFO`, `CARGO_HTTP_TIMEOUT`,
+`CARGO_HTTP_MULTIPLEXING`, `CARGO_NET_RETRY`, `CARGO_NET_GIT_FETCH_WITH_CLI`,
+`CARGO_NET_OFFLINE` and `CARGO_REGISTRIES_CRATES_IO_PROTOCOL`. Other cargo
+settings, registry credentials included, go in the cargo home's files.
+There is no per-build process sandbox; the operator responsibilities below
+bound *what* a build can resolve and *how much* it can consume.
 
 ## Operator responsibilities
 
@@ -51,19 +61,27 @@ compiler needs:
 - A database role with `SELECT`/`UPDATE` on `workflow_packages` and
   `INSERT` on the audit-event sink, **nothing more**. In particular,
   the compiler must **not** share the admin DB role that the server
-  uses — a malicious `build.rs` reading `DATABASE_URL` from the
-  process environment would otherwise gain admin DB access to every
-  tenant.
+  uses. A build does not inherit `DATABASE_URL`, but build code has the
+  compiler's UID: on Linux it can read the compiler's command line and
+  environment through `/proc`, and with the admin role it would gain
+  admin DB access to every tenant.
 
 ### 2. No outbound network beyond the vendor dir
 
-`--frozen --offline` is the default. The cargo subprocess fails fast
-on any dep that isn't in the vendor dir. (Without `--frozen`/`--offline`
-the compiler runs a two-phase build instead: `cargo fetch` resolves and
-downloads the graph, then the compile runs with `--offline` appended.)
-As belt-and-suspenders, pair the curated posture with
-a host firewall that drops outbound connections from the
-`cloacina-compiler` UID.
+`--frozen --offline` is the default of the binary. The cargo subprocess
+fails fast on any dep that isn't in the vendor dir. (Without
+`--frozen`/`--offline` the compiler runs a two-phase build instead: `cargo
+fetch` resolves and downloads the graph, then the compile runs with
+`--offline` appended. The Helm chart's default `compiler.extraArgs` replace
+the flags with `build --lib`, so a chart deployment builds this way.)
+
+`--offline` stops cargo from downloading. It does not stop a build script,
+a proc-macro or a provider's manifest binary from opening a connection, and
+provider bundling runs its own cargo steps without these flags. So the
+firewall is the control: drop outbound connections from the
+`cloacina-compiler` UID (or, on Kubernetes, give the compiler pods an
+egress NetworkPolicy), and allow only the registry hosts when you run
+online builds.
 
 ### 3. Configure `--build-timeout-s`
 
