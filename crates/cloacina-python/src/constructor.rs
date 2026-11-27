@@ -52,6 +52,36 @@ use pyo3::types::PyDict;
 
 use crate::task::current_workflow_context;
 
+/// Whether `cloaca.constructor(...)` records what it declares
+/// (CLOACINA-T-1078). Only the compiler's describe child turns it on: it
+/// imports one package and puts the declarations into the package's
+/// metadata document. A server or an agent never turns it on, so nothing
+/// grows there.
+static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+static RECORDED: std::sync::Mutex<Vec<cloacina_workflow_plugin::ConstructorPackageMetadata>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Start recording the constructor declarations of the imports that follow.
+pub fn record_declarations() {
+    RECORDED.lock().unwrap().clear();
+    RECORDING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Stop recording and take what was recorded, sorted by workflow and id.
+pub fn take_declarations() -> Vec<cloacina_workflow_plugin::ConstructorPackageMetadata> {
+    RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut recorded = std::mem::take(&mut *RECORDED.lock().unwrap());
+    recorded.sort_by(|a, b| (&a.workflow, &a.id).cmp(&(&b.workflow, &b.id)));
+    recorded
+}
+
+fn record(declaration: cloacina_workflow_plugin::ConstructorPackageMetadata) {
+    if RECORDING.load(std::sync::atomic::Ordering::SeqCst) {
+        RECORDED.lock().unwrap().push(declaration);
+    }
+}
+
 /// Wire a packaged constructor-provider member into the current workflow as a
 /// DAG node. See the module docs for the full model; `from_` is the provider
 /// (Cargo package) name with an optional `@version` pin, `constructor` selects
@@ -114,6 +144,7 @@ pub fn constructor(
             grant_pairs.push((kind, patterns));
         }
     }
+    let recorded_grants = grant_pairs.clone();
     let grant_spec = cloacina::registry::loader::grants::GrantSpec::from_pairs(grant_pairs);
 
     // runtime: the optional trust-tier pin. Validated here so a typo is a clear
@@ -132,6 +163,7 @@ pub fn constructor(
 
     // dependencies: strings or function objects (same convention as @task deps).
     let mut dep_namespaces: Vec<cloacina::TaskNamespace> = Vec::new();
+    let mut dep_ids: Vec<String> = Vec::new();
     for (i, dep) in dependencies.unwrap_or_default().iter().enumerate() {
         let dep_id = match dep.extract::<String>(py) {
             Ok(s) => s,
@@ -154,7 +186,23 @@ pub fn constructor(
             workflow_id,
             &dep_id,
         ));
+        dep_ids.push(dep_id);
     }
+
+    // CLOACINA-T-1078: the declaration as the author wrote it, for the
+    // package's metadata document; recorded only in the describe child.
+    let declaration = cloacina_workflow_plugin::ConstructorPackageMetadata {
+        workflow: workflow_id.to_string(),
+        id: id.clone(),
+        from: from_.clone(),
+        constructor: constructor.clone(),
+        config: config_pairs
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect(),
+        grants: recorded_grants,
+        dependencies: dep_ids,
+    };
 
     // Resolve the member through the host loader (wasmtime compile is blocking
     // work — release the GIL for it). Fails closed on a missing provider/member,
@@ -188,6 +236,45 @@ pub fn constructor(
     py.detach(|| {
         rt.register_task(namespace, move || node.clone());
     });
+    record(declaration);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn declaration(
+        workflow: &str,
+        id: &str,
+    ) -> cloacina_workflow_plugin::ConstructorPackageMetadata {
+        cloacina_workflow_plugin::ConstructorPackageMetadata {
+            workflow: workflow.to_string(),
+            id: id.to_string(),
+            from: "cloacina-provider-fs".to_string(),
+            constructor: "read_file".to_string(),
+            config: vec![("path".to_string(), "\"/data/a\"".to_string())],
+            grants: vec![("fs".to_string(), vec!["ro:/data".to_string()])],
+            dependencies: vec![],
+        }
+    }
+
+    /// Declarations are recorded only between `record_declarations` and
+    /// `take_declarations`, and come back sorted.
+    #[test]
+    fn declarations_are_recorded_only_while_recording() {
+        record(declaration("wf", "ignored"));
+        record_declarations();
+        record(declaration("wf", "b"));
+        record(declaration("wf", "a"));
+        let taken = take_declarations();
+        assert_eq!(
+            taken.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
+        record(declaration("wf", "after"));
+        record_declarations();
+        assert!(take_declarations().is_empty());
+    }
 }

@@ -193,40 +193,97 @@ type BuildParts = (
 /// platform and the package's bundled providers.
 ///
 /// Used by the build, and by the pass over packages built before the
-/// document existed. An `Err` is the reason, as the publisher reads it.
+/// document existed, or of an older format. `source_dir` is the unpacked
+/// package. An `Err` is the reason, as the publisher reads it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn describe_stored(
     registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
     package_name: &str,
     version: &str,
     library: &[u8],
     archive: &[u8],
+    source_dir: &Path,
     work: &Path,
     config: &CompilerConfig,
 ) -> Result<PackageDescription, String> {
     use cloacina::registry::WorkflowRegistry;
 
-    if !library.is_empty() {
-        return crate::describe::describe(DescribeInput::Rust { library }, work, config).await;
-    }
-    let platform = cloacina_workflow_plugin::python_env::host_platform();
-    let vendored_set = registry
-        .get_python_vendor(package_name, version, &platform)
-        .await
-        .map_err(|e| format!("failed to read the vendored dependencies for {platform}: {e}"))?;
     let providers = registry
         .get_package_providers(package_name, version)
         .await
         .map_err(|e| format!("failed to read the bundled providers: {e}"))?;
-    crate::describe::describe(
-        DescribeInput::Python {
-            archive,
-            vendored_set: vendored_set.as_deref(),
-            providers: &providers,
-        },
-        work,
-        config,
-    )
-    .await
+    let mut document = if !library.is_empty() {
+        crate::describe::describe(DescribeInput::Rust { library }, work, config).await?
+    } else {
+        let platform = cloacina_workflow_plugin::python_env::host_platform();
+        let vendored_set = registry
+            .get_python_vendor(package_name, version, &platform)
+            .await
+            .map_err(|e| format!("failed to read the vendored dependencies for {platform}: {e}"))?;
+        crate::describe::describe(
+            DescribeInput::Python {
+                archive,
+                vendored_set: vendored_set.as_deref(),
+                providers: &providers,
+            },
+            work,
+            config,
+        )
+        .await?
+    };
+    record_in_process(&mut document, &providers, source_dir, work)?;
+    Ok(document)
+}
+
+/// Write into the document what the server decides a load by (format 2,
+/// CLOACINA-T-1078): each bundled provider with its runtime, read from its
+/// `provider.json`, and what of the package would run tenant code in the
+/// process that loads it. Data only: no provider is opened, and the
+/// package's code does not run here.
+fn record_in_process(
+    document: &mut PackageDescription,
+    providers: &[(String, Vec<u8>)],
+    source_dir: &Path,
+    work: &Path,
+) -> Result<(), String> {
+    document.providers = provider_runtimes(providers, work)?;
+    let manifest = cloacina_workflow_plugin::manifest::load_resolved_manifest(source_dir)
+        .map_err(|e| format!("load package.toml: {e}"))?;
+    document.in_process = cloacina::registry::in_process::in_process_reasons(
+        document,
+        &manifest.metadata.accumulators,
+    );
+    Ok(())
+}
+
+/// The bundled providers with their runtimes, from their manifests.
+fn provider_runtimes(
+    providers: &[(String, Vec<u8>)],
+    work: &Path,
+) -> Result<Vec<cloacina::registry::in_process::ProviderDescription>, String> {
+    if providers.is_empty() {
+        return Ok(Vec::new());
+    }
+    let root = work.join(format!("provider-manifests-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).map_err(|e| format!("create {}: {e}", root.display()))?;
+    let read = || -> Result<Vec<(String, String)>, String> {
+        for (index, (name, bytes)) in providers.iter().enumerate() {
+            let path = root.join(format!("{index}.cloacina"));
+            std::fs::write(&path, bytes).map_err(|e| format!("write {}: {e}", path.display()))?;
+            cloacina::registry::loader::unpack_provider_archive(&path, &root, &[])
+                .map_err(|e| format!("unpack the bundled provider '{name}': {e}"))?;
+        }
+        cloacina::registry::loader::constructor_loader::provider_runtimes(&root)
+            .map_err(|e| format!("read the bundled providers' manifests: {e}"))
+    };
+    let result = read();
+    let _ = std::fs::remove_dir_all(&root);
+    Ok(result?
+        .into_iter()
+        .map(
+            |(name, runtime)| cloacina::registry::in_process::ProviderDescription { name, runtime },
+        )
+        .collect())
 }
 
 /// What the compiler reads from the unpacked package source, without running
@@ -316,6 +373,7 @@ pub(crate) async fn describe_existing(
         &meta.version,
         if language == "python" { &[] } else { &library },
         &source_bytes,
+        &source_dir,
         work.path(),
         config,
     )
@@ -606,6 +664,7 @@ async fn run_build(
                     &meta.version,
                     &success.artifact,
                     &source_bytes,
+                    &source_dir,
                     work.path(),
                     config,
                 )

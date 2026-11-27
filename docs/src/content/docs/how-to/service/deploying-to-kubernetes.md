@@ -73,8 +73,12 @@ the install says where the agents come from:
 
 With `fleet.actuator=kubernetes` or `fleet.externalAgents=true` a task waits
 until an agent of its tenant can take it. A package that uses a poll trigger,
-a native provider or Python reactive code does not load: its `build_status`
-is `failed` and `build_error` names what it uses.
+a stream accumulator on a native provider, a Python polling or stream
+accumulator, or a polling accumulator in a Rust package does not load: its
+`build_status` is `failed` and `build_error` names what it uses. Python
+reactors and graphs with other accumulators load, and their firings run on
+agents. A native provider that only a constructor-node task uses loads: the
+task runs on an agent.
 
 `server.singleTrust=true` is for a server whose every tenant is trusted as
 much as the server: one team, or one person. Each tenant's code then reaches
@@ -96,12 +100,16 @@ Before this setting a chart install ran every task in the server process
   metadata document, and the compiler describes the packages built before on
   its own ([Running the Compiler](../running-the-compiler/)). Until then the
   workflow detail gives `not_loaded_reason`.
-- Without single trust, a package with a poll trigger, a native provider or
-  Python reactive code is refused at its first load and gets `build_status`
-  `failed`. The refusal stays when the setting changes: to load it with single
-  trust after a refusal, publish a new version of it. Set
-  `server.singleTrust=true` before the upgrade to keep such packages in
-  service.
+- Without single trust, a package with code that would run in the server (the
+  list above) is refused at its first load and gets `build_status` `failed`.
+  The refusal stays when the setting changes: to load it with single trust
+  after a refusal, publish a new version of it. Set `server.singleTrust=true`
+  before the upgrade to keep such packages in service.
+- A package described by an earlier compiler keeps the stricter rule of that
+  document until its compiler describes it again: any bundled native provider
+  and any Python reactor, graph or accumulator refuse it. Upgrade the compiler
+  first, so its pass describes the packages again before the server loads
+  them.
 - With `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv`, the server
   does not start without `server.singleTrust=true`.
 

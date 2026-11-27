@@ -31,14 +31,17 @@
 //! - the workflow, built from those tasks;
 //! - each cron schedule (an expression, a timezone and a policy: data);
 //! - each reactor, whose accumulators are code of this crate;
-//! - the graph of a Rust package, with a graph function that opens nothing
-//!   and fails a firing it is asked to run: the graph executor sends each
-//!   firing to an agent.
+//! - the graph, with a graph function that opens nothing and fails a firing
+//!   it is asked to run: the graph executor sends each firing to an agent.
+//!   A Python graph too, from a document of format 2 (CLOACINA-T-1078).
 //!
 //! A package whose code would have to run in this process is refused, with
-//! the reason: a poll trigger (its code runs at each poll), a native provider
-//! (it is a library opened in this process), and Python reactive code (the
-//! accumulators, reactors and graph of a Python package are Python functions).
+//! the reason. For a document of format 2 the list is in
+//! [`crate::registry::in_process`]: a poll trigger, a stream accumulator on a
+//! native provider, a Python polling or stream accumulator, and a Rust
+//! package's polling accumulator. A document of format 1 keeps the rule of
+//! CLOACINA-T-1075: a poll trigger, any bundled native provider, and any
+//! Python reactor, graph or accumulator.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -178,7 +181,8 @@ impl Task for DescribedTask {
 }
 
 /// What a package uses that would run its code in this process, each named
-/// (CLOACINA-T-1075). Empty: the package loads from its document.
+/// (CLOACINA-T-1075): the rule for a document of format 1. Empty: the
+/// package loads from its document.
 ///
 /// - a poll trigger: a trigger with no cron expression;
 /// - a native provider: a bundled provider whose `provider.json` declares
@@ -296,8 +300,18 @@ impl RegistryReconciler {
         // The bundled providers are unpacked to read their manifests. Nothing
         // in them is opened.
         let provider_root = self.stage_bundled_providers(metadata).await?;
-        let native_providers = native_providers_in(provider_root.as_deref())?;
-        let reasons = code_needed_in_process(&document, manifest, &native_providers);
+        // CLOACINA-T-1078: a document of format 2 names its providers'
+        // runtimes and what would run in process; a document of format 1
+        // keeps the rule it was refused or loaded by.
+        let reasons = if document.format_version >= 2 {
+            crate::registry::in_process::refused_on_server(&document, &manifest.accumulators)
+                .iter()
+                .map(|r| r.text())
+                .collect()
+        } else {
+            let native_providers = native_providers_in(provider_root.as_deref())?;
+            code_needed_in_process(&document, manifest, &native_providers)
+        };
         if !reasons.is_empty() {
             return Err(self.refuse_for_code(metadata, &reasons).await);
         }
@@ -323,20 +337,12 @@ impl RegistryReconciler {
         // Reactors: their accumulators are code of this crate.
         self.step_load_reactors(metadata, &view, manifest, provider_root.as_deref())
             .await?;
-        // The graph of a Rust package, with no code behind it. A Python
-        // package with a graph was refused above.
-        let graph_name = if document.language == "rust" {
-            self.step_load_reactor_bound_cgs(
-                metadata,
-                &view,
-                manifest,
-                None,
-                provider_root.as_deref(),
-            )
-            .await?
-        } else {
-            None
-        };
+        // The graph, with no code behind it: the graph executor sends each
+        // firing to an agent. A Python graph reaches here only from a
+        // document of format 2 (CLOACINA-T-1078); format 1 refused it above.
+        let graph_name = self
+            .step_load_reactor_bound_cgs(metadata, &view, manifest, None, provider_root.as_deref())
+            .await?;
 
         // Tasks and the workflow.
         let (task_namespaces, workflow_name) =
@@ -508,6 +514,11 @@ impl RegistryReconciler {
             ));
         }
         for node in &document.constructors {
+            // A Python package's constructor nodes are tasks of its import
+            // too (format 2, CLOACINA-T-1078): registered once, above.
+            if document.tasks.iter().any(|t| t.id == node.id) {
+                continue;
+            }
             let workflow = if node.workflow.is_empty() {
                 workflow_name.as_str()
             } else {
@@ -1005,8 +1016,9 @@ mod tests {
         assert!(code_needed_in_process(&plain, &manifest("python"), &[]).is_empty());
     }
 
-    /// A Python package with a reactor is refused through the load, and a
-    /// plain Python workflow loads with its task graph written.
+    /// A Python package with a reactor is refused through the load when its
+    /// document is of format 1, and a plain Python workflow loads with its
+    /// task graph written.
     #[tokio::test]
     async fn python_packages_from_the_document() {
         let registry = Arc::new(DocumentRegistry::default());
@@ -1014,6 +1026,8 @@ mod tests {
 
         let reactive = metadata("reactive");
         let mut doc = document("python", vec![]);
+        // Format 1 keeps the rule of CLOACINA-T-1075 (CLOACINA-T-1078).
+        doc.format_version = 1;
         doc.reactors = vec![ReactorPackageMetadata {
             name: "prices".to_string(),
             package_name: "reactive".to_string(),
@@ -1037,5 +1051,260 @@ mod tests {
         assert_eq!(graphs[0].1[1], ("b".to_string(), vec!["a".to_string()]));
         let runtime = reconciler.runtime.clone().unwrap();
         assert!(runtime.get_workflow("wf").is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1078: the reactive layer from a document of format 2
+    // -----------------------------------------------------------------------
+
+    use crate::computation_graph::registry::EndpointRegistry;
+    use crate::computation_graph::scheduler::ComputationGraphScheduler;
+    use crate::registry::in_process::{InProcessReason, ProviderDescription};
+    use cloacina_workflow_plugin::GraphPackageMetadata;
+    use cloacina_workflow_plugin::types::AccumulatorDeclarationEntry;
+
+    fn reconciler_with_graphs(
+        registry: Arc<DocumentRegistry>,
+    ) -> (RegistryReconciler, Arc<ComputationGraphScheduler>) {
+        let scheduler = Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new()));
+        let reconciler =
+            reconciler("acme", registry, Arc::default()).with_graph_scheduler(scheduler.clone());
+        (reconciler, scheduler)
+    }
+
+    fn accumulator(name: &str, kind: &str, config: &[(&str, &str)]) -> AccumulatorDeclarationEntry {
+        AccumulatorDeclarationEntry {
+            name: name.to_string(),
+            accumulator_type: kind.to_string(),
+            config: config
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    /// A Python package's reactor and graph, as the describe child writes
+    /// them for `demo-py-graph` and `demo-py-state`.
+    fn python_graph_document(accumulators: Vec<AccumulatorDeclarationEntry>) -> PackageDescription {
+        let mut doc = document("python", vec![]);
+        doc.workflow_name = String::new();
+        doc.reactors = vec![ReactorPackageMetadata {
+            name: "rx".to_string(),
+            package_name: "pkg".to_string(),
+            reaction_mode: "when_any".to_string(),
+            accumulators: accumulators.clone(),
+        }];
+        doc.graph = Some(GraphPackageMetadata {
+            graph_name: "py_graph".to_string(),
+            package_name: "pkg".to_string(),
+            reaction_mode: "when_any".to_string(),
+            input_strategy: "latest".to_string(),
+            accumulators,
+            trigger_reactor: Some("rx".to_string()),
+            graph_data_json: None,
+        });
+        doc
+    }
+
+    /// A Python reactor and graph with no polling or stream accumulator load
+    /// from a document of format 2: the reactor runs in the scheduler, and
+    /// the graph has no code here, so a firing that is not sent to an agent
+    /// fails with where it runs.
+    #[tokio::test]
+    async fn a_python_reactor_and_graph_load_from_a_format_2_document() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let (reconciler, scheduler) = reconciler_with_graphs(registry.clone());
+        let meta = metadata("pkg");
+        *registry.stored.lock().unwrap() = Some(stored(python_graph_document(vec![
+            accumulator("alpha", "passthrough", &[]),
+            accumulator("window", "state", &[("capacity", "5")]),
+            accumulator("bulk", "batch", &[("flush_interval", "1s")]),
+        ])));
+
+        load(&reconciler, &meta, "python").await.expect("loads");
+        assert!(registry.refused.lock().unwrap().is_empty());
+
+        let graphs = scheduler.list_graphs().await;
+        let graph = graphs
+            .iter()
+            .find(|g| g.name == "py_graph")
+            .expect("the graph is loaded");
+        let mut accumulators = graph.accumulators.clone();
+        accumulators.sort();
+        assert_eq!(accumulators, vec!["alpha", "bulk", "window"]);
+        assert_eq!(graph.tenant_id.as_deref(), Some("acme"));
+
+        let runtime = reconciler.runtime.clone().unwrap();
+        let registration = runtime
+            .get_computation_graph("py_graph")
+            .expect("the graph in the runtime");
+        let result = (registration.graph_fn)(cloacina_computation_graph::InputCache::new()).await;
+        let text = format!("{result:?}");
+        assert!(text.contains("runs only on the tenant's agents"), "{text}");
+
+        let loaded = reconciler.loaded_packages.read().await;
+        let state = loaded.get(&meta.id).expect("tracked");
+        assert_eq!(state.graph_name.as_deref(), Some("py_graph"));
+        assert_eq!(state.reactor_names, vec!["rx"]);
+        drop(loaded);
+        scheduler.shutdown_all().await;
+    }
+
+    /// Each kind that stays refused on a format 2 document is refused and
+    /// recorded, with the kind and the names in the reason; nothing is
+    /// loaded.
+    #[tokio::test]
+    async fn the_refused_kinds_of_a_format_2_document() {
+        let cases: Vec<(&str, PackageDescription, &str)> = vec![
+            (
+                "python",
+                python_graph_document(vec![accumulator("ticks", "polling", &[("interval", "2s")])]),
+                "Python polling accumulator(s) 'ticks'",
+            ),
+            (
+                "python",
+                python_graph_document(vec![accumulator(
+                    "orders",
+                    "stream",
+                    &[("provider", "cloacina-provider-kafka")],
+                )]),
+                "Python stream accumulator(s) 'orders'",
+            ),
+            (
+                "rust",
+                {
+                    let mut doc = document("rust", vec![]);
+                    doc.reactors = vec![ReactorPackageMetadata {
+                        name: "rx".to_string(),
+                        package_name: "pkg".to_string(),
+                        reaction_mode: "when_any".to_string(),
+                        accumulators: vec![accumulator("prices", "polling", &[])],
+                    }];
+                    doc
+                },
+                "polling accumulator(s) 'prices', which have no poll code",
+            ),
+            (
+                "rust",
+                {
+                    let mut doc = document("rust", vec![]);
+                    doc.providers = vec![ProviderDescription {
+                        name: "cloacina-provider-kafka".to_string(),
+                        runtime: "native".to_string(),
+                    }];
+                    doc.reactors = vec![ReactorPackageMetadata {
+                        name: "rx".to_string(),
+                        package_name: "pkg".to_string(),
+                        reaction_mode: "when_any".to_string(),
+                        accumulators: vec![accumulator(
+                            "orders",
+                            "stream",
+                            &[("provider", "cloacina-provider-kafka")],
+                        )],
+                    }];
+                    doc
+                },
+                "native provider(s) 'cloacina-provider-kafka'",
+            ),
+            (
+                "rust",
+                {
+                    // What the compiler recorded counts, also when the
+                    // document's own data shows nothing.
+                    let mut doc = document("rust", vec![task("t", &[])]);
+                    doc.in_process = vec![InProcessReason {
+                        kind: crate::registry::in_process::NATIVE_STREAM_PROVIDER.to_string(),
+                        names: vec!["recorded-provider".to_string()],
+                    }];
+                    doc
+                },
+                "native provider(s) 'recorded-provider'",
+            ),
+        ];
+        for (language, doc, expected) in cases {
+            let registry = Arc::new(DocumentRegistry::default());
+            let (reconciler, scheduler) = reconciler_with_graphs(registry.clone());
+            let meta = metadata("pkg");
+            *registry.stored.lock().unwrap() = Some(stored(doc));
+            let err = load(&reconciler, &meta, language).await.unwrap_err();
+            let text = err.to_string();
+            assert!(text.contains("is refused"), "{text}");
+            assert!(text.contains(expected), "{expected}: {text}");
+            let refused = registry.refused.lock().unwrap();
+            assert_eq!(refused.len(), 1, "{expected}");
+            assert!(refused[0].1.contains(expected));
+            assert!(scheduler.list_graphs().await.is_empty());
+            assert!(reconciler.loaded_packages.read().await.is_empty());
+        }
+    }
+
+    /// A native provider that only a constructor-node task uses does not
+    /// refuse a format 2 document: the task runs on the tenant's agents. The
+    /// same package with a format 1 document keeps the refusal of
+    /// CLOACINA-T-1075.
+    #[tokio::test]
+    async fn a_native_provider_of_a_constructor_node_alone_loads() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let reconciler = reconciler("acme", registry.clone(), Arc::default());
+        let meta = metadata("pkg");
+        let mut doc = document("rust", vec![task("after", &["reader"])]);
+        doc.providers = vec![ProviderDescription {
+            name: "cloacina-provider-fs".to_string(),
+            runtime: "native".to_string(),
+        }];
+        doc.constructors = vec![cloacina_workflow_plugin::ConstructorPackageMetadata {
+            workflow: "wf".to_string(),
+            id: "reader".to_string(),
+            from: "cloacina-provider-fs".to_string(),
+            constructor: "read_file".to_string(),
+            config: vec![],
+            grants: vec![],
+            dependencies: vec![],
+        }];
+        *registry.stored.lock().unwrap() = Some(stored(doc.clone()));
+        load(&reconciler, &meta, "rust").await.expect("loads");
+        let runtime = reconciler.runtime.clone().unwrap();
+        assert!(
+            runtime
+                .get_task(&TaskNamespace::new("acme", "pkg", "wf", "reader"))
+                .is_some()
+        );
+        assert!(registry.refused.lock().unwrap().is_empty());
+
+        // Format 1: the rule of CLOACINA-T-1075 reads the staged bundle; the
+        // same rule with the provider found there refuses.
+        doc.format_version = 1;
+        let reasons = code_needed_in_process(
+            &doc,
+            &manifest("rust"),
+            &["cloacina-provider-fs".to_string()],
+        );
+        assert_eq!(reasons.len(), 1);
+    }
+
+    /// A Python constructor node is a task of the document and a
+    /// declaration too: it is registered once.
+    #[tokio::test]
+    async fn a_python_constructor_node_is_registered_once() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let reconciler = reconciler("acme", registry.clone(), Arc::default());
+        let meta = metadata("pkg");
+        let mut doc = document(
+            "python",
+            vec![task("reader", &[]), task("echo", &["reader"])],
+        );
+        doc.constructors = vec![cloacina_workflow_plugin::ConstructorPackageMetadata {
+            workflow: "wf".to_string(),
+            id: "reader".to_string(),
+            from: "cloacina-provider-fs".to_string(),
+            constructor: "read_file".to_string(),
+            config: vec![],
+            grants: vec![],
+            dependencies: vec![],
+        }];
+        *registry.stored.lock().unwrap() = Some(stored(doc));
+        load(&reconciler, &meta, "python").await.expect("loads");
+        let loaded = reconciler.loaded_packages.read().await;
+        assert_eq!(loaded.get(&meta.id).unwrap().task_namespaces.len(), 2);
     }
 }

@@ -175,6 +175,21 @@ The runnable end-to-end example is
 (`angreal demos features cg-feature-tour`: real Kafka messages fire the graph
 through the bundled native provider).
 
+## What a server accepts
+
+A server without single trust runs no tenant code in its own process
+([security model](../../../explanation/service/security-model/#tenant-code-and-the-server-process)).
+For providers that means:
+
+| Use | On a server |
+|---|---|
+| A constructor node (WASM or native provider) | loads; the node is a task and runs on an agent of the tenant |
+| A stream accumulator on a native provider | refused: the provider would be opened in the server process |
+
+A refused package gets `build_status` `failed`, and `build_error` names the
+provider. With `--single-trust`, and in embedded use and the daemon, native
+providers load in process as described above.
+
 ## Embedded (no server)
 
 Embedded runners resolve `from` against a provider **search path** instead of a

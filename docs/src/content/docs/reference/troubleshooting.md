@@ -1335,9 +1335,9 @@ The fleet executor dispatches **only to live agents registered under the same te
 
 ### A workflow is not loaded: `not_loaded_reason`, or `build_error` says "is refused"
 
-**Cause:** without single trust the server loads a package from the metadata document its compiler stored. `not_loaded_reason` on the workflow detail says the document is not there yet (the compiler describes the package on its next pass) or could not be written. `build_status` `failed` with "is refused" in `build_error` names what the package uses that would run its code in the server: a poll trigger, a native provider, or Python reactive code (reactors, accumulators, a graph).
+**Cause:** without single trust the server loads a package from the metadata document its compiler stored. `not_loaded_reason` on the workflow detail says the document is not there yet (the compiler describes the package on its next pass) or could not be written. `build_status` `failed` with "is refused" in `build_error` names what the package uses that would run its code in the server: a poll trigger, a stream accumulator on a native provider, a Python polling or stream accumulator, or a polling accumulator in a Rust package (which has no poll code in a package). A package described by an earlier compiler is refused by that document's stricter rule: any bundled native provider, and any Python reactor, graph or accumulator.
 
-**Solution:** for `not_loaded_reason`, check that the tenant's compiler runs, and is of the server's version. For a refusal, remove what the reason names, or run the server with `--single-trust` and publish a new version of the package.
+**Solution:** for `not_loaded_reason`, check that the tenant's compiler runs, and is of the server's version. For a refusal, remove what the reason names, or run the server with `--single-trust`, and publish a new version of the package. For a refusal by an earlier compiler's document, upgrade the compiler and publish a new version.
 
 ---
 

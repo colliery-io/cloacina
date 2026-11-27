@@ -123,8 +123,8 @@ pub enum PackageLoadMode {
     /// (CLOACINA-T-1074). No library is opened and no module is imported:
     /// the tasks are entries with no code, which an executor that sends work
     /// to agents runs there. A package with no document does not load; a
-    /// package that needs its code in this process (a poll trigger, a native
-    /// provider, Python reactive code) is refused with the reason.
+    /// package that needs its code in this process (see
+    /// [`crate::registry::in_process`]) is refused with the reason.
     MetadataOnly,
 }
 

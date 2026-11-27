@@ -423,12 +423,20 @@ JSON document in `workflow_packages.metadata_document`. The document holds:
 - the workflow name, its graph and the triggers it subscribes to;
 - each trigger: poll interval, or cron expression with timezone, catch-up
   policy and the limit on active runs;
-- reactors with their accumulators, the reactor-bound graph, trigger-less
-  graphs and constructor nodes;
+- reactors with their accumulators, the reactor-bound graph with its
+  accumulators, input strategy and topology, trigger-less graphs and
+  constructor nodes (for a Python package, each `cloaca.constructor(...)` as
+  written);
+- each bundled provider with its runtime (`native` or `wasm`), read from its
+  `provider.json`;
+- what of the package would run tenant code in the process that loads it: a
+  poll trigger, a stream accumulator on a native provider, a Python polling or
+  stream accumulator, a polling accumulator in a Rust package. A server
+  without single trust refuses such a package at load;
 - declared params, declared secrets and declared surfaces;
 - for a Python package: the entry module, `requires_python` and the Python
   version that imported it;
-- `format_version`, the version of the document format.
+- `format_version`, the version of the document format (2).
 
 Reading the metadata runs the package's code: opening a Rust library runs its
 load-time code, and importing a Python package runs the module. The compiler
@@ -475,6 +483,11 @@ in service. The compiler looks for such packages on each sweep tick
   prints it. The compiler does not try that package again until the package is
   built again or the document format changes. An upload of the same archive
   starts no build: to get a document, publish a changed archive.
+
+A package whose document is of an older format is described again the same
+way: a compiler of format 2 gives a format 1 document the bundled providers'
+runtimes and the list of what would run in process. A package the server has
+refused (`build_status` `failed`) is not described again.
 
 A per-target compiler (`--build-target`) does not describe.
 

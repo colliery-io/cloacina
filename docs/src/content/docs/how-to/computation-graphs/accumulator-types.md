@@ -375,6 +375,18 @@ All accumulator types report health through a `watch::Receiver<AccumulatorHealth
 
 Pass a health sender via `AccumulatorContext::health` to enable reporting. The reactor uses these receivers to gate its own startup and detect degraded mode.
 
+## In a package on a server
+
+In a package, the server builds each accumulator from its type and its config (the `[[metadata.accumulators]]` entry wins); the body of a function under an accumulator macro or decorator is not called there. A server without single trust runs no tenant code in its process ([security model](../../../explanation/service/security-model/#tenant-code-and-the-server-process)), so it accepts these types:
+
+| Type | Rust package | Python package |
+|---|---|---|
+| `passthrough`, `batch`, `state` | loads | loads |
+| `stream` | loads, unless its `provider` is native | refused |
+| `polling` | refused: a package carries no poll code | refused: the poll function would run in the server |
+
+The graph of a package that loads runs on an agent of the tenant at each firing. A refused package gets `build_status` `failed`, and `build_error` names the accumulators. With `--single-trust`, and in embedded use and the daemon, no type is refused.
+
 ## Related
 
 - [Computation graphs tutorial 12 — full multi-source pipeline](../../../tutorials/embed/12-full-pipeline/)
