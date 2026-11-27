@@ -45,6 +45,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       ui: ${{ steps.filter.outputs.ui }}
       scripts: ${{ steps.filter.outputs.scripts }}
+      compiler: ${{ steps.filter.outputs.compiler }}
     steps:
       - uses: actions/checkout@v4
 
@@ -110,6 +111,17 @@ jobs:
             # when they change.
             scripts:
               - 'scripts/**'
+            # CLOACINA-T-1131: the compiler, the packaging code and the
+            # plugin interface; the compiler's tests run when one changes.
+            compiler:
+              - 'crates/cloacina-compiler/**'
+              - 'crates/cloacina/src/packaging/**'
+              - 'crates/cloacina/src/registry/**'
+              - 'crates/cloacina-workflow-plugin/**'
+              - 'crates/cloacina-python/**'
+              - 'crates/cloacina-build/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
 
   # Quick gate - only runs if code, the API surface, harness, scripts, or workflows changed
   quick-checks:
@@ -297,6 +309,45 @@ jobs:
       needs.changes.outputs.harness == 'true' ||
       needs.changes.outputs.workflows == 'true'
     uses: ./.github/workflows/cloacina.yml
+
+  # CLOACINA-T-1131: the cloacina-compiler crate's own tests (lib, bin and
+  # tests/describe.rs). They hold the compiler's security rules: the describe
+  # child runs confined with no database URL, a tenant's library is never
+  # opened in the compiler's process, children get a cleared environment and
+  # limits, and the Python vendoring rules. Linux applies the resource limits
+  # that macOS skips. On `main` (push) the job always runs.
+  compiler-tests:
+    name: Compiler Tests
+    needs: changes
+    if: |
+      github.event_name == 'push' ||
+      needs.changes.outputs.compiler == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL dev libraries
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      # The describe child embeds the interpreter: the build links libpython.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-compiler-tests"
+
+      - name: cargo test -p cloacina-compiler
+        run: cargo test -p cloacina-compiler --all-targets --features postgres,sqlite
 
   # Tutorial / feature demo matrix — verifies the `angreal demos …` surface
   examples-docs:
