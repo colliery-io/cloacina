@@ -174,6 +174,19 @@ struct Cli {
     )]
     fleet_task_timeout_max_s: u64,
 
+    /// How long (seconds) a fleet task waits, per attempt, while agents cannot
+    /// fetch its package artifact. The time counts from the first refused
+    /// fetch of the attempt; the task is dispatched again after a delay (2 s,
+    /// growing to 30 s) and uses no retry attempt. After the limit the
+    /// attempt fails with an error that names the artifact fetch. 0: the
+    /// first failed fetch fails the attempt. Default 300. CLOACINA-T-1064.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S",
+        default_value_t = cloacina_server::fleet_executor::DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS
+    )]
+    fleet_artifact_fetch_wait_s: u64,
+
     /// CORS allowed origins, comma-separated (e.g.
     /// `https://ops.example.com,https://ui.example.com`, or `*` for any).
     /// CORS is DISABLED unless this is set — browser consumers require an
@@ -340,6 +353,7 @@ async fn main() -> Result<()> {
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
         fleet_task_time_limits,
+        std::time::Duration::from_secs(cli.fleet_artifact_fetch_wait_s),
         cloacina_server::CorsConfig {
             allowed_origins: cli.cors_allowed_origins,
             allowed_methods: cli.cors_allowed_methods,

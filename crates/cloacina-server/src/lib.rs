@@ -371,6 +371,9 @@ pub async fn run(
     // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
     // A task with a limit of its own gets that limit, capped at the maximum.
     fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
+    // CLOACINA-T-1064: how long a fleet task waits, per attempt, while agents
+    // cannot fetch its package artifact. Zero: no wait.
+    fleet_artifact_fetch_wait: std::time::Duration,
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
@@ -774,6 +777,16 @@ pub async fn run(
          needs more agents."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_artifact_fetch_refusals_total",
+        "Fleet dispatches that an agent refused because it could not fetch \
+         the task's package artifact or source (CLOACINA-T-1064). The task \
+         waits and is dispatched again with no use of a retry attempt, for \
+         up to --fleet-artifact-fetch-wait-s per attempt; the refusal at or \
+         past that limit fails the attempt and is counted too. Sustained \
+         growth means agents cannot reach the server's artifact route, or a \
+         package artifact is gone."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_work_reassigned_total",
         "In-flight delivery_outbox rows re-targeted from an evicted (dead) \
          agent to a live agent by the heartbeat sweeper's reclaim path \
@@ -1157,7 +1170,8 @@ pub async fn run(
                         runner.runtime(),
                     )
                     .with_secret_resolver_factory(reg_secret_factory.clone())
-                    .with_task_time_limits(fleet_task_time_limits);
+                    .with_task_time_limits(fleet_task_time_limits)
+                    .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
                     if runner.register_executor("fleet", Arc::new(fleet_executor)) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
@@ -1337,7 +1351,8 @@ pub async fn run(
         )
         // CLOACI-T-0862: activate the secret resolver seam on the global executor.
         .with_secret_resolver_factory(secret_resolver_factory.clone())
-        .with_task_time_limits(fleet_task_time_limits);
+        .with_task_time_limits(fleet_task_time_limits)
+        .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))

@@ -82,6 +82,7 @@ mod unified_schema {
             claimed_by -> Nullable<DbUuid>,
             heartbeat_at -> Nullable<DbTimestamp>,
             waiting_since -> Nullable<DbTimestamp>,
+            artifact_fetch_wait_since -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }

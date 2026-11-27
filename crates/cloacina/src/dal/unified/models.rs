@@ -123,6 +123,7 @@ pub struct UnifiedTaskExecution {
     pub claimed_by: Option<UniversalUuid>,
     pub heartbeat_at: Option<UniversalTimestamp>,
     pub waiting_since: Option<UniversalTimestamp>,
+    pub artifact_fetch_wait_since: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -965,6 +966,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             claimed_by: u.claimed_by,
             heartbeat_at: u.heartbeat_at,
             waiting_since: u.waiting_since,
+            artifact_fetch_wait_since: u.artifact_fetch_wait_since,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

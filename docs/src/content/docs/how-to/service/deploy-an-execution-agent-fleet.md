@@ -151,6 +151,7 @@ Dead-agent detection and in-flight reclaim are governed by two server flags
 | `--agent-liveness-misses` / `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Missed beats before an agent is declared dead. |
 | `--fleet-task-timeout-s` / `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
 | `--fleet-task-timeout-max-s` / `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit a task can get. A task that asks for more gets this value. |
+| `--fleet-artifact-fetch-wait-s` / `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long a task waits, per attempt, while agents cannot fetch its package artifact. After that the attempt fails. `0`: the first failed fetch fails the attempt. |
 
 Effective dead-after = interval × misses. For faster failover (at the cost of
 more heartbeat traffic), e.g. ~10s detection:

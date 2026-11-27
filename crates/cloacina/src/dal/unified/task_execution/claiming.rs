@@ -38,6 +38,9 @@ impl<'a> TaskExecutionDAL<'a> {
     /// not a wait for capacity, so the wait starts when the retry is due.
     /// Until then the value is in the future and the task is not counted as
     /// waiting.
+    ///
+    /// Clears `artifact_fetch_wait_since` (CLOACINA-T-1064): the wait for the
+    /// package artifact has its limit per attempt, and this starts a new one.
     pub async fn schedule_retry(
         &self,
         task_id: UniversalUuid,
@@ -61,6 +64,7 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::attempt.eq(new_attempt),
                         task_executions::retry_at.eq(Some(retry_at)),
                         task_executions::waiting_since.eq(Some(retry_at)),
+                        task_executions::artifact_fetch_wait_since.eq(None::<UniversalTimestamp>),
                         task_executions::started_at.eq(None::<UniversalTimestamp>),
                         task_executions::completed_at.eq(None::<UniversalTimestamp>),
                         task_executions::updated_at.eq(now),
@@ -165,20 +169,66 @@ impl<'a> TaskExecutionDAL<'a> {
         not_before: UniversalTimestamp,
         waiting_since: Option<UniversalTimestamp>,
     ) -> Result<bool, ValidationError> {
+        self.defer_started_dispatch(task_id, runner_id, not_before, waiting_since, None)
+            .await
+    }
+
+    /// [`defer_dispatch_after_start`](Self::defer_dispatch_after_start) for a
+    /// dispatch that the agent refused because it could not fetch the package
+    /// artifact (CLOACINA-T-1064).
+    ///
+    /// The same write, and it also records from when the task waits for its
+    /// artifact: `artifact_fetch_wait_since` keeps the value the row has,
+    /// else it gets `fetch_wait_since`. So the first such refusal of an
+    /// attempt stamps the time and the later ones keep it, on every server
+    /// replica. The caller reads the column before the dispatch and stops
+    /// the wait at its limit; [`schedule_retry`](Self::schedule_retry) clears
+    /// it for the next attempt.
+    pub async fn defer_dispatch_after_fetch_refusal(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: UniversalUuid,
+        not_before: UniversalTimestamp,
+        waiting_since: Option<UniversalTimestamp>,
+        fetch_wait_since: UniversalTimestamp,
+    ) -> Result<bool, ValidationError> {
+        self.defer_started_dispatch(
+            task_id,
+            runner_id,
+            not_before,
+            waiting_since,
+            Some(fetch_wait_since),
+        )
+        .await
+    }
+
+    async fn defer_started_dispatch(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: UniversalUuid,
+        not_before: UniversalTimestamp,
+        waiting_since: Option<UniversalTimestamp>,
+        fetch_wait_since: Option<UniversalTimestamp>,
+    ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
         let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<usize, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
-                let kept: Option<Option<UniversalTimestamp>> = task_executions::table
-                    .find(task_id)
-                    .select(task_executions::waiting_since)
-                    .first(conn)
-                    .optional()?;
-                let Some(kept) = kept else {
+                let kept: Option<(Option<UniversalTimestamp>, Option<UniversalTimestamp>)> =
+                    task_executions::table
+                        .find(task_id)
+                        .select((
+                            task_executions::waiting_since,
+                            task_executions::artifact_fetch_wait_since,
+                        ))
+                        .first(conn)
+                        .optional()?;
+                let Some((kept, kept_fetch_wait)) = kept else {
                     return Ok(0);
                 };
                 let waiting_since = kept.or(waiting_since).unwrap_or(now);
+                let fetch_wait_since = kept_fetch_wait.or(fetch_wait_since);
                 diesel::update(
                     task_executions::table
                         .find(task_id)
@@ -190,6 +240,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::retry_at.eq(Some(not_before)),
                     task_executions::started_at.eq(None::<UniversalTimestamp>),
                     task_executions::waiting_since.eq(Some(waiting_since)),
+                    task_executions::artifact_fetch_wait_since.eq(fetch_wait_since),
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -594,5 +645,141 @@ mod defer_dispatch_after_start_tests {
             .await
             .unwrap();
         assert!(!changed);
+    }
+
+    // CLOACINA-T-1064: the wait for the package artifact.
+
+    /// `stored` is `expected`, to the precision the database keeps.
+    fn is_time(stored: Option<UniversalTimestamp>, expected: UniversalTimestamp) -> bool {
+        stored.is_some_and(|at| (at.0 - expected.0).num_milliseconds().abs() < 5)
+    }
+
+    #[tokio::test]
+    async fn a_capacity_deferral_does_not_stamp_the_fetch_wait() {
+        let dal = unique_dal().await;
+        let task_id = ready_task(&dal).await;
+        let runner = UniversalUuid::new_v4();
+        let waiting_before = claim_and_start(&dal, task_id, runner).await;
+
+        dal.task_execution()
+            .defer_dispatch_after_start(task_id, runner, in_seconds(2), waiting_before)
+            .await
+            .unwrap();
+
+        assert_eq!(row(&dal, task_id).await.artifact_fetch_wait_since, None);
+    }
+
+    #[tokio::test]
+    async fn the_first_fetch_refusal_stamps_the_fetch_wait_and_the_next_ones_keep_it() {
+        let dal = unique_dal().await;
+        let task_id = ready_task(&dal).await;
+        let runner = UniversalUuid::new_v4();
+        let first = in_seconds(-40);
+
+        let waiting_before = claim_and_start(&dal, task_id, runner).await;
+        let changed = dal
+            .task_execution()
+            .defer_dispatch_after_fetch_refusal(
+                task_id,
+                runner,
+                in_seconds(2),
+                waiting_before,
+                first,
+            )
+            .await
+            .unwrap();
+        assert!(changed);
+
+        let after = row(&dal, task_id).await;
+        assert_eq!(after.status, "Ready");
+        assert_eq!(after.attempt, 2, "the attempt is kept");
+        assert_eq!(after.started_at, None);
+        assert_eq!(after.waiting_since, waiting_before);
+        assert!(is_time(after.artifact_fetch_wait_since, first));
+        let stamped = after.artifact_fetch_wait_since;
+
+        // The next refusal, and a refusal for capacity between them, keep
+        // the first time.
+        dal.task_execution()
+            .release_runner_claim(task_id)
+            .await
+            .unwrap();
+        let waiting_before = claim_and_start(&dal, task_id, runner).await;
+        dal.task_execution()
+            .defer_dispatch_after_start(task_id, runner, in_seconds(2), waiting_before)
+            .await
+            .unwrap();
+        assert_eq!(row(&dal, task_id).await.artifact_fetch_wait_since, stamped);
+        dal.task_execution()
+            .release_runner_claim(task_id)
+            .await
+            .unwrap();
+        let waiting_before = claim_and_start(&dal, task_id, runner).await;
+        dal.task_execution()
+            .defer_dispatch_after_fetch_refusal(
+                task_id,
+                runner,
+                in_seconds(2),
+                waiting_before,
+                in_seconds(0),
+            )
+            .await
+            .unwrap();
+        assert_eq!(row(&dal, task_id).await.artifact_fetch_wait_since, stamped);
+    }
+
+    #[tokio::test]
+    async fn a_scheduled_retry_clears_the_fetch_wait() {
+        let dal = unique_dal().await;
+        let task_id = ready_task(&dal).await;
+        let runner = UniversalUuid::new_v4();
+        let waiting_before = claim_and_start(&dal, task_id, runner).await;
+        dal.task_execution()
+            .defer_dispatch_after_fetch_refusal(
+                task_id,
+                runner,
+                in_seconds(2),
+                waiting_before,
+                in_seconds(-40),
+            )
+            .await
+            .unwrap();
+        assert!(row(&dal, task_id).await.artifact_fetch_wait_since.is_some());
+
+        dal.task_execution()
+            .schedule_retry(task_id, in_seconds(5), 3)
+            .await
+            .unwrap();
+
+        let after = row(&dal, task_id).await;
+        assert_eq!(after.attempt, 3);
+        assert_eq!(
+            after.artifact_fetch_wait_since, None,
+            "a new attempt gets the full wait"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fetch_refusal_of_a_task_claimed_by_another_runner_changes_nothing() {
+        let dal = unique_dal().await;
+        let task_id = ready_task(&dal).await;
+        let waiting_before = claim_and_start(&dal, task_id, UniversalUuid::new_v4()).await;
+
+        let changed = dal
+            .task_execution()
+            .defer_dispatch_after_fetch_refusal(
+                task_id,
+                UniversalUuid::new_v4(),
+                in_seconds(2),
+                waiting_before,
+                in_seconds(0),
+            )
+            .await
+            .unwrap();
+
+        assert!(!changed);
+        let after = row(&dal, task_id).await;
+        assert_eq!(after.status, "Running");
+        assert_eq!(after.artifact_fetch_wait_since, None);
     }
 }
