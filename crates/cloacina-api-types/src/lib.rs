@@ -64,7 +64,8 @@ pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, Serv
 pub use error::ErrorBody;
 pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskAttemptErrorDetail,
+    TaskExecutionDetail,
 };
 pub use fleet::{
     AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressRule, AgentInfo, AgentPoolInfo,

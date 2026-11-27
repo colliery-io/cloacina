@@ -26,6 +26,7 @@
 //! - Atomic task claiming for distributed execution
 //! - Workflow completion and failure detection
 
+mod attempt_errors;
 mod claiming;
 mod crud;
 mod placement;

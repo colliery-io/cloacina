@@ -651,12 +651,40 @@ pub async fn get_execution_tasks(
                     Default::default()
                 }
             };
+            // CLOACINA-T-1100: the error of each failed attempt. The task
+            // rows are served without them if this read fails.
+            let mut attempt_errors = match dal
+                .task_execution()
+                .attempt_errors_for_workflow(universal_id)
+                .await
+            {
+                Ok(errors) => errors,
+                Err(e) => {
+                    tracing::warn!(
+                        execution_id = %exec_id,
+                        error = %e,
+                        "could not read the errors of failed task attempts"
+                    );
+                    Default::default()
+                }
+            };
             // CLOACINA-T-1024: the link to the task's logs, when the server
             // has a log URL template.
             let log_urls = crate::task_logs::url_template();
             let items: Vec<TaskExecutionDetail> = tasks
                 .into_iter()
                 .map(|t| TaskExecutionDetail {
+                    attempt_errors: attempt_errors
+                        .remove(&t.id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|e| cloacina_api_types::TaskAttemptErrorDetail {
+                            attempt: e.attempt,
+                            message: e.message,
+                            details: e.details,
+                            failed_at: e.failed_at.0.to_rfc3339(),
+                        })
+                        .collect(),
                     context_size_bytes: context_sizes.get(&t.id).copied(),
                     id: t.id.0.to_string(),
                     log_url: log_urls.map(|template| {

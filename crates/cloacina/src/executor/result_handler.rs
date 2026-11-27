@@ -344,8 +344,9 @@ impl TaskResultHandler {
                     // dropping it on sqlite-busy left the task Running forever (the
                     // scenario-33 hang the first fix round missed). Retry it, and if
                     // it STILL fails, fail the task rather than leave it in limbo.
+                    let error_text = error.to_string();
                     match retry_transient(5, Duration::from_millis(100), || {
-                        self.schedule_task_retry(claimed_task, retry_policy)
+                        self.schedule_task_retry(claimed_task, retry_policy, &error_text)
                     })
                     .await
                     {
@@ -615,11 +616,13 @@ impl TaskResultHandler {
     }
 
     /// Schedules a task for retry via the DAL, computing the delay from the
-    /// retry policy's backoff strategy.
+    /// retry policy's backoff strategy. `error_text` is the failure of the
+    /// attempt that ends here; it is kept with that attempt (CLOACINA-T-1100).
     async fn schedule_task_retry(
         &self,
         claimed_task: &ClaimedTask,
         retry_policy: &RetryPolicy,
+        error_text: &str,
     ) -> Result<(), ExecutorError> {
         let retry_delay = retry_policy.calculate_delay(claimed_task.attempt);
         let retry_at = Utc::now() + retry_delay;
@@ -630,6 +633,7 @@ impl TaskResultHandler {
                 claimed_task.task_execution_id,
                 crate::database::UniversalTimestamp(retry_at),
                 claimed_task.attempt + 1,
+                Some(error_text),
             )
             .await?;
 
@@ -1332,5 +1336,228 @@ mod context_size_tests {
         }
         assert!(!TaskResultHandler::error_is_transient(&error));
         assert_eq!(failure_reason(&error), "context_too_large");
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod attempt_error_tests {
+    //! The error of each failed attempt is kept, not only the last one
+    //! (CLOACINA-T-1100). SQLite in memory.
+
+    use super::*;
+    use crate::database::Database;
+    use crate::models::task_execution::NewTaskExecution;
+    use crate::models::workflow_execution::NewWorkflowExecution;
+
+    const TASK: &str = "public::embedded::orders::load";
+
+    struct Run {
+        dal: DAL,
+        workflow_id: UniversalUuid,
+        task_id: UniversalUuid,
+        handler: TaskResultHandler,
+    }
+
+    async fn new_run() -> Run {
+        let url = format!(
+            "file:attempt_error_test_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations().await.expect("migrations");
+        let dal = DAL::new(db);
+        let workflow_id = dal
+            .workflow_execution()
+            .create(NewWorkflowExecution {
+                workflow_name: "orders".into(),
+                workflow_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap()
+            .id;
+        let task_id = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                workflow_execution_id: workflow_id,
+                task_name: TASK.into(),
+                status: "Running".into(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap()
+            .id;
+        let handler = TaskResultHandler::new(
+            dal.clone(),
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicU64::new(0)),
+            None,
+        );
+        Run {
+            dal,
+            workflow_id,
+            task_id,
+            handler,
+        }
+    }
+
+    fn failure(message: &str, details: &str) -> ExecutorError {
+        ExecutorError::TaskExecution(crate::error::TaskError::ExecutionFailed {
+            message: crate::task_logs::with_error_details(message, details),
+            task_id: "load".to_string(),
+            timestamp: chrono::Utc::now(),
+        })
+    }
+
+    /// One attempt of the task, with a policy of 3 attempts on all errors.
+    async fn attempt(
+        run: &Run,
+        attempt: i32,
+        outcome: Result<Context<serde_json::Value>, ExecutorError>,
+    ) -> ExecutionResult {
+        let event = TaskReadyEvent::new(run.task_id, run.workflow_id, TASK.to_string(), attempt);
+        let claimed = ClaimedTask {
+            task_execution_id: run.task_id,
+            workflow_execution_id: run.workflow_id,
+            task_name: TASK.to_string(),
+            attempt,
+        };
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::AllErrors)
+            .build();
+        run.handler
+            .handle_outcome(&event, &claimed, outcome, &policy, Duration::from_millis(5))
+            .await
+    }
+
+    /// Every text the run stores about the task: the task row's error
+    /// columns and the data of its execution events.
+    async fn stored_texts(run: &Run) -> Vec<String> {
+        let task = run
+            .dal
+            .task_execution()
+            .get_by_id(run.task_id)
+            .await
+            .unwrap();
+        let mut texts: Vec<String> = [task.last_error, task.error_details]
+            .into_iter()
+            .flatten()
+            .collect();
+        for event in run
+            .dal
+            .execution_event()
+            .list_by_workflow(run.workflow_id)
+            .await
+            .unwrap()
+        {
+            texts.extend(event.event_data);
+        }
+        texts
+    }
+
+    /// Attempt 1 fails, attempt 2 succeeds: the error of attempt 1 is stored.
+    #[tokio::test]
+    async fn the_error_of_a_retried_attempt_is_kept() {
+        let run = new_run().await;
+        let traceback =
+            "Traceback (most recent call last):\n  File \"load.py\", line 3\nValueError: first";
+        let first = attempt(&run, 1, Err(failure("first failure", traceback))).await;
+        assert!(
+            matches!(first.status, crate::dispatcher::ExecutionStatus::Retry),
+            "status was {:?}",
+            first.status
+        );
+        let second = attempt(&run, 2, Ok(Context::<serde_json::Value>::new())).await;
+        assert!(
+            matches!(second.status, crate::dispatcher::ExecutionStatus::Completed),
+            "status was {:?}",
+            second.status
+        );
+
+        let texts = stored_texts(&run).await;
+        let errors = run
+            .dal
+            .task_execution()
+            .attempt_errors(run.task_id)
+            .await
+            .unwrap();
+        assert!(
+            errors.iter().any(|e| e.message.contains("first failure")),
+            "no stored error of attempt 1; stored: {texts:?}"
+        );
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].attempt, 1);
+        // The message as `last_error` holds it: the executor error's text.
+        assert!(
+            errors[0].message.ends_with(": first failure"),
+            "{}",
+            errors[0].message
+        );
+        assert_eq!(errors[0].details.as_deref(), Some(traceback));
+        // The task row of the succeeded task holds no error.
+        let task = run
+            .dal
+            .task_execution()
+            .get_by_id(run.task_id)
+            .await
+            .unwrap();
+        assert_eq!(task.last_error, None);
+    }
+
+    /// Three failed attempts keep three errors, each with its number; the
+    /// last is also in `last_error`. Details are cut as `error_details` is.
+    #[tokio::test]
+    async fn each_failed_attempt_keeps_its_own_error() {
+        let run = new_run().await;
+        let long = format!(
+            "{}END",
+            "x".repeat(crate::task_logs::MAX_ERROR_DETAILS_BYTES)
+        );
+        attempt(&run, 1, Err(failure("one", "trace one"))).await;
+        attempt(&run, 2, Err(failure("two", &long))).await;
+        let last = attempt(&run, 3, Err(failure("three", ""))).await;
+        assert!(
+            matches!(last.status, crate::dispatcher::ExecutionStatus::Failed),
+            "status was {:?}",
+            last.status
+        );
+
+        let errors = run
+            .dal
+            .task_execution()
+            .attempt_errors(run.task_id)
+            .await
+            .unwrap();
+        let seen: Vec<(i32, &str)> = errors
+            .iter()
+            .map(|e| (e.attempt, e.message.rsplit(": ").next().unwrap_or_default()))
+            .collect();
+        assert_eq!(seen, vec![(1, "one"), (2, "two"), (3, "three")]);
+        assert_eq!(errors[0].details.as_deref(), Some("trace one"));
+        let cut = errors[1].details.as_deref().unwrap();
+        assert!(cut.len() <= crate::task_logs::MAX_ERROR_DETAILS_BYTES + 64);
+        assert!(cut.ends_with("END"));
+        assert_eq!(errors[2].details, None);
+
+        let task = run
+            .dal
+            .task_execution()
+            .get_by_id(run.task_id)
+            .await
+            .unwrap();
+        assert_eq!(task.last_error.as_deref(), Some(errors[2].message.as_str()));
+
+        let by_task = run
+            .dal
+            .task_execution()
+            .attempt_errors_for_workflow(run.workflow_id)
+            .await
+            .unwrap();
+        assert_eq!(by_task.get(&run.task_id).map(Vec::len), Some(3));
     }
 }

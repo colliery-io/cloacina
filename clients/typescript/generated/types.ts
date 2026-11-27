@@ -2766,10 +2766,33 @@ export interface components {
             /** @description RFC 3339 timestamp. */
             updated_at: string;
         };
+        /** @description The error of one failed attempt of a task (CLOACINA-T-1100). */
+        TaskAttemptErrorDetail: {
+            /**
+             * Format: int32
+             * @description The attempt that failed, from 1.
+             */
+            attempt: number;
+            /**
+             * @description The details of the failure (a Python traceback), at most 16 KiB; a
+             *     cut keeps the end.
+             */
+            details?: string | null;
+            /** @description RFC 3339 timestamp of the failure. */
+            failed_at: string;
+            /** @description The error message of the attempt. */
+            message: string;
+        };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
             /** Format: int32 */
             attempt: number;
+            /**
+             * @description The error of each failed attempt, oldest first; empty when no attempt
+             *     failed (CLOACINA-T-1100). The last entry of a failed task is the
+             *     error in `last_error` and `error_details`.
+             */
+            attempt_errors?: components["schemas"]["TaskAttemptErrorDetail"][];
             /** @description RFC 3339 timestamp; `null` while still running. */
             completed_at?: string | null;
             /**

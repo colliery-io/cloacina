@@ -3287,6 +3287,8 @@ mod tests {
 
     /// Router tests of the audit record (CLOACINA-T-1024).
     mod agent_ownership;
+    /// The tasks route gives the error of each failed attempt (CLOACINA-T-1100).
+    mod attempt_errors;
     mod audit_routes;
     /// Router tests of the authorization model (CLOACINA-T-1055).
     mod authz_routes;
