@@ -160,6 +160,10 @@ pub fn wrap_field_map(
 #[derive(Clone, Default)]
 pub struct InMemorySecretResolver {
     secrets: HashMap<String, BTreeMap<String, String>>,
+    /// CLOACINA-T-1081: a name not held is refused (`NotGranted`), not
+    /// missing (`NotFound`). The agent sets it: the server sends only the
+    /// secrets the task's package declares, so a name not sent is not granted.
+    refuse_unsent: bool,
 }
 
 impl std::fmt::Debug for InMemorySecretResolver {
@@ -176,7 +180,18 @@ impl InMemorySecretResolver {
     /// Build directly from a name → field-map table (mainly for tests / the
     /// embedded caller that already holds plaintext).
     pub fn new(secrets: HashMap<String, BTreeMap<String, String>>) -> Self {
-        Self { secrets }
+        Self {
+            secrets,
+            refuse_unsent: false,
+        }
+    }
+
+    /// The same resolver, answering `NotGranted` for a name it does not hold
+    /// (CLOACINA-T-1081). For the agent: a name the work packet does not
+    /// carry is one the task's package does not declare.
+    pub fn refusing_unsent(mut self) -> Self {
+        self.refuse_unsent = true;
+        self
     }
 
     /// An empty resolver — serves nothing (every lookup is `NotFound`).
@@ -210,7 +225,7 @@ impl InMemorySecretResolver {
                 .map_err(|_| FleetSecretError::Payload(w.name.clone()))?;
             secrets.insert(w.name.clone(), fields);
         }
-        Ok(Self { secrets })
+        Ok(Self::new(secrets))
     }
 
     /// Number of secrets held.
@@ -232,10 +247,21 @@ impl InMemorySecretResolver {
 #[async_trait]
 impl SecretResolver for InMemorySecretResolver {
     async fn resolve(&self, name: &str) -> Result<BTreeMap<String, String>, SecretResolverError> {
-        self.secrets
-            .get(name)
-            .cloned()
-            .ok_or_else(|| SecretResolverError::NotFound(name.to_string()))
+        match self.secrets.get(name) {
+            Some(fields) => Ok(fields.clone()),
+            None if self.refuse_unsent => {
+                tracing::warn!(
+                    secret.name = %name,
+                    "secret refused: not sent with this task; a task reads only the secrets \
+                     its package declares"
+                );
+                Err(SecretResolverError::NotGranted(format!(
+                    "{name}: not sent with this task; a task reads only the secrets its \
+                     package declares and the run binds"
+                )))
+            }
+            None => Err(SecretResolverError::NotFound(name.to_string())),
+        }
     }
 }
 
@@ -431,6 +457,49 @@ mod tests {
             !json.contains("hunter2"),
             "secret leaked into context: {json}"
         );
+    }
+
+    /// CLOACINA-T-1081: on the agent a name the work packet does not carry is
+    /// refused, also when the packet carries no secret at all. The secrets it
+    /// carries still arrive.
+    #[tokio::test]
+    async fn the_agent_refuses_a_name_the_packet_does_not_carry() {
+        let kp = generate_ephemeral_keypair();
+        let fields = field_map(&[("password", "hunter2")]);
+        let wrapped = wrap_field_map("a_secret", &fields, "exec-1", &kp.public_key_bytes).unwrap();
+        let resolver = InMemorySecretResolver::from_wrapped(&kp.private, &[wrapped], "exec-1")
+            .unwrap()
+            .refusing_unsent();
+        let ctx = Context::<serde_json::Value>::new().with_secret_resolver(resolver.into_arc());
+
+        assert_eq!(
+            ctx.secret("a_secret")
+                .await
+                .unwrap()
+                .get("password")
+                .unwrap(),
+            "hunter2"
+        );
+        match ctx.secret("b_secret").await {
+            Err(cloacina_workflow::SecretAccessError::NotGranted(message)) => {
+                assert!(message.starts_with("b_secret: not sent with this task"));
+            }
+            Err(other) => panic!("expected NotGranted, got {other}"),
+            Ok(_) => panic!("expected NotGranted, the secret was read"),
+        }
+
+        let empty = Context::<serde_json::Value>::new()
+            .with_secret_resolver(InMemorySecretResolver::empty().refusing_unsent().into_arc());
+        assert!(matches!(
+            empty.secret("b_secret").await,
+            Err(cloacina_workflow::SecretAccessError::NotGranted(_))
+        ));
+
+        // Without the mark, a name not held is still NotFound (embedded use).
+        assert!(matches!(
+            InMemorySecretResolver::empty().resolve("b_secret").await,
+            Err(SecretResolverError::NotFound(_))
+        ));
     }
 
     /// A blob wrapped to agent A cannot be unwrapped with agent B's key — the

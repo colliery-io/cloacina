@@ -29,6 +29,7 @@ pub mod fleet_secret;
 mod key_manager;
 pub mod ownership;
 mod package_signer;
+pub mod secret_grant;
 mod secret_resolver;
 mod secret_store;
 mod tenant_org;
@@ -42,6 +43,11 @@ pub use fleet_secret::{
 pub use key_manager::{KeyError, KeyManager, PublicKeyExport, SigningKeyInfo, TrustedKeyInfo};
 pub use package_signer::{
     DbPackageSigner, DetachedSignature, PackageSignError, PackageSignatureInfo, PackageSigner,
+};
+pub use secret_grant::{
+    DeclaredSecretResolver, SecretGrant, SecretGrantMode, SecretRefusal, SecretRefusalRecorder,
+    declared_secret_grant, record_secret_refusal, register_secret_refusal_recorder,
+    secret_bindings,
 };
 pub use secret_resolver::{
     KEK_ENV_VAR, SecretAllow, SecretResolverConfigError, SecretStoreResolver,
