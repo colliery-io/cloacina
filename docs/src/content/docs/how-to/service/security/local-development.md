@@ -130,9 +130,9 @@ For CI environments:
    `--require-signatures` (leave `CLOACINA_REQUIRE_SIGNATURES` unset)
    and upload unsigned packages.
 
-2. **Staging/production**: start the server with `--require-signatures`
-   **and** `--verification-org-id` (both required together — the server
-   fails fast if only one is set), and produce signatures in your
+2. **Staging/production**: start the server with `--require-signatures`,
+   add the signing key to each tenant's trusted keys
+   (`cloacinactl trusted-key add`), and produce signatures in your
    pipeline with a small Rust helper built on
    `cloacina::security::package_signer` (there is no `cloacinactl`
    signing command yet):
@@ -157,9 +157,10 @@ For CI environments:
 
 Before deploying to production:
 
-- [ ] Start the server with `--require-signatures` and `--verification-org-id`
+- [ ] Start the server with `--require-signatures`
 - [ ] Generate and securely store signing keys
-- [ ] Register trusted public keys against the verification org
+- [ ] Add each tenant's trusted public keys (`cloacinactl trusted-key add`)
+- [ ] Decide whether a server-wide org (`--verification-org-id`) is wanted: a key in it is trusted for every tenant
 - [ ] Store the 32-byte key-encryption master key in a secrets manager
 - [ ] Set up audit log monitoring (`package.load.*`, `verification.*`, `key.*` events)
 - [ ] Test verification in staging environment

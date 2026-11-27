@@ -131,9 +131,11 @@ apiKeySecretRef:
 # ---------------------------------------------------------------------------
 server:
   bind: "0.0.0.0:8080"
-  # When true, `cloacina-server` rejects unsigned packages.
+  # When true, `cloacina-server` rejects a package that is unsigned, or signed
+  # by a key that neither its tenant nor the server-wide org trusts.
   requireSignatures: false
-  # Trusted org UUID for signature verification — required if requireSignatures.
+  # Server-wide trusted org UUID (optional). A key in it is trusted for every
+  # tenant; with none, each tenant trusts only its own keys.
   verificationOrgId: ""
   # Warning limit on per-tenant DefaultRunner instances; none is stopped at it.
   tenantRunnerCacheSize: 256

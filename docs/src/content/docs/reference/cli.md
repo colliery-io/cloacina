@@ -192,8 +192,8 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
 | `--metrics-bind <ADDR>` | `CLOACINA_METRICS_BIND` | (none) | Address of a separate listener for `/metrics`. When set, `/metrics` is served only there and `--bind` answers 404 for it. When not set, `/metrics` is on `--bind`. |
 | `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
 | `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
-| `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. Requires `--verification-org-id`. CLOACI-I-0103. |
-| `--verification-org-id <UUID>` | `CLOACINA_VERIFICATION_ORG_ID` | (none) | Trusted organization UUID used to verify package signatures. **Required when `--require-signatures` is set**; startup fails fast otherwise. CLOACI-I-0103 / T-0567. |
+| `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. The signer must be a trusted key of the tenant (see [`trusted-key`](#trusted-key)), or of `--verification-org-id` if one is set. |
+| `--verification-org-id <UUID>` | `CLOACINA_VERIFICATION_ORG_ID` | (none) | Optional server-wide trusted organization UUID. A key trusted in it is accepted for every tenant, after the tenant's own keys. With none, each tenant trusts only its own keys. |
 | `--reconcile-interval-s <N>` | | (runtime default) | Interval (seconds) between reconciler passes that sync the in-runner workflow registry with the DB. Increase for quiet prod; decrease for fast e2e tests. |
 | `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | Warning limit on per-tenant `DefaultRunner` instances. Every tenant has a runner from server start until the tenant is deleted; none is stopped at the limit. Above it the server logs a warning. Each tenant uses up to 2 database connections on each replica. CLOACI-T-0580, CLOACINA-T-1031. |
 | `--tenant-deletion-drain-timeout-s <N>` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; any task that ignored cooperative cancellation errors on its next DB write once the schema is dropped. CLOACI-T-0581. |
@@ -579,6 +579,20 @@ Reads never show values. See [Manage Secrets](../../how-to/service/manage-secret
 ---
 
 # Singleton Commands
+
+## `trusted-key`
+
+The keys a tenant trusts for [package signing](../../how-to/service/security/package-signing/).
+With `--require-signatures` on the server, an upload to the tenant passes when
+its signer is a live trusted key of the tenant. Requires a tenant **admin**
+key; a platform admin key names the tenant with `--tenant`.
+
+| Command | Maps to | Notes |
+|---|---|---|
+| `trusted-key add --pem-file <PATH> [--name <NAME>]` | `POST /v1/tenants/<tenant>/trusted-keys` | Adds the Ed25519 public key of a PEM file (`-----BEGIN PUBLIC KEY-----`). Prints the key's `id` and `fingerprint`. |
+| `trusted-key add --public-key <HEX> [--name <NAME>]` | `POST /v1/tenants/<tenant>/trusted-keys` | Adds the raw 32-byte public key, given as 64 hexadecimal characters. Exactly one of `--pem-file` and `--public-key` is required. |
+| `trusted-key list` | `GET /v1/tenants/<tenant>/trusted-keys` | The tenant's keys, oldest first. A revoked key stays in the list, with `revoked: true`. |
+| `trusted-key revoke <ID> [--force]` | `DELETE /v1/tenants/<tenant>/trusted-keys/<id>` | Interactive confirmation unless `--force`. A revoked key cannot be added again. |
 
 ## `status`
 

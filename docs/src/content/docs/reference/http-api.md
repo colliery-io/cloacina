@@ -584,6 +584,81 @@ Metadata responses carry `id`, `name`, `field_names`, `created_at`, and
 `updated_at`. Managing secrets is documented in
 [Manage Secrets](../../how-to/service/manage-secrets/).
 
+## Trusted Keys
+
+The keys a tenant trusts for [package signing](../../how-to/service/security/package-signing/).
+A trusted key is an Ed25519 public key. With `--require-signatures`, an upload
+to the tenant passes when its signer is a live trusted key of the tenant, or of
+the server-wide org if one is set (see [Signature verification](#signature-verification)).
+
+**All three routes need the permission `trusted_keys.manage` in `{tenant_id}`**:
+a tenant `admin` key for its own tenant, a platform admin key for any tenant.
+A key of another tenant gets `403 tenant_access_denied`; a `read`, `write` or
+`agent` key gets `403 insufficient_permissions`.
+
+| Method + path | Purpose |
+|---|---|
+| `POST /v1/tenants/{tenant_id}/trusted-keys` | Add a public key. Returns `201` with the key. |
+| `GET /v1/tenants/{tenant_id}/trusted-keys` | List the tenant's keys, oldest first, in the `{items, total}` envelope. A revoked key stays in the list, marked. |
+| `DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` | Revoke a key of this tenant. Returns `200` with `{"status": "revoked", "id": "<key_id>"}`. |
+
+### POST /v1/tenants/{tenant_id}/trusted-keys
+
+**Request body:** the key in exactly one of the two forms.
+
+| Field | Type | Description |
+|---|---|---|
+| `public_key_pem` | string | The public key as PEM (`-----BEGIN PUBLIC KEY-----`, Ed25519 SubjectPublicKeyInfo). |
+| `public_key` | string | The raw 32-byte public key as 64 hexadecimal characters. |
+| `name` | string, optional | A name for the key, at most 255 bytes. |
+
+```bash
+curl -X POST http://localhost:8080/v1/tenants/tenant_acme/trusted-keys \
+  -H "Authorization: Bearer clk_a1b2c3d4..." \
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"release-key-v1\", \"public_key_pem\": $(jq -Rs . < release-key.pub.pem)}"
+```
+
+**Response:** `201 Created`
+
+```json
+{
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "fingerprint": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "name": "release-key-v1",
+  "trusted_at": "2026-11-26T18:04:11+00:00",
+  "revoked": false,
+  "revoked_at": null
+}
+```
+
+`fingerprint` is the SHA-256 of the public key, as hexadecimal: a signature
+names its signer by this value. `id` is what a revoke takes. A row of the list
+has the same fields.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_request` | Neither key field, both key fields, or a name longer than 255 bytes. |
+| `400` | `invalid_public_key` | The PEM is not an Ed25519 public key, or `public_key` is not 64 hexadecimal characters. |
+| `409` | `trusted_key_exists` | The tenant already has this key, live or revoked. A revoked key cannot be added again. |
+
+### DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}
+
+Revokes the key: no upload passes with it after, unless the server-wide org
+also trusts the same key. The row stays, with `revoked: true`.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_key_id` | `key_id` is not a UUID. |
+| `404` | `trusted_key_not_found` | No key with this id in this tenant. The id of another tenant's key gives the same answer, and that key is not revoked. |
+
+An add and a revoke each write a row to the audit record
+(`trusted_key.add`, `trusted_key.revoke`); the list writes none.
+
 ## Audit
 
 The audit record: who did what, when, in which tenant. One row per
@@ -2023,16 +2098,21 @@ been removed.
 ### Signature verification
 
 - When `--require-signatures` (or `CLOACINA_REQUIRE_SIGNATURES=true`)
-  is set, the server verifies package signatures at upload via
-  `cloacina::security::verify_package_bytes()`. The verification
-  requires a signature row in the `package_signatures` table — the
-  server does **not** sign packages, only verifies. Client-side signing
-  is **not implemented yet** (`cloacinactl package pack --sign` fails
-  hard by design, CLOACI-I-0103) — signature rows must currently be
-  inserted out-of-band, so `--require-signatures` cannot be satisfied
+  is set, the server verifies package signatures at upload. The
+  verification requires a signature row in the `package_signatures`
+  table, read by the hash of the uploaded bytes — the server does
+  **not** sign packages, only verifies. Client-side signing is **not
+  implemented yet** (`cloacinactl package pack --sign` fails hard by
+  design) and no route stores a signature — signature rows are written
+  through the library API, so `--require-signatures` cannot be satisfied
   by the CLI packing path today.
-- A signature row keyed by the configured `verification_org_id` must
-  exist before upload. Missing signature → `403 Forbidden`.
+- The signer is looked up in the [trusted keys](#trusted-keys) of the
+  tenant in the path first, then in the trusted keys of the server-wide
+  org if `--verification-org-id` is set. The first list that holds the
+  key, live, decides. With no `--verification-org-id`, each tenant
+  trusts only its own keys.
+- No signature row → `403 signature_not_found`. A signer in neither
+  list, or revoked → `403 untrusted_signer`.
 
 ### Metrics endpoint
 
