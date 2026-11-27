@@ -116,27 +116,57 @@ impl RegistryReconciler {
         // poll) through the CronWorkflowRegistrar. If a LATER step fails,
         // the package never becomes tracked, `unload_package` never runs
         // for it, and those rows are orphaned ghosts that keep firing /
-        // showing in the Triggers view. Collect every schedule id created
-        // during the load and roll them all back on any failure.
+        // showing in the Triggers view. Collect every schedule id the load
+        // gets and roll back the ones it made on any failure.
+        //
+        // CLOACINA-T-1057: the register calls are upserts, so a re-load
+        // gets the id of a row that already exists. That row holds
+        // `last_run_at` / `next_run_at`; the rollback must leave it. The
+        // ids that exist before the load tell the two apart.
+        let existing_schedule_ids = self.schedule_ids_before_load(&metadata).await?;
         let mut created_schedule_ids: Vec<String> = Vec::new();
         let result = self
             .load_package_inner(metadata.clone(), &mut created_schedule_ids)
             .await;
         if result.is_err() && !created_schedule_ids.is_empty() {
-            self.rollback_schedule_rows(&metadata, &created_schedule_ids)
+            self.rollback_schedule_rows(&metadata, &created_schedule_ids, &existing_schedule_ids)
                 .await;
         }
         result
     }
 
+    /// The ids of the schedule rows that exist before a load starts
+    /// (CLOACINA-T-1057). Empty with no registrar: no row is written then.
+    /// When the rows cannot be read the load does not start, so it writes
+    /// nothing it could not roll back safely.
+    pub(super) async fn schedule_ids_before_load(
+        &self,
+        metadata: &WorkflowMetadata,
+    ) -> Result<std::collections::HashSet<String>, RegistryError> {
+        let Some(registrar) = self.cron_registrar.as_ref() else {
+            return Ok(std::collections::HashSet::new());
+        };
+        registrar
+            .existing_schedule_ids()
+            .await
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!(
+                    "Package {} v{}: failed to read the existing schedule rows before the load: {}",
+                    metadata.package_name, metadata.version, e
+                ),
+            })
+    }
+
     /// Best-effort cleanup of schedule rows created by a load that later
     /// failed (CLOACI-T-0918). Mirrors the unload path's schedule teardown;
     /// failures are logged, not propagated — the load error is the primary
-    /// signal.
+    /// signal. A row in `existing_before_load` was not made by this load
+    /// and is kept (CLOACINA-T-1057).
     pub(super) async fn rollback_schedule_rows(
         &self,
         metadata: &WorkflowMetadata,
         schedule_ids: &[String],
+        existing_before_load: &std::collections::HashSet<String>,
     ) {
         let Some(registrar) = self.cron_registrar.as_ref() else {
             // Ids can only exist if a registrar was attached during the
@@ -151,7 +181,12 @@ impl RegistryReconciler {
             return;
         };
         let mut dropped = 0usize;
+        let mut kept = 0usize;
         for schedule_id in schedule_ids {
+            if existing_before_load.contains(schedule_id) {
+                kept += 1;
+                continue;
+            }
             match registrar.unregister_cron_workflow(schedule_id).await {
                 Ok(()) => dropped += 1,
                 Err(e) => warn!(
@@ -161,11 +196,13 @@ impl RegistryReconciler {
             }
         }
         info!(
-            "Package {} v{}: rolled back {}/{} schedule row(s) after failed load",
+            "Package {} v{}: rolled back {}/{} schedule row(s) after failed load, \
+             kept {} that existed before it",
             metadata.package_name,
             metadata.version,
             dropped,
-            schedule_ids.len()
+            schedule_ids.len() - kept,
+            kept
         );
     }
 
@@ -3731,13 +3768,169 @@ mod tests {
         let metadata = make_test_metadata();
 
         let created = vec!["schedule-1".to_string(), "schedule-2".to_string()];
-        reconciler.rollback_schedule_rows(&metadata, &created).await;
+        reconciler
+            .rollback_schedule_rows(&metadata, &created, &std::collections::HashSet::new())
+            .await;
 
         let unregisters = registrar.unregisters.lock().unwrap();
         assert_eq!(
             *unregisters,
             vec!["schedule-1".to_string(), "schedule-2".to_string()],
             "every schedule row created by the failed load must be dropped"
+        );
+    }
+
+    /// A reconciler whose registrar writes schedule rows to a new SQLite
+    /// database, as `DefaultRunner` wires it.
+    #[cfg(feature = "sqlite")]
+    async fn make_reconciler_with_schedule_rows() -> (RegistryReconciler, crate::dal::DAL) {
+        let url = format!(
+            "file:reconciler_schedule_rows_{}?mode=memory&cache=shared",
+            Uuid::new_v4()
+        );
+        let db = crate::database::Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        let registrar = Arc::new(
+            crate::runner::default_runner::cron_api::DalCronRegistrar::new(
+                db.clone(),
+                Arc::new(tokio::sync::Notify::new()),
+            ),
+        );
+        let reconciler = make_test_reconciler().with_cron_registrar(registrar);
+        runtime_of(&reconciler).register_trigger("nightly_cron".to_string(), || {
+            Arc::new(MockCronTrigger {
+                name: "nightly_cron".to_string(),
+                workflow: "etl_workflow".to_string(),
+                cron: "0 0 * * *".to_string(),
+                timezone: None,
+                catchup: None,
+                max_active_runs: None,
+            })
+        });
+        (reconciler, crate::dal::DAL::new(db))
+    }
+
+    /// CLOACINA-T-1057: a load that fails keeps a schedule row that existed
+    /// before it, with its `last_run_at`. The register step of a re-load
+    /// gives back the id of the existing row; the rollback of the failed
+    /// load must not delete it.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    #[serial]
+    async fn failed_load_keeps_a_schedule_row_that_existed_before_it() {
+        let (reconciler, dal) = make_reconciler_with_schedule_rows().await;
+        let metadata = make_test_metadata();
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
+
+        // An earlier good load made the row, and the schedule has run: its
+        // last fire was two days ago and the next one was due a day ago.
+        let first_load = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("first load registers the schedule");
+        assert_eq!(first_load.len(), 1);
+        let schedule_id: crate::database::universal_types::UniversalUuid =
+            first_load[0].parse::<Uuid>().unwrap().into();
+        let last_run = chrono::Utc::now() - chrono::Duration::days(2);
+        let due = chrono::Utc::now() - chrono::Duration::days(1);
+        dal.schedule()
+            .update_schedule_times(schedule_id, last_run, due)
+            .await
+            .unwrap();
+
+        // The next load registers the same schedule, then a later step
+        // fails: the steps of `load_package` around `load_package_inner`.
+        let existing = reconciler
+            .schedule_ids_before_load(&metadata)
+            .await
+            .expect("the existing rows are read");
+        let reloaded = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("the re-load registers the schedule");
+        assert_eq!(reloaded, first_load, "the re-load finds the existing row");
+        reconciler
+            .rollback_schedule_rows(&metadata, &reloaded, &existing)
+            .await;
+
+        let rows = dal.schedule().list(None, false, 100, 0).await.unwrap();
+        let row = rows
+            .iter()
+            .find(|s| s.id == schedule_id)
+            .expect("a failed load must keep the schedule row that existed before it");
+        assert_eq!(
+            row.last_run_at.map(|t| t.0.timestamp()),
+            Some(last_run.timestamp()),
+            "a failed load must keep last_run_at"
+        );
+    }
+
+    /// A row that the failed load itself made is still rolled back
+    /// (CLOACI-T-0918), with the real registrar.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    #[serial]
+    async fn failed_load_rolls_back_a_schedule_row_it_made() {
+        let (reconciler, dal) = make_reconciler_with_schedule_rows().await;
+        let metadata = make_test_metadata();
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
+
+        let existing = reconciler
+            .schedule_ids_before_load(&metadata)
+            .await
+            .expect("the existing rows are read");
+        assert!(existing.is_empty(), "no schedule row before the first load");
+        let created = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("the load registers the schedule");
+        assert_eq!(created.len(), 1);
+        reconciler
+            .rollback_schedule_rows(&metadata, &created, &existing)
+            .await;
+
+        let rows = dal.schedule().list(None, false, 100, 0).await.unwrap();
+        assert!(
+            rows.is_empty(),
+            "a failed load must remove the schedule row it made"
+        );
+    }
+
+    /// A package that is removed on purpose still removes its schedules:
+    /// `unload_package` drops every schedule id the package holds.
+    #[tokio::test]
+    #[serial]
+    async fn unload_package_removes_the_schedules_of_the_package() {
+        let registrar = Arc::new(RecordingCronRegistrar::default());
+        let reconciler = make_test_reconciler().with_cron_registrar(registrar.clone());
+        let package_id: WorkflowPackageId = uuid::Uuid::new_v4();
+        reconciler.loaded_packages.write().await.insert(
+            package_id,
+            PackageState {
+                metadata: make_test_metadata(),
+                task_namespaces: vec![],
+                workflow_name: None,
+                trigger_names: vec![],
+                graph_name: None,
+                reactor_names: vec![],
+                cron_schedule_ids: vec!["schedule-1".to_string(), "schedule-2".to_string()],
+                triggerless_graph_names: vec![],
+            },
+        );
+
+        reconciler
+            .unload_package(package_id)
+            .await
+            .expect("unload should succeed");
+
+        assert_eq!(
+            *registrar.unregisters.lock().unwrap(),
+            vec!["schedule-1".to_string(), "schedule-2".to_string()],
+            "an unload must remove every schedule of the package"
         );
     }
 

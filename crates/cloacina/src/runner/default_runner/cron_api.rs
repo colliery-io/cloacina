@@ -616,6 +616,16 @@ impl crate::registry::reconciler::CronWorkflowRegistrar for DalCronRegistrar {
         Ok(())
     }
 
+    async fn existing_schedule_ids(&self) -> Result<std::collections::HashSet<String>, String> {
+        let dal = DAL::new(self.database.clone());
+        let schedules = dal
+            .schedule()
+            .list(None, false, i64::MAX, 0)
+            .await
+            .map_err(|e| format!("Failed to list schedules: {}", e))?;
+        Ok(schedules.into_iter().map(|s| s.id.to_string()).collect())
+    }
+
     async fn register_poll_trigger(
         &self,
         trigger_name: &str,
