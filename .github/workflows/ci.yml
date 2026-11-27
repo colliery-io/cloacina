@@ -46,6 +46,7 @@ jobs:
       ui: ${{ steps.filter.outputs.ui }}
       scripts: ${{ steps.filter.outputs.scripts }}
       compiler: ${{ steps.filter.outputs.compiler }}
+      crates: ${{ steps.crates.outputs.crates }}
     steps:
       - uses: actions/checkout@v4
 
@@ -122,6 +123,88 @@ jobs:
               - 'crates/cloacina-build/**'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
+            # CLOACINA-T-1131: one filter per crate of the `crate-tests`
+            # matrix: the crate and the workspace crates it depends on. The
+            # name is `crate-<crate>`; the step below makes the matrix of them.
+            crate-cloacina-agent:
+              - 'crates/cloacina-agent/**'
+              - 'crates/cloacina/**'
+              - 'crates/cloacina-python/**'
+              - 'crates/cloacina-build/**'
+              - 'crates/cloacina-workflow/**'
+              - 'crates/cloacina-workflow-plugin/**'
+              - 'crates/cloacina-computation-graph/**'
+              - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-api-types/**'
+              - 'crates/cloacina-constructor-contract/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-macros:
+              - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-api-types/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-workflow-plugin:
+              - 'crates/cloacina-workflow-plugin/**'
+              - 'crates/cloacina-workflow/**'
+              - 'crates/cloacina-computation-graph/**'
+              - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-api-types/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-api-types:
+              - 'crates/cloacina-api-types/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-testing:
+              - 'crates/cloacina-testing/**'
+              - 'crates/cloacina-workflow/**'
+              - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-api-types/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-constructor-contract:
+              - 'crates/cloacina-constructor-contract/**'
+              - 'crates/cloacina-api-types/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-python:
+              - 'crates/cloacina-python/**'
+              - 'crates/cloacina/**'
+              - 'crates/cloacina-build/**'
+              - 'crates/cloacina-workflow/**'
+              - 'crates/cloacina-workflow-plugin/**'
+              - 'crates/cloacina-computation-graph/**'
+              - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-api-types/**'
+              - 'crates/cloacina-constructor-contract/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            crate-cloacina-client:
+              - 'crates/cloacina-client/**'
+              - 'crates/cloacina-api-types/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+
+      # The crates of the `crate-tests` matrix: every one on a push, or when a
+      # workflow changes; else the ones whose filter matched.
+      - name: Crates whose tests run
+        id: crates
+        env:
+          CHANGED: ${{ steps.filter.outputs.changes }}
+          RUN_ALL: ${{ github.event_name == 'push' || steps.filter.outputs.workflows == 'true' }}
+        run: |
+          set -euo pipefail
+          if [ "$RUN_ALL" = "true" ]; then
+            crates=$(jq -cn '$ARGS.positional' --args \
+              cloacina-agent cloacina-macros cloacina-workflow-plugin \
+              cloacina-api-types cloacina-testing cloacina-constructor-contract \
+              cloacina-python cloacina-client)
+          else
+            crates=$(jq -c '[.[] | select(startswith("crate-")) | ltrimstr("crate-")]' <<<"$CHANGED")
+          fi
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
+          echo "crates: $crates"
 
   # Quick gate - only runs if code, the API surface, harness, scripts, or workflows changed
   quick-checks:
@@ -348,6 +431,79 @@ jobs:
 
       - name: cargo test -p cloacina-compiler
         run: cargo test -p cloacina-compiler --all-targets --features postgres,sqlite
+
+  # CLOACINA-T-1131: the tests of the crates that no other lane runs, one leg
+  # per crate, on Linux. cloacina-agent's worker processes, rlimits and
+  # /proc memory reads are Linux-only code. The legs are the crates whose
+  # filter in `changes` matched; on `main` (push) every crate. The Rust tests
+  # of cloacina-python include runner tests against Postgres on port 15432,
+  # so that leg starts a Postgres service. cloacina-client runs its unit tests
+  # only: tests/contract.rs needs a live server and a key, and runs in the
+  # nightly SDK contract job.
+  crate-tests:
+    name: Crate Tests (${{ matrix.crate }})
+    needs: changes
+    if: needs.changes.outputs.crates != '' && needs.changes.outputs.crates != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJSON(needs.changes.outputs.crates) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        # An empty image starts no service: only the cloacina-python leg
+        # gets Postgres.
+        image: ${{ matrix.crate == 'cloacina-python' && 'postgres:16' || '' }}
+        env:
+          POSTGRES_USER: cloacina
+          POSTGRES_PASSWORD: cloacina
+          POSTGRES_DB: cloacina
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloacina"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # The agent and the Python bindings link cloacina with wasmtime and an
+      # embedded interpreter: large debug builds.
+      - uses: ./.github/actions/free-disk-space
+        if: matrix.crate == 'cloacina-agent' || matrix.crate == 'cloacina-python'
+
+      - name: Install PostgreSQL dev libraries
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      # The agent and cloacina-python embed the interpreter: the build links
+      # libpython.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-crate-tests-${{ matrix.crate }}"
+
+      - name: cargo test -p ${{ matrix.crate }}
+        env:
+          CRATE: ${{ matrix.crate }}
+        run: |
+          set -euo pipefail
+          case "$CRATE" in
+            cloacina-client) targets="--lib" ;;
+            *) targets="--all-targets" ;;
+          esac
+          cargo test -p "$CRATE" $targets
 
   # Tutorial / feature demo matrix — verifies the `angreal demos …` surface
   examples-docs:
