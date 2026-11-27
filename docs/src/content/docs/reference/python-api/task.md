@@ -36,8 +36,8 @@ All parameters are keyword-only and optional
 - `timeout_seconds` (int): The task's own time limit in seconds (greater than 0; `0` raises `ValueError`). When set it replaces the executor's limit for this task: `task_timeout_seconds` in process, the server default on an execution-agent fleet, where the server maximum caps it. Default: no own limit. Python parity with Rust's `#[task(timeout_seconds = …)]`.
 - `pool` (str): The [agent pool](../../../explanation/service/execution-agent-fleet/#agent-pools) the task runs in on an execution-agent fleet. A task with a pool runs only on an agent of that pool; a task with none runs only on the pool `default`. The name is lowercase letters, digits and `-`, a letter or digit at both ends, 40 characters at most; another name raises `ValueError`. Python parity with Rust's `#[task(pool = …)]`.
 - `cpu` (str or number): CPU request, a Kubernetes quantity above zero: `"500m"`, `"4"`, or the number `4`. See [Pool and requests](#pool-and-requests).
-- `memory` (str or number): Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`, or a number of bytes.
-- `inline` (bool): Marks the task as one that runs inside the agent process. The mark is stored with the task and sent to the agent. It changes nothing about how the task runs. Default: `False`.
+- `memory` (str or number): Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`, or a number of bytes. On a fleet the agent stops the task when it uses more.
+- `inline` (bool): On an execution-agent fleet, run the task inside the agent process and not in a worker process of its own. For a task that is short, uses little memory and runs often. See [Inline tasks](#inline-tasks). Default: `False`. Python parity with Rust's `#[task(inline = …)]`.
 - `on_success` (callable): Callback function called when task succeeds
 - `on_failure` (callable): Callback function called when task fails
 - `invokes` (ComputationGraphBuilder): A **trigger-less** computation graph this task invokes: after the task body succeeds, the engine executes the graph with the task's context. The referenced `with ComputationGraphBuilder(...)` block must run before the decorator, or the decorator raises `ValueError`. Python parity with Rust's `#[task(invokes = …)]`.
@@ -68,19 +68,50 @@ def summarize(context):
   `"0.5"`), a decimal suffix (`m`, `k`, `M`, `G`, `T`) or a binary suffix
   (`Ki`, `Mi`, `Gi`, `Ti`). A Python number is read as its text, so
   `memory=1073741824` is that many bytes.
-- **A request is used for placement only.** The server counts the requests of
-  the tasks in flight on each agent and sends a task where its request still
-  fits. Nothing limits what a task uses: a task that asks for `2Gi` and uses
-  `20Gi` is not stopped, and it can take down the agent with the other tasks on
-  it. Ask for what the task needs at its peak.
-- A task with no request counts as one slot's share of its agent: the agent's
-  total divided by its max concurrency.
+- **A request is used for placement.** The server counts the requests of the
+  tasks in flight on each agent and sends a task where its request still fits.
+- **A memory request is also the task's limit.** On an agent a task runs in a
+  worker process of its own, with its own Python interpreter. A task that asks
+  for `2Gi` and uses more is stopped by the agent and fails with
+  `task exceeded its memory limit of 2Gi`; the other tasks on the agent go on.
+  The interpreter and the imported modules count. Ask for what the task needs
+  at its peak. A CPU request caps nothing. See
+  [worker processes and limits](../../../explanation/service/execution-agent-fleet/#worker-processes-and-limits).
+- A task with no request counts as one slot's share of its agent: what the
+  agent offers to tasks divided by its max concurrency. That share is also its
+  memory limit.
 - When a package is published, a task that names a pool the tenant does not
   have, or that requests more than one agent of its pool can hold, makes the
   package fail with an error that names the task. See
   [what a publish checks](../../../explanation/service/execution-agent-fleet/#what-a-publish-checks).
 - The in-process executor does not read these parameters. They take effect
   when tasks run on a fleet.
+
+## Inline tasks
+
+On an execution-agent fleet a task runs in a worker process of its own, which
+the agent starts for it: a new Python interpreter, the unpack of the package
+and the import of its module, for each run. `inline=True` makes the agent run
+the task inside the agent process.
+
+```python
+@cloaca.task(inline=True)
+def stamp(context):
+    return context
+```
+
+- An inline task saves the start of the process and of the interpreter and
+  the import: the agent imports a package one time and keeps it.
+- It has no memory limit and it is not stopped: at its time limit the agent
+  stops waiting for it, and the body runs on. A crash in it takes the agent
+  down with the tasks on it.
+- Inline tasks of one agent share one interpreter and its imported modules.
+- Its `pool`, `cpu` and `memory` still count for placement.
+- The default is `False`: a task runs in a worker process unless it says
+  `inline=True`.
+- The in-process executor does not read the parameter.
+
+See [worker processes and limits](../../../explanation/service/execution-agent-fleet/#worker-processes-and-limits).
 
 ## Trigger rules
 

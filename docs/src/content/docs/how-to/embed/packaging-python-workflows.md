@@ -350,7 +350,13 @@ A platform name is `<arch>-<os>`, the same name an agent reports for itself.
 
 ### Two packages, one library, different versions
 
-One agent process has one Python interpreter. A module is imported one time,
+This is about packages that share one process: the tasks an agent runs inline
+(`inline=True`), and a server or daemon that runs tasks itself. A task that an
+agent runs in a worker process has an interpreter of its own, with its one
+package, so two such packages can vendor different versions of a library on
+one agent.
+
+One process has one Python interpreter. A module is imported one time,
 and every package in the process gets that copy. So when a package loads, each
 top-level module of its vendor folder is compared with the packages loaded
 before it. If another package vendors the same module at a different version,
@@ -629,7 +635,7 @@ the platform that loads it. Build again and name every platform it runs on
 
 ### "vendors the module … at version …, and package …"
 
-Two packages in one agent process vendor different versions of one library. See
+Two packages in one process vendor different versions of one library. See
 "Two packages, one library, different versions" in Step 3.
 
 ### "package too large"
