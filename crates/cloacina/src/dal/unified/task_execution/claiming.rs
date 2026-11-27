@@ -20,8 +20,10 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::{HeartbeatResult, RunnerClaimResult, StaleClaim, TaskExecutionDAL};
-use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
-use crate::database::schema::unified::{execution_events, task_executions};
+use crate::dal::unified::models::{
+    NewUnifiedExecutionEvent, TaskAttemptError, UnifiedTaskExecution,
+};
+use crate::database::schema::unified::{execution_events, task_attempt_errors, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
@@ -49,14 +51,20 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// Clears `artifact_fetch_wait_since` (CLOACINA-T-1064): the wait for the
     /// package artifact has its limit per attempt, and this starts a new one.
+    ///
+    /// `error` is the failure text of the attempt that failed (CLOACINA-T-1100):
+    /// with one, a row of `task_attempt_errors` keeps it for that attempt
+    /// (`new_attempt - 1`), in the same transaction.
     pub async fn schedule_retry(
         &self,
         task_id: UniversalUuid,
         retry_at: UniversalTimestamp,
         new_attempt: i32,
+        error: Option<&str>,
     ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
+        let error = error.map(str::to_string);
         crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
@@ -64,6 +72,18 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Get task info for event
                 let task: UnifiedTaskExecution =
                     task_executions::table.find(task_id).first(conn)?;
+
+                if let Some(text) = &error {
+                    diesel::insert_into(task_attempt_errors::table)
+                        .values(&TaskAttemptError::new(
+                            task_id,
+                            task.workflow_execution_id,
+                            new_attempt - 1,
+                            text,
+                            now,
+                        ))
+                        .execute(conn)?;
+                }
 
                 // Update task retry state
                 diesel::update(task_executions::table.find(task_id))
@@ -950,7 +970,7 @@ mod defer_dispatch_after_start_tests {
         assert!(row(&dal, task_id).await.artifact_fetch_wait_since.is_some());
 
         dal.task_execution()
-            .schedule_retry(task_id, in_seconds(5), 3)
+            .schedule_retry(task_id, in_seconds(5), 3, None)
             .await
             .unwrap();
 

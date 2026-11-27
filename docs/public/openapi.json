@@ -8543,6 +8543,37 @@
           }
         }
       },
+      "TaskAttemptErrorDetail": {
+        "type": "object",
+        "description": "The error of one failed attempt of a task (CLOACINA-T-1100).",
+        "required": [
+          "attempt",
+          "message",
+          "failed_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The attempt that failed, from 1."
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The details of the failure (a Python traceback), at most 16 KiB; a\ncut keeps the end."
+          },
+          "failed_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp of the failure."
+          },
+          "message": {
+            "type": "string",
+            "description": "The error message of the attempt."
+          }
+        }
+      },
       "TaskExecutionDetail": {
         "type": "object",
         "description": "One per-task row of an execution (CLOACI-I-0124 / WS-1).",
@@ -8559,6 +8590,13 @@
           "attempt": {
             "type": "integer",
             "format": "int32"
+          },
+          "attempt_errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskAttemptErrorDetail"
+            },
+            "description": "The error of each failed attempt, oldest first; empty when no attempt\nfailed (CLOACINA-T-1100). The last entry of a failed task is the\nerror in `last_error` and `error_details`."
           },
           "completed_at": {
             "type": [

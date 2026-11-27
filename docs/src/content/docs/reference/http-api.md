@@ -1415,6 +1415,12 @@ of the attempt's logs in your log stack; `null` unless the server has
 `--task-log-url-template`). See
 [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/).
 
+`attempt_errors` lists the error of each failed attempt of the task, oldest
+first, also for a task that was retried and then succeeded. Each entry has
+`attempt` (from 1), `message`, `details` (the traceback, at most 16 KiB, or
+`null`) and `failed_at` (RFC 3339). It is empty when no attempt failed. For a
+failed task the last entry is the error in `last_error` and `error_details`.
+
 **Errors:**
 
 | Status | Body |
