@@ -186,7 +186,7 @@ pub async fn refresh(
         if !active {
             // Deprovisioned mid-session: kill the current key and deny.
             let _ = dal.api_keys().revoke_key(auth.key_id).await;
-            state.key_cache.clear().await;
+            crate::routes::auth::announce_key_revocation_or_warn(&state).await;
             return ApiError::unauthorized("account is no longer active").into_response();
         }
         let principal = ResolvedPrincipal {
@@ -198,7 +198,7 @@ pub async fn refresh(
             Ok((plaintext, new_info)) => {
                 // Revoke the old key so only the fresh one is valid.
                 let _ = dal.api_keys().revoke_key(auth.key_id).await;
-                state.key_cache.clear().await;
+                crate::routes::auth::announce_key_revocation_or_warn(&state).await;
                 info!(account_id = %account_id, "refresh: re-minted local session key");
                 Json(LocalLoginResponse {
                     key: plaintext,
@@ -233,7 +233,7 @@ pub async fn refresh(
             // for the remainder of its TTL, and force a full re-auth.
             let _ = dal.api_keys().revoke_key(auth.key_id).await;
             let _ = dal.oidc_sessions().delete(auth.key_id).await;
-            state.key_cache.clear().await;
+            crate::routes::auth::announce_key_revocation_or_warn(&state).await;
             return ApiError::unauthorized("login session has expired — sign in again")
                 .into_response();
         }
@@ -261,7 +261,7 @@ pub async fn refresh(
                     }
                 }
                 let _ = dal.api_keys().revoke_key(auth.key_id).await;
-                state.key_cache.clear().await;
+                crate::routes::auth::announce_key_revocation_or_warn(&state).await;
                 info!(provenance = %provenance, "refresh: re-minted OIDC session key");
                 Json(LocalLoginResponse {
                     key: plaintext,
@@ -304,7 +304,7 @@ pub async fn logout(
     // (the latter is a no-op for local accounts, which store none).
     let _ = dal.api_keys().revoke_key(auth.key_id).await;
     let _ = dal.oidc_sessions().delete(auth.key_id).await;
-    state.key_cache.clear().await;
+    crate::routes::auth::announce_key_revocation_or_warn(&state).await;
     info!(key_id = %auth.key_id, "logout — key revoked + refresh forgotten");
     Json(LogoutResponse {
         status: "logged_out".to_string(),

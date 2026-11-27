@@ -138,6 +138,16 @@ pub async fn announce_key_revocation(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+/// [`announce_key_revocation`] after a key revoke, a logout or a refresh
+/// (CLOACINA-T-1128). The key is already revoked in the database, so a notice
+/// that fails to send does not fail the request: it is logged, and the other
+/// servers refuse the key after at most the cache TTL.
+pub async fn announce_key_revocation_or_warn(state: &AppState) {
+    if let Err(e) = announce_key_revocation(state).await {
+        warn!(error = %e, "key revocation notice not sent; other servers refuse the key within the cache TTL");
+    }
+}
+
 /// Listen for the key revocation notice and clear `cache` on each one, and on
 /// each (re)connect of the listener, which may have missed a notice. Runs
 /// until `shutdown` flips to `true`.
