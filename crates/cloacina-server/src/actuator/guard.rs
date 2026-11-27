@@ -175,18 +175,25 @@ pub fn actuator_kind_from_env() -> String {
 /// Build the actuator for `kind`, validating it against `substrate`
 /// (fail-closed). On `Ok` the server proceeds; on `Err` the caller MUST refuse
 /// to start. `database` is used by the actuator to mint per-tenant agent keys.
+/// `compilers` turns the per-tenant compilers on (CLOACINA-T-1034).
 pub fn build_actuator(
     kind: &str,
     substrate: &dyn Substrate,
     database: Database,
+    compilers: Option<super::compiler::CompilerSettings>,
 ) -> Result<Arc<dyn FleetActuator>, GuardError> {
     let db_docker = database.clone();
+    let compilers_docker = compilers.clone();
     build_actuator_with(
         kind,
         substrate,
-        move || DockerActuator::from_env(db_docker).map(|a| Arc::new(a) as Arc<dyn FleetActuator>),
         move || {
-            KubernetesActuator::from_env(database).map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
+            DockerActuator::from_env(db_docker, compilers_docker)
+                .map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
+        },
+        move || {
+            KubernetesActuator::from_env(database, compilers)
+                .map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
         },
     )
 }

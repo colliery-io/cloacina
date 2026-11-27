@@ -25,8 +25,13 @@ class TaskExecutionDetail:
         task_name (str): Task identifier within the workflow.
         updated_at (str): Row-updated timestamp (RFC 3339) — always present; a fallback "end".
         completed_at (None | str | Unset): RFC 3339 timestamp; `null` while still running.
-        error_details (None | str | Unset): Structured error details, when present.
+        context_size_bytes (int | None | Unset): Serialized size in bytes of the context the task returned; `null`
+            when the task has saved no context.
+        error_details (None | str | Unset): Details of the task's end, when present: the traceback of a failed
+            Python task, the reason of a skipped or abandoned task.
         last_error (None | str | Unset): Last error message for the most recent failed attempt, when present.
+        log_url (None | str | Unset): URL of this attempt's logs in the operator's log stack, when the
+            server has a log URL template (`--task-log-url-template`).
         started_at (None | str | Unset): RFC 3339 timestamp; `null` until the task starts.
         sub_status (None | str | Unset): `sub_status` qualifier (e.g. deferral), when present.
     """
@@ -39,8 +44,10 @@ class TaskExecutionDetail:
     task_name: str
     updated_at: str
     completed_at: None | str | Unset = UNSET
+    context_size_bytes: int | None | Unset = UNSET
     error_details: None | str | Unset = UNSET
     last_error: None | str | Unset = UNSET
+    log_url: None | str | Unset = UNSET
     started_at: None | str | Unset = UNSET
     sub_status: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -66,6 +73,12 @@ class TaskExecutionDetail:
         else:
             completed_at = self.completed_at
 
+        context_size_bytes: int | None | Unset
+        if isinstance(self.context_size_bytes, Unset):
+            context_size_bytes = UNSET
+        else:
+            context_size_bytes = self.context_size_bytes
+
         error_details: None | str | Unset
         if isinstance(self.error_details, Unset):
             error_details = UNSET
@@ -77,6 +90,12 @@ class TaskExecutionDetail:
             last_error = UNSET
         else:
             last_error = self.last_error
+
+        log_url: None | str | Unset
+        if isinstance(self.log_url, Unset):
+            log_url = UNSET
+        else:
+            log_url = self.log_url
 
         started_at: None | str | Unset
         if isinstance(self.started_at, Unset):
@@ -105,10 +124,14 @@ class TaskExecutionDetail:
         )
         if completed_at is not UNSET:
             field_dict["completed_at"] = completed_at
+        if context_size_bytes is not UNSET:
+            field_dict["context_size_bytes"] = context_size_bytes
         if error_details is not UNSET:
             field_dict["error_details"] = error_details
         if last_error is not UNSET:
             field_dict["last_error"] = last_error
+        if log_url is not UNSET:
+            field_dict["log_url"] = log_url
         if started_at is not UNSET:
             field_dict["started_at"] = started_at
         if sub_status is not UNSET:
@@ -142,6 +165,17 @@ class TaskExecutionDetail:
 
         completed_at = _parse_completed_at(d.pop("completed_at", UNSET))
 
+        def _parse_context_size_bytes(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        context_size_bytes = _parse_context_size_bytes(
+            d.pop("context_size_bytes", UNSET)
+        )
+
         def _parse_error_details(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -159,6 +193,15 @@ class TaskExecutionDetail:
             return cast(None | str | Unset, data)
 
         last_error = _parse_last_error(d.pop("last_error", UNSET))
+
+        def _parse_log_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        log_url = _parse_log_url(d.pop("log_url", UNSET))
 
         def _parse_started_at(data: object) -> None | str | Unset:
             if data is None:
@@ -187,8 +230,10 @@ class TaskExecutionDetail:
             task_name=task_name,
             updated_at=updated_at,
             completed_at=completed_at,
+            context_size_bytes=context_size_bytes,
             error_details=error_details,
             last_error=last_error,
+            log_url=log_url,
             started_at=started_at,
             sub_status=sub_status,
         )

@@ -300,11 +300,13 @@ impl RegistryReconciler {
         let archive_path_clone = archive_path.clone();
         let extract_dir_clone = extract_dir.clone();
         let source_dir = tokio::task::spawn_blocking(move || {
-            fidius_core::package::unpack_package(&archive_path_clone, &extract_dir_clone).map_err(
-                |e| RegistryError::RegistrationFailed {
-                    message: format!("Failed to unpack source archive: {}", e),
-                },
+            cloacina_workflow_plugin::unpack_limit::unpack_package(
+                &archive_path_clone,
+                &extract_dir_clone,
             )
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to unpack source archive: {}", e),
+            })
         })
         .await
         .map_err(|e| RegistryError::RegistrationFailed {
@@ -575,6 +577,17 @@ impl RegistryReconciler {
             // bundle none stage nothing (`None`).
             let provider_root = self.stage_bundled_providers(&metadata).await?;
 
+            // CLOACINA-T-1073: the dependencies the compiler vendored for
+            // this platform, when the registry holds a set for it.
+            let vendored_set = self
+                .registry
+                .get_python_vendor(
+                    &metadata.package_name,
+                    &metadata.version,
+                    &cloacina_workflow_plugin::python_env::host_platform(),
+                )
+                .await?;
+
             let loaded = {
                 let archive_data = loaded_workflow.package_data.clone();
                 let runtime = runtime.clone();
@@ -596,6 +609,7 @@ impl RegistryReconciler {
                     runtime
                         .load_workflow_package(
                             &archive_data,
+                            vendored_set.as_deref(),
                             &staging,
                             &tenant_id,
                             &cloacina_runtime,
@@ -607,6 +621,19 @@ impl RegistryReconciler {
                     message: format!("spawn_blocking failed during Python load: {}", e),
                 })??
             };
+
+            // CLOACINA-T-1027: the decorators ran in the import, so the tasks
+            // and their pools and requests are known now. Check before any
+            // schedule is registered. A refused package leaves no task behind.
+            if let Err(refused) = self
+                .check_task_placement(&metadata, &loaded.task_namespaces)
+                .await
+            {
+                for ns in &loaded.task_namespaces {
+                    cloacina_runtime.unregister_task(ns);
+                }
+                return Err(refused);
+            }
 
             // Python load now routes fully through the unified pipeline.
             // build_view_python walks the scoped Runtime to produce
@@ -748,6 +775,15 @@ impl RegistryReconciler {
                     // Stage its own bundle and scope the import to it, exactly
                     // like the Python workflow branch above.
                     let cg_provider_root = self.stage_bundled_providers(&metadata).await?;
+                    // CLOACINA-T-1073: as the workflow branch above.
+                    let cg_vendored_set = self
+                        .registry
+                        .get_python_vendor(
+                            &metadata.package_name,
+                            &metadata.version,
+                            &cloacina_workflow_plugin::python_env::host_platform(),
+                        )
+                        .await?;
                     let maybe_decl = {
                         let archive_data = loaded_workflow.package_data.clone();
                         let gn_inner = gn.clone();
@@ -767,6 +803,7 @@ impl RegistryReconciler {
                             runtime
                                 .load_cg_package(
                                     &archive_data,
+                                    cg_vendored_set.as_deref(),
                                     &staging,
                                     &tenant_inner,
                                     &gn_inner,
@@ -2644,12 +2681,90 @@ impl RegistryReconciler {
         }
     }
 
+    /// Check where the tasks of a package want to run (CLOACINA-T-1027).
+    ///
+    /// Asks the registered [`TaskPlacementCheck`](crate::registry::TaskPlacementCheck)
+    /// about the package's tasks, as they are in the runtime after the task
+    /// registration. A package with a task that names an agent pool the
+    /// tenant does not have, or that requests more than one agent of its pool
+    /// can hold, is refused: the load fails, and the package row gets build
+    /// status `failed` with the reason, so the publisher sees it where a
+    /// failed build is shown and the package is not offered for loading again.
+    ///
+    /// A package whose tasks name no pool and request nothing is not checked:
+    /// a package from before placements loads with no question asked.
+    pub(super) async fn check_task_placement(
+        &self,
+        metadata: &WorkflowMetadata,
+        task_namespaces: &[TaskNamespace],
+    ) -> Result<(), RegistryError> {
+        let (Some(check), Some(runtime)) = (&self.placement_check, &self.runtime) else {
+            return Ok(());
+        };
+        let tasks: Vec<crate::registry::PlacedTask> = task_namespaces
+            .iter()
+            .filter_map(|ns| {
+                runtime
+                    .get_task(ns)
+                    .map(|task| crate::registry::PlacedTask {
+                        task_id: ns.task_id.clone(),
+                        placement: task.placement(),
+                    })
+            })
+            .filter(|t| {
+                t.placement.pool.is_some()
+                    || t.placement.cpu.is_some()
+                    || t.placement.memory.is_some()
+            })
+            .collect();
+        if tasks.is_empty() {
+            return Ok(());
+        }
+        let Err(reason) = check.check(&self.config.default_tenant_id, &tasks).await else {
+            return Ok(());
+        };
+        let message = format!(
+            "package {} v{} is refused: {}",
+            metadata.package_name, metadata.version, reason
+        );
+        warn!("{}", message);
+        match self.registry.refuse_package(metadata.id, &message).await {
+            Ok(true) => {}
+            Ok(false) => debug!(
+                "refused package {} v{}: this registry records no build status",
+                metadata.package_name, metadata.version
+            ),
+            Err(e) => warn!(
+                "could not record the refusal of package {} v{}: {}",
+                metadata.package_name, metadata.version, e
+            ),
+        }
+        Err(RegistryError::ValidationError { reason: message })
+    }
+
     pub(super) async fn step_load_workflows(
         &self,
         metadata: &WorkflowMetadata,
         library_data: &[u8],
     ) -> Result<(Vec<TaskNamespace>, Option<String>), RegistryError> {
         let task_namespaces = self.register_package_tasks(metadata, library_data).await?;
+        // CLOACINA-T-1027: for a Rust package this is the first moment its
+        // tasks are known (after the compile). A refused package leaves no
+        // task behind.
+        if let Err(refused) = self.check_task_placement(metadata, &task_namespaces).await {
+            if let Some(runtime) = &self.runtime {
+                for ns in &task_namespaces {
+                    runtime.unregister_task(ns);
+                }
+            }
+            if let Err(e) = self
+                .task_registrar
+                .unregister_package_tasks(&metadata.id.to_string())
+            {
+                warn!("could not unregister the tasks of a refused package: {}", e);
+            }
+            return Err(refused);
+        }
         let workflow_name = self
             .register_package_workflows(metadata, library_data)
             .await?;
@@ -2707,6 +2822,266 @@ mod tests {
         r.runtime.clone().expect("reconciler must have a runtime")
     }
 
+    // ── CLOACINA-T-1027: the check of task placements at load ────────────────
+
+    mod placement_check {
+        use super::*;
+        use crate::registry::traits::WorkflowRegistry;
+        use crate::registry::types::LoadedWorkflow;
+        use crate::registry::{PlacedTask, TaskPlacementCheck};
+        use async_trait::async_trait;
+        use cloacina_workflow::TaskPlacement;
+        use std::sync::Mutex;
+
+        /// A registry that records each refusal.
+        #[derive(Default)]
+        struct RefusalRecorder {
+            refused: Mutex<Vec<(WorkflowPackageId, String)>>,
+        }
+
+        #[async_trait]
+        impl WorkflowRegistry for RefusalRecorder {
+            async fn register_workflow(
+                &mut self,
+                _package_data: Vec<u8>,
+            ) -> Result<WorkflowPackageId, RegistryError> {
+                unimplemented!("stub")
+            }
+            async fn get_workflow(
+                &self,
+                _package_name: &str,
+                _version: &str,
+            ) -> Result<Option<LoadedWorkflow>, RegistryError> {
+                Ok(None)
+            }
+            async fn list_workflows(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
+                Ok(vec![])
+            }
+            async fn unregister_workflow(
+                &mut self,
+                _package_name: &str,
+                _version: &str,
+            ) -> Result<(), RegistryError> {
+                Ok(())
+            }
+            async fn refuse_package(
+                &self,
+                package_id: WorkflowPackageId,
+                reason: &str,
+            ) -> Result<bool, RegistryError> {
+                self.refused
+                    .lock()
+                    .unwrap()
+                    .push((package_id, reason.to_string()));
+                Ok(true)
+            }
+        }
+
+        /// A check that knows the pools `default` and `large`, and records
+        /// what it was asked.
+        #[derive(Default)]
+        struct KnownPools {
+            asked: Mutex<Vec<(String, Vec<PlacedTask>)>>,
+        }
+
+        #[async_trait]
+        impl TaskPlacementCheck for KnownPools {
+            async fn check(&self, tenant_id: &str, tasks: &[PlacedTask]) -> Result<(), String> {
+                self.asked
+                    .lock()
+                    .unwrap()
+                    .push((tenant_id.to_string(), tasks.to_vec()));
+                for task in tasks {
+                    let pool = task.placement.pool_name();
+                    if pool != "default" && pool != "large" {
+                        return Err(format!(
+                            "task '{}' names the agent pool '{}', which the tenant '{}' does \
+                             not have",
+                            task.task_id, pool, tenant_id
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        /// A task that declares a placement and does nothing.
+        struct PlacedStub {
+            id: String,
+            placement: TaskPlacement,
+        }
+
+        #[async_trait]
+        impl crate::Task for PlacedStub {
+            async fn execute(
+                &self,
+                context: crate::Context<serde_json::Value>,
+            ) -> Result<crate::Context<serde_json::Value>, crate::TaskError> {
+                Ok(context)
+            }
+            fn id(&self) -> &str {
+                &self.id
+            }
+            fn dependencies(&self) -> &[TaskNamespace] {
+                &[]
+            }
+            fn placement(&self) -> TaskPlacement {
+                self.placement.clone()
+            }
+        }
+
+        fn reconciler(
+            registry: Arc<RefusalRecorder>,
+            check: Option<Arc<KnownPools>>,
+        ) -> RegistryReconciler {
+            let config = ReconcilerConfig {
+                default_tenant_id: "acme".to_string(),
+                ..ReconcilerConfig::default()
+            };
+            let (_tx, rx) = tokio::sync::watch::channel(false);
+            let mut reconciler = RegistryReconciler::new(registry, config, rx)
+                .expect("create reconciler")
+                .with_runtime(Arc::new(Runtime::empty()));
+            // Never the process-wide registration: each test says what it has.
+            reconciler.placement_check = None;
+            match check {
+                Some(check) => reconciler.with_placement_check(check),
+                None => reconciler,
+            }
+        }
+
+        /// Register tasks in the reconciler's runtime, as a package load does.
+        fn register(
+            reconciler: &RegistryReconciler,
+            tasks: &[(&str, TaskPlacement)],
+        ) -> Vec<TaskNamespace> {
+            let runtime = runtime_of(reconciler);
+            tasks
+                .iter()
+                .map(|(id, placement)| {
+                    let ns = TaskNamespace::new("acme", "test-pkg", "test-workflow", id);
+                    let (id, placement) = (id.to_string(), placement.clone());
+                    runtime.register_task(ns.clone(), move || {
+                        Arc::new(PlacedStub {
+                            id: id.clone(),
+                            placement: placement.clone(),
+                        }) as Arc<dyn crate::Task>
+                    });
+                    ns
+                })
+                .collect()
+        }
+
+        fn in_pool(pool: &str, memory: &str) -> TaskPlacement {
+            TaskPlacement {
+                pool: Some(pool.to_string()),
+                memory: Some(memory.to_string()),
+                ..Default::default()
+            }
+        }
+
+        #[tokio::test]
+        async fn a_task_of_an_unknown_pool_refuses_the_package_and_records_the_reason() {
+            let registry = Arc::new(RefusalRecorder::default());
+            let check = Arc::new(KnownPools::default());
+            let reconciler = reconciler(registry.clone(), Some(check.clone()));
+            let metadata = make_test_metadata();
+            let namespaces = register(
+                &reconciler,
+                &[
+                    ("plain", TaskPlacement::default()),
+                    ("train_model", in_pool("gpu", "8Gi")),
+                ],
+            );
+
+            let err = reconciler
+                .check_task_placement(&metadata, &namespaces)
+                .await
+                .expect_err("the package is refused");
+            let message = err.to_string();
+            assert!(
+                message.contains("package test-pkg v1.0.0 is refused"),
+                "{message}"
+            );
+            assert!(message.contains("task 'train_model'"), "{message}");
+            assert!(message.contains("pool 'gpu'"), "{message}");
+
+            // The reason is on the package row, where a failed build is read.
+            let refused = registry.refused.lock().unwrap();
+            assert_eq!(refused.len(), 1);
+            assert_eq!(refused[0].0, metadata.id);
+            assert!(
+                refused[0].1.contains("task 'train_model'"),
+                "{}",
+                refused[0].1
+            );
+
+            // The check got the reconciler's tenant, and only the task that
+            // declares something.
+            let asked = check.asked.lock().unwrap();
+            assert_eq!(asked.len(), 1);
+            assert_eq!(asked[0].0, "acme");
+            assert_eq!(asked[0].1.len(), 1);
+            assert_eq!(asked[0].1[0].task_id, "train_model");
+        }
+
+        #[tokio::test]
+        async fn tasks_of_known_pools_pass_and_nothing_is_recorded() {
+            let registry = Arc::new(RefusalRecorder::default());
+            let check = Arc::new(KnownPools::default());
+            let reconciler = reconciler(registry.clone(), Some(check));
+            let namespaces = register(
+                &reconciler,
+                &[
+                    ("big", in_pool("large", "24Gi")),
+                    ("small", in_pool("default", "512Mi")),
+                ],
+            );
+            reconciler
+                .check_task_placement(&make_test_metadata(), &namespaces)
+                .await
+                .expect("the package loads");
+            assert!(registry.refused.lock().unwrap().is_empty());
+        }
+
+        /// A package from before placements (no pool, no request) is loaded
+        /// with no question asked.
+        #[tokio::test]
+        async fn a_package_that_declares_nothing_is_not_checked() {
+            let registry = Arc::new(RefusalRecorder::default());
+            let check = Arc::new(KnownPools::default());
+            let reconciler = reconciler(registry.clone(), Some(check.clone()));
+            let inline_only = TaskPlacement {
+                inline: true,
+                ..Default::default()
+            };
+            let namespaces = register(
+                &reconciler,
+                &[("a", TaskPlacement::default()), ("b", inline_only)],
+            );
+            reconciler
+                .check_task_placement(&make_test_metadata(), &namespaces)
+                .await
+                .expect("the package loads");
+            assert!(check.asked.lock().unwrap().is_empty());
+            assert!(registry.refused.lock().unwrap().is_empty());
+        }
+
+        /// A process with no check (an embedded runner, the daemon) loads
+        /// every package.
+        #[tokio::test]
+        async fn with_no_check_every_package_loads() {
+            let registry = Arc::new(RefusalRecorder::default());
+            let reconciler = reconciler(registry.clone(), None);
+            let namespaces = register(&reconciler, &[("train_model", in_pool("gpu", "8Gi"))]);
+            reconciler
+                .check_task_placement(&make_test_metadata(), &namespaces)
+                .await
+                .expect("the package loads");
+            assert!(registry.refused.lock().unwrap().is_empty());
+        }
+    }
+
     fn make_test_metadata() -> WorkflowMetadata {
         WorkflowMetadata {
             id: Uuid::new_v4(),
@@ -2741,6 +3116,7 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
             providers: Default::default(),
+            vendored: None,
         }
     }
 

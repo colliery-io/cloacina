@@ -34,9 +34,14 @@ use cloacina::task::TaskNamespace;
 pub struct CloacinaPythonRuntime;
 
 impl PythonRuntime for CloacinaPythonRuntime {
+    fn python_version(&self) -> Option<String> {
+        Some(crate::interpreter_version())
+    }
+
     fn load_workflow_package(
         &self,
         archive_data: &[u8],
+        vendored_set: Option<&[u8]>,
         staging_dir: &Path,
         tenant_id: &str,
         runtime: &Arc<Runtime>,
@@ -44,8 +49,9 @@ impl PythonRuntime for CloacinaPythonRuntime {
         std::fs::create_dir_all(staging_dir)
             .map_err(|e| format!("Failed to create Python staging dir: {}", e))?;
 
-        let extracted = crate::package_loader::extract_python_package(archive_data, staging_dir)
-            .map_err(|e| format!("Failed to extract Python package: {}", e))?;
+        let extracted =
+            crate::package_loader::extract_python_package(archive_data, vendored_set, staging_dir)
+                .map_err(|e| format!("Failed to extract Python package: {}", e))?;
 
         pyo3::Python::initialize();
         let task_namespaces: Vec<TaskNamespace> =
@@ -94,6 +100,7 @@ impl PythonRuntime for CloacinaPythonRuntime {
     fn load_cg_package(
         &self,
         archive_data: &[u8],
+        vendored_set: Option<&[u8]>,
         staging_dir: &Path,
         tenant_id: &str,
         graph_name: &str,
@@ -104,8 +111,9 @@ impl PythonRuntime for CloacinaPythonRuntime {
         std::fs::create_dir_all(staging_dir)
             .map_err(|e| format!("Failed to create Python CG staging dir: {}", e))?;
 
-        let extracted = crate::package_loader::extract_python_package(archive_data, staging_dir)
-            .map_err(|e| format!("Failed to extract Python CG package: {}", e))?;
+        let extracted =
+            crate::package_loader::extract_python_package(archive_data, vendored_set, staging_dir)
+                .map_err(|e| format!("Failed to extract Python CG package: {}", e))?;
 
         pyo3::Python::initialize();
         // CLOACI-T-0921: the packaged loader knows tenant + package at import

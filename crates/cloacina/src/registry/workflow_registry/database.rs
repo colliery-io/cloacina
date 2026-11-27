@@ -1356,6 +1356,42 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
+    /// Record that a built package is refused at load (CLOACINA-T-1027): its
+    /// task names an agent pool the tenant does not have, or requests more
+    /// than one agent of its pool can hold. The row goes from `success` to
+    /// `failed` with the reason in `build_error`, which is what the package
+    /// routes and `cloacinactl package inspect` show for a failed build.
+    ///
+    /// Only a `success` row is changed: a build in work is not touched.
+    /// Returns `true` when the row was changed.
+    pub async fn refuse_package(
+        &self,
+        package_id: Uuid,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let reason = reason.to_string();
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("success")),
+            )
+            .set((
+                workflow_packages::build_status.eq("failed"),
+                workflow_packages::build_error.eq(Some(reason)),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
     /// Flip a previously-built package back to `pending` so the compiler
     /// rebuilds it from its retained source (CLOACI-T-0835 — the post-upgrade
     /// recompile signal). Used by the reconciler when a load fails with a
@@ -1661,6 +1697,7 @@ mod tests {
             declared_params: vec![],
             declared_surfaces: vec![],
             task_docs: Default::default(),
+            python_platforms: None,
         }
     }
 
@@ -1847,6 +1884,103 @@ mod tests {
             .find(|t| t.local_id == "undocumented")
             .unwrap();
         assert!(undoc.doc_what.is_none() && undoc.doc_why.is_none());
+    }
+
+    /// CLOACINA-T-1073: the flow of a compiler that vendors a Python package.
+    /// The sets are stored during the build, the row's metadata says where the
+    /// package runs, and both survive the build-success write and the task
+    /// rewrite at load. A loader gets the set of its platform and no other.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_python_vendor_sets_survive_build_success_and_load() {
+        use crate::registry::traits::WorkflowRegistry;
+
+        let registry = create_test_registry().await;
+        let mut meta = sample_metadata("py-lock-pkg", "1.0.0");
+        meta.tasks = vec![];
+        let pkg_id = registry
+            .store_package_metadata(&Uuid::new_v4().to_string(), &meta)
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap();
+
+        let linux = vec!["aarch64-linux".to_string(), "x86_64-linux".to_string()];
+        registry
+            .store_python_vendor(
+                pkg_id,
+                "py-lock-pkg",
+                "1.0.0",
+                vec![
+                    ("aarch64-linux".to_string(), b"arm-set".to_vec()),
+                    ("x86_64-linux".to_string(), b"x86-set".to_vec()),
+                ],
+                Some(linux.clone()),
+            )
+            .await
+            .unwrap();
+        registry
+            .mark_build_success_with_docs(
+                pkg_id,
+                Vec::new(),
+                std::collections::HashMap::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .await
+            .unwrap();
+        registry
+            .persist_task_graph_db(pkg_id.into(), vec![("prepare".to_string(), vec![])])
+            .await
+            .unwrap();
+
+        let (_, retrieved, _) = registry
+            .get_package_metadata("py-lock-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(retrieved.python_platforms, Some(linux.clone()));
+        assert_eq!(
+            registry
+                .python_vendor_platforms("py-lock-pkg", "1.0.0")
+                .await
+                .unwrap(),
+            linux
+        );
+        assert_eq!(
+            registry
+                .get_python_vendor("py-lock-pkg", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            Some(b"x86-set".to_vec())
+        );
+        assert_eq!(
+            registry
+                .get_python_vendor("py-lock-pkg", "1.0.0", "aarch64-macos")
+                .await
+                .unwrap(),
+            None
+        );
+        // The set is not the library of the platform.
+        assert_eq!(
+            registry
+                .get_compiled_data_for_target("py-lock-pkg", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            None
+        );
+
+        // A later build of the same version that vendors nothing leaves no set.
+        registry
+            .clear_python_vendor("py-lock-pkg", "1.0.0")
+            .await
+            .unwrap();
+        assert_eq!(
+            registry
+                .get_python_vendor("py-lock-pkg", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[cfg(feature = "sqlite")]

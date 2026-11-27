@@ -55,6 +55,11 @@ impl<'a> TaskExecutionDAL<'a> {
                     max_attempts: new_task.max_attempts,
                     trigger_rules: new_task.trigger_rules,
                     task_configuration: new_task.task_configuration,
+                    // A row made here is not made by the planner, which is
+                    // the one that knows the task's placement.
+                    pool: None,
+                    cpu_request_millis: None,
+                    memory_request_bytes: None,
                     created_at: now,
                     updated_at: now,
                 };

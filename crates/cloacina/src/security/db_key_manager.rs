@@ -79,7 +79,7 @@ impl DbKeyManager {
     }
 
     /// Decodes a PEM-encoded Ed25519 public key to raw bytes.
-    fn decode_public_key_pem(pem_str: &str) -> Result<Vec<u8>, KeyError> {
+    pub fn decode_public_key_pem(pem_str: &str) -> Result<Vec<u8>, KeyError> {
         let pem = pem::parse(pem_str).map_err(|e| KeyError::InvalidPem(e.to_string()))?;
 
         if pem.tag() != ED25519_PEM_TAG {
@@ -202,11 +202,15 @@ impl KeyManager for DbKeyManager {
 
     async fn get_signing_key_info(
         &self,
+        org_id: UniversalUuid,
         key_id: UniversalUuid,
     ) -> Result<SigningKeyInfo, KeyError> {
+        // The org is part of the filter (CLOACINA-T-1060): a key of another
+        // org matches no row, and the caller gets `NotFound`.
         let key: UnifiedSigningKey = crate::interact_on_backend!(self.dal, |conn| {
             signing_keys::table
                 .filter(signing_keys::id.eq(key_id))
+                .filter(signing_keys::org_id.eq(org_id))
                 .first(conn)
         })
         .map_err(|e| {
@@ -222,12 +226,16 @@ impl KeyManager for DbKeyManager {
 
     async fn get_signing_key(
         &self,
+        org_id: UniversalUuid,
         key_id: UniversalUuid,
         master_key: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>), KeyError> {
+        // The org is part of the filter (CLOACINA-T-1060): a key of another
+        // org matches no row, and the caller gets `NotFound`.
         let key: UnifiedSigningKey = crate::interact_on_backend!(self.dal, |conn| {
             signing_keys::table
                 .filter(signing_keys::id.eq(key_id))
+                .filter(signing_keys::org_id.eq(org_id))
                 .first(conn)
         })
         .map_err(|e| {
@@ -249,8 +257,12 @@ impl KeyManager for DbKeyManager {
         Ok((key.public_key.into_inner(), private_key))
     }
 
-    async fn export_public_key(&self, key_id: UniversalUuid) -> Result<PublicKeyExport, KeyError> {
-        let info = self.get_signing_key_info(key_id).await?;
+    async fn export_public_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<PublicKeyExport, KeyError> {
+        let info = self.get_signing_key_info(org_id, key_id).await?;
 
         // Audit log: key exported
         audit::log_key_exported(key_id, &info.fingerprint);
@@ -319,15 +331,25 @@ impl KeyManager for DbKeyManager {
         self.trust_public_key(org_id, &public_key, name).await
     }
 
-    async fn revoke_signing_key(&self, key_id: UniversalUuid) -> Result<(), KeyError> {
+    async fn revoke_signing_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<(), KeyError> {
         // Get key info before revoking for audit logging
-        let key_info = self.get_signing_key_info(key_id).await?;
+        let key_info = self.get_signing_key_info(org_id, key_id).await?;
 
         let now = UniversalTimestamp::now();
+        // The org is part of the filter (CLOACINA-T-1059): a key of another
+        // org matches no row, and the caller gets `NotFound`.
         let updated = crate::interact_on_backend!(self.dal, |conn| {
-            diesel::update(signing_keys::table.filter(signing_keys::id.eq(key_id)))
-                .set(signing_keys::revoked_at.eq(Some(now)))
-                .execute(conn)
+            diesel::update(
+                signing_keys::table
+                    .filter(signing_keys::id.eq(key_id))
+                    .filter(signing_keys::org_id.eq(org_id)),
+            )
+            .set(signing_keys::revoked_at.eq(Some(now)))
+            .execute(conn)
         })
         .map_err(|e| KeyError::Database(e.to_string()))?;
 
@@ -346,12 +368,22 @@ impl KeyManager for DbKeyManager {
         Ok(())
     }
 
-    async fn revoke_trusted_key(&self, key_id: UniversalUuid) -> Result<(), KeyError> {
+    async fn revoke_trusted_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<(), KeyError> {
         let now = UniversalTimestamp::now();
+        // The org is part of the filter (CLOACINA-T-1037): a key that another
+        // org trusts matches no row, and the caller gets `NotFound`.
         let updated = crate::interact_on_backend!(self.dal, |conn| {
-            diesel::update(trusted_keys::table.filter(trusted_keys::id.eq(key_id)))
-                .set(trusted_keys::revoked_at.eq(Some(now)))
-                .execute(conn)
+            diesel::update(
+                trusted_keys::table
+                    .filter(trusted_keys::id.eq(key_id))
+                    .filter(trusted_keys::org_id.eq(org_id)),
+            )
+            .set(trusted_keys::revoked_at.eq(Some(now)))
+            .execute(conn)
         })
         .map_err(|e| KeyError::Database(e.to_string()))?;
 
@@ -501,6 +533,27 @@ impl KeyManager for DbKeyManager {
 // trait method; single-call twins were inlined directly into their trait method
 // via `interact_on_backend!`.
 impl DbKeyManager {
+    /// The keys that `org_id` trusts directly, the revoked ones included,
+    /// oldest first. No key inherited through a trust ACL.
+    ///
+    /// [`KeyManager::list_trusted_keys`] gives the keys a verification
+    /// accepts (live, with inherited ones); this gives the rows an org
+    /// manages, so a revoked key stays visible.
+    pub async fn list_org_trusted_keys(
+        &self,
+        org_id: UniversalUuid,
+    ) -> Result<Vec<TrustedKeyInfo>, KeyError> {
+        let keys: Vec<UnifiedTrustedKey> = crate::interact_on_backend!(self.dal, |conn| {
+            trusted_keys::table
+                .filter(trusted_keys::org_id.eq(org_id))
+                .order(trusted_keys::trusted_at.asc())
+                .load(conn)
+        })
+        .map_err(|e| KeyError::Database(e.to_string()))?;
+
+        Ok(keys.into_iter().map(Self::to_trusted_key_info).collect())
+    }
+
     async fn list_direct_trusted_keys(
         &self,
         org_id: UniversalUuid,
@@ -708,7 +761,7 @@ mod tests {
             .await
             .unwrap();
 
-        let fetched = km.get_signing_key_info(created.id).await.unwrap();
+        let fetched = km.get_signing_key_info(org_id, created.id).await.unwrap();
         assert_eq!(fetched.id, created.id);
         assert_eq!(fetched.key_name, "lookup-key");
         assert_eq!(fetched.fingerprint, created.fingerprint);
@@ -721,7 +774,9 @@ mod tests {
         let dal = unique_dal().await;
         let km = DbKeyManager::new(dal);
 
-        let result = km.get_signing_key_info(UniversalUuid::new_v4()).await;
+        let result = km
+            .get_signing_key_info(UniversalUuid::new_v4(), UniversalUuid::new_v4())
+            .await;
         assert!(matches!(result, Err(KeyError::NotFound(_))));
     }
 
@@ -737,7 +792,10 @@ mod tests {
             .await
             .unwrap();
 
-        let (pub_key, priv_key) = km.get_signing_key(info.id, &master_key()).await.unwrap();
+        let (pub_key, priv_key) = km
+            .get_signing_key(org_id, info.id, &master_key())
+            .await
+            .unwrap();
         assert_eq!(pub_key, info.public_key);
         assert_eq!(priv_key.len(), 32);
     }
@@ -755,7 +813,7 @@ mod tests {
             .unwrap();
 
         let wrong_key = [1u8; 32];
-        let result = km.get_signing_key(info.id, &wrong_key).await;
+        let result = km.get_signing_key(org_id, info.id, &wrong_key).await;
         assert!(matches!(result, Err(KeyError::Decryption(_))));
     }
 
@@ -771,9 +829,9 @@ mod tests {
             .await
             .unwrap();
 
-        km.revoke_signing_key(info.id).await.unwrap();
+        km.revoke_signing_key(org_id, info.id).await.unwrap();
 
-        let result = km.get_signing_key(info.id, &master_key()).await;
+        let result = km.get_signing_key(org_id, info.id, &master_key()).await;
         assert!(matches!(result, Err(KeyError::Revoked(_))));
     }
 
@@ -819,9 +877,9 @@ mod tests {
             .unwrap();
         assert!(info.is_active());
 
-        km.revoke_signing_key(info.id).await.unwrap();
+        km.revoke_signing_key(org_id, info.id).await.unwrap();
 
-        let fetched = km.get_signing_key_info(info.id).await.unwrap();
+        let fetched = km.get_signing_key_info(org_id, info.id).await.unwrap();
         assert!(!fetched.is_active());
         assert!(fetched.revoked_at.is_some());
     }
@@ -832,8 +890,130 @@ mod tests {
         let dal = unique_dal().await;
         let km = DbKeyManager::new(dal);
 
-        let result = km.revoke_signing_key(UniversalUuid::new_v4()).await;
+        let result = km
+            .revoke_signing_key(UniversalUuid::new_v4(), UniversalUuid::new_v4())
+            .await;
         assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    /// CLOACINA-T-1059: an org cannot revoke a signing key of another org.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_signing_key_of_another_org_is_refused() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let owner_org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(owner_org, "owner-key", &master_key())
+            .await
+            .unwrap();
+
+        let result = km.revoke_signing_key(other_org, info.id).await;
+        assert!(
+            matches!(result, Err(KeyError::NotFound(id)) if id == info.id),
+            "another org revoked the key: {result:?}"
+        );
+
+        // The key is still active, and its own org can still sign with it.
+        let fetched = km.get_signing_key_info(owner_org, info.id).await.unwrap();
+        assert!(fetched.is_active(), "the key of the other org was revoked");
+        km.get_signing_key(owner_org, info.id, &master_key())
+            .await
+            .unwrap();
+
+        // Its own org can revoke it.
+        km.revoke_signing_key(owner_org, info.id).await.unwrap();
+        let fetched = km.get_signing_key_info(owner_org, info.id).await.unwrap();
+        assert!(!fetched.is_active());
+    }
+
+    /// CLOACINA-T-1060: an org cannot read the info of a signing key of
+    /// another org.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_info_of_another_org_is_refused() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let owner_org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(owner_org, "owner-key", &master_key())
+            .await
+            .unwrap();
+
+        let result = km.get_signing_key_info(other_org, info.id).await;
+        assert!(
+            matches!(result, Err(KeyError::NotFound(id)) if id == info.id),
+            "another org read the key info: {result:?}"
+        );
+
+        // Its own org still reads it.
+        let fetched = km.get_signing_key_info(owner_org, info.id).await.unwrap();
+        assert_eq!(fetched.id, info.id);
+    }
+
+    /// CLOACINA-T-1060: an org cannot get the private key of a signing key
+    /// of another org, even with the master key.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_of_another_org_is_refused() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let owner_org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(owner_org, "owner-key", &master_key())
+            .await
+            .unwrap();
+
+        let result = km
+            .get_signing_key(other_org, info.id, &master_key())
+            .await
+            .map(|_| "the key pair");
+        assert!(
+            matches!(result, Err(KeyError::NotFound(id)) if id == info.id),
+            "another org got the signing key: {result:?}"
+        );
+
+        // Its own org still gets it.
+        let (pub_key, _) = km
+            .get_signing_key(owner_org, info.id, &master_key())
+            .await
+            .unwrap();
+        assert_eq!(pub_key, info.public_key);
+    }
+
+    /// CLOACINA-T-1060: an org cannot export the public key of a signing key
+    /// of another org.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_export_public_key_of_another_org_is_refused() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let owner_org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(owner_org, "owner-key", &master_key())
+            .await
+            .unwrap();
+
+        let result = km
+            .export_public_key(other_org, info.id)
+            .await
+            .map(|e| e.fingerprint);
+        assert!(
+            matches!(result, Err(KeyError::NotFound(id)) if id == info.id),
+            "another org exported the public key: {result:?}"
+        );
+
+        // Its own org still exports it.
+        let export = km.export_public_key(owner_org, info.id).await.unwrap();
+        assert_eq!(export.fingerprint, info.fingerprint);
     }
 
     #[cfg(feature = "sqlite")]
@@ -848,7 +1028,7 @@ mod tests {
             .await
             .unwrap();
 
-        let export = km.export_public_key(info.id).await.unwrap();
+        let export = km.export_public_key(org_id, info.id).await.unwrap();
         assert_eq!(export.fingerprint, info.fingerprint);
         assert_eq!(export.public_key_raw, info.public_key);
         assert!(export.public_key_pem.contains("-----BEGIN PUBLIC KEY-----"));
@@ -956,7 +1136,7 @@ mod tests {
             .await
             .unwrap();
 
-        km.revoke_trusted_key(trusted.id).await.unwrap();
+        km.revoke_trusted_key(org_id, trusted.id).await.unwrap();
 
         // Revoked keys should not appear in list (list filters revoked)
         let keys = km.list_trusted_keys(org_id).await.unwrap();
@@ -969,8 +1149,83 @@ mod tests {
         let dal = unique_dal().await;
         let km = DbKeyManager::new(dal);
 
-        let result = km.revoke_trusted_key(UniversalUuid::new_v4()).await;
+        let result = km
+            .revoke_trusted_key(UniversalUuid::new_v4(), UniversalUuid::new_v4())
+            .await;
         assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    /// CLOACINA-T-1061: the list an org manages holds its own keys only, and
+    /// keeps a revoked key, marked.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_org_trusted_keys_keeps_revoked_and_leaves_other_orgs_out() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let live = crate::crypto::generate_signing_keypair();
+        let gone = crate::crypto::generate_signing_keypair();
+        let foreign = crate::crypto::generate_signing_keypair();
+        let live_key = km
+            .trust_public_key(org, &live.public_key, Some("live"))
+            .await
+            .unwrap();
+        let gone_key = km
+            .trust_public_key(org, &gone.public_key, Some("gone"))
+            .await
+            .unwrap();
+        km.trust_public_key(other_org, &foreign.public_key, None)
+            .await
+            .unwrap();
+        // A trust ACL does not put the child's keys in the list.
+        km.grant_trust(org, other_org).await.unwrap();
+        km.revoke_trusted_key(org, gone_key.id).await.unwrap();
+
+        let keys = km.list_org_trusted_keys(org).await.unwrap();
+        assert_eq!(keys.len(), 2);
+        let by_id = |id| keys.iter().find(|k| k.id == id).expect("key in the list");
+        assert!(by_id(live_key.id).is_active());
+        assert!(!by_id(gone_key.id).is_active());
+
+        // The list a verification uses leaves the revoked key out.
+        let accepted = km.list_trusted_keys(org).await.unwrap();
+        assert!(accepted.iter().all(|k| k.id != gone_key.id));
+    }
+
+    /// CLOACINA-T-1037: an org cannot revoke a key that another org trusts.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_trusted_key_of_another_org_is_refused() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let owner_org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        let trusted = km
+            .trust_public_key(owner_org, &kp.public_key, Some("owner-key"))
+            .await
+            .unwrap();
+
+        let result = km.revoke_trusted_key(other_org, trusted.id).await;
+        assert!(matches!(result, Err(KeyError::NotFound(id)) if id == trusted.id));
+
+        // The key is still trusted by its own org.
+        let found = km
+            .find_trusted_key(owner_org, &trusted.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_some(), "the key of the other org was revoked");
+
+        // Its own org can revoke it.
+        km.revoke_trusted_key(owner_org, trusted.id).await.unwrap();
+        let found = km
+            .find_trusted_key(owner_org, &trusted.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_none());
     }
 
     #[cfg(feature = "sqlite")]
@@ -1021,7 +1276,7 @@ mod tests {
             .await
             .unwrap();
 
-        km.revoke_trusted_key(trusted.id).await.unwrap();
+        km.revoke_trusted_key(org_id, trusted.id).await.unwrap();
 
         let found = km
             .find_trusted_key(org_id, &trusted.fingerprint)
@@ -1124,7 +1379,7 @@ mod tests {
             .unwrap();
 
         // Decrypt the keypair
-        let (pub_key, priv_key) = km.get_signing_key(info.id, &mk).await.unwrap();
+        let (pub_key, priv_key) = km.get_signing_key(org_id, info.id, &mk).await.unwrap();
 
         // Sign some data
         let data = b"important payload";
@@ -1149,7 +1404,7 @@ mod tests {
             .create_signing_key(org_a, "exportable", &mk)
             .await
             .unwrap();
-        let export = km.export_public_key(info.id).await.unwrap();
+        let export = km.export_public_key(org_a, info.id).await.unwrap();
 
         // Org B imports the public key via PEM
         let trusted = km
@@ -1172,7 +1427,7 @@ mod tests {
             .create_signing_key(org_id, "will-revoke", &master_key())
             .await
             .unwrap();
-        km.revoke_signing_key(key.id).await.unwrap();
+        km.revoke_signing_key(org_id, key.id).await.unwrap();
 
         // list_signing_keys returns all keys including revoked
         let keys = km.list_signing_keys(org_id).await.unwrap();

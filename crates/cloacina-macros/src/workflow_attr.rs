@@ -885,6 +885,7 @@ fn generate_embedded_registration(
                         fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
                         fn requires_handle(&self) -> bool { self.inner.requires_handle() }
                         fn timeout(&self) -> Option<std::time::Duration> { self.inner.timeout() }
+                        fn placement(&self) -> cloacina_workflow::TaskPlacement { self.inner.placement() }
                     }
 
                     workflow.add_task(std::sync::Arc::new(TaskWithNamespacedTriggers {
@@ -1207,6 +1208,9 @@ fn build_task_inventory_entries(
                             }
                             fn timeout(&self) -> Option<std::time::Duration> {
                                 self.inner.timeout()
+                            }
+                            fn placement(&self) -> cloacina_workflow::TaskPlacement {
+                                self.inner.placement()
                             }
                         }
 

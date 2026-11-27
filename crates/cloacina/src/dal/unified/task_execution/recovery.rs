@@ -302,6 +302,80 @@ mod tests {
         assert!(!failed);
     }
 
+    // ── mark_failed: message and details (CLOACINA-T-1024) ─────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn mark_failed_stores_the_details_apart_from_the_message() {
+        let dal = unique_dal().await;
+        let workflow_id = create_workflow(&dal).await;
+        let task_id = create_task(&dal, workflow_id, "py_fail", "NotStarted", 1, 1).await;
+
+        let text = crate::task_logs::with_error_details(
+            "Task execution failed: ValueError: boom",
+            "Traceback (most recent call last):\n  File \"t.py\", line 3, in load\nValueError: boom",
+        );
+        dal.task_execution()
+            .mark_failed(task_id, &text, None)
+            .await
+            .unwrap();
+
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.status, "Failed");
+        assert_eq!(
+            task.last_error.as_deref(),
+            Some("Task execution failed: ValueError: boom")
+        );
+        let details = task.error_details.expect("the traceback is kept");
+        assert!(details.starts_with("Traceback (most recent call last):"));
+        assert!(details.ends_with("ValueError: boom"));
+
+        // The event holds the message only.
+        let events = dal
+            .execution_event()
+            .list_by_workflow(workflow_id)
+            .await
+            .unwrap();
+        let failed = events
+            .iter()
+            .find(|e| e.event_type == "task_failed")
+            .expect("a task_failed event");
+        let data = failed.event_data.as_deref().unwrap();
+        assert!(data.contains("ValueError: boom"));
+        assert!(!data.contains("Traceback"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn mark_failed_with_no_details_keeps_the_column() {
+        let dal = unique_dal().await;
+        let workflow_id = create_workflow(&dal).await;
+        let task_id = create_task(&dal, workflow_id, "plain_fail", "NotStarted", 1, 1).await;
+
+        dal.task_execution()
+            .mark_failed(task_id, "something broke", None)
+            .await
+            .unwrap();
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.last_error.as_deref(), Some("something broke"));
+        assert_eq!(task.error_details, None);
+
+        // A value another write put there (an abandon reason) is not lost.
+        dal.task_execution()
+            .mark_abandoned(task_id, "runner gone")
+            .await
+            .unwrap();
+        dal.task_execution()
+            .mark_failed(task_id, "late report", None)
+            .await
+            .unwrap();
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(
+            task.error_details.as_deref(),
+            Some("ABANDONED: runner gone")
+        );
+    }
+
     // ── get_retry_stats ────────────────────────────────────────────
 
     #[cfg(feature = "sqlite")]

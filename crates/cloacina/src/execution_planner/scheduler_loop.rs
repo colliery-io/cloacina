@@ -104,6 +104,10 @@ pub struct SchedulerLoop<'a> {
     /// When the waiting-task gauges were last read. `None` before the first
     /// read. A mutex because `process_active_executions` takes `&self`.
     waiting_gauge_read_at: std::sync::Mutex<Option<std::time::Instant>>,
+    /// The pools the waiting-task gauges were set for (CLOACINA-T-1027). A
+    /// pool whose last waiting task left gets a zero once more, or its series
+    /// would keep the last value.
+    waiting_gauge_pools: std::sync::Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl<'a> SchedulerLoop<'a> {
@@ -124,6 +128,7 @@ impl<'a> SchedulerLoop<'a> {
             shutdown_rx: None,
             consecutive_errors: 0,
             waiting_gauge_read_at: std::sync::Mutex::new(None),
+            waiting_gauge_pools: std::sync::Mutex::new(std::collections::BTreeSet::new()),
         }
     }
 
@@ -220,13 +225,37 @@ impl<'a> SchedulerLoop<'a> {
             }
             *read_at = Some(std::time::Instant::now());
         }
-        match self.dal.task_execution().waiting_task_stats().await {
+        // CLOACINA-T-1027: one series per pool. The pool `default` always has
+        // one, so a tenant with no pools reads as before with `pool="default"`.
+        match self.dal.task_execution().waiting_task_stats_by_pool().await {
             Ok(stats) => {
                 let tenant = self.dal.tenant_label().to_string();
-                metrics::gauge!("cloacina_waiting_tasks", "tenant" => tenant.clone())
-                    .set(stats.count as f64);
-                metrics::gauge!("cloacina_oldest_waiting_task_age_seconds", "tenant" => tenant)
-                    .set(stats.oldest_age_seconds(chrono::Utc::now()));
+                let now = chrono::Utc::now();
+                let mut pools = self
+                    .waiting_gauge_pools
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                pools.insert(cloacina_api_types::DEFAULT_AGENT_POOL.to_string());
+                pools.extend(stats.iter().map(|p| p.pool.clone()));
+                for pool in pools.iter() {
+                    let (count, age) = stats
+                        .iter()
+                        .find(|p| &p.pool == pool)
+                        .map(|p| (p.waiting.count as f64, p.waiting.oldest_age_seconds(now)))
+                        .unwrap_or((0.0, 0.0));
+                    metrics::gauge!(
+                        "cloacina_waiting_tasks",
+                        "tenant" => tenant.clone(),
+                        "pool" => pool.clone()
+                    )
+                    .set(count);
+                    metrics::gauge!(
+                        "cloacina_oldest_waiting_task_age_seconds",
+                        "tenant" => tenant.clone(),
+                        "pool" => pool.clone()
+                    )
+                    .set(age);
+                }
             }
             Err(e) => {
                 warn!("failed to read waiting tasks for gauges: {}", e);
@@ -727,12 +756,18 @@ mod gauge_label_tests {
     #[test]
     fn waiting_gauges_carry_the_tenant_label_and_count_ready_tasks() {
         let gauges = gauges_after_one_pass(2);
+        // CLOACINA-T-1027: the waiting gauges also carry the `pool` label. A
+        // task with no pool is in `default`.
+        let default_pool = vec![
+            ("pool".to_string(), "default".to_string()),
+            ("tenant".to_string(), "public".to_string()),
+        ];
         assert_eq!(
             series(&gauges, "cloacina_waiting_tasks"),
-            (tenant_public(), 2.0)
+            (default_pool.clone(), 2.0)
         );
         let (labels, age) = series(&gauges, "cloacina_oldest_waiting_task_age_seconds");
-        assert_eq!(labels, tenant_public());
+        assert_eq!(labels, default_pool);
         assert!((0.0..60.0).contains(&age), "age was {age}");
     }
 }

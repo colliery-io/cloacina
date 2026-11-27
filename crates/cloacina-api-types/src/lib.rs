@@ -45,9 +45,11 @@ pub mod instances;
 pub mod keys;
 pub mod operations;
 pub mod reactor;
+pub mod resources;
 pub mod secrets;
 pub mod tenants;
 pub mod triggers;
+pub mod trusted_keys;
 pub mod workflows;
 
 pub use audit::{AuditEventInfo, AuditListResponse, ListAuditQuery};
@@ -83,6 +85,10 @@ pub use reactor::{
     FireMode, FireReactorRequest, FireReactorResponse, InjectAccumulatorRequest,
     InjectAccumulatorResponse, ReactorCommand, ReactorResponse,
 };
+pub use resources::{
+    MAX_POOL_NAME_LEN, Quantity, TaskPlacement, parse_cpu_millis, parse_memory_bytes,
+    validate_pool_name,
+};
 pub use secrets::{
     CreateSecretRequest, RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse,
 };
@@ -94,6 +100,7 @@ pub use triggers::{
     TriggerDetailResponse, TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo,
     TriggerScheduleSummary,
 };
+pub use trusted_keys::{AddTrustedKeyRequest, TrustedKeyRevokedResponse, TrustedKeySummary};
 pub use workflows::{
     WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
     WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,

@@ -56,13 +56,16 @@ struct Cli {
     #[arg(long, env = "CLOACINA_BOOTSTRAP_KEY")]
     bootstrap_key: Option<String>,
 
-    /// Require package signatures for workflow uploads.
+    /// Require package signatures for workflow uploads. The signer must be a
+    /// trusted key of the tenant, or of `--verification-org-id` if one is set.
     #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
     require_signatures: bool,
 
-    /// Trusted organization id (UUID) used to verify package signatures.
-    /// Required when `--require-signatures` is set; otherwise startup fails fast.
-    /// CLOACI-I-0103 / T-0567.
+    /// Server-wide trusted organization id (UUID). With `--require-signatures`,
+    /// an upload is checked against the trusted keys of its tenant first, then
+    /// against the keys of this organization: a key in it is trusted for every
+    /// tenant. Optional: with none, each tenant trusts only its own keys
+    /// (CLOACINA-A-0018).
     #[arg(long, env = "CLOACINA_VERIFICATION_ORG_ID")]
     verification_org_id: Option<Uuid>,
 
@@ -96,6 +99,21 @@ struct Cli {
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
 
+    /// Format of the server's log lines on stderr: `text`, or `json` (one
+    /// JSON object per line, for a log stack). The log file under `--home`
+    /// is JSON in both. In `json`, a line written while a task runs in the
+    /// server has the task's ids under `span` (CLOACINA-T-1024).
+    #[arg(long, env = "CLOACINA_LOG_FORMAT", default_value_t)]
+    log_format: cloacina::task_logs::LogFormat,
+
+    /// Template of the URL of a task's logs in your log stack
+    /// (CLOACINA-T-1024). The placeholders `{tenant}`, `{execution_id}`,
+    /// `{task}` and `{attempt}` are filled in for each task, URL-encoded.
+    /// The task API then gives `log_url`, and the UI shows a link. Not set =
+    /// no link.
+    #[arg(long, env = "CLOACINA_TASK_LOG_URL_TEMPLATE")]
+    task_log_url_template: Option<String>,
+
     /// Days to keep a finished workflow run (status Completed, Failed or
     /// Cancelled) in the database, counted from when it finished. A
     /// background job then deletes the run with its task executions, task
@@ -107,13 +125,12 @@ struct Cli {
     #[arg(long, env = "CLOACINA_RUN_HISTORY_RETENTION_DAYS", default_value_t = 0)]
     run_history_retention_days: u64,
 
-    /// Seconds to keep a `delivery_outbox` row after it was acked. `0` turns
-    /// this off (keep for ever). Default 3600. CLOACINA-T-1023.
-    #[arg(
-        long,
-        env = "CLOACINA_OUTBOX_ACKED_RETENTION_S",
-        default_value_t = 3600
-    )]
+    /// Seconds to keep a `delivery_outbox` row after it was acked. A
+    /// background job then deletes the row. `0` (the default) keeps acked
+    /// rows for ever: an operator must set a period to turn the deletes on,
+    /// and until then `delivery_outbox` grows with each delivered message.
+    /// CLOACINA-T-1023, CLOACINA-T-1092.
+    #[arg(long, env = "CLOACINA_OUTBOX_ACKED_RETENTION_S", default_value_t = 0)]
     outbox_acked_retention_s: u64,
 
     /// Seconds between passes of the retention job. Default 300.
@@ -170,6 +187,42 @@ struct Cli {
         default_value_t = cloacina_server::fleet_executor::FleetTaskTimeLimits::DEFAULT_MAX_SECONDS
     )]
     fleet_task_timeout_max_s: u64,
+
+    /// How long (seconds) a fleet task waits, per attempt, while agents cannot
+    /// fetch its package artifact. The time counts from the first refused
+    /// fetch of the attempt; the task is dispatched again after a delay (2 s,
+    /// growing to 30 s) and uses no retry attempt. After the limit the
+    /// attempt fails with an error that names the artifact fetch. 0: the
+    /// first failed fetch fails the attempt. Default 300. CLOACINA-T-1064.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S",
+        default_value_t = cloacina_server::fleet_executor::DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS
+    )]
+    fleet_artifact_fetch_wait_s: u64,
+
+    /// Size in bytes above which the context a task returns, or the context
+    /// built for a task, is logged as a warning and counted in
+    /// `cloacina_context_size_warnings_total`. 0 turns the warning off.
+    /// Default 1048576 (1 MiB). CLOACINA-T-1047.
+    #[arg(
+        long,
+        env = "CLOACINA_CONTEXT_WARN_BYTES",
+        default_value_t = cloacina::executor::context_size::DEFAULT_CONTEXT_WARN_BYTES
+    )]
+    context_warn_bytes: u64,
+
+    /// Largest size in bytes of a task context. A task whose result context
+    /// or input context is larger fails with the size, the limit and the
+    /// largest keys in the error, and is not retried. One setting for the
+    /// whole server. 0 turns the limit off. Default 16777216 (16 MiB).
+    /// CLOACINA-T-1047.
+    #[arg(
+        long,
+        env = "CLOACINA_CONTEXT_MAX_BYTES",
+        default_value_t = cloacina::executor::context_size::DEFAULT_CONTEXT_MAX_BYTES
+    )]
+    context_max_bytes: u64,
 
     /// CORS allowed origins, comma-separated (e.g.
     /// `https://ops.example.com,https://ui.example.com`, or `*` for any).
@@ -244,6 +297,29 @@ struct Cli {
     #[arg(long, env = "CLOACINA_DATABASE_WAIT_TIMEOUT_S", default_value_t = 60)]
     database_wait_timeout_s: u64,
 
+    /// The largest package archive, in bytes, that an upload accepts. A
+    /// larger upload is refused with status 413 and an error that names the
+    /// size and this limit. Default: 104857600 (100 MiB). A Python package
+    /// carries its vendored dependencies, one folder per platform.
+    /// CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_PACKAGE_BYTES",
+        default_value_t = cloacina_server::upload_limit::DEFAULT_MAX_PACKAGE_BYTES
+    )]
+    max_package_bytes: u64,
+
+    /// The largest size, in bytes, that a package archive may unpack to.
+    /// The server refuses an
+    /// upload that unpacks to more, and so does its package loader. Default: 524288000 (500 MiB). The limits of 10,000 entries and
+    /// of 10 times the archive size stay. CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_UNPACKED_BYTES",
+        default_value_t = cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
+    )]
+    max_unpacked_bytes: u64,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -312,6 +388,26 @@ async fn main() -> Result<()> {
         cloacina_server::alerts::install(config);
     }
 
+    // The package upload limit (CLOACINA-T-1048).
+    cloacina_server::upload_limit::set_max_package_bytes(cli.max_package_bytes)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
+        cli.max_unpacked_bytes,
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+
+    // CLOACINA-T-1024: the console log format and the task log link.
+    cloacina_server::task_logs::set_log_format(cli.log_format);
+    if let Some(template) = cli
+        .task_log_url_template
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+    {
+        let template = cloacina_server::task_logs::TaskLogUrlTemplate::parse(template)
+            .map_err(|e| anyhow::anyhow!("--task-log-url-template: {e}"))?;
+        cloacina_server::task_logs::install_url_template(template);
+    }
+
     // Fail at start on limits the server cannot run with (CLOACINA-T-1014).
     let fleet_task_time_limits =
         cloacina_server::fleet_executor::FleetTaskTimeLimits::from_seconds(
@@ -337,6 +433,11 @@ async fn main() -> Result<()> {
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
         fleet_task_time_limits,
+        std::time::Duration::from_secs(cli.fleet_artifact_fetch_wait_s),
+        cloacina::executor::ContextSizeLimits {
+            warn_bytes: cli.context_warn_bytes,
+            max_bytes: cli.context_max_bytes,
+        },
         cloacina_server::CorsConfig {
             allowed_origins: cli.cors_allowed_origins,
             allowed_methods: cli.cors_allowed_methods,
@@ -350,4 +451,55 @@ async fn main() -> Result<()> {
         std::time::Duration::from_secs(cli.database_wait_timeout_s),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+    use cloacina_server::retention::RetentionConfig;
+
+    fn retention_of(args: &[&str]) -> RetentionConfig {
+        let cli = Cli::try_parse_from(args).unwrap();
+        RetentionConfig::from_flags(
+            cli.run_history_retention_days,
+            cli.outbox_acked_retention_s,
+            cli.retention_interval_s,
+        )
+    }
+
+    // CLOACINA-T-1092: with no retention flag nothing is deleted, and the
+    // retention job does not start.
+    #[test]
+    fn retention_flags_are_off_by_default() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.outbox_acked_retention_s, 0);
+        assert_eq!(cli.run_history_retention_days, 0);
+
+        let cfg = retention_of(&["cloacina-server"]);
+        assert_eq!(cfg, RetentionConfig::default());
+        assert_eq!(cfg.outbox_acked, None);
+        assert!(!cfg.enabled());
+    }
+
+    #[test]
+    fn outbox_acked_retention_flag_turns_the_cleanup_on() {
+        let cfg = retention_of(&["cloacina-server", "--outbox-acked-retention-s", "3600"]);
+        assert_eq!(
+            cfg.outbox_acked,
+            Some(std::time::Duration::from_secs(3_600))
+        );
+        assert!(cfg.enabled());
+    }
+
+    // CLOACINA-T-1048: the unpack limit is a setting next to the upload limit.
+    #[test]
+    fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 524_288_000);
+        assert_eq!(cli.max_package_bytes, 104_857_600);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--max-unpacked-bytes", "1073741824"]).unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 1_073_741_824);
+    }
 }

@@ -619,6 +619,15 @@ def s8_no_exec(world):
     world.note(f"what else the task's key opens (the agent's key, present in the task's "
                f"environment: {report.get('agent_key_present')}): {brief}")
     assert ex.get("status") in (403, 404, None), f"the task read team B's executions: {ex}"
+    # CLOACINA-T-1055: the agent's key has the role `agent`. It opens the agent
+    # routes and nothing else: not its own tenant's packages, secrets or keys,
+    # and no platform route. A field has no status when the key is not in the
+    # task's environment at all.
+    outside_the_agent_set = ("list_own_workflows", "list_own_secrets", "list_own_keys",
+                             "list_all_tenants", "list_all_agents", "compiler_status")
+    opened = {field: report.get(field, {}).get("status") for field in outside_the_agent_set
+              if report.get(field, {}).get("status") not in (403, None)}
+    assert not opened, f"the agent's key opened routes outside the agent set: {opened}"
 
 
 @steps.then("the task found nothing of team B in its environment or on its disk")

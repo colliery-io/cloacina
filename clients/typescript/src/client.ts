@@ -72,6 +72,17 @@ export type RotateSecretBody = schemas["RotateSecretRequest"];
 /** `{items, total}` envelope for the secret metadata list. */
 export type SecretListResponse = schemas["ListResponse_SecretMetadataResponse"];
 
+// ---- trusted keys of package signing ----
+
+/** One trusted key of a tenant: id, fingerprint, name, and whether it is revoked. */
+export type TrustedKey = schemas["TrustedKeySummary"];
+
+/** Add body: the public key as PEM or as hex (exactly one), and an optional name. */
+export type AddTrustedKeyBody = schemas["AddTrustedKeyRequest"];
+
+/** `{items, total}` envelope for the trusted key list. */
+export type TrustedKeyListResponse = schemas["ListResponse_TrustedKeySummary"];
+
 /** Error thrown by the ergonomic helpers when the server returns non-2xx. */
 export class CloacinaApiError extends Error {
   readonly status: number;
@@ -373,6 +384,45 @@ export class CloacinaClient {
     return unwrap(
       await this.api.DELETE("/v1/tenants/{tenant_id}/secrets/{name}", {
         params: { path: { tenant_id: this.#tenant(tenant), name } },
+      }),
+    );
+  }
+
+  // ---- trusted keys of package signing ----
+  //
+  // The keys a tenant trusts. A tenant admin manages its own tenant's keys;
+  // a platform admin names the tenant.
+
+  /** List the tenant's trusted keys. A revoked key stays in the list. */
+  async listTrustedKeys(tenant?: string): Promise<TrustedKeyListResponse> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/trusted-keys", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+      }),
+    );
+  }
+
+  /** Add an Ed25519 public key (PEM, or the raw key as hex) to the tenant's trusted keys. */
+  async addTrustedKey(
+    body: AddTrustedKeyBody,
+    tenant?: string,
+  ): Promise<TrustedKey> {
+    return unwrap(
+      await this.api.POST("/v1/tenants/{tenant_id}/trusted-keys", {
+        params: { path: { tenant_id: this.#tenant(tenant) } },
+        body,
+      }),
+    );
+  }
+
+  /** Revoke a trusted key of the tenant, by its id. */
+  async revokeTrustedKey(
+    keyId: string,
+    tenant?: string,
+  ): Promise<schemas["TrustedKeyRevokedResponse"]> {
+    return unwrap(
+      await this.api.DELETE("/v1/tenants/{tenant_id}/trusted-keys/{key_id}", {
+        params: { path: { tenant_id: this.#tenant(tenant), key_id: keyId } },
       }),
     );
   }

@@ -55,6 +55,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             workflow_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
+            context_size_bytes: new_metadata.context_size_bytes,
             created_at: now,
             updated_at: now,
         };
@@ -158,12 +159,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             workflow_execution_id: new_metadata.workflow_execution_id,
             task_name: new_metadata.task_name,
             context_id: new_metadata.context_id,
+            context_size_bytes: new_metadata.context_size_bytes,
             created_at: now,
             updated_at: now,
         };
 
         let task_exec_id = new_unified.task_execution_id;
         let context_id = new_unified.context_id;
+        let context_size_bytes = new_unified.context_size_bytes;
 
         let result: UnifiedTaskExecutionMetadata = conn
             .interact(move |conn| {
@@ -173,6 +176,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                     .do_update()
                     .set((
                         task_execution_metadata::context_id.eq(context_id),
+                        task_execution_metadata::context_size_bytes.eq(context_size_bytes),
                         task_execution_metadata::updated_at.eq(now),
                     ))
                     .execute(conn)?;
@@ -218,6 +222,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 // Update existing record
                 let task_exec_id = new_metadata.task_execution_id;
                 let context_id = new_metadata.context_id;
+                let context_size_bytes = new_metadata.context_size_bytes;
                 let now = UniversalTimestamp::now();
 
                 conn.interact(move |conn| {
@@ -225,6 +230,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                         .filter(task_execution_metadata::task_execution_id.eq(task_exec_id))
                         .set((
                             task_execution_metadata::context_id.eq(context_id),
+                            task_execution_metadata::context_size_bytes.eq(context_size_bytes),
                             task_execution_metadata::updated_at.eq(now),
                         ))
                         .execute(conn)
@@ -256,6 +262,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                     workflow_execution_id: new_metadata.workflow_execution_id,
                     task_name: new_metadata.task_name,
                     context_id: new_metadata.context_id,
+                    context_size_bytes: new_metadata.context_size_bytes,
                     created_at: now,
                     updated_at: now,
                 };
@@ -276,6 +283,30 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 Ok(result.into())
             }
         }
+    }
+
+    /// The size in bytes of the context each task of a workflow execution
+    /// returned, by task execution id (CLOACINA-T-1047). A task with no saved
+    /// context has no entry.
+    pub async fn context_sizes_for_workflow(
+        &self,
+        workflow_id: UniversalUuid,
+    ) -> Result<std::collections::HashMap<UniversalUuid, i64>, ValidationError> {
+        let rows: Vec<(UniversalUuid, Option<i64>)> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                task_execution_metadata::table
+                    .filter(task_execution_metadata::workflow_execution_id.eq(workflow_id))
+                    .select((
+                        task_execution_metadata::task_execution_id,
+                        task_execution_metadata::context_size_bytes,
+                    ))
+                    .load(conn)
+            })?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, size)| size.map(|s| (id, s)))
+            .collect())
     }
 
     /// Retrieves metadata for multiple dependency tasks within a workflow execution.
@@ -402,6 +433,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "my_task".into(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -431,6 +463,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "ctx_task".into(),
                 context_id: Some(ctx_id),
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -454,6 +487,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: ns_str.clone(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -494,6 +528,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "exec_lookup".into(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -522,6 +557,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "update_ctx".into(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -562,6 +598,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "clear_ctx".into(),
                 context_id: Some(ctx_id),
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -595,6 +632,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "upsert_new".into(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -617,6 +655,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "upsert_upd".into(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -635,6 +674,7 @@ mod tests {
                 workflow_execution_id: workflow_id,
                 task_name: "upsert_upd".into(),
                 context_id: Some(ctx_id),
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -683,6 +723,7 @@ mod tests {
                     workflow_execution_id: wf_exec.id,
                     task_name: name.to_string(),
                     context_id: None,
+                    context_size_bytes: None,
                 })
                 .await
                 .unwrap();
@@ -767,6 +808,7 @@ mod tests {
                 workflow_execution_id: wf_exec.id,
                 task_name: "public::embedded::wf::has_ctx".into(),
                 context_id: Some(ctx_id),
+                context_size_bytes: None,
             })
             .await
             .unwrap();
@@ -792,6 +834,7 @@ mod tests {
                 workflow_execution_id: wf_exec.id,
                 task_name: "public::embedded::wf::no_ctx".into(),
                 context_id: None,
+                context_size_bytes: None,
             })
             .await
             .unwrap();

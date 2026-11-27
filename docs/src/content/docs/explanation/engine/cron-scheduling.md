@@ -74,6 +74,8 @@ let schedule_id = runner
 3. **Next Calculation** - Next execution time is calculated and stored
 4. **Activation** - Schedule becomes active for execution
 
+A workflow has one schedule per cron expression and timezone (a unique index holds this; named instances are apart). A second registration of the same workflow, expression and timezone returns the id of the schedule that exists and keeps its next and last run times; it updates the catch-up policy and the limit on active runs when the call declares them. The same holds for the schedule of a packaged trigger each time its package is loaded, on each server replica.
+
 ### 2. Schedule Evaluation
 
 ```rust
@@ -317,6 +319,17 @@ When a scheduler starts after downtime and finds firings whose `next_execution_a
 |---|---|
 | `Skip` | Roll `next_execution_at` forward to the next future firing; the missed firings are dropped. Default for newly-registered schedules — appropriate when a missed firing has no value (e.g., dashboard refresh, hourly aggregation whose inputs have already advanced). |
 | `RunAll` | Run every missed firing, oldest first, one at a time. Appropriate when each firing is independently durable work (e.g., per-hour table builds that must each run). |
+
+#### After a restart, with packaged workflows
+
+The schedule row of a packaged workflow stays in the database while the server is down. After the restart the cron scheduler and the reconciler start together, and the reconciler needs some time to load each package.
+
+- The scheduler takes a firing only for a workflow that its runner has loaded. A schedule whose workflow is not loaded yet stays due. The scheduler looks at it again each second and when the reconciler registers a schedule, and takes the firing once the workflow is loaded.
+- When a package is loaded, its schedule is registered again. A schedule row that already exists for the same workflow, cron expression and timezone keeps its `next_run_at` and `last_run_at`. The registration updates `enabled`, and the catch-up policy and the limit on active runs when the trigger declares them.
+
+So the firings missed during the restart follow the catch-up policy: one run for `Skip`, with the fire time that was due, and each missed run for `RunAll`. This holds for the `public` tenant and for each tenant's runner.
+
+A schedule row whose workflow is never loaded stays due, and `cloacina_schedule_lag_seconds` grows for it. Unloading a package removes its schedule rows.
 
 #### How `RunAll` works through a backlog
 

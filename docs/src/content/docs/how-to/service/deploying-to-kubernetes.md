@@ -107,8 +107,13 @@ cert-manager users can wire issuance via the standard
 |------|---------|--------|
 | `livenessProbe`, `readinessProbe`, `startupProbe` | `/health` (liveness/startup) and `/ready` (readiness) HTTP | Override per-probe; set to `null` to disable |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
-| `server.verificationOrgId` | `""` | Trusted org UUID (required when signatures are required) |
+| `server.verificationOrgId` | `""` | Server-wide trusted org UUID (optional); a key in it is trusted for every tenant |
 | `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant `DefaultRunner` instances; none is stopped at the limit |
+| `retention.runHistoryDays` | `0` | Days to keep a finished run; `0` keeps run history for ever. See [Run history retention](../production-deployment/#run-history-retention) |
+| `fleetTaskTimeLimits.defaultSeconds` / `.maxSeconds` | `300` / `86400` | Time limits of fleet tasks |
+| `alertWebhook.url`, `alertWebhook.secretRef` | `""` | Alert webhook and its signing secret from a Secret. See [Alert on a Failed Run](../alert-on-a-failed-run/) |
+| `context.warnBytes` | `1048576` | Size in bytes above which a task context is logged as a warning and counted (`0` = off) |
+| `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
 
 See `values.yaml` for the full reference.
 
@@ -200,6 +205,26 @@ NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on port
 - The server image must have `--metrics-bind`: a release after 0.12.0.
   With an older image, set `metrics.enabled=false`.
 
+## The compiler and Python dependencies
+
+With `compiler.enabled=true` the chart's compiler vendors the dependencies of
+a Python package that is published with a `requirements.lock` and no `vendor/`
+folder. Its image must hold `uv`. By default it downloads the wheels from PyPI,
+for `aarch64-linux` and `x86_64-linux` and Python 3.11.
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `compiler.python.platforms` | `[]` | The platforms to vendor for (`--python-platform`). Empty: `aarch64-linux` and `x86_64-linux` |
+| `compiler.python.version` | `""` | The Python the wheels are for (`--python-version`). Empty: `3.11` |
+| `compiler.python.indexUrl` | `""` | The package index (`CLOACINA_COMPILER_PYTHON_INDEX_URL`). Empty: PyPI. For a URL with a password, set the variable from a Secret through `compiler.extraEnv` |
+| `compiler.python.wheelDir` | `""` | A folder of wheel files in the compiler image (`--python-wheel-dir`): one more source next to the index, or the only source with `offline` |
+| `compiler.python.offline` | `false` | No network for Python builds (`--python-offline`). Needs `wheelDir`, or a `uv` cache in the image |
+| `compiler.python.uvCacheDir` | `/tmp/uv-cache` | The cache folder of `uv` (`--python-uv-cache-dir`), on the pod's `/tmp` volume |
+
+The image recipe for a compiler that carries its wheels, and what the compiler
+downloads, are in
+[Running the Compiler](../running-the-compiler/#python-packages-vendoring-dependencies).
+
 ## Fleet actuator (Kubernetes) + RBAC
 
 The server can provision and autoscale a per-tenant pool of `cloacina-agent`
@@ -276,7 +301,7 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | API group | Resource | Verbs | Why |
 |---|---|---|---|
 | (core) | `namespaces` | `create`, `patch` | Ensure each tenant's namespace via server-side apply (a single create-or-update call, authorized as `create`+`patch`). No `get`/`list`/`delete`. |
-| `apps` | `deployments` | `create`, `delete`, `get`, `patch` | Ensure each pool's agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count during reconcile. `delete` removes the Deployment of a pool that an admin removes, by name, after the server checked that the pool has no agents; a tenant's deprovision still scales to zero. No `list`. |
+| `apps` | `deployments` | `create`, `delete`, `get`, `patch` | Ensure each pool's agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count and the id of the agent key that the pod template names during reconcile. `delete` removes the Deployment of a pool that an admin removes, by name, after the server checked that the pool has no agents; a tenant's deprovision still scales to zero. No `list`. |
 | (core) | `serviceaccounts` | `create`, `patch` | Ensure the ServiceAccount a pool names, with the pool's annotations (server-side apply). No `get`/`list`/`delete`: the ServiceAccount stays when its pool is removed. |
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
 | `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
@@ -324,6 +349,72 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
 
 > **Restricted clusters.** Because the agent pods are already `restricted`-clean,
 > you can safely label tenant namespaces `pod-security.kubernetes.io/enforce: restricted`.
+
+### A compiler per tenant
+
+The chart's own compiler (`compiler.enabled`) serves the `public` schema only.
+With `fleet.actuator=kubernetes` the server also runs one compiler for each
+other tenant (`fleet.compiler.enabled`, default `true`): a Deployment
+`cloacina-compiler` in the tenant's namespace with `--tenant-schema <tenant>`.
+The server creates it when the tenant's build queue first has a package, sets
+it to 0 replicas when the queue has been empty for
+`fleet.compiler.cooldownSeconds`, and deletes it when the tenant is removed. A
+package published to a tenant created after install is built with no manual
+step. A deployment with `T` tenants runs between 0 and `T` tenant compilers,
+one for each tenant that has a package to build or built one in the last
+cooldown.
+
+```yaml
+fleet:
+  actuator: kubernetes
+  compiler:
+    enabled: true
+    cooldownSeconds: 300
+    # Where builds fetch crates from: internet | all | none
+    egress: internet
+```
+
+| Value | Default | Purpose |
+|---|---|---|
+| `fleet.compiler.enabled` | `true` | Run a compiler per tenant. |
+| `fleet.compiler.image.repository`, `.tag` | the image of `compiler.image` | The compiler image. |
+| `fleet.compiler.cargoFlags` | `[build, --lib]` | The whole cargo flag list of a build. An empty list keeps the compiler's `build --release --lib --frozen --offline`. |
+| `fleet.compiler.vendorDir` | `""` | A cargo home inside the image for offline builds (`--vendor-dir`). |
+| `fleet.compiler.targetDir` | `/workspace/target` | The cargo target directory; an `emptyDir` is mounted there. |
+| `fleet.compiler.buildTimeoutSeconds` | `0` (the compiler's 600) | Wall-clock limit of one build. |
+| `fleet.compiler.cooldownSeconds` | `300` | How long a tenant's queue must be empty before its compiler is set to 0 replicas. |
+| `fleet.compiler.cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
+| `fleet.compiler.hardened` | `true` | Not root, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. |
+| `fleet.compiler.resources` | `500m`/`1Gi` requests, `2`/`4Gi` limits | Requests and limits of the compiler container. |
+| `fleet.compiler.databaseUrlSecretRef` | empty (the server's URL) | A Secret in the release namespace with the database URL of the tenant compilers. |
+| `fleet.compiler.egress` | `internet` | Crate egress of the compiler pods: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. |
+| `fleet.compiler.egressCidrs` | `[]` | More egress CIDR blocks, every port (a mirror, a git host, a proxy). |
+| `fleet.compiler.databaseCidrs` | `[]` | CIDR blocks of the database; empty allows the database port to every destination. |
+
+What the server writes in a tenant namespace for the compiler:
+
+- the Deployment `cloacina-compiler`;
+- the Secret `cloacina-compiler-db`, with the database URL the pod reads as
+  `DATABASE_URL`;
+- the NetworkPolicy `cloacina-compiler` (when `fleet.networkPolicy.enabled`):
+  no ingress; egress to DNS, to the database port, and to where crates come
+  from by `fleet.compiler.egress` and `fleet.compiler.egressCidrs`.
+
+These need no RBAC verb beyond the table above. The server has no `delete` on
+Secrets, so when a tenant is removed it writes an empty value over
+`cloacina-compiler-db`.
+
+The cache volumes are `emptyDir`s: each start of a tenant's compiler is a cold
+start, and its first build downloads and compiles every dependency.
+
+With `postgresql.enabled` the chart gives the tenant compilers the bundled
+database by its full Service name. With `database.url` or
+`databaseUrlSecretRef`, the host in the URL must resolve from the tenant
+namespaces.
+
+The details (the scale rules, the pod, the database credential, an install
+with no route to a registry) are in
+[Run cloacina-compiler in Production](../running-the-compiler/#how-many-compilers-a-deployment-runs).
 
 ### Fail-closed guard
 
@@ -383,8 +474,13 @@ helm upgrade cloacina \
 
 The deployment uses `RollingUpdate` with `maxSurge=1` /
 `maxUnavailable=0`, so the existing pod stays serving until the new
-one is healthy. Database migrations run on container start; the
+one is healthy. Database migrations run on container start, for the
+`public` schema and then for each tenant schema; the
 startup probe gives the new pod up to 5 minutes (60 × 5s) to come up.
+Pods that start together run the migrations once: they run under a
+PostgreSQL advisory lock, and a pod that waited for the lock finds
+nothing left to do. If a tenant schema cannot be migrated, the new pod
+logs the tenant's name and exits, and the existing pod keeps serving.
 
 ## Uninstall
 

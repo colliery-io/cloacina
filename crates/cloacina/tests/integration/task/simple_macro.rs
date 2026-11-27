@@ -47,3 +47,32 @@ fn test_task_time_limit_and_retry_attempts_from_the_macro() {
     // A task that sets no limit has none of its own.
     assert_eq!(test_task_task().timeout(), None);
 }
+
+// CLOACINA-T-1027: `pool`, `cpu`, `memory` and `inline` reach
+// `Task::placement()`; a task that declares none gets the default.
+#[task(
+    id = "big_task",
+    pool = "large",
+    cpu = "4",
+    memory = "32Gi",
+    inline = true
+)]
+async fn big_task(
+    _context: &mut cloacina::Context<serde_json::Value>,
+) -> Result<(), cloacina::TaskError> {
+    Ok(())
+}
+
+#[test]
+fn test_task_placement_from_the_macro() {
+    use cloacina::Task;
+    let placement = big_task_task().placement();
+    assert_eq!(placement.pool_name(), "large");
+    assert_eq!(placement.cpu_millis(), Some(4000));
+    assert_eq!(placement.memory_bytes(), Some(32 << 30));
+    assert!(placement.inline);
+
+    let plain = long_task_task().placement();
+    assert!(plain.is_default());
+    assert_eq!(plain.pool_name(), "default");
+}

@@ -40,8 +40,46 @@ URL only, because a webhook URL often holds a token.
 The hook is one for the whole server. Every tenant's runs go to the same URL,
 and the payload names the tenant. There is no per-tenant URL.
 
-`cloacinactl server start` has no flags for these settings, but the server it
-starts reads the environment variables.
+`cloacinactl server start` takes the same flags and environment variables, and
+these keys of `[server]` in `config.toml`:
+
+```toml
+[server]
+alert_webhook_url = "https://alerts.example.com/hook"
+alert_webhook_events = ["failed"]
+public_base_url = "https://cloacina.example.com"
+```
+
+The secret has no key in `config.toml`. Set `CLOACINA_ALERT_WEBHOOK_SECRET` in
+the environment of `cloacinactl server start`; the server inherits it.
+
+### With the Helm chart
+
+The chart `cloacina-server` has the values `alertWebhook.*`. The signing secret
+comes from a Kubernetes Secret that you create; the chart holds no plain value
+for it.
+
+```sh
+kubectl create secret generic cloacina-alerts \
+  --from-literal=secret="$(openssl rand -hex 32)"
+```
+
+```yaml
+alertWebhook:
+  url: https://alerts.example.com/hook
+  events: [failed]                 # failed, completed, cancelled, or all
+  timeoutSeconds: 10
+  maxAttempts: 8
+  publicBaseUrl: https://cloacina.example.com
+  secretRef:
+    name: cloacina-alerts
+    key: secret
+```
+
+When the URL holds a token, keep it in a Secret too: put it under a key of a
+Secret and set `alertWebhook.urlSecretRef.name` and `.key` in place of
+`alertWebhook.url`. The chart renders the alert settings only when a URL is
+set.
 
 ## What the server sends
 

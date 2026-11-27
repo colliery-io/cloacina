@@ -66,11 +66,24 @@ pub struct LoadedPythonWorkflow {
 /// interpreter as needed. Errors are flattened to `String` because the
 /// reconciler wraps them in `RegistryError::RegistrationFailed` anyway.
 pub trait PythonRuntime: Send + Sync {
+    /// The version of the Python interpreter of this process (`"3.11.9"`).
+    /// The registry checks an uploaded Python package against it
+    /// (CLOACINA-T-1048). `None`: the runtime does not report one.
+    fn python_version(&self) -> Option<String> {
+        None
+    }
+
     /// Extract a `.cloacina` archive, import the entry module, and register
     /// its tasks + triggers in the global registries for the given tenant.
+    ///
+    /// `vendored_set` is the archive of the dependencies a compiler vendored
+    /// for this package and this platform, when the registry holds one
+    /// (CLOACINA-T-1073). It is unpacked into the staged package's
+    /// `vendor/<platform>/` before the import.
     fn load_workflow_package(
         &self,
         archive_data: &[u8],
+        vendored_set: Option<&[u8]>,
         staging_dir: &Path,
         tenant_id: &str,
         runtime: &Arc<Runtime>,
@@ -85,6 +98,7 @@ pub trait PythonRuntime: Send + Sync {
     fn load_cg_package(
         &self,
         archive_data: &[u8],
+        vendored_set: Option<&[u8]>,
         staging_dir: &Path,
         tenant_id: &str,
         graph_name: &str,

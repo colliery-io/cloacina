@@ -131,20 +131,53 @@ apiKeySecretRef:
 # ---------------------------------------------------------------------------
 server:
   bind: "0.0.0.0:8080"
-  # When true, `cloacina-server` rejects unsigned packages.
+  # When true, `cloacina-server` rejects a package that is unsigned, or signed
+  # by a key that neither its tenant nor the server-wide org trusts.
   requireSignatures: false
-  # Trusted org UUID for signature verification — required if requireSignatures.
+  # Server-wide trusted org UUID (optional). A key in it is trusted for every
+  # tenant; with none, each tenant trusts only its own keys.
   verificationOrgId: ""
+  # Format of the server's log lines on stderr: text or json (one JSON object
+  # per line, for a log stack). --log-format (CLOACINA-T-1024).
+  logFormat: text
+  # Template of the URL of a task's logs in your log stack. The placeholders
+  # {tenant}, {execution_id}, {task} and {attempt} are filled in for each
+  # task, and the UI shows the result as a link on the task. Must start with
+  # http:// or https://. Empty = no link. Example:
+  #   https://logs.example.com/search?tenant={tenant}&run={execution_id}&task={task}&attempt={attempt}
+  # --task-log-url-template (CLOACINA-T-1024).
+  taskLogUrlTemplate: ""
   # Warning limit on per-tenant DefaultRunner instances; none is stopped at it.
   tenantRunnerCacheSize: 256
   # Drain timeout (seconds) for in-flight workflows during tenant deletion.
   tenantDeletionDrainTimeoutSeconds: 30
+  # Seconds the server waits at start for the database to accept a
+  # connection, with retries; after it the server exits with an error and the
+  # pod restarts. 0 = one try, no wait. CLOACINA_DATABASE_WAIT_TIMEOUT_S
+  # (CLOACINA-T-1035).
+  databaseWaitTimeoutSeconds: 60
   # Extra environment vars merged into the container's env list.
   # Example:
   #   extraEnv:
   #     - name: RUST_LOG
   #       value: info,cloacina=debug
   extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Task context size limits (CLOACINA-T-1047)
+#
+# The size is the number of bytes of a context as JSON text. The limits apply
+# to the context a task returns and to the input context built for a task,
+# for every tenant of the server. 0 turns a limit off.
+# ---------------------------------------------------------------------------
+context:
+  # Above this size a context is logged as a warning and counted in
+  # cloacina_context_size_warnings_total (CLOACINA_CONTEXT_WARN_BYTES).
+  # Default 1 MiB.
+  warnBytes: 1048576
+  # Above this size the task fails and is not retried
+  # (CLOACINA_CONTEXT_MAX_BYTES). Default 16 MiB.
+  maxBytes: 16777216
 
 # ---------------------------------------------------------------------------
 # Fleet actuator (CLOACI-I-0127 / T-0814)
@@ -206,6 +239,77 @@ fleet:
     # Namespace the cluster DNS service runs in (DNS egress is allowed there).
     dnsNamespace: kube-system
 
+  # A compiler per tenant (CLOACINA-T-1034). Used only with
+  # actuator=kubernetes. The chart's own compiler (`compiler.*` below) serves
+  # the `public` schema. For every other tenant the server runs one
+  # `cloacina-compiler` Deployment in the tenant's namespace, with
+  # `--tenant-schema <tenant>`: it starts it when the tenant's build queue has
+  # a package, and scales it to 0 when the queue has been empty for
+  # `cooldownSeconds`. A tenant that never publishes a package gets none.
+  compiler:
+    enabled: true
+    image:
+      # Empty: the image of the chart's own compiler (`compiler.image`).
+      repository: ""
+      tag: ""
+    # The whole cargo flag list of a build (the compiler's
+    # `--cargo-flags-replace`). The default builds online, as the chart's own
+    # compiler does. An empty list keeps the compiler's own default,
+    # `build --release --lib --frozen --offline`, which needs `vendorDir`.
+    cargoFlags:
+      - build
+      - --lib
+    # `--vendor-dir`: a cargo home inside the compiler image that holds every
+    # crate a build may use. For an install with no route to a registry.
+    vendorDir: ""
+    # `--dev-workspace`: a cloacina workspace inside the image. Development only.
+    devWorkspace: ""
+    # `--cargo-target-dir`. A hardened pod mounts an emptyDir here.
+    targetDir: /workspace/target
+    # `--build-timeout-s`. 0: the compiler's default (600).
+    buildTimeoutSeconds: 0
+    pollIntervalMs: 1000
+    # How long a tenant's build queue must be empty before its compiler is
+    # scaled to 0.
+    cooldownSeconds: 300
+    # Size limit of each of the two cache volumes (cargo home, target
+    # directory). They are emptyDirs: a compiler that starts has empty caches.
+    cacheSize: 8Gi
+    # Pod hardening: not root (uid 10001), read-only root filesystem, no
+    # capabilities, the writable paths on emptyDir volumes. false runs the
+    # image as it is built, with its own filesystem: for a development image
+    # that carries its caches.
+    hardened: true
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    # The database URL the tenant compilers connect with, from a Secret in the
+    # release namespace. Empty: the server's own DATABASE_URL (with
+    # postgresql.enabled, the bundled database by its full Service name). The
+    # server copies the URL into a Secret `cloacina-compiler-db` in each
+    # tenant namespace that has a compiler. The host of the URL must resolve
+    # from the tenant namespaces: a short Service name does not.
+    databaseUrlSecretRef:
+      name: ""
+      key: database-url
+    # Egress of the compiler pods (their NetworkPolicy; written when
+    # fleet.networkPolicy.enabled). DNS and the database port are always
+    # allowed. `egress` says where crates come from:
+    #   internet - TCP 443 to every public IPv4 address; private and
+    #              link-local ranges are left out (the default)
+    #   all      - every destination and port
+    #   none     - nothing more (builds from vendorDir, or from egressCidrs)
+    egress: internet
+    # More destinations, every port: a registry mirror, a git host, a proxy.
+    egressCidrs: []
+    # CIDRs of the database. Empty: the database port of the URL is allowed
+    # to every destination.
+    databaseCidrs: []
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -234,6 +338,78 @@ service:
 reactorAffinity:
   # Inject CLOACINA_ADVERTISED_ADDRESS (http://<podIP>:<service.port>).
   enabled: false
+
+# ---------------------------------------------------------------------------
+# Retention job (CLOACINA-T-1023)
+#
+# A background job on the server deletes old rows from the database. The
+# defaults are the server's own.
+# ---------------------------------------------------------------------------
+retention:
+  # Days to keep a finished run (Completed, Failed or Cancelled), counted from
+  # when it finished. 0 keeps run history for ever: set a period to turn the
+  # deletes on. Runs that are not finished are never deleted.
+  # CLOACINA_RUN_HISTORY_RETENTION_DAYS.
+  runHistoryDays: 0
+  # Seconds to keep a delivery_outbox row after it was acked. 0 keeps the rows
+  # for ever: set a period to turn the deletes on.
+  # CLOACINA_OUTBOX_ACKED_RETENTION_S.
+  outboxAckedSeconds: 0
+  # Seconds between passes of the job. CLOACINA_RETENTION_INTERVAL_S.
+  intervalSeconds: 300
+
+# ---------------------------------------------------------------------------
+# Time limits of fleet tasks (CLOACINA-T-1014)
+#
+# Apply to tasks that run on execution agents, and to graph firings sent to
+# an agent. The defaults are the server's own. The server does not start when
+# defaultSeconds is above maxSeconds or either is 0.
+# ---------------------------------------------------------------------------
+fleetTaskTimeLimits:
+  # Time limit (seconds) of a task that sets none of its own, and of a graph
+  # firing. CLOACINA_FLEET_TASK_TIMEOUT_S.
+  defaultSeconds: 300
+  # Longest time limit (seconds) a task can get; a task that asks for more
+  # gets this value. CLOACINA_FLEET_TASK_TIMEOUT_MAX_S.
+  maxSeconds: 86400
+
+# ---------------------------------------------------------------------------
+# Alert webhook (CLOACINA-T-1024)
+#
+# The server sends a JSON POST to a URL when a run ends. Off until a URL is
+# set, by `url` or by `urlSecretRef`. The other values are rendered only when
+# a URL is set.
+# ---------------------------------------------------------------------------
+alertWebhook:
+  # Plaintext URL (CLOACINA_ALERT_WEBHOOK_URL), for example
+  # https://alerts.example.com/hook. A URL that holds a token belongs in a
+  # Secret: use urlSecretRef.
+  url: ""
+  # Name and key of an existing Secret that holds the URL. Used in place of
+  # `url` when name is set.
+  urlSecretRef:
+    name: ""
+    key: url
+  # Run outcomes that send an alert: failed, completed, cancelled, or all.
+  # CLOACINA_ALERT_WEBHOOK_EVENTS.
+  events:
+    - failed
+  # Seconds allowed for one request. CLOACINA_ALERT_WEBHOOK_TIMEOUT_S.
+  timeoutSeconds: 10
+  # The most sends of one alert before it is dropped.
+  # CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS.
+  maxAttempts: 8
+  # Public URL of this server, for example https://cloacina.example.com. Used
+  # for the absolute links in an alert; empty = the alert holds paths only.
+  # CLOACINA_PUBLIC_BASE_URL.
+  publicBaseUrl: ""
+  # Name and key of an existing Secret that holds the signing secret
+  # (CLOACINA_ALERT_WEBHOOK_SECRET). When name is set, each request carries
+  # the header X-Cloacina-Signature. The chart takes the secret only from a
+  # Secret, never as a plain value.
+  secretRef:
+    name: ""
+    key: secret
 
 # ---------------------------------------------------------------------------
 # Ingress
@@ -333,6 +509,37 @@ compiler:
     - "--cargo-flags-replace=build"
     - "--cargo-flags-replace=--lib"
   extraEnv: []
+  # Python packages (CLOACINA-T-1073). A package that is published with a
+  # requirements.lock and no vendor/ folder gets its dependencies from the
+  # compiler: uv installs the wheels the lock names, for each platform below,
+  # and the compiler stores one set per platform. The compiler image must hold
+  # uv. A package that ships vendor/ is used as it is.
+  python:
+    # The platforms to vendor for, as <arch>-<os>. Empty: the compiler's
+    # default, the two platforms of the official agent image (aarch64-linux
+    # and x86_64-linux). A server or an agent on a platform that is not listed
+    # cannot load a package the compiler vendored.
+    platforms: []
+    # The Python the wheels are for (major.minor). Empty: the compiler's
+    # default, 3.11, the Python of the official server and agent images.
+    version: ""
+    # The package index that wheels are downloaded from. Empty: PyPI. For a
+    # URL with a password, leave this empty and set
+    # CLOACINA_COMPILER_PYTHON_INDEX_URL from a Secret through
+    # compiler.extraEnv.
+    indexUrl: ""
+    # A folder of wheel files in the compiler image: one more place to find
+    # wheels, next to the index. With offline=true it is the only source.
+    wheelDir: ""
+    # No network for Python builds: every wheel must be in wheelDir (or, with
+    # no wheelDir, in the uv cache). A build that needs another wheel fails
+    # and names it.
+    offline: false
+    # The cache folder of uv. The root filesystem of the pod is read-only, so
+    # the default is on the /tmp emptyDir. For offline builds from a cache
+    # that is baked into the image, name that folder and make the image's
+    # folder writable by the compiler's user.
+    uvCacheDir: /tmp/uv-cache
   # emptyDir size limit for the shared cargo target cache.
   buildCacheSize: 8Gi
   resources:

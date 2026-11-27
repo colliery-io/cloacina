@@ -111,6 +111,16 @@ pub async fn oidc_callback(
         }
     };
 
+    // CLOACINA-T-1066: an email the IdP did not mark verified matches no
+    // `domain:` rule. Say so, so an operator sees why such a login is denied.
+    if claims.email.is_some() && claims.email_verified != Some(true) {
+        warn!(
+            subject = %claims.subject,
+            email_verified = ?claims.email_verified,
+            "oidc: the email is not verified, so no domain: rule applies to this login"
+        );
+    }
+
     // A single sign-in may grant several tenant memberships (one IdP identity →
     // {tenant, role} set). Mint a scoped key for each; the SPA lets the user
     // pick which to enter. Unmapped → denied.
@@ -152,6 +162,21 @@ pub async fn oidc_callback(
                     // failed sign-in.
                     warn!("oidc session persist failed (login not refreshable): {e}");
                 }
+                // The audit row of a login names the key the login minted:
+                // one row for each tenant the identity is mapped to.
+                crate::routes::audit::note_as(
+                    crate::routes::audit::Actor {
+                        key_id: info.id.to_string(),
+                        key_name: info.name.clone(),
+                        identity: info.issued_via.clone(),
+                    },
+                    info.tenant_id.as_deref(),
+                    crate::routes::audit::AuditEvent::ok(
+                        crate::routes::audit::actions::AUTH_LOGIN,
+                        claims.subject.as_str(),
+                    )
+                    .detail(serde_json::json!({ "via": "oidc", "role": info.permissions })),
+                );
                 memberships.push(Membership {
                     key: plaintext,
                     tenant: info.tenant_id.unwrap_or_default(),

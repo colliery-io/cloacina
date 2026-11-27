@@ -122,6 +122,116 @@ pub fn validate_python_layout(dir: &Path, meta: &CloacinaMetadata) -> Result<(),
     )))
 }
 
+/// Check the Python environment of a Python package (CLOACINA-T-1048), as
+/// `validate`, `pack` and `publish` do before the server sees it:
+///
+/// - `requires_python` allows the Python that runs the package, and the
+///   dependencies are vendored for that Python. That Python is
+///   `python_version` when given, else the version in `[metadata.vendored]`,
+///   else the Python of the official agent image.
+/// - Each platform of `[metadata.vendored]` has its `vendor/<platform>/`
+///   folder, and a record that says "no compiled code" is true.
+pub fn validate_python_env(
+    dir: &Path,
+    package: &str,
+    meta: &CloacinaMetadata,
+    python_version: Option<&str>,
+) -> Result<(), CliError> {
+    use cloacina_workflow_plugin::python_env;
+
+    let (python, runner) = match (python_version, meta.vendored.as_ref()) {
+        (Some(v), _) => (v.to_string(), "the target (--python-version)"),
+        (None, Some(v)) => (v.python_version.clone(), "the build target"),
+        (None, None) => (
+            python_env::DEFAULT_PYTHON_VERSION.to_string(),
+            "the official agent image",
+        ),
+    };
+    python_env::check_python(
+        package,
+        meta.requires_python.as_deref(),
+        meta.vendored.as_ref(),
+        &python,
+        runner,
+    )
+    .map_err(CliError::UserError)?;
+
+    if let Some(v) = &meta.vendored {
+        for platform in &v.platforms {
+            let folder = dir.join("vendor").join(platform);
+            if !folder.is_dir() {
+                return Err(CliError::UserError(format!(
+                    "package.toml records vendored dependencies for {platform}, and \
+                     vendor/{platform}/ does not exist. Run `cloacinactl package build` again."
+                )));
+            }
+            if !v.native
+                && let Some(file) = python_env::native_files(&folder, 1).first()
+            {
+                return Err(CliError::UserError(format!(
+                    "package.toml records no compiled code in vendor/, and \
+                     vendor/{platform}/{file} is a compiled file. Run `cloacinactl \
+                     package build` again."
+                )));
+            }
+        }
+    }
+    if dir.join("vendor").is_dir() {
+        let limits = cloacina_workflow_plugin::unpack_limit::unpack_options();
+        check_unpacked_size(dir, limits.max_decompressed, u64::from(limits.max_entries))?;
+    }
+    Ok(())
+}
+
+/// Refuse a package source that is larger than an archive can be unpacked
+/// to. The server and the loader unpack an archive with these limits, so a
+/// larger package would be refused after the upload. `max_bytes` is the
+/// setting `--max-unpacked-bytes` / `CLOACINA_MAX_UNPACKED_BYTES`.
+fn check_unpacked_size(dir: &Path, max_bytes: u64, max_entries: u64) -> Result<(), CliError> {
+    fn walk(dir: &Path, bytes: &mut u64, entries: &mut u64) {
+        let Ok(read) = fs::read_dir(dir) else { return };
+        for entry in read.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if matches!(
+                name.as_ref(),
+                "target" | ".git" | "node_modules" | "__pycache__"
+            ) || name.ends_with(".cloacina")
+            {
+                continue;
+            }
+            *entries += 1;
+            match entry.metadata() {
+                Ok(m) if m.is_dir() => walk(&entry.path(), bytes, entries),
+                Ok(m) => *bytes += m.len(),
+                Err(_) => {}
+            }
+        }
+    }
+    let (mut bytes, mut entries) = (0u64, 0u64);
+    walk(dir, &mut bytes, &mut entries);
+    let mib = |b: u64| format!("{:.1} MiB", b as f64 / (1024.0 * 1024.0));
+    if bytes > max_bytes {
+        return Err(CliError::UserError(format!(
+            "the package is {} unpacked, and a package archive can hold {} unpacked. \
+             Vendor for fewer platforms (`cloacinactl package build --arch`), or remove \
+             dependencies. An operator who raised the limit of the server and the agents \
+             (--max-unpacked-bytes or CLOACINA_MAX_UNPACKED_BYTES) gives the same value \
+             here.",
+            mib(bytes),
+            mib(max_bytes)
+        )));
+    }
+    if entries > max_entries {
+        return Err(CliError::UserError(format!(
+            "the package has {entries} files and folders, and a package archive can hold \
+             {max_entries}. Vendor for fewer platforms (`cloacinactl package build --arch`), \
+             or remove dependencies."
+        )));
+    }
+    Ok(())
+}
+
 /// Validate that a Rust package's source is present: a `Cargo.toml` and a
 /// `src/lib.rs` (the server compiles `src/` into a cdylib at load). A missing
 /// `build.rs` (which calls `cloacina_build::configure()`) is surfaced as a
@@ -377,6 +487,7 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
             providers: Default::default(),
+            vendored: None,
         }
     }
 
@@ -445,6 +556,38 @@ mod tests {
         assert!(format!("{err:?}").contains("does not resolve"));
     }
 
+    #[test]
+    fn package_over_the_unpack_limits_is_refused() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("vendor/x86_64-linux")).unwrap();
+        fs::write(
+            tmp.path().join("vendor/x86_64-linux/a.py"),
+            vec![b'x'; 2048],
+        )
+        .unwrap();
+        fs::write(tmp.path().join("vendor/x86_64-linux/b.py"), b"x").unwrap();
+        // Build output and caches do not count.
+        fs::create_dir_all(tmp.path().join("target")).unwrap();
+        fs::write(tmp.path().join("target/big"), vec![b'x'; 8192]).unwrap();
+
+        check_unpacked_size(tmp.path(), 4096, 100).unwrap();
+        let err = format!(
+            "{:?}",
+            check_unpacked_size(tmp.path(), 1024, 100).unwrap_err()
+        );
+        assert!(err.contains("unpacked"), "{err}");
+        assert!(err.contains("--arch"), "{err}");
+        assert!(err.contains("--max-unpacked-bytes"), "{err}");
+        assert!(err.contains("CLOACINA_MAX_UNPACKED_BYTES"), "{err}");
+        // vendor, x86_64-linux, a.py, b.py = 4 entries.
+        check_unpacked_size(tmp.path(), 4096, 4).unwrap();
+        let err = format!(
+            "{:?}",
+            check_unpacked_size(tmp.path(), 4096, 3).unwrap_err()
+        );
+        assert!(err.contains("4 files and folders"), "{err}");
+    }
+
     // ---- footgun lints (CLOACI-T-0680) ----
 
     fn meta(lang: &str, graph_name: Option<&str>, entry: Option<&str>) -> CloacinaMetadata {
@@ -460,6 +603,7 @@ mod tests {
             input_strategy: None,
             accumulators: Vec::new(),
             providers: Default::default(),
+            vendored: None,
         }
     }
 

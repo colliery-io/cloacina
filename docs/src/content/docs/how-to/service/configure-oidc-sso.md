@@ -55,14 +55,33 @@ server — API-key and local-account auth keep working, and the OIDC routes retu
 `<match>=<tenant>:<role>`, where `<match>` is one of:
 
 - `group:<name>` — the identity is a member of this group (from the `groups` claim),
-- `domain:<example.com>` — the identity's email is in this domain,
+- `domain:<example.com>` — the identity's email is in this domain, and the
+  provider says the email is verified (see [What a `domain:` rule needs](#what-a-domain-rule-needs)),
 - `sub:<subject>` — an exact subject match.
 
-`<tenant>` may be `_` for a global principal; `<role>` is `read` / `write` / `admin`.
+`<tenant>` is a tenant name; `<role>` is `read` / `write` / `admin`.
 
 ```
-CLOACINA_OIDC_MAP="group:platform-admins=_:admin;group:acme-eng=acme:write;domain:acme.com=acme:read"
+CLOACINA_OIDC_MAP="group:acme-admins=acme:admin;group:acme-eng=acme:write;domain:acme.com=acme:read"
 ```
+
+### What a `_` rule grants
+
+`<tenant>` may be `_`. Such a rule mints a key with **no tenant**. It does not
+make a platform admin: no OIDC rule sets `is_admin`, and "no tenant" grants
+nothing by itself. Whatever its role, that key:
+
+- can sign in, read `GET /v1/auth/whoami`, refresh and log out;
+- reaches no tenant route (`/v1/tenants/{tenant}/...`) and no platform route;
+- sees no computation graph, reactor or accumulator, and cannot inject, fire,
+  pause or resume one;
+- is refused by the delivery WebSocket (`403`), so it gets no operations stream
+  and no execution events.
+
+To give a person access to a tenant's work, map them to that tenant. To give
+one the `public` tenant, write `public`, not `_`. Platform administration uses
+the bootstrap key. See
+[A key with no tenant](../../../explanation/service/security-model/#a-key-with-no-tenant).
 
 An identity matching **no** rule is denied (`403`). Rules are evaluated in order;
 **the first match per tenant wins**, and an identity that matches rules for
@@ -71,6 +90,27 @@ several tenants is granted all of them (see [Multi-tenant memberships](#multi-te
 > Static-password IdP users (e.g. a Dex demo) often carry no `groups` claim —
 > map on `domain:` in that case. Keep `group:` rules for real IdPs that emit
 > groups.
+
+### What a `domain:` rule needs
+
+A `domain:` rule matches only when the ID token carries `email_verified: true`.
+An identity whose token says `email_verified: false`, or carries no
+`email_verified` claim, matches no `domain:` rule. If no `group:` or `sub:` rule
+matches it either, the login is denied (`403 identity_not_mapped`), and the
+server logs a warning that names the subject.
+
+A provider that lets a person set an email address it has not checked would
+otherwise let that person pick a domain and take the role of its rule. Before
+you write a `domain:` rule, check that your provider:
+
+- releases the `email` and `email_verified` claims in the ID token for the
+  `email` scope, and
+- sets `email_verified` to `true` only for an address it has checked.
+
+Dex sets `email_verified: true` for its static-password users. For a provider
+that sends no `email_verified` claim, use `group:` or `sub:` rules.
+
+`group:` and `sub:` rules do not read the email.
 
 ## 3. The login flow
 

@@ -16,10 +16,8 @@
 
 // Schema selection based on backend feature flags
 
-// =============================================================================
-// Unified Schema using Custom SQL Types
-// =============================================================================
-// This schema uses custom SQL types (DbUuid, DbTimestamp, DbBool) that work
+// ======================================================================// Unified Schema using Custom SQL Types
+// ======================================================================// This schema uses custom SQL types (DbUuid, DbTimestamp, DbBool) that work
 // with both PostgreSQL and SQLite backends. Use this for new code.
 
 mod unified_schema {
@@ -82,6 +80,11 @@ mod unified_schema {
             claimed_by -> Nullable<DbUuid>,
             heartbeat_at -> Nullable<DbTimestamp>,
             waiting_since -> Nullable<DbTimestamp>,
+            artifact_fetch_wait_since -> Nullable<DbTimestamp>,
+            pool -> Nullable<Text>,
+            cpu_request_millis -> Nullable<BigInt>,
+            memory_request_bytes -> Nullable<BigInt>,
+            fleet_agent_id -> Nullable<Text>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
@@ -275,6 +278,11 @@ mod unified_schema {
             available_capacity -> Integer,
             registered_at -> DbTimestamp,
             last_heartbeat_at -> DbTimestamp,
+            /// The API key that registered the agent (CLOACINA-T-1051).
+            /// NULL on a row from before the column.
+            owner_key_id -> Nullable<DbUuid>,
+            cpu_millis -> Nullable<BigInt>,
+            memory_bytes -> Nullable<BigInt>,
         }
     }
 
@@ -306,6 +314,7 @@ mod unified_schema {
             context_id -> Nullable<DbUuid>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            context_size_bytes -> Nullable<BigInt>,
         }
     }
 
@@ -408,10 +417,8 @@ mod unified_schema {
         }
     }
 
-    // =========================================================================
-    // Unified Schedule Tables
-    // =========================================================================
-
+    // ==================================================================    // Unified Schedule Tables
+    // ==================================================================
     diesel::table! {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
@@ -469,10 +476,8 @@ mod unified_schema {
         }
     }
 
-    // =========================================================================
-    // Package Signing Tables
-    // =========================================================================
-
+    // ==================================================================    // Package Signing Tables
+    // ==================================================================
     diesel::table! {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
@@ -531,10 +536,8 @@ mod unified_schema {
         }
     }
 
-    // =========================================================================
-    // Secrets Tables (CLOACI-I-0133 / T-0857)
-    // =========================================================================
-
+    // ==================================================================    // Secrets Tables (CLOACI-I-0133 / T-0857)
+    // ==================================================================
     diesel::table! {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
@@ -562,10 +565,8 @@ mod unified_schema {
         }
     }
 
-    // =========================================================================
-    // Computation Graph State Tables
-    // =========================================================================
-
+    // ==================================================================    // Computation Graph State Tables
+    // ==================================================================
     diesel::table! {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
@@ -714,12 +715,10 @@ mod unified_schema {
     );
 }
 
-// =============================================================================
-// Backend-specific schemas — kept for code paths that still need
+// ======================================================================// Backend-specific schemas — kept for code paths that still need
 // native-type access (Postgres uuid/timestamptz, SQLite text/integer)
 // alongside the unified-types schema above.
-// =============================================================================
-
+// ======================================================================
 #[cfg(feature = "postgres")]
 mod postgres_schema {
     // PostgreSQL schema using native types
@@ -828,6 +827,7 @@ mod postgres_schema {
             context_id -> Nullable<Uuid>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
+            context_size_bytes -> Nullable<Int8>,
         }
     }
 
@@ -1272,6 +1272,7 @@ mod sqlite_schema {
             context_id -> Nullable<Binary>,
             created_at -> Text,
             updated_at -> Text,
+            context_size_bytes -> Nullable<BigInt>,
         }
     }
 

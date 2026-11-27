@@ -80,6 +80,7 @@ impl TaskRegistrar {
             .tasks
             .into_iter()
             .map(|t| OwnedTaskMetadata {
+                placement: t.placement(),
                 local_id: t.id,
                 dependencies_json: serde_json::to_string(&t.dependencies)
                     .unwrap_or_else(|_| "[]".to_string()),

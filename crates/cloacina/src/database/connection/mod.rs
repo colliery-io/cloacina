@@ -650,16 +650,19 @@ impl Database {
     ///
     /// This method detects the backend type and runs the corresponding migrations.
     pub async fn run_migrations(&self) -> Result<(), String> {
+        #[cfg(feature = "sqlite")]
         use diesel_migrations::MigrationHarness;
 
         #[cfg(all(feature = "postgres", feature = "sqlite"))]
         match &self.pool {
             AnyPool::Postgres(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
+                // Under the migration lock: a second process that starts
+                // at the same moment waits, then finds nothing pending
+                // (CLOACINA-T-1042).
                 conn.interact(|conn| {
-                    conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                    crate::database::migration_lock::run_pending_postgres_migrations_locked(conn)
                         .map(|_| ())
-                        .map_err(|e| format!("Failed to run PostgreSQL migrations: {}", e))
                 })
                 .await
                 .map_err(|e| format!("Failed to run migrations: {}", e))??;
@@ -692,9 +695,8 @@ impl Database {
         {
             let conn = self.pool.get().await.map_err(|e| e.to_string())?;
             conn.interact(|conn| {
-                conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                crate::database::migration_lock::run_pending_postgres_migrations_locked(conn)
                     .map(|_| ())
-                    .map_err(|e| format!("Failed to run PostgreSQL migrations: {}", e))
             })
             .await
             .map_err(|e| format!("Failed to run migrations: {}", e))?
@@ -777,11 +779,12 @@ impl Database {
         .map_err(|e| format!("Failed to set search path: {}", e))?;
 
         // Run migrations in the schema
+        // The search path above names the schema, so its own
+        // `__diesel_schema_migrations` table is the one read. Under the
+        // migration lock, as for the public schema (CLOACINA-T-1042).
         conn.interact(|conn| {
-            use diesel_migrations::MigrationHarness;
-            conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+            crate::database::migration_lock::run_pending_postgres_migrations_locked(conn)
                 .map(|_| ())
-                .map_err(|e| format!("Failed to run migrations: {}", e))
         })
         .await
         .map_err(|e| format!("Failed to run migrations in schema: {}", e))??;

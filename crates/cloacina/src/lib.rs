@@ -201,6 +201,10 @@
 //!   `retry_condition`: Optional configuration for automatic retries
 //! - `timeout_seconds`: Optional time limit of the task's own, in seconds; it
 //!   replaces the executor's limit for this task
+//! - `pool`, `cpu`, `memory`: Optional agent pool and CPU and memory requests
+//!   (Kubernetes quantities, e.g. `"500m"`, `"32Gi"`) for an execution-agent
+//!   fleet; the fleet places the task by them and does not limit it
+//! - `inline`: Optional mark for a task that runs inside the agent process
 //! - `trigger_rules`: Optional conditions for task execution
 //!
 //! ### Context
@@ -550,6 +554,7 @@ pub use inventory;
 pub use serde_json;
 pub mod security;
 pub mod task;
+pub mod task_logs;
 pub mod tenant_scope;
 pub mod trigger;
 pub mod var;

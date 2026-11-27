@@ -56,14 +56,18 @@ Before completing the upgrade, the server:
 2. Hashes the token with SHA-256
 3. Checks the LRU cache (256 entries, 30-second TTL)
 4. On cache miss, validates against the database
-5. Checks per-endpoint authorization policy (tenant scoping, explicit producer/operator lists)
+5. Checks the permission the route needs, like a REST route:
+   - `/v1/ws/accumulator/{name}` needs `accumulators.inject` (role `write` or `admin`).
+   - `/v1/ws/reactor/{name}` needs `graphs.read` to connect (role `read`, `write` or `admin`). A `ForceFire`, `FireWith`, `Pause` or `Resume` command needs `reactors.operate` (role `write` or `admin`); a key of role `read` gets an error response to such a command and can still send `GetState`.
+   - `/v1/ws/delivery/{recipient}` needs the permission of the recipient's kind: `agent:<id>` needs `agent.act` (role `agent`), `exec_events:<id>` needs `executions.read`, `ops_metrics:global` needs `ops.read`.
+6. Checks per-endpoint authorization policy (tenant scoping, explicit producer/operator lists)
 
 If authentication fails, the server returns an HTTP error response (not a WebSocket close frame) since the upgrade has not yet completed:
 
 | HTTP Status | Cause |
 |---|---|
 | `401 Unauthorized` | Missing token, invalid/revoked API key |
-| `403 Forbidden` | Valid key but not authorized for this endpoint |
+| `403 Forbidden` | Valid key whose role does not hold the permission, or that is not authorized for this endpoint |
 
 ### 3. Connection Establishment
 
@@ -233,7 +237,18 @@ The connection remains open -- only the individual command is rejected.
 
 The delivery endpoint is the client side of the interservice communication substrate (CLOACI-S-0012): a transactional outbox in the server database, drained by a relay, pushed over WebSocket to whichever connection has registered for `{recipient}`. It carries a **versioned envelope** — every frame in both directions includes a `protocol_version` field (currently `1`).
 
-Authentication matches the other endpoints (Bearer header or `?token=` — typically a [single-use ticket](#websocket-ticket-flow)). The tenant scope is inferred from the authenticated key and enforced against each outbox row's `tenant_id`.
+Authentication matches the other endpoints (Bearer header or `?token=` — typically a [single-use ticket](#websocket-ticket-flow)). The kind of the recipient decides the permission the key needs: `agent:<id>` needs `agent.act`, `exec_events:<id>` needs `executions.read`, `ops_metrics:global` needs `ops.read`; a recipient of another kind is refused with `403`. The tenant scope is inferred from the authenticated key and enforced against each outbox row's `tenant_id`.
+
+### Recipients: Who May Subscribe
+
+The server checks the recipient against the authenticated key before the upgrade. A key that may not open the recipient gets `403` with code `recipient_access_denied`. A ticket carries the id of the key that minted it, so the check is the same for a ticket and a Bearer token.
+
+| Recipient | Carries | Who may subscribe | A second subscriber |
+|---|---|---|---|
+| `agent:<agent_id>` | The work packets of one fleet agent | Only the key that registered that agent. A key of another tenant, another key of the same tenant and a platform admin key are refused, and so is an agent id that is not registered. | Replaces the first. The rows are work for one process; an agent that reconnects takes over from its old connection. |
+| `exec_events:<execution_id>` | The events of one workflow execution | A key with a tenant, or a platform admin key. The connection receives only the rows of its own tenant, so the id of another tenant's execution gives an empty stream. A key with no tenant that is not a platform admin is refused. | Is added beside the first. Every connected subscriber of the tenant receives each event, and the first `ack` settles the row. |
+| `ops_metrics:<scope>` | Operations snapshots, not stored in the outbox | Any authenticated key. A key receives the view of its own tenant. | Is added beside the first. Every connection receives each snapshot. |
+| Any other recipient | — | No key. Rows of other recipients (alert notices, accumulator events) are read inside the server only. | — |
 
 ### Protocol Versioning
 
@@ -284,6 +299,8 @@ After processing a `push`, the client acknowledges it by row id:
 
 Acks are **idempotent** — re-acking an acked or unknown row is a no-op.
 
+An ack applies only to a row addressed to the connection's own recipient and tenant. An ack that names any other row changes nothing; the server logs it and counts it in `cloacina_delivery_refused_acks_total`. When an evicted agent's work packet is re-targeted to another agent, the row belongs to the new agent: the old agent's ack no longer applies.
+
 ### Delivery Semantics: At-Least-Once + Resync
 
 Delivery is **at-least-once**. A recipient may see the same `push` more than once across disconnect/reconnect cycles and must deduplicate on `id`.
@@ -292,7 +309,7 @@ On every (re)connect, the server resets all `delivered`-but-unacked rows for the
 
 **Backpressure:** each connection has a bounded push channel. When it fills, rows simply remain `pending` in the outbox and are delivered when the client catches up — nothing is dropped (unlike the accumulator endpoint).
 
-**Single subscriber:** one connection per `(recipient, tenant)` — a new connection for the same recipient takes over and the previous connection's channel closes. The exception is the ops metrics recipient (`ops_metrics:*`): its snapshots are not stored in the outbox, and every connection for it receives them, so several browser tabs on one tenant can each follow the metrics.
+**Subscribers per recipient:** the [recipient table](#recipients-who-may-subscribe) gives the rule for each kind. `agent:<agent_id>` has one connection per `(recipient, tenant)`: a new connection takes over and the previous connection's channel closes. `exec_events:<execution_id>` and `ops_metrics:*` accept several connections, so two people, or two browser tabs, on one tenant can follow the same stream. For `exec_events` a row counts as delivered when at least one connected subscriber took it; a subscriber that connects later, or whose push channel is full at that moment, does not receive that row unless it is redelivered.
 
 ### Execution-Events Subscription
 
@@ -310,6 +327,8 @@ Flow (this is exactly what `cloacinactl execution events <id> --follow` does):
 4. `ack` each frame by `id`.
 
 The connection stays open after the execution completes; close it client-side when a terminal event is observed.
+
+Several clients of one tenant can follow the same execution at the same time. Each receives every event pushed while it is connected. One `ack` settles a row for all of them, and an ack of a row that another follower already acked is a no-op.
 
 ---
 
@@ -340,6 +359,7 @@ These occur during the HTTP upgrade phase (before WebSocket is established):
 | `401` | `{"error": "invalid or revoked API key", "code": "unauthorized"}` | Token not found in DB |
 | `403` | `{"error": "not authorized for accumulator 'X'", "code": "endpoint_access_denied"}` | Valid key, wrong permissions |
 | `403` | `{"error": "not authorized for reactor 'X'", "code": "endpoint_access_denied"}` | Valid key, wrong permissions |
+| `403` | `{"error": "this key may not open this delivery recipient", "code": "recipient_access_denied"}` | Delivery endpoint: the key may not subscribe to the recipient (see the [recipient table](#recipients-who-may-subscribe)) |
 
 ### Message-Level Errors
 

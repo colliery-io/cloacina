@@ -197,6 +197,23 @@ pub trait WorkflowRegistry: Send + Sync {
         Ok(None)
     }
 
+    /// CLOACINA-T-1073: the archive of the dependencies a compiler vendored
+    /// for a Python package version and `platform` (`{arch}-{os}`), or `None`
+    /// when there is none: the package ships its own `vendor/` folder, has no
+    /// dependencies, or the compiler did not vendor for this platform. The
+    /// loader unpacks it into `vendor/<platform>/` of the staged package.
+    ///
+    /// Default impl returns `Ok(None)` (filesystem, in-memory, mocks).
+    async fn get_python_vendor(
+        &self,
+        package_name: &str,
+        version: &str,
+        platform: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let _ = (package_name, version, platform);
+        Ok(None)
+    }
+
     /// Persist a workflow's task list (local ids + dependency edges) into the
     /// stored package metadata.
     ///
@@ -252,6 +269,26 @@ pub trait WorkflowRegistry: Send + Sync {
         package_id: WorkflowPackageId,
     ) -> Result<bool, RegistryError> {
         let _ = package_id;
+        Ok(false)
+    }
+
+    /// CLOACINA-T-1027: record that a built package is refused at load, with
+    /// the reason, where the publisher reads a failed build: build status
+    /// `failed` and `build_error`.
+    ///
+    /// Used for a package whose task names an agent pool the tenant does not
+    /// have, or requests more than one agent of its pool can hold. A refused
+    /// package is not offered for loading again. The publisher fixes the task
+    /// or the pool and publishes again.
+    ///
+    /// Returns `true` when the row was changed. Default impl: not supported
+    /// (`false`), for registries with no build status.
+    async fn refuse_package(
+        &self,
+        package_id: WorkflowPackageId,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        let _ = (package_id, reason);
         Ok(false)
     }
 }

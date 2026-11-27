@@ -167,16 +167,13 @@ pub async fn create_tenant(
             // response to prevent credential leakage (SEC-08). The caller should
             // supply their own password via the request body, or retrieve it
             // through a secure channel.
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&credentials.schema_name),
                 AuditEvent::ok(
                     audit_record::actions::TENANT_CREATE,
                     credentials.schema_name.as_str(),
                 ),
-            )
-            .await;
+            );
             (
                 StatusCode::CREATED,
                 Json(TenantCreatedResponse {
@@ -211,6 +208,9 @@ pub async fn create_tenant(
 ///      stops scheduler loop, closes per-tenant DB pool).
 ///   3. Evict the tenant's `Database` from `TenantDatabaseCache`.
 ///   4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
+///
+/// Before step 4 the fleet actuator removes the tenant's compiler, when it
+/// runs one (CLOACINA-T-1034).
 ///
 /// Each step emits a structured audit event with duration. Per-step
 /// failures bail out — but earlier steps stay committed, so a retry
@@ -295,6 +295,24 @@ pub async fn remove_tenant(
         step_started.elapsed().as_millis() as u64,
     );
 
+    // CLOACINA-T-1034: the tenant's compiler goes with the tenant, before its
+    // schema: a compiler left behind would hold a database credential and poll
+    // a schema that is gone. Nothing to do when the actuator runs none. A
+    // failure stops the teardown here; a retry is safe.
+    if let Err(e) = state.fleet_actuator.remove_compiler(&schema_name).await {
+        warn!(
+            tenant_id = %schema_name,
+            error = %e,
+            "tenant teardown: removing the tenant's compiler failed"
+        );
+        audit::log_tenant_teardown_outcome(
+            &schema_name,
+            false,
+            teardown_started.elapsed().as_millis() as u64,
+        );
+        return ApiError::internal_logged("remove tenant compiler failed", &e).into_response();
+    }
+
     // Step 4: drop schema + user.
     let step_started = Instant::now();
     let admin = DatabaseAdmin::new(state.database.clone());
@@ -318,14 +336,11 @@ pub async fn remove_tenant(
                 db_cache_evicted = db_evicted,
                 "tenant teardown complete"
             );
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&schema_name),
                 AuditEvent::ok(audit_record::actions::TENANT_DELETE, schema_name.as_str())
                     .detail(serde_json::json!({ "revoked_keys": revoked_count })),
-            )
-            .await;
+            );
             Json(TenantRemovedResponse {
                 status: "removed".to_string(),
                 schema_name,

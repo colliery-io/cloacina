@@ -139,12 +139,74 @@ pub struct ServerSection {
     /// execution topology — `cloacinactl server start` forwards it to
     /// `cloacina-server` via `--default-executor`.
     pub default_executor: String,
+
+    // The settings below (CLOACINA-T-1039) have no default here: a key that
+    // is not set is not forwarded, and `cloacina-server` uses its own default.
+    // `cloacinactl server start` forwards a key that is set, unless the flag
+    // or the env var of the same setting is given.
+    /// Seconds the server waits at start for the database to accept a
+    /// connection; `0` = one try (`--database-wait-timeout-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database_wait_timeout_s: Option<u64>,
+    /// Days to keep a finished run; `0` keeps run history for ever
+    /// (`--run-history-retention-days`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_history_retention_days: Option<u64>,
+    /// Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for
+    /// ever (`--outbox-acked-retention-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbox_acked_retention_s: Option<u64>,
+    /// Seconds between passes of the retention job (`--retention-interval-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_interval_s: Option<u64>,
+    /// Time limit (seconds) of a fleet task that sets none, and of a graph
+    /// firing on the fleet (`--fleet-task-timeout-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_task_timeout_s: Option<u64>,
+    /// Longest time limit (seconds) a fleet task can get
+    /// (`--fleet-task-timeout-max-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_task_timeout_max_s: Option<u64>,
+    /// URL of the alert webhook (`CLOACINA_ALERT_WEBHOOK_URL`). The signing
+    /// secret has no key here: it is the env var
+    /// `CLOACINA_ALERT_WEBHOOK_SECRET` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_webhook_url: Option<String>,
+    /// Run outcomes that send an alert: `failed`, `completed`, `cancelled`,
+    /// or `all` (`--alert-webhook-events`). Empty = not forwarded.
+    pub alert_webhook_events: Vec<String>,
+    /// Seconds allowed for one alert request (`--alert-webhook-timeout-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_webhook_timeout_s: Option<u64>,
+    /// The most sends of one alert (`--alert-webhook-max-attempts`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_webhook_max_attempts: Option<u32>,
+    /// Public URL of the server, for the links in an alert
+    /// (`--public-base-url`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_base_url: Option<String>,
+    /// Template of the URL of a task's logs in the log stack
+    /// (`--task-log-url-template`, CLOACINA-T-1024).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_log_url_template: Option<String>,
 }
 
 impl Default for ServerSection {
     fn default() -> Self {
         Self {
             default_executor: "default".to_string(),
+            database_wait_timeout_s: None,
+            run_history_retention_days: None,
+            outbox_acked_retention_s: None,
+            retention_interval_s: None,
+            fleet_task_timeout_s: None,
+            fleet_task_timeout_max_s: None,
+            alert_webhook_url: None,
+            alert_webhook_events: Vec::new(),
+            alert_webhook_timeout_s: None,
+            alert_webhook_max_attempts: None,
+            public_base_url: None,
+            task_log_url_template: None,
         }
     }
 }
@@ -227,9 +289,23 @@ impl CloacinaConfig {
 
         set_key(&mut toml_value, key, value)?;
 
-        *self = toml_value
-            .try_into()
-            .context("Failed to apply config change — invalid value for this key")?;
+        match toml_value.clone().try_into::<CloacinaConfig>() {
+            Ok(config) => *self = config,
+            Err(first) => {
+                // A key that is not set yet (an optional number such as
+                // `server.fleet_task_timeout_s`) has no value to take the
+                // type from, so `set_key` stored a string. Try the value as
+                // an integer before the change is refused.
+                let Ok(n) = value.parse::<i64>() else {
+                    return Err(first)
+                        .context("Failed to apply config change — invalid value for this key");
+                };
+                set_typed_key(&mut toml_value, key, toml::Value::Integer(n))?;
+                *self = toml_value
+                    .try_into()
+                    .context("Failed to apply config change — invalid value for this key")?;
+            }
+        }
 
         Ok(())
     }
@@ -303,6 +379,24 @@ fn set_key(root: &mut toml::Value, key: &str, value: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Put `new_value` at a dotted key path, whatever is there now.
+fn set_typed_key(root: &mut toml::Value, key: &str, new_value: toml::Value) -> Result<()> {
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current = root;
+    for part in &parts[..parts.len() - 1] {
+        current = current
+            .get_mut(part)
+            .with_context(|| format!("Config section '{}' not found", part))?;
+    }
+    match current.as_table_mut() {
+        Some(table) => {
+            table.insert(parts[parts.len() - 1].to_string(), new_value);
+            Ok(())
+        }
+        None => anyhow::bail!("Cannot set value on non-table config section"),
+    }
 }
 
 /// Collect all leaf key-value pairs with dotted paths.
@@ -648,6 +742,105 @@ directories = ["/extra/dir1", "~/workflows"]
         let mut config = CloacinaConfig::default();
         config.set("daemon.poll_interval_ms", "2000").unwrap();
         assert_eq!(config.daemon.poll_interval_ms, 2000);
+    }
+
+    #[test]
+    fn server_settings_are_not_set_by_default() {
+        let server = CloacinaConfig::default().server;
+        assert!(server.database_wait_timeout_s.is_none());
+        assert!(server.run_history_retention_days.is_none());
+        assert!(server.outbox_acked_retention_s.is_none());
+        assert!(server.retention_interval_s.is_none());
+        assert!(server.fleet_task_timeout_s.is_none());
+        assert!(server.fleet_task_timeout_max_s.is_none());
+        assert!(server.alert_webhook_url.is_none());
+        assert!(server.alert_webhook_events.is_empty());
+        assert!(server.alert_webhook_timeout_s.is_none());
+        assert!(server.alert_webhook_max_attempts.is_none());
+        assert!(server.public_base_url.is_none());
+    }
+
+    #[test]
+    fn config_load_server_settings() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[server]
+database_wait_timeout_s = 120
+run_history_retention_days = 30
+outbox_acked_retention_s = 600
+retention_interval_s = 60
+fleet_task_timeout_s = 900
+fleet_task_timeout_max_s = 7200
+alert_webhook_url = "https://alerts.example.com/hook"
+alert_webhook_events = ["failed", "cancelled"]
+alert_webhook_timeout_s = 5
+alert_webhook_max_attempts = 3
+public_base_url = "https://cloacina.example.com"
+"#,
+        )
+        .unwrap();
+
+        let server = CloacinaConfig::load(&path).server;
+        assert_eq!(server.database_wait_timeout_s, Some(120));
+        // A key that the file does not set keeps its default.
+        assert_eq!(server.default_executor, "default");
+        assert_eq!(server.run_history_retention_days, Some(30));
+        assert_eq!(server.outbox_acked_retention_s, Some(600));
+        assert_eq!(server.retention_interval_s, Some(60));
+        assert_eq!(server.fleet_task_timeout_s, Some(900));
+        assert_eq!(server.fleet_task_timeout_max_s, Some(7200));
+        assert_eq!(
+            server.alert_webhook_url.as_deref(),
+            Some("https://alerts.example.com/hook")
+        );
+        assert_eq!(server.alert_webhook_events, vec!["failed", "cancelled"]);
+        assert_eq!(server.alert_webhook_timeout_s, Some(5));
+        assert_eq!(server.alert_webhook_max_attempts, Some(3));
+        assert_eq!(
+            server.public_base_url.as_deref(),
+            Some("https://cloacina.example.com")
+        );
+    }
+
+    #[test]
+    fn config_set_server_settings_that_are_not_set_yet() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let mut config = CloacinaConfig::default();
+        // An optional number has no value to take the type from.
+        config.set("server.fleet_task_timeout_s", "900").unwrap();
+        config
+            .set("server.run_history_retention_days", "0")
+            .unwrap();
+        config
+            .set(
+                "server.alert_webhook_url",
+                "https://alerts.example.com/hook",
+            )
+            .unwrap();
+        config
+            .set("server.alert_webhook_events", "failed, cancelled")
+            .unwrap();
+        assert!(
+            config
+                .set("server.fleet_task_timeout_max_s", "soon")
+                .is_err()
+        );
+        config.save(&path).unwrap();
+
+        let server = CloacinaConfig::load(&path).server;
+        assert_eq!(server.fleet_task_timeout_s, Some(900));
+        assert_eq!(server.run_history_retention_days, Some(0));
+        assert_eq!(
+            server.alert_webhook_url.as_deref(),
+            Some("https://alerts.example.com/hook")
+        );
+        assert_eq!(server.alert_webhook_events, vec!["failed", "cancelled"]);
+        assert!(server.fleet_task_timeout_max_s.is_none());
     }
 
     #[test]

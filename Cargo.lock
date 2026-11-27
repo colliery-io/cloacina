@@ -913,6 +913,7 @@ dependencies = [
 name = "cloacina-macros"
 version = "0.12.0"
 dependencies = [
+ "cloacina-api-types",
  "once_cell",
  "proc-macro2",
  "quote",
@@ -942,6 +943,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "toml 1.1.8+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -965,6 +967,7 @@ dependencies = [
  "cloacina-build",
  "cloacina-python",
  "diesel",
+ "diesel_migrations",
  "hex",
  "hmac 0.13.0",
  "http-body-util",

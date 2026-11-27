@@ -30,7 +30,7 @@ use tempfile::TempDir;
 use super::manifest::{self, PackageLanguage};
 use crate::shared::error::CliError;
 
-pub fn run(path: &Path) -> Result<(), CliError> {
+pub fn run(path: &Path, python_version: Option<&str>) -> Result<(), CliError> {
     if !path.exists() {
         return Err(CliError::UserError(format!(
             "{} does not exist",
@@ -47,9 +47,10 @@ pub fn run(path: &Path) -> Result<(), CliError> {
         path.to_path_buf()
     } else {
         let tmp = TempDir::new().map_err(CliError::Io)?;
-        let extracted = fidius_core::package::unpack_package(path, tmp.path()).map_err(|e| {
-            CliError::UserError(format!("failed to unpack {}: {e}", path.display()))
-        })?;
+        let extracted = cloacina_workflow_plugin::unpack_limit::unpack_package(path, tmp.path())
+            .map_err(|e| {
+                CliError::UserError(format!("failed to unpack {}: {e}", path.display()))
+            })?;
         _staging = Some(tmp);
         extracted
     };
@@ -57,7 +58,18 @@ pub fn run(path: &Path) -> Result<(), CliError> {
     let manifest = manifest::read_manifest(&dir)?;
     let lang = manifest::language(&manifest.metadata)?;
     match lang {
-        PackageLanguage::Python => manifest::validate_python_layout(&dir, &manifest.metadata)?,
+        PackageLanguage::Python => {
+            manifest::validate_python_layout(&dir, &manifest.metadata)?;
+            manifest::validate_python_env(
+                &dir,
+                &manifest.package.name,
+                &manifest.metadata,
+                python_version,
+            )?;
+            // CLOACINA-T-1073: dependencies ship as a lock file for the
+            // compiler, or in vendor/.
+            super::vendor::check_dependencies_ship(&dir, &manifest.package.name)?;
+        }
         PackageLanguage::Rust => manifest::validate_rust_layout(&dir)?,
     }
     manifest::lint_footguns(&dir, lang, &manifest.metadata)?;
@@ -114,7 +126,7 @@ entry_module = "demo.tasks"
         let tmp = TempDir::new().unwrap();
         let pkg = tmp.path().join("demo");
         write_python_package(&pkg, true);
-        run(&pkg).unwrap();
+        run(&pkg, None).unwrap();
     }
 
     #[test]
@@ -122,7 +134,7 @@ entry_module = "demo.tasks"
         let tmp = TempDir::new().unwrap();
         let pkg = tmp.path().join("demo");
         write_python_package(&pkg, false); // module at top level, no workflow/
-        let err = run(&pkg).unwrap_err();
+        let err = run(&pkg, None).unwrap_err();
         assert!(format!("{err:?}").contains("workflow/"));
     }
 
@@ -148,16 +160,67 @@ package_type = "workflow"
 "#,
         )
         .unwrap();
-        let err = run(&pkg).unwrap_err();
+        let err = run(&pkg, None).unwrap_err();
         assert!(
             format!("{err:?}").contains("package_type") || format!("{err:?}").contains("unknown")
         );
     }
 
+    fn add_metadata(pkg: &Path, lines: &str) {
+        let mut text = fs::read_to_string(pkg.join("package.toml")).unwrap();
+        text.push_str(lines);
+        fs::write(pkg.join("package.toml"), text).unwrap();
+    }
+
+    #[test]
+    fn rejects_requires_python_that_excludes_the_agent_python() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_python_package(&pkg, true);
+        add_metadata(&pkg, "requires_python = \">=3.12\"\n");
+        // Default: the Python of the official agent image, 3.11.
+        let err = format!("{:?}", run(&pkg, None).unwrap_err());
+        assert!(err.contains("requires Python >=3.12"), "{err}");
+        assert!(err.contains("3.11"), "{err}");
+        // The same package is valid for agents that run 3.12.
+        run(&pkg, Some("3.12")).unwrap();
+    }
+
+    #[test]
+    fn rejects_dependencies_vendored_for_another_python() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_python_package(&pkg, true);
+        fs::create_dir_all(pkg.join("vendor/x86_64-linux")).unwrap();
+        add_metadata(
+            &pkg,
+            "\n[metadata.vendored]\npython_version = \"3.11\"\nplatforms = [\"x86_64-linux\"]\nnative = true\n",
+        );
+        run(&pkg, None).unwrap();
+        run(&pkg, Some("3.11")).unwrap();
+        let err = format!("{:?}", run(&pkg, Some("3.12")).unwrap_err());
+        assert!(err.contains("vendored for Python 3.11"), "{err}");
+        assert!(err.contains("3.12"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_record_whose_platform_folder_is_missing() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_python_package(&pkg, true);
+        fs::create_dir_all(pkg.join("vendor/x86_64-linux")).unwrap();
+        add_metadata(
+            &pkg,
+            "\n[metadata.vendored]\npython_version = \"3.11\"\nplatforms = [\"aarch64-linux\", \"x86_64-linux\"]\n",
+        );
+        let err = format!("{:?}", run(&pkg, None).unwrap_err());
+        assert!(err.contains("vendor/aarch64-linux"), "{err}");
+    }
+
     #[test]
     fn rejects_missing_path() {
         let tmp = TempDir::new().unwrap();
-        let err = run(&tmp.path().join("nope")).unwrap_err();
+        let err = run(&tmp.path().join("nope"), None).unwrap_err();
         assert!(format!("{err:?}").contains("does not exist"));
     }
 }

@@ -34,11 +34,53 @@ All parameters are keyword-only and optional
 - `retry_condition` (str): When to retry: "never", "transient", or "all"
 - `retry_jitter` (bool): Add random jitter to retry delays
 - `timeout_seconds` (int): The task's own time limit in seconds (greater than 0; `0` raises `ValueError`). When set it replaces the executor's limit for this task: `task_timeout_seconds` in process, the server default on an execution-agent fleet, where the server maximum caps it. Default: no own limit. Python parity with Rust's `#[task(timeout_seconds = …)]`.
+- `pool` (str): The [agent pool](../../../explanation/service/execution-agent-fleet/#agent-pools) the task runs in on an execution-agent fleet. A task with a pool runs only on an agent of that pool; a task with none runs only on the pool `default`. The name is lowercase letters, digits and `-`, a letter or digit at both ends, 40 characters at most; another name raises `ValueError`. Python parity with Rust's `#[task(pool = …)]`.
+- `cpu` (str or number): CPU request, a Kubernetes quantity above zero: `"500m"`, `"4"`, or the number `4`. See [Pool and requests](#pool-and-requests).
+- `memory` (str or number): Memory request, a Kubernetes quantity above zero: `"512Mi"`, `"32Gi"`, or a number of bytes.
+- `inline` (bool): Marks the task as one that runs inside the agent process. The mark is stored with the task and sent to the agent. It changes nothing about how the task runs. Default: `False`.
 - `on_success` (callable): Callback function called when task succeeds
 - `on_failure` (callable): Callback function called when task fails
 - `invokes` (ComputationGraphBuilder): A **trigger-less** computation graph this task invokes: after the task body succeeds, the engine executes the graph with the task's context. The referenced `with ComputationGraphBuilder(...)` block must run before the decorator, or the decorator raises `ValueError`. Python parity with Rust's `#[task(invokes = …)]`.
 - `post_invocation` (callable): Callback run after the invoked graph completes; only meaningful with `invokes=` (setting it alone raises `ValueError`).
 - `trigger_rules` (rule): Conditional gate — when the rule evaluates false (and the task's dependencies are otherwise satisfied), the task lands in the real `Skipped` state and its body never runs. Python parity with Rust's `#[task(trigger_rules = …)]`. Default: always run.
+
+## Pool and requests
+
+`pool`, `cpu` and `memory` say where a task runs on an
+[execution-agent fleet](../../../explanation/service/execution-agent-fleet/#how-a-task-is-placed)
+and how much room it needs there. All three are optional.
+
+```python
+@cloaca.task(pool="large", cpu="4", memory="32Gi")
+def load_history(context):
+    return context
+
+@cloaca.task(memory="512Mi")
+def summarize(context):
+    return context
+```
+
+- The values are checked when the decorator is called. A bad pool name or a
+  quantity that is not a Kubernetes quantity above zero (`"32GB"`, `"0"`, `-1`)
+  raises `ValueError`. A value that is not a string or a number raises
+  `TypeError`.
+- A quantity uses the Kubernetes forms: a number with no suffix (`"4"`,
+  `"0.5"`), a decimal suffix (`m`, `k`, `M`, `G`, `T`) or a binary suffix
+  (`Ki`, `Mi`, `Gi`, `Ti`). A Python number is read as its text, so
+  `memory=1073741824` is that many bytes.
+- **A request is used for placement only.** The server counts the requests of
+  the tasks in flight on each agent and sends a task where its request still
+  fits. Nothing limits what a task uses: a task that asks for `2Gi` and uses
+  `20Gi` is not stopped, and it can take down the agent with the other tasks on
+  it. Ask for what the task needs at its peak.
+- A task with no request counts as one slot's share of its agent: the agent's
+  total divided by its max concurrency.
+- When a package is published, a task that names a pool the tenant does not
+  have, or that requests more than one agent of its pool can hold, makes the
+  package fail with an error that names the task. See
+  [what a publish checks](../../../explanation/service/execution-agent-fleet/#what-a-publish-checks).
+- The in-process executor does not read these parameters. They take effect
+  when tasks run on a fleet.
 
 ## Trigger rules
 

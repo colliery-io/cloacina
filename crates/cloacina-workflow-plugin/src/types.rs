@@ -77,6 +77,35 @@ pub struct TaskMetadataEntry {
     /// its own and the executor's limit applies.
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
+    /// CLOACINA-T-1027: the agent pool the task runs in on a fleet, from
+    /// `#[task(pool = "large")]`. `None` means the pool `default`.
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// CLOACINA-T-1027: the task's CPU request, a Kubernetes quantity as the
+    /// author wrote it (`500m`, `4`). `None` means no request.
+    #[serde(default)]
+    pub cpu: Option<String>,
+    /// CLOACINA-T-1027: the task's memory request, a Kubernetes quantity as
+    /// the author wrote it (`512Mi`, `32Gi`). `None` means no request.
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// CLOACINA-T-1027: `#[task(inline = true)]`. Carried for
+    /// CLOACINA-T-1028; nothing acts on it yet.
+    #[serde(default)]
+    pub inline: bool,
+}
+
+impl TaskMetadataEntry {
+    /// The task's placement (CLOACINA-T-1027): pool, requests and the inline
+    /// mark, as one value.
+    pub fn placement(&self) -> cloacina_workflow::TaskPlacement {
+        cloacina_workflow::TaskPlacement {
+            pool: self.pool.clone(),
+            cpu: self.cpu.clone(),
+            memory: self.memory.clone(),
+            inline: self.inline,
+        }
+    }
 }
 
 /// Default trigger-rules JSON (`Always`) for back-compat deserialization of
@@ -486,6 +515,11 @@ pub struct CloacinaMetadata {
     /// packages don't need it (their Cargo.toml is the source of truth).
     #[serde(default)]
     pub providers: std::collections::HashMap<String, ProviderDep>,
+    /// What `cloacinactl package build` put in `vendor/` (Python packages
+    /// only, CLOACINA-T-1048): the Python version and the platforms. Absent
+    /// when the package has no dependencies, or `vendor/` is filled by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendored: Option<crate::python_env::Vendored>,
 }
 
 /// One `[metadata.providers]` dependency spec — a Cargo-style dependency
@@ -609,6 +643,10 @@ mod tests {
             requires_handle: false,
             retry_policy: "{\"max_attempts\":0}".to_string(),
             timeout_seconds: Some(600),
+            pool: Some("large".to_string()),
+            cpu: Some("4".to_string()),
+            memory: Some("32Gi".to_string()),
+            inline: true,
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -617,6 +655,29 @@ mod tests {
         assert_eq!(roundtrip.index, 0);
         assert_eq!(roundtrip.retry_policy, "{\"max_attempts\":0}");
         assert_eq!(roundtrip.timeout_seconds, Some(600));
+        // CLOACINA-T-1027: the pool, the requests and the inline mark.
+        assert_eq!(roundtrip.pool.as_deref(), Some("large"));
+        assert_eq!(roundtrip.cpu.as_deref(), Some("4"));
+        assert_eq!(roundtrip.memory.as_deref(), Some("32Gi"));
+        assert!(roundtrip.inline);
+        let placement = roundtrip.placement();
+        assert_eq!(placement.pool_name(), "large");
+        assert_eq!(placement.cpu_millis(), Some(4000));
+        assert_eq!(placement.memory_bytes(), Some(32 << 30));
+    }
+
+    // CLOACINA-T-1027: metadata written before the placement fields existed
+    // reads as "the pool `default`, no request, not inline".
+    #[test]
+    fn task_metadata_without_placement_fields_reads_as_the_default() {
+        let json = r#"{"index":0,"id":"t","namespaced_id_template":"x","dependencies":[],
+            "description":"d","source_location":"s"}"#;
+        let entry: TaskMetadataEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.pool, None);
+        assert_eq!(entry.cpu, None);
+        assert_eq!(entry.memory, None);
+        assert!(!entry.inline);
+        assert!(entry.placement().is_default());
     }
 
     #[test]
@@ -639,6 +700,10 @@ mod tests {
                 requires_handle: false,
                 retry_policy: String::new(),
                 timeout_seconds: None,
+                pool: None,
+                cpu: None,
+                memory: None,
+                inline: false,
             }],
             triggers: Vec::new(),
         };
@@ -743,6 +808,36 @@ mod tests {
         assert_eq!(metadata.language, "python");
         assert_eq!(metadata.requires_python.as_deref(), Some(">=3.11"));
         assert_eq!(metadata.entry_module.as_deref(), Some("workflow.tasks"));
+    }
+
+    #[test]
+    fn test_cloacina_metadata_vendored_record_from_toml() {
+        let toml_str = r#"
+            workflow_name = "etl_pipeline"
+            language = "python"
+            requires_python = ">=3.11"
+
+            [vendored]
+            python_version = "3.11"
+            platforms = ["aarch64-linux", "x86_64-linux"]
+            native = true
+            lock_file = "requirements.lock"
+        "#;
+        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
+        let vendored = metadata.vendored.clone().unwrap();
+        assert_eq!(vendored.python_version, "3.11");
+        assert_eq!(vendored.platforms, vec!["aarch64-linux", "x86_64-linux"]);
+        assert!(vendored.native);
+        assert_eq!(vendored.lock_file.as_deref(), Some("requirements.lock"));
+
+        // The record survives a write and a read; a manifest with no record
+        // writes no `vendored` key.
+        let text = toml::to_string(&metadata).unwrap();
+        let back: CloacinaMetadata = toml::from_str(&text).unwrap();
+        assert_eq!(back.vendored, Some(vendored));
+        let plain: CloacinaMetadata = toml::from_str("language = \"python\"").unwrap();
+        assert!(plain.vendored.is_none());
+        assert!(!toml::to_string(&plain).unwrap().contains("vendored"));
     }
 
     #[test]

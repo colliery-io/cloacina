@@ -88,6 +88,7 @@ use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::dispatcher::{ExecutionResult, TaskReadyEvent};
 use crate::error::ExecutorError;
+use crate::executor::context_size::{ContextKind, ContextSizeLimits, check_context_size};
 use crate::executor::types::ClaimedTask;
 use crate::retry::{RetryCondition, RetryPolicy};
 
@@ -110,6 +111,8 @@ pub(crate) fn failure_reason(err: &ExecutorError) -> &'static str {
         // because we couldn't load its dependency context" from
         // generic infrastructure issues.
         ExecutorError::ContextLoadFailed(_) => "context_load_failed",
+        // CLOACINA-T-1047: a context over the hard size limit.
+        ExecutorError::ContextTooLarge { .. } => "context_too_large",
         ExecutorError::TaskNotFound(_) | ExecutorError::WorkflowExecutionNotFound(_) => {
             "task_not_found"
         }
@@ -167,6 +170,9 @@ pub struct TaskResultHandler {
     /// model). The fleet's reconciliation will plumb the agent's owning
     /// runner id here so `mark_completed` and friends stay claim-guarded.
     runner_id: Option<UniversalUuid>,
+    /// CLOACINA-T-1047: the warning and the hard limit on the size of the
+    /// context a task returns.
+    context_limits: ContextSizeLimits,
 }
 
 impl TaskResultHandler {
@@ -181,7 +187,20 @@ impl TaskResultHandler {
             total_executed,
             total_failed,
             runner_id,
+            context_limits: ContextSizeLimits::default(),
         }
+    }
+
+    /// The same handler with these limits on the size of a result context
+    /// (CLOACINA-T-1047). A new handler has the default limits.
+    pub fn with_context_limits(mut self, context_limits: ContextSizeLimits) -> Self {
+        self.context_limits = context_limits;
+        self
+    }
+
+    /// The limits on the size of a result context.
+    pub fn context_limits(&self) -> ContextSizeLimits {
+        self.context_limits
     }
 
     /// The same handler, with its terminal writes (`mark_completed`,
@@ -221,13 +240,47 @@ impl TaskResultHandler {
         // includes the hand-off to the agent and the wait for its report.
         metrics::histogram!("cloacina_task_duration_seconds").record(duration.as_secs_f64());
 
+        // CLOACINA-T-1047: measure the context the task returned, here, so
+        // the in-process and the fleet path are measured and limited the same
+        // way. Over the hard limit the result becomes a failure: the context
+        // is not saved, and the retry decision below refuses a retry.
+        let mut context_size_bytes: Option<u64> = None;
+        let outcome = match outcome {
+            Ok(result_context) => match check_context_size(
+                &self.context_limits,
+                self.dal.tenant_label(),
+                &event.task_name,
+                ContextKind::Result,
+                result_context.data(),
+            ) {
+                Ok(size_bytes) => {
+                    context_size_bytes = Some(size_bytes);
+                    Ok(result_context)
+                }
+                Err(e) => {
+                    error!(
+                        task_id = %event.task_execution_id,
+                        task_name = %event.task_name,
+                        error = %e,
+                        "Task result context refused; the task fails and is not retried"
+                    );
+                    Err(e)
+                }
+            },
+            Err(e) => Err(e),
+        };
+
         match outcome {
             Ok(result_context) => {
                 // CLOACI-I-0140: retry transient DB contention — a sqlite-busy
                 // context save was failing tasks that SUCCEEDED (the reproduced
                 // 'Failed' == 'Completed' assertion flake class).
                 match retry_transient(5, Duration::from_millis(100), || {
-                    self.complete_task_transaction(claimed_task, result_context.clone_data())
+                    self.complete_task_transaction(
+                        claimed_task,
+                        result_context.clone_data(),
+                        context_size_bytes,
+                    )
                 })
                 .await
                 {
@@ -382,13 +435,15 @@ impl TaskResultHandler {
         &self,
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
+        context_size_bytes: Option<u64>,
     ) -> Result<(), ExecutorError> {
         // 1. Save context FIRST. If this fails, the task is still marked
         //    Running with our claim — the heartbeat-loss / claim-sweep
         //    cycle will reset it to Ready and another attempt drives it
         //    through this path again. No "marked Completed but no
         //    context" state is reachable.
-        self.save_task_context(claimed_task, context).await?;
+        self.save_task_context(claimed_task, context, context_size_bytes)
+            .await?;
 
         // 2. Mark completed — guarded by claim ownership.
         let applied = self
@@ -417,11 +472,12 @@ impl TaskResultHandler {
     }
 
     /// Saves a task's produced context to the contexts table and links it via
-    /// task_execution_metadata.
+    /// task_execution_metadata, with its serialized size (CLOACINA-T-1047).
     async fn save_task_context(
         &self,
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
+        context_size_bytes: Option<u64>,
     ) -> Result<(), ExecutorError> {
         use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
 
@@ -432,6 +488,7 @@ impl TaskResultHandler {
             workflow_execution_id: claimed_task.workflow_execution_id,
             task_name: claimed_task.task_name.clone(),
             context_id,
+            context_size_bytes: context_size_bytes.map(|n| i64::try_from(n).unwrap_or(i64::MAX)),
         };
 
         self.dal
@@ -460,6 +517,12 @@ impl TaskResultHandler {
         // this runner would either fight for the claim or spawn a duplicate
         // attempt. Let the owning runner drive the outcome.
         if matches!(error, ExecutorError::ClaimLost) {
+            return Ok(false);
+        }
+
+        // CLOACINA-T-1047: a context over the size limit is never retried.
+        // The next attempt would build the same context.
+        if matches!(error, ExecutorError::ContextTooLarge { .. }) {
             return Ok(false);
         }
 
@@ -492,6 +555,11 @@ impl TaskResultHandler {
         if matches!(error, ExecutorError::ClaimLost) {
             return false;
         }
+        // CLOACINA-T-1047: not retryable under any policy, `AllErrors` and a
+        // matching `ErrorPattern` included.
+        if matches!(error, ExecutorError::ContextTooLarge { .. }) {
+            return false;
+        }
         if attempt >= retry_policy.max_attempts {
             return false;
         }
@@ -503,7 +571,10 @@ impl TaskResultHandler {
                 RetryCondition::AllErrors => true,
                 RetryCondition::TransientOnly => Self::error_is_transient(error),
                 RetryCondition::ErrorPattern { patterns } => {
-                    let error_msg = error.to_string().to_lowercase();
+                    // The message only: the details of a failure (a Python
+                    // traceback) are not part of the contract (CLOACINA-T-1024).
+                    let error_text = error.to_string();
+                    let error_msg = crate::task_logs::error_message(&error_text).to_lowercase();
                     patterns
                         .iter()
                         .any(|pattern| error_msg.contains(&pattern.to_lowercase()))
@@ -528,7 +599,11 @@ impl TaskResultHandler {
             ExecutorError::ConnectionPool(_) => true,
             ExecutorError::TaskNotFound(_) => false,
             ExecutorError::TaskExecution(task_error) => {
-                let error_msg = task_error.to_string().to_lowercase();
+                // The message only, not the details of the failure
+                // (CLOACINA-T-1024): a traceback names files and modules,
+                // and "connection" in a path is not a transient error.
+                let error_text = task_error.to_string();
+                let error_msg = crate::task_logs::error_message(&error_text).to_lowercase();
                 error_msg.contains("timeout")
                     || error_msg.contains("connection")
                     || error_msg.contains("network")
@@ -645,6 +720,39 @@ mod is_transient_tests {
             timestamp: chrono::Utc::now(),
         };
         assert!(handler().is_transient_error(&ExecutorError::TaskExecution(task_err)));
+    }
+
+    /// CLOACINA-T-1024: the details of a failure (a Python traceback) are not
+    /// read by the retry conditions; the message still is.
+    #[test]
+    fn retry_conditions_read_the_message_and_not_the_details() {
+        let failure = |message: &str, details: &str| {
+            ExecutorError::TaskExecution(crate::error::TaskError::ExecutionFailed {
+                message: crate::task_logs::with_error_details(message, details),
+                task_id: "test".to_string(),
+                timestamp: chrono::Utc::now(),
+            })
+        };
+        let traceback = "Traceback (most recent call last):\n  File \"urllib3/connection.py\", \
+                         line 1, in connect\nValueError: bad input";
+        let in_details_only = failure("ValueError: bad input", traceback);
+        let in_message = failure("ConnectionError: connection refused", traceback);
+
+        assert!(!TaskResultHandler::error_is_transient(&in_details_only));
+        assert!(TaskResultHandler::error_is_transient(&in_message));
+
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::ErrorPattern {
+                patterns: vec!["connection".to_string()],
+            })
+            .build();
+        assert!(!TaskResultHandler::retry_allowed(
+            &policy,
+            1,
+            &in_details_only
+        ));
+        assert!(TaskResultHandler::retry_allowed(&policy, 1, &in_message));
     }
 }
 
@@ -850,5 +958,379 @@ mod outcome_metrics_tests {
             task_counters(&snapshot),
             vec![(labels("failed", "task_error", "unknown"), 1)]
         );
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod context_size_tests {
+    //! `handle_outcome` measures the context a task returns, saves the size
+    //! with the task's metadata row, warns over the warning limit and fails
+    //! the task with no retry over the hard limit (CLOACINA-T-1047). These
+    //! tests run it on SQLite in memory under a thread-local metrics
+    //! recorder.
+
+    use super::*;
+    use crate::database::Database;
+    use crate::dispatcher::ExecutionStatus;
+    use crate::models::task_execution::{NewTaskExecution, TaskExecution};
+    use crate::models::workflow_execution::NewWorkflowExecution;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+    use metrics_util::{CompositeKey, MetricKind};
+
+    type Snapshot = Vec<(CompositeKey, DebugValue)>;
+    type Labels = Vec<(String, String)>;
+
+    const TASK: &str = "public::embedded::orders::load";
+
+    /// What one `handle_outcome` call left behind.
+    struct Outcome {
+        result: ExecutionResult,
+        snapshot: Snapshot,
+        /// The task row after the call.
+        task: TaskExecution,
+        /// `context_size_bytes` of the task's metadata row; `None` when the
+        /// task has no metadata row.
+        saved_size: Option<Option<i64>>,
+        /// `context_id` of the task's metadata row, when the row exists.
+        saved_context_id: Option<UniversalUuid>,
+    }
+
+    /// Run one `handle_outcome` call for a new task at attempt 1 with a retry
+    /// policy of 3 attempts on all errors.
+    fn run(
+        limits: ContextSizeLimits,
+        outcome: Result<Context<serde_json::Value>, ExecutorError>,
+    ) -> Outcome {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (result, task, saved_size, saved_context_id) =
+            metrics::with_local_recorder(&recorder, || {
+                rt.block_on(async move {
+                    let url = format!(
+                        "file:context_size_test_{}?mode=memory&cache=shared",
+                        uuid::Uuid::new_v4()
+                    );
+                    let db = Database::new(&url, "", 5);
+                    db.run_migrations().await.expect("migrations");
+                    let dal = DAL::new(db);
+                    let workflow_id = dal
+                        .workflow_execution()
+                        .create(NewWorkflowExecution {
+                            workflow_name: "orders".into(),
+                            workflow_version: "1.0".into(),
+                            status: "Running".into(),
+                            context_id: None,
+                        })
+                        .await
+                        .unwrap()
+                        .id;
+                    let task_id = dal
+                        .task_execution()
+                        .create(NewTaskExecution {
+                            workflow_execution_id: workflow_id,
+                            task_name: TASK.into(),
+                            status: "Running".into(),
+                            attempt: 1,
+                            max_attempts: 3,
+                            trigger_rules: r#"{"type":"Always"}"#.into(),
+                            task_configuration: "{}".into(),
+                        })
+                        .await
+                        .unwrap()
+                        .id;
+                    let handler = TaskResultHandler::new(
+                        dal.clone(),
+                        Arc::new(AtomicU64::new(0)),
+                        Arc::new(AtomicU64::new(0)),
+                        None,
+                    )
+                    .with_context_limits(limits);
+                    let event = TaskReadyEvent::new(task_id, workflow_id, TASK.to_string(), 1);
+                    let claimed = ClaimedTask {
+                        task_execution_id: task_id,
+                        workflow_execution_id: workflow_id,
+                        task_name: TASK.to_string(),
+                        attempt: 1,
+                    };
+                    let retry_policy = RetryPolicy::builder()
+                        .max_attempts(3)
+                        .retry_condition(RetryCondition::AllErrors)
+                        .build();
+                    let result = handler
+                        .handle_outcome(
+                            &event,
+                            &claimed,
+                            outcome,
+                            &retry_policy,
+                            Duration::from_millis(10),
+                        )
+                        .await;
+                    let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+                    let metadata = dal
+                        .task_execution_metadata()
+                        .get_by_task_execution(task_id)
+                        .await
+                        .ok();
+                    let sizes = dal
+                        .task_execution_metadata()
+                        .context_sizes_for_workflow(workflow_id)
+                        .await
+                        .unwrap();
+                    // The lookup the API uses gives the same size as the row.
+                    assert_eq!(
+                        sizes.get(&task_id).copied(),
+                        metadata.as_ref().and_then(|m| m.context_size_bytes)
+                    );
+                    (
+                        result,
+                        task,
+                        metadata.as_ref().map(|m| m.context_size_bytes),
+                        metadata.and_then(|m| m.context_id),
+                    )
+                })
+            });
+        let snapshot = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .map(|(key, _, _, value)| (key, value))
+            .collect();
+        Outcome {
+            result,
+            snapshot,
+            task,
+            saved_size,
+            saved_context_id,
+        }
+    }
+
+    fn sorted_labels(key: &CompositeKey) -> Labels {
+        let mut labels: Labels = key
+            .key()
+            .labels()
+            .map(|l| (l.key().to_string(), l.value().to_string()))
+            .collect();
+        labels.sort();
+        labels
+    }
+
+    /// Each `cloacina_context_size_bytes` series as (sorted labels, samples).
+    fn size_samples(snapshot: &Snapshot) -> Vec<(Labels, Vec<f64>)> {
+        snapshot
+            .iter()
+            .filter(|(key, _)| {
+                key.kind() == MetricKind::Histogram
+                    && key.key().name() == "cloacina_context_size_bytes"
+            })
+            .map(|(key, value)| match value {
+                DebugValue::Histogram(samples) => (
+                    sorted_labels(key),
+                    samples.iter().map(|s| s.into_inner()).collect(),
+                ),
+                other => panic!("not a histogram: {other:?}"),
+            })
+            .collect()
+    }
+
+    /// Each series of the counter `name` as (sorted labels, count).
+    fn counters(snapshot: &Snapshot, name: &str) -> Vec<(Labels, u64)> {
+        snapshot
+            .iter()
+            .filter(|(key, _)| key.kind() == MetricKind::Counter && key.key().name() == name)
+            .map(|(key, value)| match value {
+                DebugValue::Counter(n) => (sorted_labels(key), *n),
+                other => panic!("not a counter: {other:?}"),
+            })
+            .collect()
+    }
+
+    fn result_labels() -> Labels {
+        vec![
+            ("kind".to_string(), "result".to_string()),
+            ("tenant".to_string(), "public".to_string()),
+        ]
+    }
+
+    fn tenant_label() -> Labels {
+        vec![("tenant".to_string(), "public".to_string())]
+    }
+
+    /// A context with a string of `rows_len` characters under `rows` and a
+    /// small `meta` key.
+    fn context(rows_len: usize) -> Context<serde_json::Value> {
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("rows", serde_json::json!("x".repeat(rows_len)))
+            .unwrap();
+        ctx.insert("meta", serde_json::json!({"n": 1})).unwrap();
+        ctx
+    }
+
+    fn size_of(ctx: &Context<serde_json::Value>) -> u64 {
+        ctx.to_json().unwrap().len() as u64
+    }
+
+    #[test]
+    fn a_result_under_the_limits_is_saved_with_its_size_and_measured() {
+        let ctx = context(100);
+        let size = size_of(&ctx);
+        let out = run(ContextSizeLimits::default(), Ok(ctx));
+
+        assert!(
+            matches!(out.result.status, ExecutionStatus::Completed),
+            "status was {:?}",
+            out.result.status
+        );
+        assert_eq!(out.task.status, "Completed");
+        assert_eq!(out.saved_size, Some(Some(size as i64)));
+        assert!(out.saved_context_id.is_some(), "the context is saved");
+        assert_eq!(
+            size_samples(&out.snapshot),
+            vec![(result_labels(), vec![size as f64])]
+        );
+        assert_eq!(
+            counters(&out.snapshot, "cloacina_context_size_warnings_total"),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn a_result_between_the_limits_is_saved_and_counted_as_a_warning() {
+        let ctx = context(2_000);
+        let size = size_of(&ctx);
+        let limits = ContextSizeLimits {
+            warn_bytes: 1_000,
+            max_bytes: 10_000,
+        };
+        let out = run(limits, Ok(ctx));
+
+        assert_eq!(out.task.status, "Completed");
+        assert_eq!(out.saved_size, Some(Some(size as i64)));
+        assert_eq!(
+            counters(&out.snapshot, "cloacina_context_size_warnings_total"),
+            vec![(tenant_label(), 1)]
+        );
+        assert_eq!(
+            size_samples(&out.snapshot),
+            vec![(result_labels(), vec![size as f64])]
+        );
+    }
+
+    #[test]
+    fn a_result_over_the_hard_limit_fails_once_and_is_not_retried() {
+        let ctx = context(20_000);
+        let size = size_of(&ctx);
+        let limits = ContextSizeLimits {
+            warn_bytes: 1_000,
+            max_bytes: 10_000,
+        };
+        // Attempt 1 of a policy with 3 attempts on all errors.
+        let out = run(limits, Ok(ctx));
+
+        assert!(
+            matches!(out.result.status, ExecutionStatus::Failed),
+            "status was {:?}",
+            out.result.status
+        );
+        let expected = format!(
+            "Context too large: the result context of task '{TASK}' is {size} bytes, over the \
+             limit of 10000 bytes. Largest keys: rows (20002 bytes), meta (7 bytes). Write \
+             large data to storage in the task and pass a reference in the context."
+        );
+        assert_eq!(out.result.error.as_deref(), Some(expected.as_str()));
+
+        // The task row: failed, no retry scheduled, the error on the row.
+        assert_eq!(out.task.status, "Failed");
+        assert_eq!(out.task.attempt, 1);
+        assert!(out.task.retry_at.is_none(), "no retry is scheduled");
+        assert_eq!(out.task.last_error.as_deref(), Some(expected.as_str()));
+
+        // The context is not saved.
+        assert_eq!(out.saved_size, None, "no metadata row is written");
+
+        // Counted once as failed, never as retried; measured; no warning.
+        assert_eq!(
+            counters(&out.snapshot, "cloacina_tasks_total"),
+            vec![(
+                vec![
+                    ("reason".to_string(), "context_too_large".to_string()),
+                    ("status".to_string(), "failed".to_string()),
+                    ("tenant".to_string(), "public".to_string()),
+                    ("workflow".to_string(), "orders".to_string()),
+                ],
+                1
+            )]
+        );
+        assert_eq!(
+            size_samples(&out.snapshot),
+            vec![(result_labels(), vec![size as f64])]
+        );
+        assert_eq!(
+            counters(&out.snapshot, "cloacina_context_size_warnings_total"),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn the_same_policy_retries_an_ordinary_task_error() {
+        // The control for the test above: with this policy a task error at
+        // attempt 1 is retried.
+        let err = ExecutorError::TaskExecution(crate::error::TaskError::ExecutionFailed {
+            message: "boom".to_string(),
+            task_id: "load".to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+        let out = run(ContextSizeLimits::default(), Err(err));
+        assert!(
+            matches!(out.result.status, ExecutionStatus::Retry),
+            "status was {:?}",
+            out.result.status
+        );
+        assert!(size_samples(&out.snapshot).is_empty());
+    }
+
+    #[test]
+    fn limits_of_zero_accept_a_large_result() {
+        let ctx = context(20_000);
+        let size = size_of(&ctx);
+        let out = run(ContextSizeLimits::OFF, Ok(ctx));
+        assert_eq!(out.task.status, "Completed");
+        assert_eq!(out.saved_size, Some(Some(size as i64)));
+        assert_eq!(
+            counters(&out.snapshot, "cloacina_context_size_warnings_total"),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn no_retry_policy_allows_a_retry_of_a_context_too_large_error() {
+        let error = ExecutorError::ContextTooLarge {
+            kind: "result",
+            task: TASK.to_string(),
+            size_bytes: 20,
+            limit_bytes: 10,
+            largest_keys: "rows (18 bytes)".to_string(),
+        };
+        for condition in [
+            RetryCondition::AllErrors,
+            RetryCondition::TransientOnly,
+            RetryCondition::ErrorPattern {
+                patterns: vec!["context too large".to_string()],
+            },
+        ] {
+            let policy = RetryPolicy::builder()
+                .max_attempts(3)
+                .retry_condition(condition.clone())
+                .build();
+            assert!(
+                !TaskResultHandler::retry_allowed(&policy, 1, &error),
+                "retried under {condition:?}"
+            );
+        }
+        assert!(!TaskResultHandler::error_is_transient(&error));
+        assert_eq!(failure_reason(&error), "context_too_large");
     }
 }

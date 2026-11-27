@@ -17,15 +17,18 @@
 use anyhow::{Result, bail};
 use std::net::SocketAddr;
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 
 use crate::GlobalOpts;
 use crate::commands::config;
 use crate::shared::pid;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     globals: &GlobalOpts,
     bind: SocketAddr,
+    metrics_bind: Option<SocketAddr>,
     database_url: Option<String>,
     poll_interval_ms: Option<u64>,
     heartbeat_interval_s: Option<u64>,
@@ -38,13 +41,7 @@ pub async fn run(
     // Write PID file before exec — we're the process about to become compiler.
     pid::write(&globals.home.join("compiler.pid"))?;
 
-    let mut cmd = Command::new("cloacina-compiler");
-    cmd.arg("--home")
-        .arg(&globals.home)
-        .arg("--bind")
-        .arg(bind.to_string())
-        .arg("--database-url")
-        .arg(&db_url);
+    let mut cmd = compiler_command(&globals.home, bind, metrics_bind, &db_url);
     if globals.verbose {
         cmd.arg("--verbose");
     }
@@ -64,4 +61,55 @@ pub async fn run(
     // Replaces the current process. Only returns on error.
     let err = cmd.exec();
     bail!("failed to exec cloacina-compiler: {err}");
+}
+
+/// The base `cloacina-compiler` command line.
+fn compiler_command(
+    home: &Path,
+    bind: SocketAddr,
+    metrics_bind: Option<SocketAddr>,
+    db_url: &str,
+) -> Command {
+    let mut cmd = Command::new("cloacina-compiler");
+    cmd.arg("--home")
+        .arg(home)
+        .arg("--bind")
+        .arg(bind.to_string())
+        .arg("--database-url")
+        .arg(db_url);
+    // CLOACINA-T-1039: passed on only when set, so the compiler's own default
+    // (`/metrics` on `--bind`) is as before.
+    if let Some(addr) = metrics_bind {
+        cmd.arg("--metrics-bind").arg(addr.to_string());
+    }
+    cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(metrics_bind: Option<SocketAddr>) -> Vec<String> {
+        compiler_command(
+            Path::new("/tmp/cloacina-home"),
+            "127.0.0.1:9000".parse().unwrap(),
+            metrics_bind,
+            "postgres://u:p@h:5432/d",
+        )
+        .get_args()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+    }
+
+    #[test]
+    fn metrics_bind_is_passed_to_the_compiler_when_set() {
+        let args = args(Some("127.0.0.1:9091".parse().unwrap()));
+        let at = args.iter().position(|a| a == "--metrics-bind").unwrap();
+        assert_eq!(args[at + 1], "127.0.0.1:9091");
+    }
+
+    #[test]
+    fn metrics_bind_is_left_out_when_not_set() {
+        assert!(!args(None).iter().any(|a| a == "--metrics-bind"));
+    }
 }

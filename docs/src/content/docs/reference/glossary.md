@@ -260,7 +260,7 @@ Helper macros that resolve registry variables — typed values keyed by name and
 
 ### Verification org
 
-The trust root for package signatures. When a server is started with `--require-signatures --verification-org-id <ORG>`, only packages signed by a key whose embedded org metadata matches `<ORG>` are admitted; unsigned or mis-org packages are rejected at upload (HTTP 403). Per CLOACI-I-0103. See [Require Signed Packages](../../how-to/service/require-signed-packages/).
+The server-wide organization of package signing: the UUID of `--verification-org-id`. With `--require-signatures`, an upload is checked against the trusted keys of its tenant first, then against the trusted keys of this org if one is set. A key in it is trusted for every tenant; with none, each tenant trusts only its own keys. See [Require Signed Packages](../../how-to/service/require-signed-packages/).
 
 ### Workflow
 

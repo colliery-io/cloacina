@@ -21,9 +21,9 @@
 //! returns a plaintext or ciphertext value** — list/get return names +
 //! timestamps only. The at-rest encryption + per-tenant DEK live in
 //! [`cloacina::security::SecretStore`]; these handlers are the HTTP surface over
-//! it, keyed by the tenant's derived `org_id` ([`crate::secrets::tenant_org_id`]).
+//! it, keyed by the tenant's derived `org_id` ([`cloacina::security::tenant_org_id`]).
 //!
-//! All routes are `TenantParam + Admin` in `build_authz_table`, so the caller is
+//! All routes need `secrets.manage` in the tenant of the path, so the caller is
 //! already confined to `{tenant_id}` and holds admin before a handler runs.
 
 use axum::{
@@ -121,7 +121,7 @@ fn map_secret_error(e: SecretError) -> ApiError {
 )]
 pub async fn create_secret(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Json(body): Json<CreateSecretRequest>,
 ) -> impl IntoResponse {
@@ -133,7 +133,7 @@ pub async fn create_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store
         .create_secret(org_id, &body.name, &body.fields, &kek)
@@ -141,13 +141,10 @@ pub async fn create_secret(
     {
         Ok(meta) => {
             // The name only: never the fields or their values.
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::SECRET_CREATE, body.name.as_str()),
-            )
-            .await;
+            );
             (StatusCode::CREATED, Json(to_metadata_response(meta))).into_response()
         }
         Err(e) => map_secret_error(e).into_response(),
@@ -176,7 +173,7 @@ pub async fn create_secret(
 )]
 pub async fn rotate_secret(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<RotateSecretRequest>,
 ) -> impl IntoResponse {
@@ -188,17 +185,14 @@ pub async fn rotate_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.rotate_secret(org_id, &name, &body.fields, &kek).await {
         Ok(meta) => {
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::SECRET_ROTATE, name.as_str()),
-            )
-            .await;
+            );
             Json(to_metadata_response(meta)).into_response()
         }
         Err(e) => map_secret_error(e).into_response(),
@@ -232,7 +226,7 @@ pub async fn list_secrets(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.list_secrets_metadata(org_id).await {
         Ok(list) => {
@@ -273,7 +267,7 @@ pub async fn get_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.get_secret_metadata(org_id, &name).await {
         Ok(meta) => Json(to_metadata_response(meta)).into_response(),
@@ -301,7 +295,7 @@ pub async fn get_secret(
 )]
 pub async fn delete_secret(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     if let Err(e) = server_kek() {
@@ -311,17 +305,14 @@ pub async fn delete_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.delete_secret(org_id, &name).await {
         Ok(()) => {
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::SECRET_DELETE, name.as_str()),
-            )
-            .await;
+            );
             Json(SecretDeletedResponse {
                 status: "deleted".to_string(),
                 name,

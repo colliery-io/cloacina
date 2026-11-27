@@ -33,13 +33,15 @@ use std::net::IpAddr;
 use async_trait::async_trait;
 use cloacina::database::Database;
 use cloacina_api_types::{AgentEgressRule, AgentPoolSettings, DEFAULT_AGENT_POOL};
+// CLOACINA-T-1027: the quantity grammar and the pool name rule live in
+// `cloacina-api-types`, so the task macro, the Python decorator and the agent
+// check a task's pool and requests by the same rules as the pool routes.
+use cloacina_api_types::resources::is_dns_label;
+pub use cloacina_api_types::resources::{MAX_POOL_NAME_LEN, Quantity, validate_pool_name};
 
 use super::ActuatorError;
 use super::kubernetes::AgentResources;
 
-/// Longest pool name. The pool's Deployment (`cloacina-agent-<pool>`) and
-/// NetworkPolicy (`cloacina-agent-pool-<pool>`) names must fit in 63.
-pub const MAX_POOL_NAME_LEN: usize = 40;
 /// Most agents a pool other than `default` can be given.
 pub const MAX_POOL_AGENTS: u32 = 1000;
 /// Upper bound on a pool's agent max concurrency.
@@ -54,136 +56,6 @@ pub const MAX_ANNOTATIONS: usize = 32;
 pub const MAX_POD_METADATA: usize = 32;
 /// Longest annotation value, in bytes.
 pub const MAX_ANNOTATION_VALUE_BYTES: usize = 4096;
-
-/// A Kubernetes resource quantity (`500m`, `32Gi`, `1e3`), held in nano units
-/// so that two notations of one amount compare equal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Quantity {
-    nanos: i128,
-}
-
-impl Quantity {
-    /// Parse a quantity with the grammar of the Kubernetes API: a number
-    /// (`1`, `1.5`, `.5`), then no suffix, a decimal suffix (`n u m k M G T P
-    /// E`), a binary suffix (`Ki Mi Gi Ti Pi Ei`) or a decimal exponent
-    /// (`e3`, `E-2`). A negative amount is refused: no resource takes one.
-    pub fn parse(raw: &str) -> Result<Self, String> {
-        let bad = |why: &str| format!("'{raw}' is not a valid quantity: {why}");
-        if raw.is_empty() {
-            return Err(bad("it is empty"));
-        }
-        let rest = match raw.as_bytes()[0] {
-            b'-' => return Err(bad("it is negative")),
-            b'+' => &raw[1..],
-            _ => raw,
-        };
-        let number_len = rest
-            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-            .unwrap_or(rest.len());
-        let (number, suffix) = rest.split_at(number_len);
-        let (whole, frac) = match number.split_once('.') {
-            Some((w, f)) => (w, f),
-            None => (number, ""),
-        };
-        if frac.contains('.') {
-            return Err(bad("the number has more than one decimal point"));
-        }
-        if whole.is_empty() && frac.is_empty() {
-            return Err(bad("it has no digits"));
-        }
-        let mut digits: i128 = 0;
-        for b in whole.bytes().chain(frac.bytes()) {
-            digits = digits
-                .checked_mul(10)
-                .and_then(|d| d.checked_add(i128::from(b - b'0')))
-                .ok_or_else(|| bad("the number is too large"))?;
-        }
-
-        // (power of two, power of ten) of the suffix.
-        let (pow2, pow10): (u32, i32) = match suffix {
-            "" => (0, 0),
-            "n" => (0, -9),
-            "u" => (0, -6),
-            "m" => (0, -3),
-            "k" => (0, 3),
-            "M" => (0, 6),
-            "G" => (0, 9),
-            "T" => (0, 12),
-            "P" => (0, 15),
-            "E" => (0, 18),
-            "Ki" => (10, 0),
-            "Mi" => (20, 0),
-            "Gi" => (30, 0),
-            "Ti" => (40, 0),
-            "Pi" => (50, 0),
-            "Ei" => (60, 0),
-            other => {
-                let exp = other
-                    .strip_prefix('e')
-                    .or_else(|| other.strip_prefix('E'))
-                    .ok_or_else(|| bad("the suffix is not one Kubernetes knows"))?;
-                let exp_digits = exp.strip_prefix(['+', '-']).unwrap_or(exp);
-                if exp_digits.is_empty() || !exp_digits.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(bad("the exponent is not a whole number"));
-                }
-                let exp: i32 = exp.parse().map_err(|_| bad("the exponent is too large"))?;
-                if !(-30..=30).contains(&exp) {
-                    return Err(bad("the exponent is too large"));
-                }
-                (0, exp)
-            }
-        };
-
-        // nanos = digits * 2^pow2 * 10^(pow10 - frac digits + 9), rounded up.
-        let too_large = || bad("the amount is too large");
-        let mut nanos = digits.checked_mul(1i128 << pow2).ok_or_else(too_large)?;
-        let frac_len = i32::try_from(frac.len()).map_err(|_| too_large())?;
-        let scale = pow10 - frac_len + 9;
-        if scale >= 0 {
-            let factor = 10i128
-                .checked_pow(scale.unsigned_abs())
-                .ok_or_else(too_large)?;
-            nanos = nanos.checked_mul(factor).ok_or_else(too_large)?;
-        } else {
-            match 10i128.checked_pow(scale.unsigned_abs()) {
-                Some(divisor) => {
-                    nanos = nanos / divisor + i128::from(nanos % divisor != 0);
-                }
-                // Smaller than any divisor we can hold: rounds up to one nano.
-                None => nanos = i128::from(nanos != 0),
-            }
-        }
-        // Kubernetes holds a quantity in an int64 of its unit.
-        if nanos / 1_000_000_000 > i128::from(i64::MAX) {
-            return Err(too_large());
-        }
-        Ok(Self { nanos })
-    }
-
-    /// The amount in nano units (a CPU quantity of `1` is 1_000_000_000).
-    pub fn nanos(&self) -> i128 {
-        self.nanos
-    }
-
-    /// The amount in whole units, rounded up (bytes, for a memory quantity).
-    pub fn units_ceil(&self) -> i128 {
-        self.nanos / 1_000_000_000 + i128::from(self.nanos % 1_000_000_000 != 0)
-    }
-
-    fn is_zero(&self) -> bool {
-        self.nanos == 0
-    }
-}
-
-/// A DNS-1123 label: lowercase alphanumerics and `-`, alphanumeric at both ends.
-fn is_dns_label(s: &str) -> bool {
-    let b = s.as_bytes();
-    !b.is_empty()
-        && b.iter()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
-        && b[0] != b'-'
-        && b[b.len() - 1] != b'-'
-}
 
 /// A DNS-1123 subdomain: labels joined by `.`, 253 characters at most. The
 /// form Kubernetes wants for a ServiceAccount name.
@@ -339,17 +211,26 @@ fn validate_egress(rules: &[AgentEgressRule]) -> Result<(), String> {
     Ok(())
 }
 
-/// Check a pool name: a DNS label (lowercase letters, digits and `-`) of
-/// [`MAX_POOL_NAME_LEN`] characters at most. It becomes part of object names.
-pub fn validate_pool_name(pool: &str) -> Result<(), String> {
-    if is_dns_label(pool) && pool.len() <= MAX_POOL_NAME_LEN {
-        Ok(())
-    } else {
-        Err(format!(
-            "pool name '{pool}' is not valid: lowercase letters, digits and '-', a letter or \
-             digit at both ends, {MAX_POOL_NAME_LEN} characters at most"
-        ))
-    }
+/// What one agent of a pool can hold, as the pool's settings say it
+/// (CLOACINA-T-1027): for CPU and for memory, the pool's limit, or its
+/// request when it sets no limit. `None` when the pool sets neither.
+///
+/// It is the total a managed agent of the pool reports at registration
+/// (`CLOACINA_AGENT_CPU`, `CLOACINA_AGENT_MEMORY`), and the most a task of the
+/// pool can ask for at publish. A pool that sets neither adds nothing to its
+/// agents: they report no total and are packed by their slot count, as before
+/// requests existed.
+pub fn pool_agent_totals(settings: &AgentPoolSettings) -> (Option<String>, Option<String>) {
+    (
+        settings
+            .cpu_limit
+            .clone()
+            .or_else(|| settings.cpu_request.clone()),
+        settings
+            .memory_limit
+            .clone()
+            .or_else(|| settings.memory_request.clone()),
+    )
 }
 
 /// How many agents the server keeps for a pool other than `default`: its
@@ -720,6 +601,39 @@ mod tests {
 
     fn err(settings: &AgentPoolSettings) -> String {
         validate(DEFAULT_AGENT_POOL, settings, &defaults()).expect_err("should be refused")
+    }
+
+    // CLOACINA-T-1027: what an agent of a pool reports as its totals.
+    #[test]
+    fn pool_agent_totals_are_the_limit_or_else_the_request() {
+        let pool = |cpu_request: Option<&str>,
+                    memory_request: Option<&str>,
+                    cpu_limit: Option<&str>,
+                    memory_limit: Option<&str>| AgentPoolSettings {
+            cpu_request: cpu_request.map(str::to_string),
+            memory_request: memory_request.map(str::to_string),
+            cpu_limit: cpu_limit.map(str::to_string),
+            memory_limit: memory_limit.map(str::to_string),
+            ..Default::default()
+        };
+        let some = |s: &str| Some(s.to_string());
+        assert_eq!(
+            pool_agent_totals(&pool(Some("1"), Some("8Gi"), Some("4"), Some("32Gi"))),
+            (some("4"), some("32Gi"))
+        );
+        assert_eq!(
+            pool_agent_totals(&pool(Some("1"), Some("8Gi"), None, None)),
+            (some("1"), some("8Gi"))
+        );
+        assert_eq!(
+            pool_agent_totals(&pool(None, Some("8Gi"), Some("4"), None)),
+            (some("4"), some("8Gi"))
+        );
+        // A pool that sets nothing reports nothing: packed by slots only.
+        assert_eq!(
+            pool_agent_totals(&AgentPoolSettings::default()),
+            (None, None)
+        );
     }
 
     #[test]

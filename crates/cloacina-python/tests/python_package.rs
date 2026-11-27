@@ -139,7 +139,7 @@ fn extract_python_package_full_roundtrip() {
     let archive = pack_to_bytes(&src, tmp.path());
 
     let staging = TempDir::new().unwrap();
-    let extracted = extract_python_package(&archive, staging.path()).unwrap();
+    let extracted = extract_python_package(&archive, None, staging.path()).unwrap();
 
     // Verify directory structure
     assert!(extracted.root_dir.exists());
@@ -164,7 +164,7 @@ fn extract_rejects_rust_archive() {
     let archive = pack_to_bytes(&src, tmp.path());
 
     let staging = TempDir::new().unwrap();
-    let err = extract_python_package(&archive, staging.path()).unwrap_err();
+    let err = extract_python_package(&archive, None, staging.path()).unwrap_err();
     assert!(
         format!("{:?}", err).contains("WrongLanguage"),
         "Expected WrongLanguage error, got: {err:?}"
@@ -229,7 +229,7 @@ fn python_e2e_pack_extract_load_register() {
 
     // 2. Extract the archive
     let staging = TempDir::new().unwrap();
-    let extracted = extract_python_package(&archive, staging.path()).unwrap();
+    let extracted = extract_python_package(&archive, None, staging.path()).unwrap();
 
     assert_eq!(extracted.package_name, "e2e-python-pkg");
     assert_eq!(extracted.workflow_name, "e2e_python_pkg");

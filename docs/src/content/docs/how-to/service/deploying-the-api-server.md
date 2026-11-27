@@ -191,6 +191,18 @@ RUST_LOG=info cloacinactl server start --database-url postgresql://...
 
 Use `--verbose` for debug-level output during troubleshooting.
 
+What the log holds of a task's data, by level:
+
+- `info` and `debug`: the line for a result that an agent reports (`agent reported result`) names the agent, the task, the attempt, the duration, the kind of result and the size of its payload in bytes. It holds no value of the task's output context and no error message. The line `Context saved` lists the names of the context keys, not their values.
+- `warn`: the line `Task failed` holds the error message of a failed task.
+- `trace`: task data, see below.
+
+The `trace` level writes task data. With `trace` on for `cloacina_server::routes::agent`, the server logs the full outcome of every result an agent reports: the whole output context of a success, and the message of a failure or a refusal, for every tenant. `--verbose` does not turn it on. Turn it on for one module and for a short time, and treat the log file as you treat the task data:
+
+```bash
+RUST_LOG=info,cloacina_server::routes::agent=trace cloacinactl server start --database-url postgresql://...
+```
+
 ## TLS Termination
 
 The API server does not handle TLS directly. Place a reverse proxy in front of it for HTTPS.

@@ -40,6 +40,10 @@ use crate::registry::{TaskInfo, get_registry};
 /// * `retry_condition` - Condition for retrying: "never", "all", "transient", or error patterns
 /// * `retry_jitter` - Whether to add random jitter to retry delays (default: true)
 /// * `timeout_seconds` - The task's own time limit in seconds (default: none, the executor's limit applies)
+/// * `pool` - The agent pool the task runs in on a fleet (default: the pool `default`)
+/// * `cpu` - CPU request as a Kubernetes quantity, e.g. "500m" or "4" (default: none)
+/// * `memory` - Memory request as a Kubernetes quantity, e.g. "512Mi" or "32Gi" (default: none)
+/// * `inline` - Marks the task as one that runs inside the agent process (default: false)
 /// * `trigger_rules` - Rules that determine when the task should be executed
 /// * `on_success` - Function to call on successful task completion: `async fn(&str, &Context<Value>)`
 /// * `on_failure` - Function to call on task failure: `async fn(&str, &TaskError, &Context<Value>)`
@@ -56,6 +60,9 @@ pub struct TaskAttributes {
     /// The task's own time limit in seconds (CLOACINA-T-1014). `None` = the
     /// executor's limit applies.
     pub timeout_seconds: Option<u64>,
+    /// Where the task runs on a fleet and what it asks for (CLOACINA-T-1027):
+    /// `pool`, `cpu`, `memory` and `inline`. Checked when the macro runs.
+    pub placement: cloacina_api_types::TaskPlacement,
     pub trigger_rules: Option<Expr>,
     pub on_success: Option<Expr>,
     pub on_failure: Option<Expr>,
@@ -87,6 +94,7 @@ impl Parse for TaskAttributes {
         let mut retry_condition = None;
         let mut retry_jitter = None;
         let mut timeout_seconds = None;
+        let mut placement = cloacina_api_types::TaskPlacement::default();
         let mut trigger_rules = None;
         let mut on_success = None;
         let mut on_failure = None;
@@ -150,6 +158,42 @@ impl Parse for TaskAttributes {
                         ));
                     }
                     timeout_seconds = Some(seconds);
+                }
+                // CLOACINA-T-1027: the pool and the requests are checked here,
+                // so a bad value is a compile error at the attribute.
+                "pool" => {
+                    let lit: LitStr = input.parse()?;
+                    cloacina_api_types::validate_pool_name(&lit.value())
+                        .map_err(|e| syn::Error::new(lit.span(), format!("pool: {e}")))?;
+                    placement.pool = Some(lit.value());
+                }
+                "cpu" => {
+                    let lit: LitStr = input.parse().map_err(|e| {
+                        syn::Error::new(
+                            e.span(),
+                            "cpu must be a string with a Kubernetes quantity, e.g. cpu = \"500m\" \
+                             or cpu = \"4\"",
+                        )
+                    })?;
+                    cloacina_api_types::parse_cpu_millis(&lit.value())
+                        .map_err(|e| syn::Error::new(lit.span(), format!("cpu: {e}")))?;
+                    placement.cpu = Some(lit.value());
+                }
+                "memory" => {
+                    let lit: LitStr = input.parse().map_err(|e| {
+                        syn::Error::new(
+                            e.span(),
+                            "memory must be a string with a Kubernetes quantity, e.g. \
+                             memory = \"512Mi\" or memory = \"32Gi\"",
+                        )
+                    })?;
+                    cloacina_api_types::parse_memory_bytes(&lit.value())
+                        .map_err(|e| syn::Error::new(lit.span(), format!("memory: {e}")))?;
+                    placement.memory = Some(lit.value());
+                }
+                "inline" => {
+                    let lit: syn::LitBool = input.parse()?;
+                    placement.inline = lit.value;
                 }
                 "trigger_rules" => {
                     let expr: Expr = input.parse()?;
@@ -235,6 +279,7 @@ impl Parse for TaskAttributes {
             retry_condition,
             retry_jitter,
             timeout_seconds,
+            placement,
             trigger_rules,
             on_success,
             on_failure,
@@ -750,6 +795,25 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         Some(seconds) => quote! { Some(std::time::Duration::from_secs(#seconds)) },
         None => quote! { None },
     };
+    // CLOACINA-T-1027: the pool, the requests and the inline mark.
+    let placement_code = {
+        let option = |value: &Option<String>| match value {
+            Some(text) => quote! { Some(#text.to_string()) },
+            None => quote! { None },
+        };
+        let pool = option(&attrs.placement.pool);
+        let cpu = option(&attrs.placement.cpu);
+        let memory = option(&attrs.placement.memory);
+        let inline = attrs.placement.inline;
+        quote! {
+            ::cloacina_workflow::TaskPlacement {
+                pool: #pool,
+                cpu: #cpu,
+                memory: #memory,
+                inline: #inline,
+            }
+        }
+    };
 
     // Generate trigger rules JSON code
     let generate_trigger_rules = generate_trigger_rules_code(&attrs);
@@ -1062,6 +1126,10 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
             fn timeout(&self) -> Option<std::time::Duration> {
                 #timeout_code
             }
+
+            fn placement(&self) -> ::cloacina_workflow::TaskPlacement {
+                #placement_code
+            }
         }
 
         // Provide a convenience function to create the task
@@ -1203,6 +1271,106 @@ mod tests {
         let compact: String = code.split_whitespace().collect();
         assert!(
             compact.contains("fntimeout(&self)->Option<std::time::Duration>{Some(std::time::Duration::from_secs(600u64))}"),
+            "generated code: {code}"
+        );
+    }
+
+    // CLOACINA-T-1027: `pool`, `cpu`, `memory` and `inline` are valid `#[task]`
+    // attributes, all optional, checked when the macro runs.
+    #[test]
+    fn pool_and_requests_are_parsed() {
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "big", pool = "large", cpu = "4", memory = "32Gi""#)
+                .expect("attributes parse");
+        assert_eq!(attrs.placement.pool.as_deref(), Some("large"));
+        assert_eq!(attrs.placement.cpu.as_deref(), Some("4"));
+        assert_eq!(attrs.placement.memory.as_deref(), Some("32Gi"));
+        assert!(!attrs.placement.inline);
+    }
+
+    #[test]
+    fn the_kubernetes_forms_of_a_quantity_are_taken() {
+        for (cpu, memory) in [
+            ("500m", "512Mi"),
+            ("4", "32Gi"),
+            ("0.5", "1G"),
+            ("1e1", "2Ti"),
+        ] {
+            let text = format!(r#"cpu = "{cpu}", memory = "{memory}""#);
+            let attrs: TaskAttributes = syn::parse_str(&text).expect("attributes parse");
+            assert_eq!(attrs.placement.cpu.as_deref(), Some(cpu));
+            assert_eq!(attrs.placement.memory.as_deref(), Some(memory));
+        }
+    }
+
+    #[test]
+    fn a_task_with_no_placement_attribute_declares_nothing() {
+        let attrs: TaskAttributes = syn::parse_str(r#"id = "plain""#).expect("attributes parse");
+        assert!(attrs.placement.is_default());
+        assert_eq!(attrs.placement.pool_name(), "default");
+    }
+
+    #[test]
+    fn inline_is_parsed() {
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "tiny", inline = true"#).expect("attributes parse");
+        assert!(attrs.placement.inline);
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "tiny", inline = false"#).expect("attributes parse");
+        assert!(!attrs.placement.inline);
+    }
+
+    #[test]
+    fn a_bad_pool_or_quantity_is_refused_and_named() {
+        for (text, needle) in [
+            (r#"pool = "Large_Pool""#, "pool:"),
+            (r#"pool = """#, "pool:"),
+            (r#"cpu = "lots""#, "cpu:"),
+            (r#"cpu = "0""#, "cpu:"),
+            (r#"cpu = "-1""#, "cpu:"),
+            (r#"memory = "32GB""#, "memory:"),
+            (r#"memory = "0Gi""#, "memory:"),
+            (r#"cpu = 4"#, "cpu must be a string"),
+            (r#"memory = 32"#, "memory must be a string"),
+        ] {
+            let err = syn::parse_str::<TaskAttributes>(text)
+                .err()
+                .unwrap_or_else(|| panic!("`{text}` should be refused"));
+            assert!(err.to_string().contains(needle), "`{text}`: {err}");
+        }
+    }
+
+    #[test]
+    fn the_generated_task_returns_its_placement() {
+        let attrs: TaskAttributes = syn::parse_str(
+            r#"id = "big", pool = "large", cpu = "4", memory = "32Gi", inline = true"#,
+        )
+        .expect("attributes parse");
+        let func: ItemFn = syn::parse_str(
+            "async fn big(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }",
+        )
+        .expect("fn parses");
+        let code = generate_task_impl(attrs, func).to_string();
+        let compact: String = code.split_whitespace().collect();
+        assert!(
+            compact.contains(
+                "fnplacement(&self)->::cloacina_workflow::TaskPlacement{::cloacina_workflow::TaskPlacement{pool:Some(\"large\".to_string()),cpu:Some(\"4\".to_string()),memory:Some(\"32Gi\".to_string()),inline:true,}}"
+            ),
+            "generated code: {code}"
+        );
+    }
+
+    #[test]
+    fn the_generated_task_with_no_placement_returns_the_default() {
+        let attrs: TaskAttributes = syn::parse_str(r#"id = "plain""#).expect("attributes parse");
+        let func: ItemFn = syn::parse_str(
+            "async fn plain(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }",
+        )
+        .expect("fn parses");
+        let code = generate_task_impl(attrs, func).to_string();
+        let compact: String = code.split_whitespace().collect();
+        assert!(
+            compact.contains("TaskPlacement{pool:None,cpu:None,memory:None,inline:false,}"),
             "generated code: {code}"
         );
     }

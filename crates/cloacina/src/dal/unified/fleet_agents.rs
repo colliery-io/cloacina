@@ -27,6 +27,11 @@
 //! cutoff`), so when several replicas sweep concurrently exactly one owns each
 //! evicted agent's reclaim.
 //!
+//! A row has an owner (CLOACINA-T-1051): its tenant and the API key that
+//! registered it. [`FleetAgentDAL::register`] writes a row only when
+//! [`Principal::may_register_agent`] allows it, so a key cannot take over an
+//! agent id that another tenant or another key holds.
+//!
 //! Work-packet dispatch needs no connection locality: packets ride the
 //! delivery-outbox substrate and are delivered by whichever replica holds the
 //! agent's delivery WebSocket (connection-ownership routing, A-0006).
@@ -34,8 +39,9 @@
 use super::DAL;
 use super::models::{NewUnifiedFleetAgent, UnifiedFleetAgent};
 use crate::database::schema::unified::fleet_agents;
-use crate::database::universal_types::UniversalTimestamp;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
+use crate::security::ownership::{AgentOwner, Principal, Refusal};
 use diesel::prelude::*;
 
 /// Domain view of a roster row.
@@ -50,16 +56,40 @@ pub struct FleetAgent {
     pub available_capacity: u32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+    /// The API key that registered the agent. `None` on a row from before
+    /// the owner column.
+    pub owner_key_id: Option<uuid::Uuid>,
+    /// The agent's total CPU in millicores, as it reported at registration
+    /// (CLOACINA-T-1027). `None` = it reported none, and the fleet packs it by
+    /// its slot count only.
+    pub cpu_millis: Option<u64>,
+    /// The agent's total memory in bytes (CLOACINA-T-1027). `None` as above.
+    pub memory_bytes: Option<u64>,
+}
+
+impl FleetAgent {
+    /// Who holds this agent id.
+    pub fn owner(&self) -> AgentOwner {
+        AgentOwner {
+            tenant_id: self.tenant_id.clone(),
+            owner_key_id: self.owner_key_id,
+        }
+    }
 }
 
 /// Registration input (the fields an agent supplies on `POST /v1/agent/register`).
+/// The tenant and the owner of the row come from the key that registers
+/// ([`FleetAgentDAL::register`]), never from the request.
 #[derive(Debug, Clone)]
 pub struct FleetAgentRegistration {
     pub agent_id: String,
-    pub tenant_id: Option<String>,
     pub target_triple: String,
     pub capabilities: Vec<String>,
     pub max_concurrency: u32,
+    /// Total CPU (millicores) and memory (bytes) of the agent
+    /// (CLOACINA-T-1027). `None` when the agent reports none.
+    pub cpu_millis: Option<u64>,
+    pub memory_bytes: Option<u64>,
 }
 
 fn to_domain(r: UnifiedFleetAgent) -> FleetAgent {
@@ -73,6 +103,16 @@ fn to_domain(r: UnifiedFleetAgent) -> FleetAgent {
         available_capacity: r.available_capacity.max(0) as u32,
         registered_at: r.registered_at,
         last_heartbeat_at: r.last_heartbeat_at,
+        owner_key_id: r.owner_key_id.map(|u| u.0),
+        // A total of zero or less is "none reported": nothing fits in it.
+        cpu_millis: r
+            .cpu_millis
+            .and_then(|v| u64::try_from(v).ok())
+            .filter(|v| *v > 0),
+        memory_bytes: r
+            .memory_bytes
+            .and_then(|v| u64::try_from(v).ok())
+            .filter(|v| *v > 0),
     }
 }
 
@@ -95,17 +135,31 @@ impl<'a> FleetAgentDAL<'a> {
         Self { dal }
     }
 
-    /// Insert or overwrite an agent's registration (overwrite handles clean
-    /// re-registration after an agent restart with the same `agent_id`).
-    /// Registration counts as a heartbeat.
-    pub async fn upsert_registration(
+    /// Register an agent for the key `by`, if the key may hold the id
+    /// ([`Principal::may_register_agent`]). The row gets the tenant of the
+    /// key and the key as its owner. Registration counts as a heartbeat.
+    ///
+    /// - No row has the id: the row is inserted.
+    /// - The row is held by this key in this tenant: it is overwritten (an
+    ///   agent that restarts with the same `agent_id`).
+    /// - The row has no owner and is in the key's tenant: it is overwritten
+    ///   and the key becomes its owner.
+    /// - Any other row: nothing is written and the answer is `Ok(Err(_))`.
+    ///
+    /// The read and the write are one transaction, and the overwrite repeats
+    /// the owner it read in its filter, so two registers for one id cannot
+    /// both win. Two inserts of one new id: the second fails on the primary
+    /// key and the caller gets an error.
+    pub async fn register(
         &self,
         reg: FleetAgentRegistration,
-    ) -> Result<(), ValidationError> {
+        by: &Principal,
+    ) -> Result<Result<(), Refusal>, ValidationError> {
         let now = UniversalTimestamp::now();
+        let by = by.clone();
         let row = NewUnifiedFleetAgent {
             agent_id: reg.agent_id,
-            tenant_id: reg.tenant_id,
+            tenant_id: by.tenant_id.clone(),
             target_triple: reg.target_triple,
             capabilities: serde_json::to_string(&reg.capabilities)
                 .unwrap_or_else(|_| "[]".to_string()),
@@ -114,17 +168,51 @@ impl<'a> FleetAgentDAL<'a> {
             available_capacity: reg.max_concurrency.min(i32::MAX as u32) as i32,
             registered_at: now,
             last_heartbeat_at: now,
+            owner_key_id: Some(UniversalUuid(by.key_id)),
+            cpu_millis: reg.cpu_millis.and_then(|v| i64::try_from(v).ok()),
+            memory_bytes: reg.memory_bytes.and_then(|v| i64::try_from(v).ok()),
         };
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::insert_into(fleet_agents::table)
-                .values(&row)
-                .on_conflict(fleet_agents::agent_id)
-                .do_update()
-                .set(&row)
-                .execute(conn)
+        let outcome = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<Result<(), Refusal>, diesel::result::Error, _>(|conn| {
+                let existing: Option<(Option<String>, Option<UniversalUuid>)> = fleet_agents::table
+                    .filter(fleet_agents::agent_id.eq(&row.agent_id))
+                    .select((fleet_agents::tenant_id, fleet_agents::owner_key_id))
+                    .first(conn)
+                    .optional()?;
+                let existing = existing.map(|(tenant_id, key)| AgentOwner {
+                    tenant_id,
+                    owner_key_id: key.map(|k| k.0),
+                });
+                if let Err(refusal) = by.may_register_agent(existing.as_ref()) {
+                    return Ok(Err(refusal));
+                }
+                let Some(existing) = existing else {
+                    diesel::insert_into(fleet_agents::table)
+                        .values(&row)
+                        .execute(conn)?;
+                    return Ok(Ok(()));
+                };
+                let same_id = fleet_agents::table.filter(fleet_agents::agent_id.eq(&row.agent_id));
+                let written = match existing.owner_key_id {
+                    Some(owner) => diesel::update(
+                        same_id.filter(fleet_agents::owner_key_id.eq(UniversalUuid(owner))),
+                    )
+                    .set(&row)
+                    .execute(conn)?,
+                    None => diesel::update(same_id.filter(fleet_agents::owner_key_id.is_null()))
+                        .set(&row)
+                        .execute(conn)?,
+                };
+                // 0 rows: another register changed the owner after the read.
+                Ok(if written == 1 {
+                    Ok(())
+                } else {
+                    Err(Refusal::OtherKey)
+                })
+            })
         })
         .map_err(ValidationError::from)?;
-        Ok(())
+        Ok(outcome)
     }
 
     /// Record a heartbeat: refresh `last_heartbeat_at` and the capacity
@@ -152,23 +240,23 @@ impl<'a> FleetAgentDAL<'a> {
         Ok(affected == 1)
     }
 
-    /// The tenant an agent registered under, if it's in the roster.
-    /// `Some(tenant)` when registered (the tenant may itself be `None` for a
-    /// global agent); `None` when the agent is unknown.
-    pub async fn agent_tenant(
-        &self,
-        agent_id: &str,
-    ) -> Result<Option<Option<String>>, ValidationError> {
+    /// Who holds an agent id: the tenant and the owner key of its roster
+    /// row. `None` when no row has the id.
+    pub async fn agent_owner(&self, agent_id: &str) -> Result<Option<AgentOwner>, ValidationError> {
         let agent_id = agent_id.to_string();
-        let row: Option<Option<String>> = crate::interact_on_backend!(self.dal, |conn| {
-            fleet_agents::table
-                .filter(fleet_agents::agent_id.eq(&agent_id))
-                .select(fleet_agents::tenant_id)
-                .first::<Option<String>>(conn)
-                .optional()
-        })
-        .map_err(ValidationError::from)?;
-        Ok(row)
+        let row: Option<(Option<String>, Option<UniversalUuid>)> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                fleet_agents::table
+                    .filter(fleet_agents::agent_id.eq(&agent_id))
+                    .select((fleet_agents::tenant_id, fleet_agents::owner_key_id))
+                    .first(conn)
+                    .optional()
+            })
+            .map_err(ValidationError::from)?;
+        Ok(row.map(|(tenant_id, key)| AgentOwner {
+            tenant_id,
+            owner_key_id: key.map(|k| k.0),
+        }))
     }
 
     /// All agents whose heartbeat is fresher than `timeout` — the live fleet.
@@ -259,13 +347,23 @@ mod tests {
     }
 
     #[cfg(feature = "sqlite")]
-    fn reg(id: &str, tenant: Option<&str>, cap: u32) -> FleetAgentRegistration {
+    fn key(tenant: Option<&str>) -> Principal {
+        Principal {
+            key_id: uuid::Uuid::new_v4(),
+            tenant_id: tenant.map(str::to_string),
+            is_admin: false,
+        }
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn reg(id: &str, cap: u32) -> FleetAgentRegistration {
         FleetAgentRegistration {
             agent_id: id.to_string(),
-            tenant_id: tenant.map(str::to_string),
             target_triple: "aarch64-apple-darwin".to_string(),
             capabilities: vec!["python".to_string()],
             max_concurrency: cap,
+            cpu_millis: None,
+            memory_bytes: None,
         }
     }
 
@@ -281,8 +379,9 @@ mod tests {
 
         dal_a
             .fleet_agents()
-            .upsert_registration(reg("a1", Some("acme"), 4))
+            .register(reg("a1", 4), &key(Some("acme")))
             .await
+            .unwrap()
             .unwrap();
 
         // Replica B sees the live agent + its tenant.
@@ -296,7 +395,12 @@ mod tests {
         assert_eq!(live[0].tenant_id.as_deref(), Some("acme"));
         assert_eq!(live[0].available_capacity, 4);
         assert_eq!(
-            dal_b.fleet_agents().agent_tenant("a1").await.unwrap(),
+            dal_b
+                .fleet_agents()
+                .agent_owner("a1")
+                .await
+                .unwrap()
+                .map(|o| o.tenant_id),
             Some(Some("acme".to_string()))
         );
 
@@ -317,6 +421,79 @@ mod tests {
         assert_eq!(live[0].available_capacity, 1);
     }
 
+    /// CLOACINA-T-1027: the totals an agent reports are stored on its row,
+    /// read back by another handle, kept across heartbeats and replaced by a
+    /// new registration. An agent that reports none has none.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn agent_totals_are_stored_and_read_back() {
+        let url = shared_url();
+        let dal_a = dal_for(&url).await;
+        let dal_b = DAL::new(Database::new(&url, "", 5));
+        let gi: u64 = 1 << 30;
+
+        let owner = key(Some("acme"));
+        let mut sized = reg("sized", 8);
+        sized.cpu_millis = Some(4000);
+        sized.memory_bytes = Some(32 * gi);
+        dal_a
+            .fleet_agents()
+            .register(sized, &owner)
+            .await
+            .unwrap()
+            .unwrap();
+        dal_a
+            .fleet_agents()
+            .register(reg("by-hand", 4), &owner)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let live = dal_b
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let get = |id: &str| live.iter().find(|a| a.agent_id == id).unwrap().clone();
+        assert_eq!(get("sized").cpu_millis, Some(4000));
+        assert_eq!(get("sized").memory_bytes, Some(32 * gi));
+        assert_eq!(get("by-hand").cpu_millis, None);
+        assert_eq!(get("by-hand").memory_bytes, None);
+
+        // A heartbeat does not touch the totals.
+        assert!(
+            dal_b
+                .fleet_agents()
+                .record_heartbeat("sized", 3, 5)
+                .await
+                .unwrap()
+        );
+        let live = dal_a
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let sized = live.iter().find(|a| a.agent_id == "sized").unwrap();
+        assert_eq!(sized.memory_bytes, Some(32 * gi));
+        assert_eq!(sized.available_capacity, 5);
+
+        // The agent comes back with no totals (started by hand this time).
+        dal_a
+            .fleet_agents()
+            .register(reg("sized", 8), &owner)
+            .await
+            .unwrap()
+            .unwrap();
+        let live = dal_a
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        let sized = live.iter().find(|a| a.agent_id == "sized").unwrap();
+        assert_eq!(sized.cpu_millis, None);
+        assert_eq!(sized.memory_bytes, None);
+    }
+
     #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn heartbeat_on_unknown_agent_reports_not_registered() {
@@ -327,24 +504,30 @@ mod tests {
                 .await
                 .unwrap()
         );
-        assert_eq!(
-            dal.fleet_agents().agent_tenant("ghost").await.unwrap(),
-            None
-        );
+        assert_eq!(dal.fleet_agents().agent_owner("ghost").await.unwrap(), None);
     }
 
+    /// CLOACINA-T-1051: an agent that restarts registers again with its own
+    /// id and key. The row is overwritten and stays its own.
     #[cfg(feature = "sqlite")]
     #[tokio::test]
-    async fn reregistration_overwrites() {
+    async fn the_owner_registers_again_and_the_row_is_overwritten() {
         let dal = dal_for(&shared_url()).await;
+        let owner = key(Some("t1"));
         dal.fleet_agents()
-            .upsert_registration(reg("a1", None, 1))
+            .register(reg("a1", 1), &owner)
+            .await
+            .unwrap()
+            .unwrap();
+        dal.fleet_agents()
+            .record_heartbeat("a1", 1, 0)
             .await
             .unwrap();
         dal.fleet_agents()
-            .upsert_registration(reg("a1", Some("t1"), 8))
+            .register(reg("a1", 8), &owner)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("the owner key registers its id again");
         let live = dal
             .fleet_agents()
             .list_live(Duration::from_secs(60))
@@ -352,7 +535,152 @@ mod tests {
             .unwrap();
         assert_eq!(live.len(), 1);
         assert_eq!(live[0].max_concurrency, 8);
+        assert_eq!(live[0].in_flight, 0, "a register starts the row again");
         assert_eq!(live[0].tenant_id.as_deref(), Some("t1"));
+        assert_eq!(live[0].owner_key_id, Some(owner.key_id));
+    }
+
+    /// CLOACINA-T-1051: a register for an id that another tenant or another
+    /// key holds is refused and changes nothing.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn a_register_for_an_id_that_is_held_is_refused_and_changes_nothing() {
+        let dal = dal_for(&shared_url()).await;
+        let owner = key(Some("t1"));
+        dal.fleet_agents()
+            .register(reg("a1", 2), &owner)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // A key of another tenant.
+        assert_eq!(
+            dal.fleet_agents()
+                .register(reg("a1", 64), &key(Some("t2")))
+                .await
+                .unwrap(),
+            Err(Refusal::OtherTenant)
+        );
+        // A key with no tenant (a platform admin key has none).
+        assert_eq!(
+            dal.fleet_agents()
+                .register(reg("a1", 64), &key(None))
+                .await
+                .unwrap(),
+            Err(Refusal::OtherTenant)
+        );
+        // Another key of the same tenant.
+        assert_eq!(
+            dal.fleet_agents()
+                .register(reg("a1", 64), &key(Some("t1")))
+                .await
+                .unwrap(),
+            Err(Refusal::OtherKey)
+        );
+
+        let live = dal
+            .fleet_agents()
+            .list_live(Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].tenant_id.as_deref(), Some("t1"));
+        assert_eq!(live[0].max_concurrency, 2);
+        assert_eq!(live[0].owner_key_id, Some(owner.key_id));
+        assert_eq!(
+            dal.fleet_agents().agent_owner("a1").await.unwrap(),
+            Some(AgentOwner {
+                tenant_id: Some("t1".to_string()),
+                owner_key_id: Some(owner.key_id),
+            })
+        );
+    }
+
+    /// CLOACINA-T-1051: a row from before the owner column has no owner. The
+    /// next register by a key of its tenant claims it; a key of another
+    /// tenant cannot.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn a_row_with_no_owner_is_claimed_by_the_next_register_of_its_tenant() {
+        let dal = dal_for(&shared_url()).await;
+        let first = key(Some("t1"));
+        dal.fleet_agents()
+            .register(reg("old", 2), &first)
+            .await
+            .unwrap()
+            .unwrap();
+        // Make it a row from before migration 058.
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(fleet_agents::table.filter(fleet_agents::agent_id.eq("old")))
+                .set(fleet_agents::owner_key_id.eq(None::<UniversalUuid>))
+                .execute(conn)
+        })
+        .unwrap();
+        assert_eq!(
+            dal.fleet_agents().agent_owner("old").await.unwrap(),
+            Some(AgentOwner {
+                tenant_id: Some("t1".to_string()),
+                owner_key_id: None,
+            })
+        );
+
+        assert_eq!(
+            dal.fleet_agents()
+                .register(reg("old", 2), &key(Some("t2")))
+                .await
+                .unwrap(),
+            Err(Refusal::OtherTenant)
+        );
+        let claimer = key(Some("t1"));
+        dal.fleet_agents()
+            .register(reg("old", 2), &claimer)
+            .await
+            .unwrap()
+            .expect("a key of the row's tenant claims it");
+        assert_eq!(
+            dal.fleet_agents()
+                .agent_owner("old")
+                .await
+                .unwrap()
+                .unwrap()
+                .owner_key_id,
+            Some(claimer.key_id)
+        );
+        // Claimed: the key that registered it before the upgrade is now
+        // another key.
+        assert_eq!(
+            dal.fleet_agents()
+                .register(reg("old", 2), &first)
+                .await
+                .unwrap(),
+            Err(Refusal::OtherKey)
+        );
+    }
+
+    /// An id is free again once the liveness sweep has removed its row.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn an_evicted_agent_id_can_be_registered_by_another_key() {
+        let dal = dal_for(&shared_url()).await;
+        dal.fleet_agents()
+            .register(reg("a1", 2), &key(Some("t1")))
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(
+            dal.fleet_agents()
+                .sweep_dead(Duration::ZERO)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        dal.fleet_agents()
+            .register(reg("a1", 2), &key(Some("t1")))
+            .await
+            .unwrap()
+            .expect("the id is free");
     }
 
     /// Recency filtering + sweep ownership: a zero-timeout cutoff makes every
@@ -365,8 +693,9 @@ mod tests {
         let dal_b = DAL::new(Database::new(&url, "", 5));
         dal_a
             .fleet_agents()
-            .upsert_registration(reg("stale", Some("t1"), 2))
+            .register(reg("stale", 2), &key(Some("t1")))
             .await
+            .unwrap()
             .unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
 
@@ -414,8 +743,9 @@ mod tests {
     async fn delete_is_idempotent() {
         let dal = dal_for(&shared_url()).await;
         dal.fleet_agents()
-            .upsert_registration(reg("a1", None, 1))
+            .register(reg("a1", 1), &key(None))
             .await
+            .unwrap()
             .unwrap();
         dal.fleet_agents().delete("a1").await.unwrap();
         dal.fleet_agents().delete("a1").await.unwrap();

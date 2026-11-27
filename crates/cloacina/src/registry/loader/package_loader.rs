@@ -92,6 +92,14 @@ pub struct PackageMetadata {
     /// and metadata predating the field.
     #[serde(default)]
     pub task_docs: std::collections::HashMap<String, TaskDocs>,
+    /// CLOACINA-T-1048: the platforms (`<arch>-<os>`, as an agent reports its
+    /// own) a Python package can run on, from `[metadata.vendored]` of its
+    /// manifest at upload. `None` means any platform: a Rust package, a Python
+    /// package with no vendored dependencies, or one whose vendored
+    /// dependencies are pure Python. Fleet dispatch reads it through
+    /// `DispatchPackage::python_platforms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_platforms: Option<Vec<String>>,
 }
 
 /// Individual task metadata.
@@ -466,6 +474,7 @@ impl PackageLoader {
             declared_surfaces: Vec::new(),
             // Docs come from the compiler parse at build success (T-0754).
             task_docs: Default::default(),
+            python_platforms: None,
         })
     }
 

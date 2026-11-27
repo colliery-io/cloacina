@@ -48,17 +48,32 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    mechanism the in-process executor uses) so exactly one invocation owns it,
    then marks the workflow execution `Running`. This is what keeps the
    over-selecting scheduler from dispatching the same task twice.
-2. **Select an agent.** From the in-memory agent roster it picks a *live* agent
-   **in the task's tenant** with spare capacity, greedy on most-free-capacity so
-   load spreads. Tenant scope is load-bearing: an agent only ever receives work
+2. **Select an agent.** From the agent roster it picks a *live* agent
+   **in the task's tenant** and **in the task's pool**, with a free slot and
+   with room for the task's CPU and memory requests
+   (see [How a task is placed](#how-a-task-is-placed)). Tenant scope is
+   load-bearing: an agent only ever receives work
    for the tenant its API key is scoped to (REQ-008).
-   When no agent of the tenant can take the task now, the task **waits**: it
+   When no agent of the tenant and pool can take the task now, the task **waits**: it
    stays `Ready`, keeps its attempt count, and is tried again after 2 s. The
    same holds when the chosen agent is full by the time the packet arrives and
    refuses it. Waiting for capacity never fails a task; watch
    `cloacina_fleet_dispatch_deferred_total` to see it. The task is in
    `cloacina_waiting_tasks` for as long as it waits, and
-   `cloacina_oldest_waiting_task_age_seconds` grows.
+   `cloacina_oldest_waiting_task_age_seconds` grows. Both carry the task's pool
+   as a label.
+   A task also waits when the agent refuses the packet because it **could not
+   fetch the package artifact** (the server restarts, the artifact is not
+   there yet). The task goes back to `Ready`, keeps its attempt count, and is
+   dispatched again after a delay that starts at 2 s and grows to 30 s. Each
+   try selects an agent again, so it can go to a different agent. This wait
+   has a limit, `--fleet-artifact-fetch-wait-s`
+   (`CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S`, default `300`), counted per
+   attempt from the first refused fetch. A refusal at or past the limit fails
+   the attempt with the error `agent could not fetch the package artifact`,
+   and the task's retry policy decides what follows; a new attempt gets the
+   full wait again. `cloacina_fleet_artifact_fetch_refusals_total` counts
+   these refusals.
 3. **Resolve the artifact.** For the first task of an execution it looks up
    the active (built, non-superseded) version of the task's package in that
    tenant and records it as the execution's **version pin**. For each later
@@ -81,7 +96,8 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    byte-for-byte the input context it would running locally.
 5. **Enqueue + register a rendezvous.** It registers a one-shot keyed by the
    `task_execution_id`, then enqueues a **work packet** (task name, context,
-   artifact reference, time limit, tenant) into `delivery_outbox` addressed to
+   artifact reference, time limit, tenant, and the task's pool, requests and
+   `inline` mark) into `delivery_outbox` addressed to
    the chosen agent and wakes the delivery relay. The time limit is the
    task's own (see [time limits and retries](#time-limits-and-retries)) or the
    server default.
@@ -102,8 +118,8 @@ On the agent:
    A POST that fails for a reason that can pass (a network error, a time
    limit, a 5xx) is sent again with a backoff of 1 s, doubled up to 15 s, at
    most 12 times, and not past the point where the server stops waiting. A
-   4xx that rejects the report itself (protocol mismatch, a key of another
-   tenant) is not sent again.
+   4xx that rejects the report itself (protocol mismatch, an agent id that is
+   not registered, an agent that another key holds) is not sent again.
    It acks the work packet only after that, when the work has ended and the
    report is delivered or given up: until then the open `delivery_outbox` row
    marks the work as in flight (see
@@ -137,6 +153,70 @@ about 15 minutes and counted in `cloacina_fleet_orphan_results_total`.
 
 What this does not cover: a replica that stops takes its waits with it. The
 task is then picked up by the stale-claim sweep and runs again, as before.
+
+### A packet the agent cannot decode
+
+A push whose payload the agent cannot read as a work packet (a payload that
+is not base64 or not JSON, or a packet with fields the agent does not know
+how to read) gives the agent no task id, so it cannot send a result. This
+happens when the server and the agent are different versions.
+
+The agent sends `POST /v1/agent/undecodable` with the id of the push, which
+is the id of the packet's `delivery_outbox` row, and its decode error. The
+server reads the task or the firing from its own row and ends the wait of
+step 5 with a failure. The error names the agent, both versions and the
+decode error. For a task the retry policy decides the next run, as for any
+task error; a graph firing ends with the error and is not run in-process.
+The server counts each one in `cloacina_fleet_undecodable_packets_total`.
+
+The agent retries the message as it retries a result, and acks the push
+after it. The load of the agent makes no difference: a full agent and an
+agent with a free slot do the same.
+
+Mixed versions:
+
+- A server from before this route answers 404. The agent acks the push, and
+  the task waits out its time limit.
+- An agent from before this message sends nothing. A full one acks the push;
+  one with a free slot does not, and gets the push again. The task waits out
+  its time limit.
+
+### Who may act as an agent
+
+An agent row has an owner: the tenant and the API key that registered it.
+
+- **Register.** With no `agent_id` in the request the server assigns a new
+  id. A caller-chosen id is checked: if another tenant or another key holds
+  it, the register is refused with `409 agent_id_taken` and the holder's row
+  and one-time keys stay as they are. The key that holds an id may register
+  it again, which is what an agent does when it restarts or reconnects.
+- **Heartbeat, result, key top-up.** The server accepts these only from the
+  key that holds the agent. An agent id that is not registered gets
+  `404 agent_not_registered`; an agent that another key holds gets
+  `403 agent_access_denied`.
+- **Result.** The wait of step 5 knows the tenant, the agent and the
+  `dispatch_id` of its packet. A report resolves it only when it comes from
+  that tenant and from the agent the packet is addressed to, and carries that
+  `dispatch_id`. A report for a task dispatch with no `dispatch_id` resolves
+  nothing. A report from another agent, for a wait this replica holds, is
+  refused, logged, and counted in `cloacina_fleet_refused_results_total`;
+  the agent still gets a 200, and no state changes. A graph firing is keyed
+  by its firing id and has no `dispatch_id`; the tenant and agent check is
+  the same.
+- **Delivery socket.** `agent:<agent_id>` is open only to the key that holds
+  the agent, and an `ack` applies only to a row addressed to that agent in
+  its tenant.
+- **Undecodable packet.** The key must hold the agent, as for a result, and
+  the delivery row the message names must be addressed to that agent in its
+  tenant, as for an `ack`. A message for any other row changes nothing and
+  is counted in `cloacina_fleet_refused_undecodable_total`.
+
+An agent keeps one id for the life of its process: the id of its first
+register, which it registers again at each reconnect. A task that is still
+running when the socket drops reports under that id.
+
+Agents that share one API key are one owner and can act as each other. The
+Kubernetes actuator gives every agent of a tenant the same key.
 
 > **Wire format is always bincode.** fidius serializes with bincode in every
 > build profile — there is no debug/JSON split, so agents and packages don't
@@ -211,9 +291,14 @@ Each dispatch of a task has its own `dispatch_id`, which the agent returns with
 the result. The server accepts a result only for the dispatch it waits on, so a
 report for an older dispatch of the same task cannot end a newer wait.
 
-Because the work keeps its original `task_execution_id`, the executor invocation
-still awaiting that rendezvous receives the new agent's result unchanged — the
-task completes on a survivor with no workflow-level failure. If no live agent is
+Because the work keeps its original `task_execution_id` and `dispatch_id`, the
+executor invocation still awaiting that rendezvous receives the new agent's
+result — the task completes on a survivor with no workflow-level failure. The
+re-targeted `delivery_outbox` row is the record of where the packet went: the
+wait reads it, on any replica, and accepts the result of the agent the row is
+now addressed to. An evicted agent is no longer registered, so a result it
+posts after the eviction is refused with `404`, and its `ack` of the
+re-targeted row changes nothing. If no live agent is
 available, the rows stay put and the executor's own result-wait timeout drives a
 retry (degraded, not lost).
 
@@ -235,6 +320,11 @@ what happens when an attempt fails.
   runs past it the agent reports a timeout and the attempt fails as a timeout,
   the same as on the in-process executor. The server waits for the report for
   the limit plus 30 seconds, then gives up on the dispatch.
+- **A graph firing gets the server default.** A computation-graph firing sent
+  to an agent carries `--fleet-task-timeout-s`, and the server waits for its
+  result for that limit plus 30 seconds, then reports the firing as failed. A
+  graph has no time limit of its own, and the maximum does not apply to it.
+  The agent does not stop a firing at the limit.
 - **The retry policy is the task's own.** `retry_attempts`, `retry_condition`
   and the backoff settings of the task apply on the fleet as they do in
   process. `retry_attempts = 0` or `retry_condition = "never"` gives one
@@ -293,10 +383,15 @@ produce a loud boot error, never silent wrong-scaling. The `docker` actuator
 whose real substrate is a cluster — and refuses when no Docker socket is
 reachable. The `kubernetes` actuator refuses when the server is not running
 in-cluster (it needs in-cluster credentials). Whichever actuator runs, it mints a
-tenant-scoped `read` API key and injects it (with the server URL) so the spawned
-agent self-registers down the same path a hand-run agent uses — the Docker
-actuator mints one key per container, the Kubernetes actuator one shared
-per-tenant key (in a `Secret`, re-minted on scale-up). Every list/spawn/scale is
+tenant-scoped API key of role `agent` and injects it (with the server URL) so the
+spawned agent self-registers down the same path a hand-run agent uses. A key of
+role `agent` opens the agent routes and nothing else. The Docker actuator mints
+one key per container and revokes it when the container is stopped. The
+Kubernetes actuator keeps one key per tenant in a `Secret`; the pod template of
+each agent Deployment names the key's id, so a new key rolls the pods. Each
+reconcile revokes every other key the actuator minted for the tenant. The
+actuator's keys are named `agent:<tenant>:<uuid>`: do not give that prefix to a
+key you create. Every list/spawn/scale is
 scoped to the one tenant (a Docker label filter, or the tenant's Kubernetes
 namespace) so the actuator never touches another tenant's workloads (REQ-008 /
 NFR-004).
@@ -359,21 +454,119 @@ An agent tells the server its pool when it registers, as the capability
 `pool:<name>` (`--pool` / `CLOACINA_AGENT_POOL`; the actuator sets it). An agent
 with no pool capability, such as one you start by hand, is in `default`.
 
-What pools do **not** do yet:
+A task names its pool with `pool = "large"` on
+[`#[task]`](../../../reference/macros/#pool-and-requests) or on the Python
+[`@task`](../../../reference/python-api/task/#pool-and-requests). A task with a
+pool runs only on an agent of that pool. A task with no pool runs only on
+`default`. Work never moves to another pool because its own is full or empty:
+it waits.
 
-- **All work runs on `default`.** A task cannot name the pool it needs, so the
-  server sends every task to an agent of the pool `default`. A pool other than
-  `default` can be created and sized, and its agents start and register, but
-  they receive no work. Until a task can name a pool, a tenant with one task
-  that needs 32 GB must size its `default` pool for that task (so every agent
-  of the tenant is that size), or run that work in a second tenant.
+### How a task is placed
+
+A task may also request CPU and memory (`cpu = "4"`, `memory = "32Gi"`). The
+server packs tasks onto the agents of a pool by these requests.
+
+**What an agent can hold.** An agent reports its total CPU and memory when it
+registers, next to its slot count (`max_concurrency`):
+
+- A managed agent on Kubernetes reports what its pool's settings give its pod:
+  the pool's limit, or the pool's request when it sets no limit, for CPU and
+  for memory. A pool that sets neither for a resource reports no total for it.
+- A managed agent on Docker reports the container's CPU and memory limits.
+- An agent you start by hand reports what you give it with `--cpu` and
+  `--memory` (`CLOACINA_AGENT_CPU`, `CLOACINA_AGENT_MEMORY`). With neither it
+  reports no totals.
+
+**What is in flight.** The server keeps, for each agent, the tasks it has
+placed there and not yet had a result for. It keeps them on the task rows in
+the database, so every server replica counts the same tasks. The sum of their
+requests is what is used on the agent.
+
+**What a task counts for.**
+
+| The task | The agent reports a total | The agent reports no total |
+|---|---|---|
+| has a request | the request | nothing: the agent is packed by slots only |
+| has no request | one slot's share: the total divided by `max_concurrency` | nothing |
+
+So a package built before requests existed behaves as before: an agent is full
+at its slot count.
+
+**The rule.** A task can go to an agent when all of these hold:
+
+1. the agent is live, in the task's tenant and in the task's pool, and can run
+   the package (its architecture);
+2. it has a free slot. The slot count is an upper cap whatever the requests
+   say: an agent never has more tasks than its `max_concurrency`;
+3. what the task counts for in CPU fits in the agent's free CPU, and the same
+   for memory.
+
+Among the agents where the task fits, the server picks the one with the
+**least free memory**, so that the agents with the most room stay free for
+large tasks. Between agents with the same free memory it picks the one with the
+most free slots. An agent that reports no memory total comes after every agent
+that does.
+
+Example: a pool whose agents hold 32Gi. One agent runs a 24Gi task and four
+2Gi tasks together, which is 32Gi. A second 24Gi task does not fit there. It
+goes to another agent of the pool with 24Gi free, or it waits.
+
+**A task that fits nowhere waits.** It stays `Ready`, keeps its attempt count
+and is tried again every 2 s. It does not fail and it uses no retry attempt.
+`cloacina_waiting_tasks{pool="large"}` counts the waiting tasks of each pool.
+
+**Two server replicas and the last free room.** Each replica writes its
+placement on the task's row and then reads the agent's sum again. If the sum is
+now more than the agent can hold, that replica takes its placement back and its
+task waits. The replica that wrote second always sees the first one, so an
+agent never keeps two tasks on the same room. When both wrote before either
+read, both take their placement back and both tasks are tried again.
+
+**Requests are not limits.** A request decides where a task is sent. Nothing
+measures or limits what the task then uses. A task that uses more memory than
+it requested is not stopped, and when the agent's pod runs out of memory every
+task on that agent fails with it. Set each request to what the task needs at
+its peak, and keep `max_concurrency` low on a pool for large tasks.
+
+Graph firings (computation graphs dispatched to the fleet) name no pool and
+have no request. They go to the pool `default` and are counted by the agent's
+free slots only.
+
+### What a publish checks
+
+When a package is published, the server checks each of its tasks against the
+tenant's pools. The package is refused when a task:
+
+- names a pool the tenant does not have, or
+- requests more CPU or memory than one agent of its pool can hold. That size is
+  what the pool's settings say: its limit, or its request when it sets no
+  limit. A pool that sets neither for a resource has no size to compare with.
+
+The check runs when the tenant's runner loads the package, because that is when
+its tasks are known: for a Rust package, after the compile. A refused package
+is not loaded. Its build status becomes `failed` and its build error holds the
+reason, with the task, the pool and the numbers:
+
+```text
+package orders v1.4.0 is refused: task 'load_history' requests memory 64Gi,
+but one agent of the pool 'large' holds 32Gi at most. Lower the request, or
+raise the pool's memory limit, and publish again.
+```
+
+`cloacinactl package inspect <id>` and the workflow routes show it, the same
+way they show a compile error. Fix the task or the pool, then publish the
+package again.
+
+A pool for agents you start by hand needs a row too, or tasks that name it are
+refused: create it with `max_agents` 0, so the server starts no agents for it.
+
+### What pools do not do
+
 - **Only `default` is autoscaled.** Another pool runs a fixed number of agents,
   its `max_agents`. The tenant's agent limit and the provision API are for
   `default`; they do not count or bound the other pools.
-- **No per-task resources.** A task runs inside the agent process. The pool's
-  limits are the agent's limits, shared by the tasks it runs at one time
-  (`max_concurrency`). For a task that needs most of the agent's memory, set
-  `max_concurrency` to 1.
+- **No limit on what a task uses.** A task runs inside the agent process, next
+  to the other tasks of that agent. See "Requests are not limits" above.
 
 ### How a change of settings reaches the agents
 

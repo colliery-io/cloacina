@@ -28,7 +28,7 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Parser;
 
-use cloacina_compiler::{BuildRlimits, CompilerConfig, run};
+use cloacina_compiler::{BuildRlimits, CompilerConfig, PythonVendorConfig, WheelSource, run};
 
 /// cloacina-compiler — DB-queue-driven build service.
 #[derive(Parser)]
@@ -183,6 +183,78 @@ struct Cli {
     /// CLOACI-I-0109 / T-0592.
     #[arg(long, default_value_t = 14)]
     log_retention_days: u64,
+
+    /// The largest size, in bytes, that a package archive may unpack to.
+    /// The compiler refuses
+    /// to build a package that unpacks to more. Default: 524288000 (500 MiB). The limits of 10,000 entries and
+    /// of 10 times the archive size stay. CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_UNPACKED_BYTES",
+        default_value_t = cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
+    )]
+    max_unpacked_bytes: u64,
+
+    /// Python packages: a platform to vendor dependencies for, as
+    /// `<arch>-<os>`. Repeat it, or give a comma-separated list. Default: the
+    /// two platforms of the official agent image, `aarch64-linux` and
+    /// `x86_64-linux`. A server or an agent on another platform gets no
+    /// dependencies for a package that the compiler vendored.
+    /// CLOACINA-T-1073.
+    #[arg(
+        long = "python-platform",
+        env = "CLOACINA_COMPILER_PYTHON_PLATFORMS",
+        value_name = "ARCH-OS",
+        value_delimiter = ','
+    )]
+    python_platform: Vec<String>,
+
+    /// Python packages: the Python version to vendor dependencies for, as
+    /// `major.minor`. It must be the Python of the servers and agents.
+    /// Default 3.11, the Python of the official images. CLOACINA-T-1073.
+    #[arg(
+        long,
+        env = "CLOACINA_COMPILER_PYTHON_VERSION",
+        value_name = "MAJOR.MINOR",
+        default_value = "3.11"
+    )]
+    python_version: String,
+
+    /// Python packages: the package index that wheels are downloaded from.
+    /// Default: PyPI. Not used with `--python-offline` and a wheel folder.
+    /// Set it through the environment when the URL holds a password.
+    /// CLOACINA-T-1073.
+    #[arg(long, env = "CLOACINA_COMPILER_PYTHON_INDEX_URL", value_name = "URL")]
+    python_index_url: Option<String>,
+
+    /// Python packages: a folder of wheel files, for example one baked into
+    /// the compiler image. It is one more place to find wheels, next to the
+    /// index; the index is still read. With `--python-offline` it is the
+    /// only source. CLOACINA-T-1073.
+    #[arg(long, env = "CLOACINA_COMPILER_PYTHON_WHEEL_DIR", value_name = "DIR")]
+    python_wheel_dir: Option<PathBuf>,
+
+    /// Python packages: the cache folder of `uv`. Default: `uv`'s own, under
+    /// the home folder. The compiler's user must be able to write to it.
+    /// CLOACINA-T-1073.
+    #[arg(
+        long,
+        env = "CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR",
+        value_name = "DIR"
+    )]
+    python_uv_cache_dir: Option<PathBuf>,
+
+    /// Python packages: vendor with no network. Every wheel must be in the
+    /// wheel folder (`--python-wheel-dir`), or else in the `uv` cache
+    /// (`--python-uv-cache-dir`). A build that needs a wheel that is not
+    /// there fails and names it. CLOACINA-T-1073.
+    #[arg(long, env = "CLOACINA_COMPILER_PYTHON_OFFLINE")]
+    python_offline: bool,
+
+    /// Python packages: the `uv` program. Default: `uv` on `PATH`.
+    /// CLOACINA-T-1073.
+    #[arg(long, env = "CLOACINA_UV", value_name = "PATH", default_value = "uv")]
+    uv: PathBuf,
 }
 
 /// Parse a byte-size string with an optional `K`/`M`/`G` suffix (base-1024).
@@ -228,6 +300,8 @@ fn default_home() -> PathBuf {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(cli.max_unpacked_bytes)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // Default flags include `--frozen --offline` so package builds resolve
     // only against the operator's vendor dir (CLOACI-T-0574 / SEC-06).
@@ -251,6 +325,26 @@ async fn main() -> Result<()> {
     if cli.build_timeout_s == 0 {
         anyhow::bail!("--build-timeout-s must be greater than zero");
     }
+
+    // CLOACINA-T-1073: a setting that cannot work stops the compiler at start.
+    let python_defaults = PythonVendorConfig::default();
+    let python = PythonVendorConfig {
+        uv: cli.uv,
+        python_version: cli.python_version,
+        platforms: if cli.python_platform.is_empty() {
+            python_defaults.platforms
+        } else {
+            cli.python_platform
+        },
+        source: WheelSource {
+            index_url: cli.python_index_url.filter(|u| !u.trim().is_empty()),
+            wheel_dir: cli.python_wheel_dir,
+            cache_dir: cli.python_uv_cache_dir,
+            offline: cli.python_offline,
+        },
+    }
+    .checked()
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     let config = CompilerConfig {
         home: cli.home,
@@ -285,6 +379,7 @@ async fn main() -> Result<()> {
         // events across a worker pool).
         compiler_instance_id: cloacina::UniversalUuid::new_v4(),
         log_retention_days: cli.log_retention_days,
+        python,
     };
 
     run(config).await
@@ -347,5 +442,81 @@ mod tests {
             err.contains("invalid number") || err.contains("overflow"),
             "expected overflow / parse error, got: {err}"
         );
+    }
+
+    // CLOACINA-T-1048: the unpack limit is a setting.
+    #[test]
+    fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
+        use clap::Parser;
+        let db = ["--database-url", "postgres://u:p@h:5432/d"];
+        let cli = super::Cli::try_parse_from(["cloacina-compiler", db[0], db[1]]).unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 524_288_000);
+        let cli = super::Cli::try_parse_from([
+            "cloacina-compiler",
+            db[0],
+            db[1],
+            "--max-unpacked-bytes",
+            "1073741824",
+        ])
+        .unwrap();
+        assert_eq!(cli.max_unpacked_bytes, 1_073_741_824);
+    }
+
+    /// CLOACINA-T-1073: the Python vendoring flags.
+    #[test]
+    fn python_flags_default_to_the_agent_image_and_are_read() {
+        use super::Cli;
+        use clap::Parser;
+        use std::path::PathBuf;
+
+        let cli = Cli::try_parse_from(["cloacina-compiler", "--database-url", "x"]).unwrap();
+        assert!(cli.python_platform.is_empty());
+        assert_eq!(cli.python_version, "3.11");
+        assert_eq!(cli.uv, PathBuf::from("uv"));
+        assert!(!cli.python_offline);
+        assert!(cli.python_index_url.is_none());
+        assert!(cli.python_wheel_dir.is_none());
+        assert!(cli.python_uv_cache_dir.is_none());
+
+        let cli = Cli::try_parse_from([
+            "cloacina-compiler",
+            "--database-url",
+            "x",
+            "--python-platform",
+            "x86_64-linux,aarch64-macos",
+            "--python-platform",
+            "aarch64-linux",
+            "--python-version",
+            "3.12",
+            "--python-offline",
+            "--python-wheel-dir",
+            "/opt/cloacina/wheels",
+            "--python-uv-cache-dir",
+            "/var/cache/uv",
+            "--python-index-url",
+            "https://mirror.example.invalid/simple",
+            "--uv",
+            "/usr/local/bin/uv",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.python_platform,
+            vec!["x86_64-linux", "aarch64-macos", "aarch64-linux"]
+        );
+        assert_eq!(cli.python_version, "3.12");
+        assert!(cli.python_offline);
+        assert_eq!(
+            cli.python_wheel_dir,
+            Some(PathBuf::from("/opt/cloacina/wheels"))
+        );
+        assert_eq!(
+            cli.python_uv_cache_dir,
+            Some(PathBuf::from("/var/cache/uv"))
+        );
+        assert_eq!(
+            cli.python_index_url.as_deref(),
+            Some("https://mirror.example.invalid/simple")
+        );
+        assert_eq!(cli.uv, PathBuf::from("/usr/local/bin/uv"));
     }
 }

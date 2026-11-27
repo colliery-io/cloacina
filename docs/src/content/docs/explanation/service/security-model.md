@@ -1,6 +1,6 @@
 ---
 title: "Security Model"
-description: "Trust by deployment mode, the server's ABAC authorization layer and identity providers (API keys, local accounts, OIDC SSO), signature verification, the compiler threat model, and the limits of multi-tenant isolation."
+description: "Trust by deployment mode, the server's permissions, roles and route table, identity providers (API keys, local accounts, OIDC SSO), signature verification, the compiler threat model, and the limits of multi-tenant isolation."
 sidebar:
   order: 35
 ---
@@ -76,26 +76,215 @@ Operationally: when you revoke a key in response to a *confirmed* compromise and
 
 To create, list, and revoke keys in practice, see [Manage API Keys](../../../how-to/service/manage-api-keys/).
 
-### Roles vs the `is_admin` god-mode
+### Roles and the platform admin flag
 
-Cloacina keys carry two pieces of authority: a **tenant-scoped role** (`admin` / `write` / `read`) and an **`is_admin` flag** that grants god-mode across all tenants.
+A key carries two pieces of authority: a **role** inside one tenant, and the **platform admin flag** (`is_admin`).
 
-- **`is_admin` keys** can do anything: create tenants, list tenants, create keys for any tenant, delete tenants, mint new admin keys. These should be issued sparingly and rotated regularly. The bootstrap key generated on first server startup is `is_admin`; production deployments rotate it immediately.
-- **Tenant-scoped keys** are sandboxed to a single tenant. Within that tenant, the `role` discriminates `admin` (manage tenant resources) / `write` (execute workflows, upload packages) / `read` (list / inspect only). They cannot enumerate or affect other tenants.
+- A **role** is a named set of permissions. There are four, fixed in the server: `read`, `write`, `admin` and `agent`. The table below lists what each one holds.
+  - `read`: list and inspect.
+  - `write`: `read`, plus upload packages, run workflows, operate triggers, fire and pause reactors, inject into accumulators.
+  - `admin`: `write`, plus the keys, local accounts, secrets, audit record and fleet size of its tenant.
+  - `agent`: act as an execution agent, and nothing else. It cannot read the tenant's workflows, executions or events.
+- The **platform admin flag** passes every tenant check and every platform route: create and delete tenants, the global key routes, agent limits, agent pools. It grants every permission except `agent.act`: a key with the flag cannot register as an agent or take an agent's stream. The bootstrap key made on first start has the flag. No route makes a second key with the flag.
 
-The `is_admin = false` + `role = admin` combination — i.e., "I'm admin within my own tenant" — is the expected production posture for tenant operators. Reserve `is_admin = true` for the operations team running the platform.
+A key's role string that is not one of the four holds no permission: the key authenticates and every route answers `403`. The server logs each such key at start.
 
-### Authorization: the ABAC route table
+A key request names its role. `POST /v1/tenants/{tenant_id}/keys` and `POST /v1/auth/keys` answer `400` when the body has no `role` or an unknown one. A tenant `admin` can create a key of any of the four roles in its own tenant.
 
-As of CLOACI-I-0118, authorization is a single, fail-closed middleware layer that lives in **`cloacina-server` only** — the embedded library and the daemon have no such layer because they have no multi-tenant surface to gate. Every `/v1/*` route is classified once, at startup, into a declarative table keyed by `(method, path)` and mapping to a required **scope** (platform / tenant / any) and **level** (read / write / admin). A small, total matcher — `evaluate(principal, scope, level) -> Permit | Deny` — runs on every request after authentication:
+A local account and an OIDC mapping rule take `read`, `write` or `admin`. `agent` is for API keys only. The server does not start when a rule of `CLOACINA_OIDC_MAP` names another role.
 
-- A request whose matched route is **not in the table is denied**, never allowed by default. Adding a route without classifying it fails closed.
-- **Platform-scoped** routes (create / list / delete tenants, the global key surface) require an `is_admin` key.
-- **Tenant-scoped** routes resolve the `{tenant_id}` path parameter and require the caller's key to be scoped to that tenant with a sufficient role.
+`is_admin = false` with role `admin` is the key of a tenant's operator. Keep `is_admin = true` for the team that runs the platform.
 
-This replaced the older per-handler `can_access_tenant` / `can_write` / `can_admin` checks that were scattered across every handler. The matcher reproduces the previous decisions for the common cases but closes a class of gaps the scattered checks left — most notably the **cross-tenant key-management leak**: the global `GET/POST/DELETE /v1/auth/keys` surface is now platform-scoped (god-only), so a tenant-admin key can no longer enumerate or mint keys outside its tenant. Tenant operators manage their own keys through `/v1/tenants/{tenant_id}/keys`; a tenant-scoped key calling the global surface gets `403`.
+### A key with no tenant
+
+"No tenant" is not "admin". The all-tenant view comes from the `is_admin` flag only.
+
+- The **bootstrap key** has no tenant and `is_admin = true`. It passes every check.
+- `public` is a **tenant** like any other. A key of `public` carries the tenant `public`.
+- A key with **no tenant and `is_admin = false`** is made only by an OIDC mapping rule for the tenant `_` (see [Configure OIDC SSO](../../../how-to/service/configure-oidc-sso/#what-a-_-rule-grants)). It has its session and no tenant's data:
+
+| It can | It cannot |
+|---|---|
+| `GET /v1/auth/whoami` | reach a tenant route or a platform route |
+| `POST /v1/auth/refresh`, `POST /v1/auth/logout` | see a computation graph, reactor or accumulator |
+| `POST /v1/auth/ws-ticket` (the ticket carries the same scope) | inject into an accumulator; fire, pause or resume a reactor, over REST or WebSocket |
+| | open the delivery WebSocket: `403`, so no operations stream (`ops_metrics:global`) and no execution events |
+
+Its role (`read` / `write` / `admin`) does not change this. The agent routes (`/v1/agent/*`) take the tenant from the key: an agent registered with such a key has no tenant and is given no tenant's work, and the package fetch routes refuse the key.
+
+On the delivery WebSocket a connection belongs to the key's tenant. Only an `is_admin` key connects with no tenant, and only that connection receives the all-tenant operations snapshot.
+
+### Authorization: permissions, roles and the route table
+
+Authorization is one middleware in `cloacina-server`. The embedded library and the daemon have no such layer because they have no multi-tenant surface.
+
+- **A permission** is one kind of action on one kind of resource, such as `workflows.read` or `keys.manage`.
+- **Every route has one row** in a table in the code. The row names the scope, the permission the route needs, the credential it accepts and the audit row it writes.
+- **The scope** is one of: `public` (no key), `platform` (the platform admin flag), `tenant in the path` (the key belongs to the tenant named by `{tenant_id}`, or has the flag), `caller's key` (the handler reads the tenant from the key).
+- **The matcher** `evaluate(principal, scope, permission) -> Permit | Deny` runs on every request after authentication. It tests the scope, then whether the key's role holds the permission.
+
+The WebSocket routes have rows like the REST routes. The upgrade request goes through the same middleware; it accepts a bearer key or a single-use ticket from `POST /v1/auth/ws-ticket`. No REST route accepts a ticket.
+
+- `/v1/ws/accumulator/{name}` needs `accumulators.inject`: every frame is an inject.
+- `/v1/ws/reactor/{name}` needs `graphs.read` to connect and read the state. A fire, pause or resume command needs `reactors.operate`; it is checked and audited when it arrives.
+- `/v1/ws/delivery/{recipient}` needs the permission of the recipient's kind: `agent:<id>` needs `agent.act`, `exec_events:<id>` needs `executions.read`, `ops_metrics:global` needs `ops.read`. Any other kind is refused.
+
+**A route with no row stops the server.** At start the server compares the routes it registered with the table, both ways. A route with no row, a row with no route, or a state-changing route whose row names no audit action is an error, and the server exits before it listens.
+
+**The middleware writes the audit row** of a state-changing route after the handler answers, under the action its row names. A handler adds the target and the facts of the action; it cannot leave the row out. A refusal on an audited route writes a row with the outcome `denied`. The rows marked "none:" below write no audit row, for the reason given.
+
+A principal also carries numeric limits. The one limit today is the highest priority it may set (0 is the highest): `write` may set 5 to 10, `admin` and the platform admin flag may set 0 to 10, `read` and `agent` may set none.
 
 Tenant-scoped keys' single permitted tenant is set at key creation and cannot be changed; cross-tenant access requires a separate key.
+
+The two tables below are generated from the code (`crates/cloacina-server/src/routes/authz.rs`). A test fails when this page and the code differ.
+
+<!-- authz-table:start (generated from crates/cloacina-server/src/routes/authz.rs; do not edit) -->
+
+#### Permissions and roles
+
+| Permission | Allows | `read` | `write` | `admin` | `agent` | Platform admin flag |
+|---|---|---|---|---|---|---|
+| `session.self` | Refresh, log out and read the role of the caller's own key | yes | yes | yes |  | yes |
+| `ws.ticket` | Get a WebSocket ticket | yes | yes | yes | yes | yes |
+| `workflows.read` | List and read packages, their source, versions, instances and backfills | yes | yes | yes |  | yes |
+| `packages.publish` | Upload a package, activate a version, delete a version |  | yes | yes |  | yes |
+| `workflows.operate` | Pause and resume a workflow; create and delete an instance |  | yes | yes |  | yes |
+| `workflows.run` | Run a workflow by hand; create, cancel and retry a backfill |  | yes | yes |  | yes |
+| `triggers.read` | List and read schedules and triggers | yes | yes | yes |  | yes |
+| `triggers.operate` | Pause, resume and fire a trigger |  | yes | yes |  | yes |
+| `executions.read` | List and read executions, their events and tasks; the `exec_events:<id>` stream | yes | yes | yes |  | yes |
+| `graphs.read` | Read graphs, reactors and accumulators; connect to a reactor's WebSocket and read its state | yes | yes | yes |  | yes |
+| `reactors.operate` | Fire, pause and resume a reactor |  | yes | yes |  | yes |
+| `accumulators.inject` | Inject an event into an accumulator |  | yes | yes |  | yes |
+| `ops.read` | The `ops_metrics:global` stream | yes | yes | yes |  | yes |
+| `limits.read` | Read the tenant's agent limit | yes | yes | yes |  | yes |
+| `pools.read` | Read the tenant's agent pools | yes | yes | yes |  | yes |
+| `fleet.read` | Read the tenant's fleet view | yes | yes | yes |  | yes |
+| `fleet.scale` | Provision and deprovision agents |  |  | yes |  | yes |
+| `agents.read` | Read the agent roster |  |  | yes |  | yes |
+| `keys.manage` | Create, list and revoke API keys |  |  | yes |  | yes |
+| `accounts.manage` | Create, list and disable local accounts; reset a password |  |  | yes |  | yes |
+| `secrets.manage` | Read secret metadata; create, rotate and delete secrets |  |  | yes |  | yes |
+| `trusted_keys.manage` | Add, list and revoke the tenant's trusted package-signing keys |  |  | yes |  | yes |
+| `audit.read` | Read the audit record |  |  | yes |  | yes |
+| `agent.act` | Act as an agent: register, heartbeat, top up one-time keys, report a result, fetch packages; the `agent:<id>` stream |  |  |  | yes | no |
+| `tenants.manage` | Create, list and delete tenants |  |  |  |  | yes |
+| `compiler.read` | Read the compiler's status |  |  |  |  | yes |
+| `limits.manage` | Set and clear a tenant's agent limit |  |  |  |  | yes |
+| `pools.manage` | Set and delete an agent pool |  |  |  |  | yes |
+
+#### Every route
+
+| Method | Path | Scope | Permission | Audit |
+|---|---|---|---|---|
+| GET | `/health` | public | none | none (read) |
+| GET | `/ready` | public | none | none (read) |
+| GET | `/metrics` | public | none | none (read) |
+| GET | `/openapi.json` | public | none | none (read) |
+| POST | `/v1/auth/local/login` | public | none | `auth.login` |
+| GET | `/v1/auth/oidc/login` | public | none | none (read) |
+| GET | `/v1/auth/callback` | public | none | `auth.login` |
+| POST | `/v1/auth/ws-ticket` | caller's key | `ws.ticket` | none: a ticket lives 60 seconds and changes nothing that lasts |
+| POST | `/v1/auth/refresh` | caller's key | `session.self` | none: a refresh replaces the caller's key with one of the same scope |
+| POST | `/v1/auth/logout` | caller's key | `session.self` | `auth.logout` |
+| GET | `/v1/auth/whoami` | caller's key | `session.self` | none (read) |
+| POST | `/v1/tenants` | platform | `tenants.manage` | `tenant.create` |
+| GET | `/v1/tenants` | platform | `tenants.manage` | none (read) |
+| DELETE | `/v1/tenants/{schema_name}` | platform | `tenants.manage` | `tenant.delete` |
+| GET | `/v1/compiler/status` | platform | `compiler.read` | none (read) |
+| GET | `/v1/audit` | platform | `audit.read` | none (read) |
+| POST | `/v1/auth/keys` | platform | `keys.manage` | `key.create` |
+| GET | `/v1/auth/keys` | platform | `keys.manage` | none (read) |
+| DELETE | `/v1/auth/keys/{key_id}` | platform | `keys.manage` | `key.revoke` |
+| POST | `/v1/tenants/{tenant_id}/limits` | platform | `limits.manage` | `limit.set` |
+| DELETE | `/v1/tenants/{tenant_id}/limits` | platform | `limits.manage` | `limit.clear` |
+| PUT | `/v1/tenants/{tenant_id}/pools/{pool}` | platform | `pools.manage` | `pool.set` |
+| DELETE | `/v1/tenants/{tenant_id}/pools/{pool}` | platform | `pools.manage` | `pool.delete` |
+| GET | `/v1/tenants/{tenant_id}/audit` | tenant in the path | `audit.read` | none (read) |
+| POST | `/v1/tenants/{tenant_id}/keys` | tenant in the path | `keys.manage` | `key.create` |
+| GET | `/v1/tenants/{tenant_id}/keys` | tenant in the path | `keys.manage` | none (read) |
+| DELETE | `/v1/tenants/{tenant_id}/keys/{key_id}` | tenant in the path | `keys.manage` | `key.revoke` |
+| POST | `/v1/tenants/{tenant_id}/accounts` | tenant in the path | `accounts.manage` | `account.create` |
+| GET | `/v1/tenants/{tenant_id}/accounts` | tenant in the path | `accounts.manage` | none (read) |
+| DELETE | `/v1/tenants/{tenant_id}/accounts/{account_id}` | tenant in the path | `accounts.manage` | `account.disable` |
+| POST | `/v1/tenants/{tenant_id}/accounts/{account_id}/password` | tenant in the path | `accounts.manage` | `account.password_reset` |
+| POST | `/v1/tenants/{tenant_id}/secrets` | tenant in the path | `secrets.manage` | `secret.create` |
+| GET | `/v1/tenants/{tenant_id}/secrets` | tenant in the path | `secrets.manage` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/secrets/{name}` | tenant in the path | `secrets.manage` | none (read) |
+| PUT | `/v1/tenants/{tenant_id}/secrets/{name}` | tenant in the path | `secrets.manage` | `secret.rotate` |
+| DELETE | `/v1/tenants/{tenant_id}/secrets/{name}` | tenant in the path | `secrets.manage` | `secret.delete` |
+| POST | `/v1/tenants/{tenant_id}/trusted-keys` | tenant in the path | `trusted_keys.manage` | `trusted_key.add` |
+| GET | `/v1/tenants/{tenant_id}/trusted-keys` | tenant in the path | `trusted_keys.manage` | none (read) |
+| DELETE | `/v1/tenants/{tenant_id}/trusted-keys/{key_id}` | tenant in the path | `trusted_keys.manage` | `trusted_key.revoke` |
+| POST | `/v1/tenants/{tenant_id}/fleet/provision` | tenant in the path | `fleet.scale` | `fleet.provision` |
+| POST | `/v1/tenants/{tenant_id}/fleet/deprovision` | tenant in the path | `fleet.scale` | `fleet.deprovision` |
+| GET | `/v1/agents` | caller's key | `agents.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/limits` | tenant in the path | `limits.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/pools` | tenant in the path | `pools.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/pools/{pool}` | tenant in the path | `pools.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/fleet` | tenant in the path | `fleet.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/source` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/versions` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/instances` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/backfills` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}` | tenant in the path | `workflows.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/triggers` | tenant in the path | `triggers.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/triggers/{name}` | tenant in the path | `triggers.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/triggers/{name}/interface` | tenant in the path | `triggers.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/executions` | tenant in the path | `executions.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/executions/{exec_id}` | tenant in the path | `executions.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/events` | tenant in the path | `executions.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/tasks` | tenant in the path | `executions.read` | none (read) |
+| POST | `/v1/tenants/{tenant_id}/workflows` | tenant in the path | `packages.publish` | `package.upload` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate` | tenant in the path | `packages.publish` | `package.activate` |
+| DELETE | `/v1/tenants/{tenant_id}/workflows/{name}/{version}` | tenant in the path | `packages.publish` | `package.delete` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/pause` | tenant in the path | `workflows.operate` | `workflow.pause` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/resume` | tenant in the path | `workflows.operate` | `workflow.resume` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/instances` | tenant in the path | `workflows.operate` | `instance.create` |
+| DELETE | `/v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | tenant in the path | `workflows.operate` | `instance.delete` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/execute` | tenant in the path | `workflows.run` | `workflow.run` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/backfills` | tenant in the path | `workflows.run` | `backfill.create` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel` | tenant in the path | `workflows.run` | `backfill.cancel` |
+| POST | `/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry` | tenant in the path | `workflows.run` | `backfill.retry` |
+| POST | `/v1/tenants/{tenant_id}/triggers/{name}/pause` | tenant in the path | `triggers.operate` | `trigger.pause` |
+| POST | `/v1/tenants/{tenant_id}/triggers/{name}/resume` | tenant in the path | `triggers.operate` | `trigger.resume` |
+| POST | `/v1/tenants/{tenant_id}/triggers/{name}/fire` | tenant in the path | `triggers.operate` | `trigger.fire` |
+| GET | `/v1/health/accumulators` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/reactors` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/reactors/{name}/fires` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/reactors/{name}/fires/timeseries` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/reactors/{name}/interface` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/accumulators/{name}/interface` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/graphs` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/health/graphs/{name}` | caller's key | `graphs.read` | none (read) |
+| POST | `/v1/health/reactors/{name}/fire` | caller's key | `reactors.operate` | `reactor.fire` |
+| POST | `/v1/health/accumulators/{name}/inject` | caller's key | `accumulators.inject` | `accumulator.inject` |
+| GET | `/v1/ws/accumulator/{name}` | caller's key | `accumulators.inject` | `accumulator.connect` |
+| GET | `/v1/ws/reactor/{name}` | caller's key | `graphs.read` | none (read) |
+| GET | `/v1/ws/delivery/{recipient}` | caller's key | by recipient | none (read) |
+| POST | `/v1/agent/register` | caller's key | `agent.act` | `agent.register` |
+| POST | `/v1/agent/heartbeat` | caller's key | `agent.act` | none: one every few seconds for each agent |
+| POST | `/v1/agent/keys` | caller's key | `agent.act` | `agent.keys` |
+| POST | `/v1/agent/result` | caller's key | `agent.act` | none: one for each task; the execution history holds the outcome |
+| POST | `/v1/agent/undecodable` | caller's key | `agent.act` | none: one for each refused packet; the execution history holds the outcome |
+| GET | `/v1/agent/artifact/{digest}` | caller's key | `agent.act` | none (read) |
+| GET | `/v1/agent/source/{digest}` | caller's key | `agent.act` | none (read) |
+| GET | `/v1/agent/python-vendor/{digest}` | caller's key | `agent.act` | none (read) |
+| GET | `/v1/agent/providers/{digest}` | caller's key | `agent.act` | none (read) |
+
+<!-- authz-table:end -->
+
+### Upgrading from a version with three roles
+
+- **Agents need a key of role `agent`.** A managed agent gets one: on its next reconcile the fleet actuator mints an `agent` key for the tenant, moves the agents to it, and revokes the keys it minted before. On Kubernetes the tenant's agent Deployments roll once. An agent started by hand on a `read`, `write` or `admin` key gets `403` on `POST /v1/agent/register`. Create a key with `"role": "agent"`, restart the agent with it, and revoke the old key. Each refused register is in the audit record as `agent.register` with the outcome `denied` and the key's name.
+- **`read` no longer fires or injects.** `POST /v1/health/reactors/{name}/fire`, `POST /v1/health/accumulators/{name}/inject`, the accumulator WebSocket, and the fire, pause and resume commands of the reactor WebSocket need `write`.
+- **A key request needs a role.** A request with no `role` made an `admin` key; it now answers `400`.
+- **An unknown role grants nothing.** A stored key or local account whose role is not one of the four read as `read`; it is now refused on every route.
+- **The bootstrap key cannot act as an agent.**
 
 ### Authenticating: identity providers
 
@@ -172,14 +361,16 @@ In production, set `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) to pin the in
 
 ### What it is, why it's optional
 
-When the server is started with `--require-signatures` + `--verification-org-id <UUID>`, every package upload runs through cryptographic signature verification before the package is registered. The verification:
+When the server is started with `--require-signatures`, every package upload runs through cryptographic signature verification before the package is registered. The verification:
 
-1. Resolves the package signer for the target tenant.
-2. Looks up the trusted public key for the configured org ID.
-3. Verifies the package bytes against the signature stored in the trust database.
+1. Reads the signature stored for the hash of the uploaded bytes.
+2. Looks the signer's key up in the trusted keys of the tenant in the path, then in the trusted keys of the server-wide org if `--verification-org-id` is set.
+3. Verifies the signature against the trusted public key.
 4. Logs the outcome (success or failure) to the audit log with the package fingerprint.
 
-The pair is **fail-fast** — if `--require-signatures` is set but `--verification-org-id` is unconfigured, the server refuses to start (`signature_verification_unconfigured`). There is no soft-fail path: a misconfigured signature pipeline means *no uploads are accepted*, not "uploads accepted unverified."
+There is no soft-fail path: an upload with no signature, or signed by a key that neither list holds live, is refused.
+
+Trust is **per tenant**. Each tenant has its own trusted keys, and its `admin` adds and revokes them (`cloacinactl trusted-key`, or the `/v1/tenants/{tenant_id}/trusted-keys` routes); a platform admin can do the same for any tenant. A package signed for one tenant is not accepted by another. The server-wide org is the operator's own key set: a key in it is trusted for every tenant. An operator that wants strict per-tenant trust sets no `--verification-org-id`; each tenant then trusts only its own keys.
 
 It's optional because the threat models diverge:
 
@@ -198,7 +389,7 @@ Package signing uses **Ed25519** asymmetric cryptography. Each key is a pair:
 - **Key fingerprint** — the SHA-256 hash of the public key, used to identify
   which key signed a package.
 
-Keys are managed **per-organization**, and the trust model has three roles:
+Keys are managed **per-organization**. On a server, the organization of a tenant is derived from the tenant's name, and the server-wide org is the UUID of `--verification-org-id`. The trust model has three roles:
 
 - **Signing keys** — owned by an organization and used to sign its packages.
 - **Trusted keys** — public keys an organization accepts signatures from during
@@ -230,11 +421,22 @@ Network and dependency resolution depend on the cargo flags:
 - **With `--frozen`/`--offline` dropped** (`--cargo-flags-replace`; the Helm chart's default is `build --lib`), the build has two phases: `cargo fetch` downloads the dependency graph from the network, then the build runs with `--offline` appended.
 - **`--offline` binds cargo, not the code cargo runs.** A build script, a proc-macro or a provider's manifest binary can open any connection the host allows. Provider bundling does not use the cargo flags: its cargo steps can download.
 
+### Python packages: what the compiler downloads
+
+A Python package that is published with a `requirements.lock` and no `vendor/` folder gets its dependencies from the compiler. For each platform of its settings the compiler runs `uv pip install` on the lock file and stores the installed wheels as one set per platform. A package that ships `vendor/` is not touched: the compiler runs no `uv` and downloads nothing for it.
+
+- **What runs.** `uv`, as a build child: the cleared environment, the timeout and the resource caps above, plus the proxy and certificate variables. It installs wheels only (`--only-binary :all:`), so no build script and no code of a dependency runs in the compiler: a wheel is unpacked, not executed. A dependency with no wheel fails the build.
+- **What it downloads, and from where.** The wheels that the lock file names, and the index pages of those distributions, over HTTPS from the package index of the compiler's settings (`--python-index-url`; PyPI by default: `pypi.org` and `files.pythonhosted.org`). With `--python-wheel-dir` it also reads wheels from a folder of the compiler image. With `--python-offline` it opens no connection: the wheels come from that folder, or from a `uv` cache in the image, and a wheel that is not there fails the build by name.
+- **What the package's author controls.** The names, the versions and the hashes in the lock file. Not the source: the compiler refuses a lock file that holds anything other than pinned versions with hashes (an option such as `-r` or `--index-url`, a URL, a path), and it runs `uv` with `--no-config`, so a `uv.toml` in the package does not choose the index. The hashes are the author's own: `--require-hashes` makes the compiler install the files the author locked, and does not make those files safe.
+- **Where the files go.** Into the stored set of the package, and from there into `vendor/<platform>/` on the servers and agents that load the package. The dependencies then run with the package's tasks, with the same reach as the package's own code (see [What a task can reach on its agent](#what-a-task-can-reach-on-its-agent)). The compiler imports none of them.
+- **What this adds to the compiler's network needs.** Egress to the index, unless the compiler is offline. A compiler with restricted egress needs the index and its file host allowed, an index mirror inside the network, or an image that carries the wheels: see [Running the Compiler](../../../how-to/service/running-the-compiler/#python-packages-vendoring-dependencies).
+
 The threat model the compiler addresses:
 
 - **Resource exhaustion** by malicious or pathological builds — bounded by the timeout and the rlimits.
 - **The compiler's environment variables** — not inherited by any child.
 - **Dependency substitution** — bounded by `--frozen --offline` with a curated cargo home, when the operator keeps those flags.
+- **A lock file that reads the compiler's files or another server** — refused before `uv` starts: a lock file holds pinned versions with hashes only.
 
 The threat model the compiler does NOT address:
 
@@ -245,6 +447,45 @@ The threat model the compiler does NOT address:
 - **CPU-side-channel attacks** between concurrent builds on the same host — not currently in scope.
 - **Operator-level account compromise** of the compiler service account — the operator is trusted; the package author is not.
 
+### What a tenant's build can reach
+
+Build code is a build script, a proc-macro, or a provider crate's build. It
+runs as the compiler's user, inside the compiler's container. What it can
+reach depends on which compiler builds the package.
+
+**A tenant compiler that the server made** (Kubernetes actuator,
+`fleet.compiler.enabled`; see
+[Run cloacina-compiler in Production](../../../how-to/service/running-the-compiler/#how-many-compilers-a-deployment-runs)):
+
+- **Other tenants' source and build output: no.** The compiler serves one
+  schema and runs in its own pod in the tenant's namespace. Its target
+  directory, cargo home and temp directories are the pod's own volumes, and
+  they are emptied each time the compiler starts.
+- **The database URL: yes.** The URL is the pod's `DATABASE_URL` environment
+  variable, from a Secret. It is not on the command line. Build code has the
+  compiler's uid, so it can read `/proc/<compiler pid>/environ`.
+- **What that URL opens.** By default it is the server's own URL, which
+  reaches every tenant's schema. With
+  `fleet.compiler.databaseUrlSecretRef` it is the URL of the role the operator
+  made for builds, and reaches what that role is granted.
+- **The network.** The compiler pods' NetworkPolicy allows DNS, the database
+  port and, by default, TCP 443 to public IPv4 addresses. The tenant's agent
+  policy adds the server. No ingress is allowed. With
+  `fleet.compiler.egress=none` a build reaches DNS, the database port, the
+  server and the listed CIDR blocks only. The policy binds on a CNI that
+  enforces NetworkPolicy.
+- **The Kubernetes API: no token.** The pod mounts no service account token.
+- **The node and the container's root filesystem.** The pod runs as uid
+  `10001` with a read-only root filesystem, no capabilities and the
+  `RuntimeDefault` seccomp profile.
+- **The compiler process.** Build code has its uid: it can signal it, and it
+  can leave a process behind that outlives the build until the pod stops.
+
+**A compiler shared by tenants, or the `public` compiler:** as above for the
+database URL and the process. Its target directory, cargo home and temp
+directories are shared by every package it builds, and the chart writes no
+egress rule for it.
+
 If package authors are not trusted, do not let them upload to a compiler that other tenants share, and do not give that compiler a database role that reaches other tenants. For closed-org deployments (single-team, vetted package authors), the limits above are the bound.
 
 ## Multi-tenant isolation
@@ -254,13 +495,25 @@ CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier ser
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
 - **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
-- **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
+- **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Before the schema is dropped, the fleet actuator removes the tenant's compiler, when it runs one. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
+
+- **Computation graphs carry their tenant.** The server stamps every graph, reactor and accumulator with the tenant of the runner that loads it: `public` for the packages of the `public` tenant, the tenant's name for the others. The server refuses to load a graph with no tenant. A key sees, injects into, fires and pauses the graphs of its own tenant only; a key of another tenant cannot reach the graphs of `public`. Reactor ownership and the owner-address table use the same `(tenant, name)` pair. Graphs with no tenant, open to every caller, exist in embedded use only (a `ComputationGraphScheduler` in your own process, no server, no tenants).
 
 What multi-tenant isolation **does not** guarantee:
 
 - **CPU side-channels** between executions running concurrently on the same server process. Tenants share the OS and the runtime; an attacker who can run code in one tenant can in principle observe timing of code in another. If this threat is in scope, run a separate `cloacina-server` instance per tenant (one host process per tenant) rather than relying on schema isolation.
 - **Privileged operator actions.** An `is_admin` key can do anything; key compromise = total compromise. Treat `is_admin` keys like AWS root credentials.
 - **Postgres-level row-level security.** Cloacina relies on schema-level isolation and the `SET search_path` enforcement above; it does not layer Postgres RLS policies on top. If your compliance posture requires defense-in-depth at the DB layer, layer RLS yourself.
+
+### Ownership on the fleet and the delivery socket
+
+The authorization table decides the level a route needs. Which agent, which dispatch and which outbox row a key may touch is decided by ownership, in one module (`cloacina::security::ownership`) that the agent routes, the fleet result path and the delivery WebSocket all call.
+
+- **An agent has an owner.** The owner is the tenant and the API key that registered the agent. Only that key may register the same agent id again, send its heartbeat, report a result for it, top up its one-time keys, or open its `agent:<id>` delivery socket. A register for an agent id that another tenant or another key holds is refused with `409 agent_id_taken`. A call for an agent id that is not registered is refused with `404 agent_not_registered`, and a call for another key's agent with `403 agent_access_denied`. A platform admin key gets no bypass.
+- **Agents that share one key are one owner.** The Kubernetes actuator gives every agent of a tenant the same key, so those agents can act as each other. Agents that must be separate need separate keys.
+- **A result counts only from the agent the work went to.** The server accepts a task result only from a registered agent, in the tenant of the dispatch, that is the agent the work packet is addressed to, and only with the `dispatch_id` of that packet. When an agent is evicted and its packet is re-targeted, the packet is addressed to the new agent and its result is the one accepted. A graph firing has no `dispatch_id`; the tenant and agent check is the same. A report stored for another server replica carries the tenant and the agent of its sender, and the replica that takes it runs the same check.
+- **A delivery connection has a recipient and a tenant.** Who may open which recipient is in the [WebSocket protocol reference](../../../reference/websocket-protocol/#recipients-who-may-subscribe). An `ack` applies only to an outbox row addressed to the connection's own recipient and tenant.
+- **Agent rows from before the owner existed.** A row that an older server wrote has no owner. A key of the row's tenant may heartbeat, report and top up for it, as before; nobody may open its `agent:<id>` socket. The next register for that id by a key of the row's tenant makes that key the owner. An agent registers at the start of every session, before it opens the socket, so the row gets its owner at the agent's first reconnect after the upgrade.
 
 ### What a task can reach on its agent
 
@@ -269,7 +522,7 @@ A task runs inside the `cloacina-agent` process of its own tenant: a Rust task a
 - **The Kubernetes API.** Agent pods mount no service account token (`automountServiceAccountToken: false`, in the actuator's Deployment and in the `cloacina-agent` chart), and the per-tenant `NetworkPolicy` allows egress only to DNS and the server.
 - **The agent's API key, by the ordinary routes.** The agent reads the key at start, overwrites the value in its start-time environment and removes `CLOACINA_API_KEY`. `std::env`, Python's `os.environ` and `/proc/self/environ` do not hold the key. The agent keeps no key in a file, and sets no default header on its HTTP client.
 - **The agent's API key, in memory.** The agent holds the key in its own memory for its calls to the server, and a task shares that memory. Native code in a task, or a task that reads `/proc/self/mem`, can find it. A key given with `--api-key` is in the argument list, and a key file (`--api-key-file`) is readable by the agent's user: both are readable by a task.
-- **What that key opens.** A managed agent's key is scoped to its tenant with the role `read`, and every agent of the tenant has the same key. It can read the tenant's workflows, versions, package source, instances, triggers, executions with their events and tasks, the fleet view and the limit. It can call the agent routes (register, heartbeat, result, and fetch of the tenant's artifacts, source and providers by digest), mint a WebSocket ticket, and reach the tenant's computation-graph health routes, which include a reactor fire and an accumulator inject. It cannot publish, execute, read or manage secrets, keys or accounts, or reach another tenant.
+- **What that key opens.** A managed agent's key is scoped to its tenant with the role `agent`. On Kubernetes every agent of the tenant has the same key; on Docker each container has its own. The key can call the agent routes (register, heartbeat, top up one-time keys, report a result, and fetch the tenant's artifacts, source and providers by digest), get a WebSocket ticket, and open an `agent:<id>` delivery stream of its tenant. Every other route answers `403`: it cannot read the tenant's workflows, package source, executions, events, triggers, fleet view or limit, cannot reach the computation-graph routes, cannot fire a reactor or inject into an accumulator, cannot publish or execute, cannot read or manage secrets, keys or accounts, and cannot reach another tenant.
 - **Secrets.** A task receives the secrets it declares, unwrapped by the agent for that one execution. Tasks of one tenant that run on the same agent share its memory.
 
 For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation](../multi-tenancy/) and the multi-tenant how-tos under `/service/how-to/`.
@@ -295,7 +548,7 @@ Deployments where this is unacceptable should start the server with `--metrics-b
 - [Multi-tenancy](../multi-tenancy/) — operational mechanics of tenant isolation.
 - [Package Format](../../engine/package-format/) — how `.cloacina` archives are structured.
 - [Packaged Workflow Architecture](../../engine/packaged-workflow-architecture/) — the FFI / cdylib trust boundary.
-- [Require Signed Packages](../../../how-to/service/require-signed-packages/) — the operator-side mechanics of turning on signature enforcement: `--require-signatures` + `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
+- [Require Signed Packages](../../../how-to/service/require-signed-packages/) — the operator-side mechanics of turning on signature enforcement: `--require-signatures`, the trusted keys of each tenant and the optional `--verification-org-id` setup, audit-log expectations, and recovery if you lock yourself out.
 - [Package Signing](../../../how-to/service/security/package-signing/) — how to set up the signing pipeline.
 - [Running the Compiler](../../../how-to/service/running-the-compiler/) — compiler threat model + Phase 1 hardening flags.
 - **CLOACI-A-0005** — Deployment-mode trust model (the authoritative ADR for this page).

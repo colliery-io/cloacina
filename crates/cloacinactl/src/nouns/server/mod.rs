@@ -59,6 +59,9 @@ enum ServerVerb {
         /// Overrides `[server].default_executor` in config.toml when set.
         #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR")]
         default_executor: Option<String>,
+
+        #[command(flatten)]
+        settings: Box<start::ServerSettingArgs>,
     },
     /// Stop a locally-running server via PID file + SIGTERM.
     Stop {
@@ -82,6 +85,7 @@ impl ServerCmd {
                 bootstrap_key,
                 require_signatures,
                 default_executor,
+                settings,
             } => {
                 start::run(
                     globals,
@@ -91,6 +95,7 @@ impl ServerCmd {
                     bootstrap_key,
                     require_signatures,
                     default_executor,
+                    *settings,
                 )
                 .await
             }

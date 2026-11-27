@@ -5,7 +5,8 @@ CLOACI-I-0111 / T-0605.
 
 Two surfaces:
   - `angreal helm lint`       — fast: helm lint + helm template variants.
-                                Mirrors the .github/workflows/ci.yml job.
+                                The "Helm chart lint" job of
+                                .github/workflows/ci.yml runs this task.
   - `angreal helm test`       — slow: builds the cloacina-server image,
                                 spins up a kind cluster, loads the image,
                                 helm-installs the chart with bundled
@@ -58,6 +59,44 @@ def _run(cmd, **kwargs):
     return subprocess.run(cmd, check=check, **kwargs)
 
 
+def _template_expect(label, sets, present=(), absent=()):
+    """Render the server chart and check the output for lines.
+
+    `present`: each string must be in the output. `absent`: none may be.
+    """
+    cmd = ["helm", "template", "cloacina", str(CHART_DIR)]
+    for item in sets:
+        cmd += ["--set", item]
+    print(f"$ {' '.join(cmd)}", flush=True)
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    for text in present:
+        if text not in out:
+            print(f"error: {label}: expected in the rendered chart: {text!r}",
+                  file=sys.stderr)
+            sys.exit(1)
+    for text in absent:
+        if text in out:
+            print(f"error: {label}: not expected in the rendered chart: {text!r}",
+                  file=sys.stderr)
+            sys.exit(1)
+
+
+def _env(name, value):
+    """The two lines of a plain env entry, as helm renders them."""
+    return f'- name: {name}\n              value: "{value}"'
+
+
+def _env_from_secret(name, secret, key):
+    """The lines of an env entry that reads a key of a Secret."""
+    return (
+        f"- name: {name}\n"
+        "              valueFrom:\n"
+        "                secretKeyRef:\n"
+        f"                  name: {secret}\n"
+        f"                  key: {key}"
+    )
+
+
 def _render(args):
     """`helm template` of the server chart with `args`; return the manifests."""
     cmd = ["helm", "template", "cloacina", str(CHART_DIR), *args]
@@ -103,6 +142,11 @@ def helm_lint():
         "--set", "serviceMonitor.enabled=true",
     ], stdout=subprocess.DEVNULL)
 
+    # Variant 3: bundled Postgres subchart.
+    out = _render(["--set", "postgresql.enabled=true",
+                   "--set", "postgresql.auth.password=test"])
+    _expect(out, "bundled Postgres", present=["postgresql"])
+
     # Metrics variants (CLOACINA-T-1025, CLOACINA-T-1032). Each one is
     # rendered and its text is checked.
     db = ["--set", "database.url=postgres://u:p@h:5432/d"]
@@ -121,6 +165,17 @@ def helm_lint():
     ], absent=[
         "kind: ServiceMonitor",
         "          port: 9090",  # no NetworkPolicy rule for the metrics port
+    ])
+
+    # Task logs (CLOACINA-T-1024): no flag by default; both when set.
+    _expect(out, "task logs, default values",
+            absent=["--log-format", "--task-log-url-template"])
+    log_url = "https://logs.example.com/s?run={execution_id}&task={task}"
+    out = _render(db + ["--set", "server.logFormat=json",
+                        "--set-string", f"server.taskLogUrlTemplate={log_url}"])
+    _expect(out, "task logs set", present=[
+        '- "--log-format"\n            - "json"',
+        f'- "--task-log-url-template"\n            - "{log_url}"',
     ])
 
     # Metrics off: one value brings back /metrics on the API port, with no
@@ -155,6 +210,10 @@ def helm_lint():
         print("error: expected a NetworkPolicy and --metrics-bind for both the "
               "server and the compiler", file=sys.stderr)
         sys.exit(1)
+    if out.count("kind: ServiceMonitor") != 2:
+        print("error: expected a ServiceMonitor for both the server and the "
+              "compiler", file=sys.stderr)
+        sys.exit(1)
 
     # NetworkPolicy off: the listener and its Service stay.
     out = _render(db + ["--set", "metrics.networkPolicy.enabled=false"])
@@ -163,7 +222,93 @@ def helm_lint():
         "name: cloacina-cloacina-server-metrics",
     ], absent=["kind: NetworkPolicy"])
 
-    # Variant 3: validateDatabase fail-fast — must error.
+    # Retention, fleet time limits and alert webhook (CLOACINA-T-1039).
+    db = "database.url=postgres://u:p@h:5432/d"
+
+    # Defaults: the server's own values; no alert webhook env.
+    _template_expect(
+        "defaults", [db],
+        present=[
+            _env("CLOACINA_DATABASE_WAIT_TIMEOUT_S", "60"),
+            _env("CLOACINA_RUN_HISTORY_RETENTION_DAYS", "0"),
+            _env("CLOACINA_OUTBOX_ACKED_RETENTION_S", "0"),
+            _env("CLOACINA_RETENTION_INTERVAL_S", "300"),
+            _env("CLOACINA_FLEET_TASK_TIMEOUT_S", "300"),
+            _env("CLOACINA_FLEET_TASK_TIMEOUT_MAX_S", "86400"),
+        ],
+        absent=["CLOACINA_ALERT_WEBHOOK", "CLOACINA_PUBLIC_BASE_URL"],
+    )
+
+    # Wait for the database set.
+    _template_expect(
+        "database wait",
+        [db, "server.databaseWaitTimeoutSeconds=0"],
+        present=[_env("CLOACINA_DATABASE_WAIT_TIMEOUT_S", "0")],
+    )
+
+    # Retention set.
+    _template_expect(
+        "retention",
+        [db, "retention.runHistoryDays=30", "retention.outboxAckedSeconds=600",
+         "retention.intervalSeconds=60"],
+        present=[
+            _env("CLOACINA_RUN_HISTORY_RETENTION_DAYS", "30"),
+            _env("CLOACINA_OUTBOX_ACKED_RETENTION_S", "600"),
+            _env("CLOACINA_RETENTION_INTERVAL_S", "60"),
+        ],
+    )
+
+    # Fleet time limits set. The large value must not render as 2e+06.
+    _template_expect(
+        "fleet time limits",
+        [db, "fleetTaskTimeLimits.defaultSeconds=900",
+         "fleetTaskTimeLimits.maxSeconds=2000000"],
+        present=[
+            _env("CLOACINA_FLEET_TASK_TIMEOUT_S", "900"),
+            _env("CLOACINA_FLEET_TASK_TIMEOUT_MAX_S", "2000000"),
+        ],
+    )
+
+    # Alert webhook with a plain URL and the signing secret from a Secret.
+    _template_expect(
+        "alert webhook",
+        [db, "alertWebhook.url=https://alerts.example.com/hook",
+         "alertWebhook.events={failed,cancelled}",
+         "alertWebhook.timeoutSeconds=5", "alertWebhook.maxAttempts=3",
+         "alertWebhook.publicBaseUrl=https://cloacina.example.com",
+         "alertWebhook.secretRef.name=cloacina-alerts"],
+        present=[
+            _env("CLOACINA_ALERT_WEBHOOK_URL", "https://alerts.example.com/hook"),
+            _env("CLOACINA_ALERT_WEBHOOK_EVENTS", "failed,cancelled"),
+            _env("CLOACINA_ALERT_WEBHOOK_TIMEOUT_S", "5"),
+            _env("CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS", "3"),
+            _env("CLOACINA_PUBLIC_BASE_URL", "https://cloacina.example.com"),
+            _env_from_secret("CLOACINA_ALERT_WEBHOOK_SECRET", "cloacina-alerts", "secret"),
+        ],
+    )
+
+    # Alert webhook with the URL from a Secret; no signing secret.
+    _template_expect(
+        "alert webhook, URL from a Secret",
+        [db, "alertWebhook.urlSecretRef.name=cloacina-alerts",
+         "alertWebhook.urlSecretRef.key=hook-url"],
+        present=[
+            _env_from_secret("CLOACINA_ALERT_WEBHOOK_URL", "cloacina-alerts", "hook-url"),
+            _env("CLOACINA_ALERT_WEBHOOK_EVENTS", "failed"),
+            _env("CLOACINA_ALERT_WEBHOOK_TIMEOUT_S", "10"),
+            _env("CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS", "8"),
+        ],
+        absent=["CLOACINA_ALERT_WEBHOOK_SECRET", "CLOACINA_PUBLIC_BASE_URL"],
+    )
+
+    # A signing secret with no URL renders nothing: the webhook is off.
+    _template_expect(
+        "alert webhook off",
+        [db, "alertWebhook.secretRef.name=cloacina-alerts"],
+        absent=["CLOACINA_ALERT_WEBHOOK"],
+    )
+
+    # Variant 4: validateDatabase fail-fast — must error.
     rc = subprocess.run(
         ["helm", "template", "cloacina", str(CHART_DIR)],
         capture_output=True, text=True,

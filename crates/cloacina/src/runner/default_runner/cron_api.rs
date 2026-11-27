@@ -243,13 +243,18 @@ impl DefaultRunner {
         let mut new_schedule =
             NewSchedule::cron(workflow_name, cron_expression, UniversalTimestamp(next_run));
         new_schedule.timezone = Some(timezone.to_string());
-        options.apply_to(&mut new_schedule);
 
-        let schedule = dal.schedule().create(new_schedule).await.map_err(|e| {
-            WorkflowExecutionError::ExecutionFailed {
+        // One schedule per workflow, expression and timezone
+        // (CLOACINA-T-1042): a second registration of the same three gets
+        // the schedule that exists, with its times, and updates what the
+        // options declare.
+        let schedule = dal
+            .schedule()
+            .upsert_cron_declared(new_schedule, options)
+            .await
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to create cron schedule: {}", e),
-            }
-        })?;
+            })?;
 
         // Wake the timer-driven scheduler so the first fire is on time (T-0743).
         self.cron_change.notify_one();

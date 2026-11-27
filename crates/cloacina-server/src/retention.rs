@@ -21,6 +21,10 @@
 //! `execution_events`, `recovery_events`, `schedule_executions` and
 //! `delivery_outbox`. Without this loop nothing removes them.
 //!
+//! Both periods are off by default (CLOACINA-T-1092 for the outbox period):
+//! an operator sets a period to turn a delete on. With both off the loop is
+//! not started.
+//!
 //! On each tick the loop, for the admin (`public`) schema and then for every
 //! tenant schema:
 //!
@@ -103,11 +107,11 @@ impl RetentionConfig {
 }
 
 impl Default for RetentionConfig {
-    /// Run history kept for ever (the deletes are off until an operator sets
-    /// a period), one hour of acked outbox rows, a pass every five minutes:
-    /// the defaults of the server flags.
+    /// Run history and acked outbox rows kept for ever (each delete is off
+    /// until an operator sets its period), a pass every five minutes: the
+    /// defaults of the server flags.
     fn default() -> Self {
-        Self::from_flags(0, 3_600, 300)
+        Self::from_flags(0, 0, 300)
     }
 }
 
@@ -321,12 +325,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_keep_run_history_and_clear_acked_outbox_rows() {
+    fn defaults_keep_run_history_and_acked_outbox_rows() {
         let cfg = RetentionConfig::default();
         assert_eq!(cfg.run_history, None);
-        assert_eq!(cfg.outbox_acked, Some(Duration::from_secs(3_600)));
+        assert_eq!(cfg.outbox_acked, None);
         assert_eq!(cfg.interval, Duration::from_secs(300));
-        assert!(cfg.enabled());
+        assert!(!cfg.enabled());
     }
 
     #[test]

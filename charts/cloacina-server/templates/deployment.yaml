@@ -46,6 +46,14 @@ spec:
             - "--metrics-bind"
             - {{ printf "0.0.0.0:%v" .Values.metrics.port | quote }}
             {{- end }}
+            {{- if ne (.Values.server.logFormat | default "text") "text" }}
+            - "--log-format"
+            - {{ .Values.server.logFormat | quote }}
+            {{- end }}
+            {{- if .Values.server.taskLogUrlTemplate }}
+            - "--task-log-url-template"
+            - {{ .Values.server.taskLogUrlTemplate | quote }}
+            {{- end }}
             - "--tenant-runner-cache-size"
             - {{ .Values.server.tenantRunnerCacheSize | quote }}
             - "--tenant-deletion-drain-timeout-s"
@@ -144,7 +152,122 @@ spec:
             - name: CLOACINA_FLEET_DNS_NAMESPACE
               value: {{ .Values.fleet.networkPolicy.dnsNamespace | quote }}
             {{- end }}
+            {{- if .Values.fleet.compiler.enabled }}
+            # A compiler per tenant (CLOACINA-T-1034): the server makes it in
+            # the tenant's namespace and scales it with the tenant's build queue.
+            - name: CLOACINA_TENANT_COMPILERS
+              value: "true"
+            - name: CLOACINA_TENANT_COMPILER_IMAGE
+              value: {{ include "cloacina-server.tenantCompilerImage" . | quote }}
+            {{- if .Values.fleet.compiler.databaseUrlSecretRef.name }}
+            - name: CLOACINA_TENANT_COMPILER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.fleet.compiler.databaseUrlSecretRef.name }}
+                  key: {{ .Values.fleet.compiler.databaseUrlSecretRef.key }}
+            {{- else if .Values.postgresql.enabled }}
+            # The bundled database, by its full Service name: the compilers
+            # run in the tenant namespaces, where the short name the server
+            # uses does not resolve.
+            - name: CLOACINA_TENANT_COMPILER_DATABASE_URL
+              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ .Values.postgresql.auth.database }}"
             {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_CARGO_FLAGS
+              value: {{ join " " .Values.fleet.compiler.cargoFlags | quote }}
+            {{- with .Values.fleet.compiler.vendorDir }}
+            - name: CLOACINA_TENANT_COMPILER_VENDOR_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.fleet.compiler.devWorkspace }}
+            - name: CLOACINA_TENANT_COMPILER_DEV_WORKSPACE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_TARGET_DIR
+              value: {{ .Values.fleet.compiler.targetDir | quote }}
+            {{- if .Values.fleet.compiler.buildTimeoutSeconds }}
+            - name: CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S
+              value: {{ .Values.fleet.compiler.buildTimeoutSeconds | quote }}
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS
+              value: {{ .Values.fleet.compiler.pollIntervalMs | quote }}
+            - name: CLOACINA_TENANT_COMPILER_COOLDOWN_S
+              value: {{ .Values.fleet.compiler.cooldownSeconds | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_SIZE
+              value: {{ .Values.fleet.compiler.cacheSize | quote }}
+            - name: CLOACINA_TENANT_COMPILER_HARDENED
+              value: {{ .Values.fleet.compiler.hardened | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CPU_REQUEST
+              value: {{ .Values.fleet.compiler.resources.requests.cpu | quote }}
+            - name: CLOACINA_TENANT_COMPILER_MEMORY_REQUEST
+              value: {{ .Values.fleet.compiler.resources.requests.memory | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CPU_LIMIT
+              value: {{ .Values.fleet.compiler.resources.limits.cpu | quote }}
+            - name: CLOACINA_TENANT_COMPILER_MEMORY_LIMIT
+              value: {{ .Values.fleet.compiler.resources.limits.memory | quote }}
+            - name: CLOACINA_TENANT_COMPILER_EGRESS
+              value: {{ .Values.fleet.compiler.egress | quote }}
+            {{- with .Values.fleet.compiler.egressCidrs }}
+            - name: CLOACINA_TENANT_COMPILER_EGRESS_CIDRS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.fleet.compiler.databaseCidrs }}
+            - name: CLOACINA_TENANT_COMPILER_DATABASE_CIDRS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            # Wait for the database at start (CLOACINA-T-1035).
+            - name: CLOACINA_DATABASE_WAIT_TIMEOUT_S
+              value: {{ .Values.server.databaseWaitTimeoutSeconds | int64 | quote }}
+            # Retention job (CLOACINA-T-1023).
+            - name: CLOACINA_RUN_HISTORY_RETENTION_DAYS
+              value: {{ .Values.retention.runHistoryDays | int64 | quote }}
+            - name: CLOACINA_OUTBOX_ACKED_RETENTION_S
+              value: {{ .Values.retention.outboxAckedSeconds | int64 | quote }}
+            - name: CLOACINA_RETENTION_INTERVAL_S
+              value: {{ .Values.retention.intervalSeconds | int64 | quote }}
+            # Time limits of fleet tasks and graph firings (CLOACINA-T-1014).
+            - name: CLOACINA_FLEET_TASK_TIMEOUT_S
+              value: {{ .Values.fleetTaskTimeLimits.defaultSeconds | int64 | quote }}
+            - name: CLOACINA_FLEET_TASK_TIMEOUT_MAX_S
+              value: {{ .Values.fleetTaskTimeLimits.maxSeconds | int64 | quote }}
+            {{- if or .Values.alertWebhook.url .Values.alertWebhook.urlSecretRef.name }}
+            # Alert webhook (CLOACINA-T-1024). Rendered only when a URL is set.
+            - name: CLOACINA_ALERT_WEBHOOK_URL
+              {{- if .Values.alertWebhook.urlSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.alertWebhook.urlSecretRef.name }}
+                  key: {{ .Values.alertWebhook.urlSecretRef.key }}
+              {{- else }}
+              value: {{ .Values.alertWebhook.url | quote }}
+              {{- end }}
+            {{- with .Values.alertWebhook.events }}
+            - name: CLOACINA_ALERT_WEBHOOK_EVENTS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            - name: CLOACINA_ALERT_WEBHOOK_TIMEOUT_S
+              value: {{ .Values.alertWebhook.timeoutSeconds | int64 | quote }}
+            - name: CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS
+              value: {{ .Values.alertWebhook.maxAttempts | int64 | quote }}
+            {{- if .Values.alertWebhook.publicBaseUrl }}
+            - name: CLOACINA_PUBLIC_BASE_URL
+              value: {{ .Values.alertWebhook.publicBaseUrl | quote }}
+            {{- end }}
+            {{- if .Values.alertWebhook.secretRef.name }}
+            - name: CLOACINA_ALERT_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.alertWebhook.secretRef.name }}
+                  key: {{ .Values.alertWebhook.secretRef.key }}
+            {{- end }}
+            {{- end }}
+            # CLOACINA-T-1047: the warning and the hard limit on the size of a
+            # task context. int64 keeps a large value out of float notation.
+            - name: CLOACINA_CONTEXT_WARN_BYTES
+              value: {{ .Values.context.warnBytes | int64 | quote }}
+            - name: CLOACINA_CONTEXT_MAX_BYTES
+              value: {{ .Values.context.maxBytes | int64 | quote }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

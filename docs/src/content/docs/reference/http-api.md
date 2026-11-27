@@ -214,7 +214,7 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
-| `role` | string | no | Key role. Lowercase string: `"admin"`, `"write"`, or `"read"`. Defaults to `"admin"`. |
+| `role` | string | yes | Key role. Lowercase string: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. |
 
 > **Naming note:** the request field is `role`; the response field
 > is `permissions`. They carry the same value (e.g., `"admin"`).
@@ -240,6 +240,7 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 
 | Status | Body | Cause |
 |---|---|---|
+| `400` | `{"error": "a key request needs a name and a role ...", "code": "invalid_request"}` | No `role`, an unknown role, or a body that is not a key request |
 | `403` | `{"error": "insufficient permissions"}` | Caller does not have admin role |
 | `500` | `{"error": "failed to create API key"}` | Database error |
 
@@ -345,7 +346,7 @@ Create an API key scoped to a specific tenant. Only `is_admin` (god-mode) keys c
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
-| `role` | string | no | Key role: `"admin"`, `"write"`, or `"read"`. Defaults to `"admin"`. |
+| `role` | string | yes | Key role: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. Give `"agent"` to the key of an execution agent. |
 
 **Response:** `201 Created`
 
@@ -583,6 +584,81 @@ Metadata responses carry `id`, `name`, `field_names`, `created_at`, and
 `updated_at`. Managing secrets is documented in
 [Manage Secrets](../../how-to/service/manage-secrets/).
 
+## Trusted Keys
+
+The keys a tenant trusts for [package signing](../../how-to/service/security/package-signing/).
+A trusted key is an Ed25519 public key. With `--require-signatures`, an upload
+to the tenant passes when its signer is a live trusted key of the tenant, or of
+the server-wide org if one is set (see [Signature verification](#signature-verification)).
+
+**All three routes need the permission `trusted_keys.manage` in `{tenant_id}`**:
+a tenant `admin` key for its own tenant, a platform admin key for any tenant.
+A key of another tenant gets `403 tenant_access_denied`; a `read`, `write` or
+`agent` key gets `403 insufficient_permissions`.
+
+| Method + path | Purpose |
+|---|---|
+| `POST /v1/tenants/{tenant_id}/trusted-keys` | Add a public key. Returns `201` with the key. |
+| `GET /v1/tenants/{tenant_id}/trusted-keys` | List the tenant's keys, oldest first, in the `{items, total}` envelope. A revoked key stays in the list, marked. |
+| `DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` | Revoke a key of this tenant. Returns `200` with `{"status": "revoked", "id": "<key_id>"}`. |
+
+### POST /v1/tenants/{tenant_id}/trusted-keys
+
+**Request body:** the key in exactly one of the two forms.
+
+| Field | Type | Description |
+|---|---|---|
+| `public_key_pem` | string | The public key as PEM (`-----BEGIN PUBLIC KEY-----`, Ed25519 SubjectPublicKeyInfo). |
+| `public_key` | string | The raw 32-byte public key as 64 hexadecimal characters. |
+| `name` | string, optional | A name for the key, at most 255 bytes. |
+
+```bash
+curl -X POST http://localhost:8080/v1/tenants/tenant_acme/trusted-keys \
+  -H "Authorization: Bearer clk_a1b2c3d4..." \
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"release-key-v1\", \"public_key_pem\": $(jq -Rs . < release-key.pub.pem)}"
+```
+
+**Response:** `201 Created`
+
+```json
+{
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "fingerprint": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "name": "release-key-v1",
+  "trusted_at": "2026-11-26T18:04:11+00:00",
+  "revoked": false,
+  "revoked_at": null
+}
+```
+
+`fingerprint` is the SHA-256 of the public key, as hexadecimal: a signature
+names its signer by this value. `id` is what a revoke takes. A row of the list
+has the same fields.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_request` | Neither key field, both key fields, or a name longer than 255 bytes. |
+| `400` | `invalid_public_key` | The PEM is not an Ed25519 public key, or `public_key` is not 64 hexadecimal characters. |
+| `409` | `trusted_key_exists` | The tenant already has this key, live or revoked. A revoked key cannot be added again. |
+
+### DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}
+
+Revokes the key: no upload passes with it after, unless the server-wide org
+also trusts the same key. The row stays, with `revoked: true`.
+
+**Errors:**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_key_id` | `key_id` is not a UUID. |
+| `404` | `trusted_key_not_found` | No key with this id in this tenant. The id of another tenant's key gives the same answer, and that key is not revoked. |
+
+An add and a revoke each write a row to the audit record
+(`trusted_key.add`, `trusted_key.revoke`); the list writes none.
+
 ## Audit
 
 The audit record: who did what, when, in which tenant. One row per
@@ -694,7 +770,8 @@ version stays in service. An upload of the same bytes returns the same
 |---|---|---|
 | `400` | `{"error": "no 'file' field in multipart request"}` | Missing file field |
 | `400` | `{"error": "empty package file"}` | Zero-byte file |
-| `400` | `{"error": "<detail>"}` | Package validation or registration failure |
+| `400` | `{"error": "<detail>"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
+| `413` | `{"error": "package too large: the upload is <N> bytes (<M> MiB), and the limit of this server is <L> bytes (<K> MiB). …", "code": "package_too_large"}` | The upload is larger than `--max-package-bytes` (`CLOACINA_MAX_PACKAGE_BYTES`, default 100 MiB) |
 | `500` | `{"error": "internal registry error"}` | Registry initialization failure |
 
 ### GET /v1/tenants/{tenant_id}/workflows
@@ -1265,6 +1342,13 @@ of an execution's progress. **Tenant-scoped read.**
 
 **Response:** `200 OK` — the execution's tasks with their individual statuses.
 
+Each task has `last_error` (the message of the failure of its last attempt),
+`error_details` (the traceback of a failed Python task, or the reason of a
+skipped or abandoned task; `null` when there is none) and `log_url` (the URL
+of the attempt's logs in your log stack; `null` unless the server has
+`--task-log-url-template`). See
+[Find a Task's Logs](../../how-to/service/find-a-tasks-logs/).
+
 **Errors:**
 
 | Status | Body |
@@ -1803,8 +1887,12 @@ Remove a tenant's exception (revert to the platform default).
 A tenant's managed agents are grouped in pools; see
 [Agent pools](../../explanation/service/execution-agent-fleet/#agent-pools).
 Every tenant has the pool `default`. The limits and fleet routes of this
-section are for `default`. Until a task can name a pool, all work runs on
-`default`: another pool can be created and sized but receives no work.
+section are for `default`. A task that names a pool runs only on that pool's
+agents, and a task with no pool runs on `default`
+([How a task is placed](../../explanation/service/execution-agent-fleet/#how-a-task-is-placed)).
+A pool's `cpu_limit` and `memory_limit` (its requests when it sets no limit)
+are the size of one of its agents: the total the agent reports, and the most a
+task of the pool can request.
 
 #### GET /v1/tenants/{tenant_id}/pools
 
@@ -1987,12 +2075,32 @@ limit/provision surface that decides how many agents a tenant runs, see
 | `POST` | `/v1/agent/heartbeat` | Liveness heartbeat; missing heartbeats let the sweeper evict the agent and reassign its in-flight work. |
 | `POST` | `/v1/agent/keys` | An agent replenishes its one-time ephemeral secret-key pool (used for HPKE-wrapped secret delivery, CLOACI-T-0861). |
 | `POST` | `/v1/agent/result` | An agent returns the outcome of a dispatched unit of work. |
+| `POST` | `/v1/agent/undecodable` | An agent says that it cannot decode a pushed work packet, by the packet's delivery row id. The dispatch of that packet fails at once. |
 | `GET`  | `/v1/agent/artifact/{digest}` | An agent fetches a content-addressed package artifact by digest. |
 | `GET`  | `/v1/agent/source/{digest}` | An agent fetches a content-addressed **source** bundle by digest (for build-on-agent flows). |
 | `GET`  | `/v1/agent/providers/{digest}` | An agent fetches a content-addressed **provider** bundle by digest. |
+| `GET`  | `/v1/agent/python-vendor/{digest}?platform=<arch>-<os>` | An agent fetches the dependencies the compiler vendored for a Python package and the agent's platform. `200` with the archive, `204` when the package has no set for the platform, `400` without `platform`, `404` for an unknown digest. |
 
 All of these require an authenticated key (any role); the roster/liveness
 handlers scope work to the caller's tenant.
+
+An agent belongs to the key that registered it. `POST /v1/agent/register`
+with an `agent_id` that another tenant or another key holds answers
+`409 agent_id_taken`; with no `agent_id` the server assigns a new one.
+`heartbeat`, `keys` and `result` answer `404 agent_not_registered` for an
+agent id that is not registered and `403 agent_access_denied` for an agent
+that another key holds. A result changes task state only when it comes from
+the agent the work packet is addressed to and carries the packet's
+`dispatch_id`; see
+[who may act as an agent](../../explanation/service/execution-agent-fleet/#who-may-act-as-an-agent).
+
+`POST /v1/agent/undecodable` takes `agent_id`, `push_id` (the `id` of the
+push frame), `error` and an optional `agent_version`. The agent check is the
+one of `result`. The row must be addressed to that agent in its tenant: a row
+of another recipient or tenant and an unknown `push_id` both answer
+`404 delivery_row_not_found`, and a row that holds no work packet answers
+`400 not_a_work_packet`; none of them changes state. See
+[a packet the agent cannot decode](../../explanation/service/execution-agent-fleet/#a-packet-the-agent-cannot-decode).
 
 See [Execution-Agent Fleet](../../explanation/service/execution-agent-fleet/)
 for how the fleet coordinates, and [Deploy an Execution-Agent Fleet](../../how-to/service/deploy-an-execution-agent-fleet/) to run one.
@@ -2111,8 +2219,9 @@ been removed.
 
 ### Request handling
 
-- All routes share a global **100 MB body limit** via
-  `DefaultBodyLimit::max(100 * 1024 * 1024)`. Package uploads consume
+- All routes share one body limit: the package upload limit
+  (`--max-package-bytes` / `CLOACINA_MAX_PACKAGE_BYTES`, 100 MiB by
+  default) plus 64 KiB for the multipart framing. Package uploads consume
   this; there's no per-route override.
 - **No request timeout** is enforced by the server itself; rely on
   OS / reverse-proxy timeouts. Long-running executions block the
@@ -2137,16 +2246,21 @@ been removed.
 ### Signature verification
 
 - When `--require-signatures` (or `CLOACINA_REQUIRE_SIGNATURES=true`)
-  is set, the server verifies package signatures at upload via
-  `cloacina::security::verify_package_bytes()`. The verification
-  requires a signature row in the `package_signatures` table — the
-  server does **not** sign packages, only verifies. Client-side signing
-  is **not implemented yet** (`cloacinactl package pack --sign` fails
-  hard by design, CLOACI-I-0103) — signature rows must currently be
-  inserted out-of-band, so `--require-signatures` cannot be satisfied
+  is set, the server verifies package signatures at upload. The
+  verification requires a signature row in the `package_signatures`
+  table, read by the hash of the uploaded bytes — the server does
+  **not** sign packages, only verifies. Client-side signing is **not
+  implemented yet** (`cloacinactl package pack --sign` fails hard by
+  design) and no route stores a signature — signature rows are written
+  through the library API, so `--require-signatures` cannot be satisfied
   by the CLI packing path today.
-- A signature row keyed by the configured `verification_org_id` must
-  exist before upload. Missing signature → `403 Forbidden`.
+- The signer is looked up in the [trusted keys](#trusted-keys) of the
+  tenant in the path first, then in the trusted keys of the server-wide
+  org if `--verification-org-id` is set. The first list that holds the
+  key, live, decides. With no `--verification-org-id`, each tenant
+  trusts only its own keys.
+- No signature row → `403 signature_not_found`. A signer in neither
+  list, or revoked → `403 untrusted_signer`.
 
 ### Metrics endpoint
 

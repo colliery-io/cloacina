@@ -308,6 +308,16 @@
               }
             }
           },
+          "400": {
+            "description": "No role, an unknown role, or a body that is not a key request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing or invalid API key",
             "content": {
@@ -1380,7 +1390,7 @@
           "tenants"
         ],
         "summary": "DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.",
-        "description": "CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with\nthe four-step top-down order:\n  1. Revoke every still-active API key for the tenant (close the auth\n     surface so new requests fail).\n  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,\n     awaiting its graceful shutdown (drains in-flight executions,\n     stops scheduler loop, closes per-tenant DB pool).\n  3. Evict the tenant's `Database` from `TenantDatabaseCache`.\n  4. Drop schema + user via `DatabaseAdmin::remove_tenant`.\n\nEach step emits a structured audit event with duration. Per-step\nfailures bail out — but earlier steps stay committed, so a retry\npicks up where the failure occurred. Each step is idempotent.\n\nCloses SEC-14 (stale state after delete) and SEC-17 (unbounded\ncaches surviving delete).",
+        "description": "CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with\nthe four-step top-down order:\n  1. Revoke every still-active API key for the tenant (close the auth\n     surface so new requests fail).\n  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,\n     awaiting its graceful shutdown (drains in-flight executions,\n     stops scheduler loop, closes per-tenant DB pool).\n  3. Evict the tenant's `Database` from `TenantDatabaseCache`.\n  4. Drop schema + user via `DatabaseAdmin::remove_tenant`.\n\nBefore step 4 the fleet actuator removes the tenant's compiler, when it\nruns one (CLOACINA-T-1034).\n\nEach step emits a structured audit event with duration. Per-step\nfailures bail out — but earlier steps stay committed, so a retry\npicks up where the failure occurred. Each step is idempotent.\n\nCloses SEC-14 (stale state after delete) and SEC-17 (unbounded\ncaches surviving delete).",
         "operationId": "remove_tenant",
         "parameters": [
           {
@@ -1552,6 +1562,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccountInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The role is not one of read, write, admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -2273,7 +2293,7 @@
         "tags": [
           "keys"
         ],
-        "summary": "GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).\nTenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the\nroute-table middleware, so the caller is already confined to `tenant_id`.",
+        "summary": "GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).\nTenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the\nroute-table middleware, so the caller is already confined to `tenant_id`.",
         "operationId": "list_tenant_keys",
         "parameters": [
           {
@@ -2338,7 +2358,7 @@
         "tags": [
           "keys"
         ],
-        "summary": "POST /tenants/:tenant_id/keys — create a key scoped to a tenant.\nAdmin-only: only is_admin keys can create tenant-scoped keys.",
+        "summary": "POST /tenants/:tenant_id/keys — create a key scoped to a tenant.\nNeeds `keys.manage` in the tenant: a tenant admin, or the platform admin.\nThe role is one of `read`, `write`, `admin`, `agent` and must be given.",
         "operationId": "create_tenant_key",
         "parameters": [
           {
@@ -2372,6 +2392,16 @@
               }
             }
           },
+          "400": {
+            "description": "No role, an unknown role, or a body that is not a key request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing or invalid API key",
             "content": {
@@ -2383,7 +2413,7 @@
             }
           },
           "403": {
-            "description": "Admin (god-mode) key required",
+            "description": "Tenant access or admin role denied",
             "content": {
               "application/json": {
                 "schema": {
@@ -3719,6 +3749,234 @@
           },
           "500": {
             "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/trusted-keys": {
+      "get": {
+        "tags": [
+          "trusted-keys"
+        ],
+        "summary": "`GET /v1/tenants/{tenant_id}/trusted-keys` — the tenant's trusted keys,\nthe revoked ones included and marked.",
+        "operationId": "list_trusted_keys",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's trusted keys, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_TrustedKeySummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "trusted-keys"
+        ],
+        "summary": "`POST /v1/tenants/{tenant_id}/trusted-keys` — add a public key to the\ntenant's trusted keys.",
+        "operationId": "add_trusted_key",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTrustedKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Key added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustedKeySummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No key, two keys, or a key that is not Ed25519",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant already has this key, live or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/trusted-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "trusted-keys"
+        ],
+        "summary": "`DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` — revoke a trusted\nkey of the tenant. The key of another tenant is not found, and is not\nrevoked.",
+        "operationId": "revoke_trusted_key",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Trusted key UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustedKeyRevokedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid key ID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such trusted key in this tenant",
             "content": {
               "application/json": {
                 "schema": {
@@ -5698,6 +5956,33 @@
           }
         }
       },
+      "AddTrustedKeyRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/tenants/{tenant_id}/trusted-keys`.\n\nGive the key in exactly one of the two forms.",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A name for the key, to tell the keys of the list apart."
+          },
+          "public_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The raw 32-byte Ed25519 public key as 64 hexadecimal characters."
+          },
+          "public_key_pem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The public key as PEM (`-----BEGIN PUBLIC KEY-----`, Ed25519\nSubjectPublicKeyInfo)."
+          }
+        }
+      },
       "AgentEgressPort": {
         "type": "object",
         "description": "One port of an [`AgentEgressRule`].",
@@ -6401,14 +6686,16 @@
         "type": "object",
         "description": "Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.",
         "required": [
-          "name"
+          "name",
+          "role"
         ],
         "properties": {
           "name": {
             "type": "string"
           },
           "role": {
-            "$ref": "#/components/schemas/KeyRole"
+            "$ref": "#/components/schemas/KeyRole",
+            "description": "Required. A request with no role is refused with 400: the server does\nnot choose a role for the caller."
           }
         }
       },
@@ -7066,7 +7353,7 @@
           },
           "permissions": {
             "type": "string",
-            "description": "Role string: `read` | `write` | `admin`."
+            "description": "Role string: `read` | `write` | `admin` | `agent`."
           },
           "tenant_id": {
             "type": [
@@ -7105,7 +7392,7 @@
           },
           "permissions": {
             "type": "string",
-            "description": "Role string: `read` | `write` | `admin`."
+            "description": "Role string: `read` | `write` | `admin` | `agent`."
           },
           "revoked": {
             "type": "boolean"
@@ -7139,11 +7426,12 @@
       },
       "KeyRole": {
         "type": "string",
-        "description": "Allowed roles for API keys.",
+        "description": "The role of an API key: a named set of permissions, fixed in the server.\n\n- `read`: list and inspect.\n- `write`: `read`, plus upload, run and operate.\n- `admin`: `write`, plus keys, accounts, secrets, the audit record and the\n  fleet size of its tenant.\n- `agent`: act as an execution agent, and nothing else.",
         "enum": [
           "admin",
           "write",
-          "read"
+          "read",
+          "agent"
         ]
       },
       "ListResponse_AccountInfo": {
@@ -7556,7 +7844,7 @@
                 },
                 "permissions": {
                   "type": "string",
-                  "description": "Role string: `read` | `write` | `admin`."
+                  "description": "Role string: `read` | `write` | `admin` | `agent`."
                 },
                 "revoked": {
                   "type": "boolean"
@@ -7795,6 +8083,65 @@
               "properties": {
                 "name": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ListResponse_TrustedKeySummary": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One trusted key of a tenant. The body of the add, and one row of the list.",
+              "required": [
+                "id",
+                "fingerprint",
+                "trusted_at",
+                "revoked"
+              ],
+              "properties": {
+                "fingerprint": {
+                  "type": "string",
+                  "description": "SHA-256 of the public key, as hexadecimal. A signature names its\nsigner by this value."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Key UUID: the id a revoke takes."
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The name given at the add, if any."
+                },
+                "revoked": {
+                  "type": "boolean",
+                  "description": "True when the key was revoked: no upload passes with it."
+                },
+                "revoked_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "RFC 3339 timestamp of the revoke; `null` for a live key."
+                },
+                "trusted_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
                 }
               }
             }
@@ -8135,6 +8482,14 @@
             ],
             "description": "RFC 3339 timestamp; `null` while still running."
           },
+          "context_size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Serialized size in bytes of the context the task returned; `null`\nwhen the task has saved no context."
+          },
           "created_at": {
             "type": "string",
             "description": "Row-created timestamp (RFC 3339) — always present; a fallback \"start\"\nwhen `started_at` is null (some runner configs don't stamp it)."
@@ -8144,7 +8499,7 @@
               "string",
               "null"
             ],
-            "description": "Structured error details, when present."
+            "description": "Details of the task's end, when present: the traceback of a failed\nPython task, the reason of a skipped or abandoned task."
           },
           "id": {
             "type": "string",
@@ -8156,6 +8511,13 @@
               "null"
             ],
             "description": "Last error message for the most recent failed attempt, when present."
+          },
+          "log_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "URL of this attempt's logs in the operator's log stack, when the\nserver has a log URL template (`--task-log-url-template`)."
           },
           "max_attempts": {
             "type": "integer",
@@ -8987,6 +9349,66 @@
           }
         }
       },
+      "TrustedKeyRevokedResponse": {
+        "type": "object",
+        "description": "`DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` response.",
+        "required": [
+          "status",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The id of the revoked key."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"revoked\"`."
+          }
+        }
+      },
+      "TrustedKeySummary": {
+        "type": "object",
+        "description": "One trusted key of a tenant. The body of the add, and one row of the list.",
+        "required": [
+          "id",
+          "fingerprint",
+          "trusted_at",
+          "revoked"
+        ],
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "description": "SHA-256 of the public key, as hexadecimal. A signature names its\nsigner by this value."
+          },
+          "id": {
+            "type": "string",
+            "description": "Key UUID: the id a revoke takes."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name given at the add, if any."
+          },
+          "revoked": {
+            "type": "boolean",
+            "description": "True when the key was revoked: no upload passes with it."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 timestamp of the revoke; `null` for a live key."
+          },
+          "trusted_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          }
+        }
+      },
       "WhoamiResponse": {
         "type": "object",
         "description": "The caller's own identity + role (CLOACI-T-0803) — lets the UI gate\nwrite/admin controls to the key's role instead of offering actions that\nwould 403.",
@@ -9535,6 +9957,10 @@
     {
       "name": "keys",
       "description": "API key management"
+    },
+    {
+      "name": "trusted-keys",
+      "description": "Trusted keys of package signing, per tenant (admin)"
     },
     {
       "name": "tenants",

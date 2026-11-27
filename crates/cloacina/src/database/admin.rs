@@ -265,8 +265,10 @@ mod postgres_impl {
                                     message: format!("Failed to set search_path: {}", e),
                                 })?;
 
-                            use diesel_migrations::MigrationHarness;
-                            conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                            // Under the migration lock (CLOACINA-T-1042).
+                            // This is inside the transaction of the tenant
+                            // creation: the lock is held until it ends.
+                            crate::database::migration_lock::run_pending_postgres_migrations_locked(conn)
                                 .map_err(|e| AdminError::SqlExecution {
                                     message: format!("Failed to run migrations: {}", e),
                                 })?;
@@ -299,9 +301,15 @@ mod postgres_impl {
             })
         }
 
-        /// Remove a tenant (user + schema)
+        /// Remove a tenant (schema + user)
         ///
         /// WARNING: This will permanently delete all data in the tenant's schema.
+        ///
+        /// The schema and the user go in one transaction, so a failure leaves
+        /// both as they were and the error reaches the caller
+        /// (CLOACINA-T-1068). Each statement is `IF EXISTS`: a second call
+        /// after a failure finishes the removal, and a call for a tenant that
+        /// is gone answers `Ok`.
         pub async fn remove_tenant(
             &self,
             schema_name: &str,
@@ -319,40 +327,26 @@ mod postgres_impl {
             let schema_name = schema_name.to_string();
             let username = username.to_string();
 
-            let _ = conn
+            let txn_result = conn
                 .interact(move |conn| {
                     conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
-                        // 1. Revoke permissions
-                        let sqls = vec![
-                            format!(
-                                "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} FROM {}",
-                                schema_name, username
-                            ),
-                            format!(
-                                "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}",
-                                schema_name, username
-                            ),
-                            format!("REVOKE ALL ON SCHEMA {} FROM {}", schema_name, username),
-                        ];
-
-                        for sql in sqls {
-                            // Use unwrap_or to continue even if revoke fails (user might already be gone)
-                            let _ = diesel::sql_query(&sql).execute(conn);
-                        }
+                        // 1. Drop schema (with CASCADE to remove all objects).
+                        // The schema goes first: its grants and the default
+                        // privileges that `create_tenant` gave the user go
+                        // with it. While they are there, Postgres refuses to
+                        // drop the user.
+                        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name);
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to drop schema '{}': {}", schema_name, e),
+                            }
+                        })?;
 
                         // 2. Drop user
                         let sql = format!("DROP USER IF EXISTS {}", username);
                         diesel::sql_query(&sql).execute(conn).map_err(|e| {
                             AdminError::SqlExecution {
                                 message: format!("Failed to drop user '{}': {}", username, e),
-                            }
-                        })?;
-
-                        // 3. Drop schema (with CASCADE to remove all objects)
-                        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name);
-                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                            AdminError::SqlExecution {
-                                message: format!("Failed to drop schema '{}': {}", schema_name, e),
                             }
                         })?;
 
@@ -363,8 +357,10 @@ mod postgres_impl {
                 .map_err(|e| AdminError::SqlExecution {
                     message: format!("Transaction failed: {}", e),
                 })?;
-
-            Ok(())
+            // The result of the transaction is the result of the removal.
+            // The previous shape bound it to `_`, so a drop that Postgres
+            // refused still answered `Ok`.
+            txn_result
         }
 
         /// Build the tenant's ready-to-use connection string.
@@ -429,6 +425,95 @@ mod postgres_impl {
 
             Ok(schemas)
         }
+
+        /// The tenant schemas that hold migrations: each non-system schema
+        /// with a `__diesel_schema_migrations` table (CLOACINA-T-1056).
+        ///
+        /// `create_tenant` makes that table in the transaction that makes the
+        /// schema, so every tenant has it. A schema without it is not a
+        /// tenant of this server (another application's schema in the same
+        /// database) and is not in the list.
+        pub async fn list_migrated_tenant_schemas(&self) -> Result<Vec<String>, AdminError> {
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+
+            conn.interact(|conn| {
+                diesel::sql_query(
+                    "SELECT n.nspname::text AS nspname \
+                     FROM pg_catalog.pg_namespace n \
+                     JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid \
+                     WHERE c.relname = '__diesel_schema_migrations' \
+                     AND c.relkind = 'r' \
+                     AND n.nspname NOT LIKE 'pg_%' \
+                     AND n.nspname NOT IN ('information_schema', 'public') \
+                     ORDER BY n.nspname",
+                )
+                .load::<SchemaName>(conn)
+                .map(|rows| rows.into_iter().map(|r| r.nspname).collect())
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to list schemas: {}", e),
+            })?
+            .map_err(|e: diesel::result::Error| AdminError::SqlExecution {
+                message: format!("Failed to query schemas: {}", e),
+            })
+        }
+
+        /// Runs the pending migrations of one tenant schema, under the
+        /// migration lock (CLOACINA-T-1056). Returns how many ran: zero when
+        /// the schema is up to date, or when another process applied them
+        /// while this one waited for the lock.
+        ///
+        /// One transaction: the pending migrations of the schema are applied
+        /// together or not at all, so a failure leaves the schema as it was.
+        /// The `search_path` change is `SET LOCAL` and ends with the
+        /// transaction: the connection belongs to the shared admin pool.
+        pub async fn migrate_tenant_schema(&self, schema_name: &str) -> Result<usize, AdminError> {
+            validate_schema_name(schema_name)?;
+            let schema_name = schema_name.to_string();
+
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+
+            conn.interact(move |conn| {
+                let result =
+                    conn.transaction::<usize, AdminError, _>(|conn: &mut diesel::PgConnection| {
+                        let set_path_sql =
+                            format!("SET LOCAL search_path TO {}, public", schema_name);
+                        diesel::sql_query(&set_path_sql)
+                            .execute(conn)
+                            .map_err(|e| AdminError::SqlExecution {
+                                message: format!("Failed to set search_path: {}", e),
+                            })?;
+                        crate::database::migration_lock::run_pending_postgres_migrations_locked(
+                            conn,
+                        )
+                        .map_err(|e| AdminError::SqlExecution { message: e })
+                    });
+                // As in `create_tenant`: a pooled admin connection never
+                // leaves with a tenant search_path.
+                let _ = diesel::sql_query("SET search_path TO public").execute(conn);
+                result
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
+    }
+
+    /// Row of `list_migrated_tenant_schemas`.
+    #[derive(diesel::QueryableByName)]
+    struct SchemaName {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        nspname: String,
     }
 
     #[allow(dead_code)]

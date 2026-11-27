@@ -475,13 +475,16 @@ mod tests {
         DAL::new(db)
     }
 
-    /// Helper: create a cron schedule and return its ID.
+    /// Helper: create a cron schedule and return its ID. Each call makes a
+    /// schedule of its own workflow: one workflow has one anonymous schedule
+    /// per expression.
     #[cfg(feature = "sqlite")]
     async fn create_schedule(dal: &DAL) -> UniversalUuid {
         let next_run = UniversalTimestamp::now();
+        let workflow = format!("test_wf_{}", uuid::Uuid::new_v4());
         let schedule = dal
             .schedule()
-            .create(NewSchedule::cron("test_wf", "0 * * * *", next_run))
+            .create(NewSchedule::cron(&workflow, "0 * * * *", next_run))
             .await
             .unwrap();
         schedule.id

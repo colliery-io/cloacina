@@ -37,6 +37,11 @@ are loaded via normal Python imports from `task_project.py`, so subpackage
 files do *not* need the `task_` prefix. Prefer subpackages/namespaces for
 grouping related commands; use root `task_*.py` only as a thin registrar.
 
+angreal loads every root `task_*.py` into one Python namespace. A top-level
+name in one file replaces the same name from a file loaded before it, and a
+function looks the name up when it runs. Give module-level helpers a name that
+no other root task file uses.
+
 ## Flag conventions
 
 Consistency makes the harness easier to remember.

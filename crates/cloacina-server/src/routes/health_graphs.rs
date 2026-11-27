@@ -60,21 +60,15 @@ fn key_context<'a>(auth: &'a AuthenticatedKey) -> KeyContext<'a> {
 }
 
 /// Decide whether the caller may see a graph based on its tenant scope.
-/// Admin keys see everything. Tenant-scoped keys see graphs in their own
-/// tenant and untagged (single-tenant / admin-owned) graphs.
-/// CLOACI-T-0579.
+/// CLOACI-T-0579, CLOACINA-T-1053.
+///
+/// - An admin key sees every graph.
+/// - A tenant key sees the graphs of its own tenant. `public` is a tenant:
+///   its graphs carry `Some("public")` and only a `public` key sees them.
+/// - A key with no tenant that is not an admin sees no graph.
+/// - A graph with no tenant is seen by an admin only. The server loads none.
 fn graph_visible(auth: &AuthenticatedKey, graph_tenant: Option<&str>) -> bool {
-    if auth.is_admin {
-        return true;
-    }
-    match (graph_tenant, auth.tenant_id.as_deref()) {
-        // Untagged graphs (no tenant) are visible to any authenticated
-        // caller — matches the single-tenant default before multi-tenant
-        // CG packages existed.
-        (None, _) => true,
-        (Some(g), Some(t)) => g == t,
-        (Some(_), None) => false,
-    }
+    key_context(auth).may_act_for(graph_tenant)
 }
 
 /// GET /v1/health/accumulators — list registered accumulators with health,
@@ -697,18 +691,23 @@ pub async fn inject_accumulator(
     // below fails CLOSED for it — observed live as a 403 at the non-owner
     // while the identical inject returned 200 at the owner. The foreign check
     // must therefore run FIRST, with its own equivalent authz: admins, or a
-    // caller whose tenant matches the reactor's. Redirect authorized callers
+    // caller whose tenant matches the reactor's. A key with no tenant that is
+    // not an admin matches no reactor (CLOACINA-T-1053). Redirect authorized callers
     // to the owner; everyone else falls through to the local check and gets
     // the same 403/404 they always got — the redirect must not become an
     // unauthenticated probe for which reactors exist where.
     if let Some(reactor_key) = state
         .graph_scheduler
-        .foreign_reactor_for_accumulator(ctx.tenant_id, &name)
+        .foreign_reactor_for_accumulator(
+            cloacina::TenantScope {
+                tenant_id: ctx.tenant_id,
+                is_admin: ctx.is_admin,
+            },
+            &name,
+        )
         .await
     {
-        let authorized = ctx.is_admin
-            || ctx.tenant_id.is_none()
-            || ctx.tenant_id == reactor_key.tenant_id.as_deref();
+        let authorized = ctx.may_act_for(reactor_key.tenant_id.as_deref());
         if authorized {
             let dal = cloacina::dal::unified::DAL::new(state.database.clone());
             match dal
@@ -970,15 +969,31 @@ mod tests {
         let a = auth(Some("acme"), false);
         assert!(graph_visible(&a, Some("acme")));
         assert!(!graph_visible(&a, Some("other")));
-        // Untagged graphs visible (single-tenant compat).
-        assert!(graph_visible(&a, None));
+        // CLOACINA-T-1053: `public` is another tenant, and a graph with no
+        // tenant is not open to every tenant.
+        assert!(!graph_visible(&a, Some("public")));
+        assert!(!graph_visible(&a, None));
     }
 
     #[test]
-    fn graph_visible_global_key_cannot_see_tenant_graphs() {
-        let a = auth(None, false);
-        assert!(graph_visible(&a, None));
+    fn graph_visible_public_key_sees_public_graphs_only() {
+        let a = auth(Some("public"), false);
+        assert!(graph_visible(&a, Some("public")));
         assert!(!graph_visible(&a, Some("acme")));
+        assert!(!graph_visible(&a, None));
+    }
+
+    /// CLOACINA-T-1053: the key an OIDC `_` rule makes (no tenant, not an
+    /// admin) sees no graph, whatever its role.
+    #[test]
+    fn graph_visible_no_tenant_non_admin_key_sees_nothing() {
+        for role in ["read", "write", "admin"] {
+            let mut a = auth(None, false);
+            a.permissions = role.into();
+            assert!(!graph_visible(&a, None));
+            assert!(!graph_visible(&a, Some("acme")));
+            assert!(!graph_visible(&a, Some("public")));
+        }
     }
 
     /// The boundary frame a typed input becomes must round-trip back to the

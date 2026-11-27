@@ -19,7 +19,7 @@
 use axum::{
     Extension, Json,
     extract::{Multipart, Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use tracing::{info, warn};
@@ -63,45 +63,55 @@ pub async fn upload_workflow(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    // CLOACINA-T-1048: refuse an upload over the limit with its size and the
+    // limit, before the body is read.
+    let limit = crate::upload_limit::max_package_bytes();
+    let declared = headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if let Some(size) = declared
+        && size > limit.saturating_add(crate::upload_limit::MULTIPART_OVERHEAD_BYTES)
+    {
+        return package_too_large(Some(size), limit).into_response();
+    }
+
     // Extract file from multipart
     let package_data = match extract_file_field(&mut multipart).await {
         Ok(data) => data,
-        Err(msg) => return ApiError::bad_request("invalid_request", msg).into_response(),
+        Err(FileFieldError::TooLarge) => {
+            return package_too_large(declared, limit).into_response();
+        }
+        Err(FileFieldError::Invalid(msg)) => {
+            return ApiError::bad_request("invalid_request", msg).into_response();
+        }
     };
+    if package_data.len() as u64 > limit {
+        return package_too_large(Some(package_data.len() as u64), limit).into_response();
+    }
 
     if package_data.is_empty() {
         return ApiError::bad_request("invalid_request", "empty package file").into_response();
     }
 
-    // T-0557 Bug 2: signature verification at upload time.
+    // Signature verification at upload time (T-0557; CLOACINA-A-0018).
     //
-    // When `require_signatures` is enabled AND a `verification_org_id`
-    // is configured, run real verification against the trusted-key list
-    // for that org. The signature is looked up by package hash from the
-    // `package_signatures` table (`SignatureSource::Database`); the
-    // signing flow (`cloacinactl pack`/`publish` + the future T-0514
-    // sidecar) is responsible for inserting the row before upload.
-    //
-    // When `require_signatures` is enabled but no org is configured
-    // we fail-safe with a clearer error than the old "TODO" stub —
-    // the operator knows verification is enabled but unwired, not
-    // that signing is required for the upload itself.
+    // With `require_signatures` on, the signer of the upload must be a live
+    // trusted key of the tenant in the path, or of the server-wide org if one
+    // is set (`--verification-org-id`). The tenant's org is asked first. The
+    // signature is looked up by package hash in `package_signatures`
+    // (`SignatureSource::Database`).
     if state.security_config.require_signatures {
-        let Some(org_id) = state.security_config.verification_org_id else {
-            warn!(
-                "Package upload rejected: require_signatures=true but no \
-                 verification_org_id configured. Set SecurityConfig::verification_org_id \
-                 before enabling signature requirements."
-            );
-            return ApiError::forbidden(
-                "signature_verification_unconfigured",
-                "signature verification is required but server is not configured \
-                 with a verification_org_id; contact the server operator",
-            )
-            .into_response();
-        };
+        let tenant_org = cloacina::security::tenant_org_id(&tenant_id);
+        let mut orgs = vec![tenant_org];
+        if let Some(server_org) = state.security_config.verification_org_id
+            && server_org != tenant_org
+        {
+            orgs.push(server_org);
+        }
         let dal = cloacina::dal::DAL::new(state.database.clone());
         let package_signer = cloacina::security::DbPackageSigner::new(dal.clone());
         let key_manager = cloacina::security::DbKeyManager::new(dal);
@@ -111,22 +121,23 @@ pub async fn upload_workflow(
         // info!/warn! lines stay because they carry message-level context
         // operators tail in real time.
         let audit_path = format!("upload:tenant={}", tenant_id);
-        match cloacina::security::verify_package_bytes(
+        match cloacina::security::verify_package_bytes_for_orgs(
             &package_data,
-            org_id,
+            &orgs,
             cloacina::security::SignatureSource::Database,
             &package_signer,
             &key_manager,
         )
         .await
         {
-            Ok(result) => {
+            // `trusted_by` is the org whose key list held the signer.
+            Ok((result, trusted_by)) => {
                 info!(
-                    "Package signature verified: hash={} signer={}",
-                    result.package_hash, result.signer_fingerprint
+                    "Package signature verified: hash={} signer={} org={}",
+                    result.package_hash, result.signer_fingerprint, trusted_by
                 );
                 audit::log_package_load_success(
-                    org_id,
+                    trusted_by,
                     &audit_path,
                     &result.package_hash,
                     Some(&result.signer_fingerprint),
@@ -155,7 +166,7 @@ pub async fn upload_workflow(
                     ),
                     _ => ("signature_verification_error", format!("{}", e)),
                 };
-                audit::log_package_load_failure(org_id, &audit_path, &e.to_string(), code);
+                audit::log_package_load_failure(tenant_org, &audit_path, &e.to_string(), code);
                 return ApiError::forbidden(code, msg).into_response();
             }
         }
@@ -187,9 +198,7 @@ pub async fn upload_workflow(
     );
     match registry.register_workflow_package(package_data).await {
         Ok(package_id) => {
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(
                     audit_record::actions::PACKAGE_UPLOAD,
@@ -199,8 +208,7 @@ pub async fn upload_workflow(
                     audit_record::upload_detail(&registry, package_id, content_hash, size_bytes)
                         .await,
                 ),
-            )
-            .await;
+            );
             info!(
                 "Uploaded workflow package for tenant '{}': {}",
                 tenant_id, package_id
@@ -622,14 +630,11 @@ pub async fn delete_workflow(
                 "Deleted workflow '{}' v{} for tenant '{}'",
                 name, version, tenant_id
             );
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::PACKAGE_DELETE, name.as_str())
                     .detail(serde_json::json!({ "version": version })),
-            )
-            .await;
+            );
             Json(WorkflowDeletedResponse {
                 status: "deleted".to_string(),
                 package_name: name,
@@ -743,14 +748,11 @@ async fn set_workflow_paused(
             } else {
                 audit_record::actions::WORKFLOW_RESUME
             };
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(action, name.as_str())
                     .detail(serde_json::json!({ "package_id": id.to_string() })),
-            )
-            .await;
+            );
             Json(WorkflowPauseResponse {
                 tenant_id,
                 id: id.to_string(),
@@ -917,7 +919,7 @@ pub async fn activate_workflow_version(
             );
             let detail = serde_json::json!({ "version": version, "package_id": id.to_string() });
             let event = AuditEvent::ok(audit_record::actions::PACKAGE_ACTIVATE, name.as_str());
-            audit_record::record(&state, &_auth, Some(&tenant_id), event.detail(detail)).await;
+            audit_record::note(Some(&tenant_id), event.detail(detail));
             Json(WorkflowVersionActivatedResponse {
                 tenant_id,
                 id: id.to_string(),
@@ -943,16 +945,48 @@ pub async fn activate_workflow_version(
     }
 }
 
+/// 413 for an upload over the server's package size limit.
+fn package_too_large(size: Option<u64>, limit: u64) -> ApiError {
+    ApiError::new(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "package_too_large",
+        crate::upload_limit::too_large_message(size, limit),
+    )
+}
+
+/// Why the file of an upload could not be read.
+enum FileFieldError {
+    /// The body is larger than the server's limit.
+    TooLarge,
+    /// The request is not a multipart upload with a `file` field.
+    Invalid(String),
+}
+
 /// Extract the first file field from a multipart request.
-async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, String> {
-    while let Ok(Some(field)) = multipart.next_field().await {
+async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, FileFieldError> {
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+                return Err(FileFieldError::TooLarge);
+            }
+            Err(_) => break,
+        };
         if field.name() == Some("file") {
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| format!("failed to read file: {}", e))?;
-            return Ok(data.to_vec());
+            return match field.bytes().await {
+                Ok(data) => Ok(data.to_vec()),
+                Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+                    Err(FileFieldError::TooLarge)
+                }
+                Err(e) => Err(FileFieldError::Invalid(format!(
+                    "failed to read file: {}",
+                    e
+                ))),
+            };
         }
     }
-    Err("no 'file' field in multipart request".to_string())
+    Err(FileFieldError::Invalid(
+        "no 'file' field in multipart request".to_string(),
+    ))
 }

@@ -127,6 +127,12 @@ pub struct CompilerConfig {
     /// Number of daily-rotated log files to retain on disk. `0` disables
     /// pruning (unbounded). CLOACI-I-0109 / T-0592.
     pub log_retention_days: u64,
+
+    /// How the dependencies of a Python package are vendored from its lock
+    /// file: the `uv` program, the Python version, the platforms, and where
+    /// the wheels come from (an index, or a wheel folder or a `uv` cache in
+    /// the compiler image). CLOACINA-T-1073.
+    pub python: crate::python::PythonVendorConfig,
 }
 
 impl CompilerConfig {

@@ -50,6 +50,26 @@ pub struct TaskExecution {
     /// ends.
     #[serde(default)]
     pub waiting_since: Option<UniversalTimestamp>,
+    /// The time of the first dispatch of this attempt that an agent refused
+    /// because it could not fetch the package artifact (CLOACINA-T-1064).
+    /// The later refusals of the attempt keep it. `None` when the attempt had
+    /// no such refusal; cleared when a retry is scheduled.
+    #[serde(default)]
+    pub artifact_fetch_wait_since: Option<UniversalTimestamp>,
+    /// The agent pool the task runs in on a fleet (CLOACINA-T-1027). `None`
+    /// means the pool `default`.
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// The task's CPU request in millicores (CLOACINA-T-1027). `None` = none.
+    #[serde(default)]
+    pub cpu_request_millis: Option<i64>,
+    /// The task's memory request in bytes (CLOACINA-T-1027). `None` = none.
+    #[serde(default)]
+    pub memory_request_bytes: Option<i64>,
+    /// The agent the fleet placed the task on, while the dispatch holds its
+    /// claim (CLOACINA-T-1027). `None` when the task is on no agent.
+    #[serde(default)]
+    pub fleet_agent_id: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }

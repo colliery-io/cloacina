@@ -136,6 +136,64 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
+    /// CLOACINA-T-1073: store what a compiler vendored for a Python package
+    /// version. `sets` holds one archive per platform; they replace the sets
+    /// of the version. `python_platforms` is where the package can run,
+    /// written to the row's metadata for dispatch.
+    pub async fn store_python_vendor(
+        &self,
+        package_id: Uuid,
+        package_name: &str,
+        version: &str,
+        sets: Vec<(String, Vec<u8>)>,
+        python_platforms: Option<Vec<String>>,
+    ) -> Result<(), RegistryError> {
+        use sha2::{Digest, Sha256};
+        let dal = crate::dal::DAL::new(self.database.clone());
+        let rows = sets
+            .into_iter()
+            .map(|(platform, archive)| {
+                let mut hasher = Sha256::new();
+                hasher.update(&archive);
+                (platform, hex::encode(hasher.finalize()), archive)
+            })
+            .collect();
+        dal.workflow_packages()
+            .replace_python_vendor_artifacts(package_name, version, rows)
+            .await?;
+        dal.workflow_packages()
+            .set_python_platforms(package_id, python_platforms)
+            .await
+    }
+
+    /// CLOACINA-T-1073: remove the vendored sets of a Python package version.
+    /// For a build that vendors nothing (the package ships `vendor/`, or has no
+    /// dependencies): a set of an earlier upload of the same version must not
+    /// reach a loader. The row's metadata is not changed.
+    pub async fn clear_python_vendor(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<(), RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .replace_python_vendor_artifacts(package_name, version, Vec::new())
+            .await
+    }
+
+    /// CLOACINA-T-1073: the platforms a compiler stored a vendored set for, for
+    /// a Python package version.
+    pub async fn python_vendor_platforms(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Vec<String>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .python_vendor_platforms(package_name, version)
+            .await
+    }
+
     /// Get the total number of registered tasks across all packages.
     pub fn total_registered_tasks(&self) -> usize {
         self.loaded_packages.values().map(|tasks| tasks.len()).sum()
@@ -496,10 +554,11 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         std::fs::create_dir_all(&extract_dir)
             .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
 
-        let source_dir = fidius_core::package::unpack_package(&archive_path, &extract_dir)
-            .map_err(|e| RegistryError::ValidationError {
-                reason: format!("Failed to unpack source archive: {}", e),
-            })?;
+        let source_dir =
+            cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+                .map_err(|e| RegistryError::ValidationError {
+                    reason: format!("Failed to unpack source archive: {}", e),
+                })?;
 
         let manifest = cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir)
             .map_err(|e| RegistryError::ValidationError {
@@ -508,6 +567,24 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
 
         let pkg_name = manifest.package.name.clone();
         let pkg_version = manifest.package.version.clone();
+
+        // CLOACINA-T-1048: refuse at upload a Python package that the Python
+        // of this server cannot run: `requires_python`, and the version its
+        // dependencies were vendored for. A process with no Python runtime
+        // has no version to check against.
+        if manifest.metadata.language.eq_ignore_ascii_case("python")
+            && let Some(python) =
+                crate::python_runtime::python_runtime().and_then(|r| r.python_version())
+        {
+            cloacina_workflow_plugin::python_env::check_python(
+                &pkg_name,
+                manifest.metadata.requires_python.as_deref(),
+                manifest.metadata.vendored.as_ref(),
+                &python,
+                "this server",
+            )
+            .map_err(|reason| RegistryError::ValidationError { reason })?;
+        }
 
         // 3. Content hash for idempotency + audit of what's installed.
         let content_hash = {
@@ -562,6 +639,11 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             declared_surfaces: vec![],
             // Filled at build success from the compiler doc parse (CLOACI-T-0754).
             task_docs: Default::default(),
+            // CLOACINA-T-1048: where a Python package with native vendored
+            // dependencies can run. Dispatch reads it.
+            python_platforms: cloacina_workflow_plugin::python_env::runnable_platforms(
+                manifest.metadata.vendored.as_ref(),
+            ),
         };
 
         let registry_id = self.storage.store_binary(package_data).await?;
@@ -720,6 +802,20 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             .await
     }
 
+    /// CLOACINA-T-1073: the vendored set a compiler stored for a Python
+    /// package version and `platform`.
+    async fn get_python_vendor(
+        &self,
+        package_name: &str,
+        version: &str,
+        platform: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .get_python_vendor_artifact(package_name, version, platform)
+            .await
+    }
+
     /// Bundled constructor providers for a package (CLOACI-T-0836): queries
     /// `package_providers` (stored tenant-neutral, like per-target artifacts) and
     /// returns each provider's packed archive for the reconciler to unpack.
@@ -762,6 +858,14 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
     ) -> Result<bool, RegistryError> {
         self.request_recompile(package_id).await
     }
+
+    async fn refuse_package(
+        &self,
+        package_id: crate::registry::types::WorkflowPackageId,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        self.refuse_package(package_id, reason).await
+    }
 }
 
 /// Unpack a `.cloacina` source archive in a temp dir and collect its UTF-8
@@ -779,11 +883,10 @@ fn extract_source_files(archive_bytes: &[u8]) -> Result<Vec<WorkflowSourceFile>,
         .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
 
     let source_dir =
-        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
-            RegistryError::ValidationError {
+        cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+            .map_err(|e| RegistryError::ValidationError {
                 reason: format!("Failed to unpack source archive: {}", e),
-            }
-        })?;
+            })?;
 
     let mut files = Vec::new();
     collect_source_files(&source_dir, &source_dir, &mut files)?;

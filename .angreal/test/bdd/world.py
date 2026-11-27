@@ -50,6 +50,9 @@ class PublishWorld:
         self.db_url_incluster = (
             f"postgres://cloacina:cloacina@{release}-postgresql:5432/cloacina"
         )
+        # True when the server's actuator makes each tenant's compiler
+        # (`--chart-actuator`); the driver then applies no compiler manifest.
+        self.chart_compilers = False
         # Per-tenant write keys, filled by provision_tenants.
         self.keys = {}
         # Per-tenant admin keys (a team's own admin), filled by provision_tenants.
@@ -257,8 +260,13 @@ class PublishWorld:
         processes a package's code ran."""
         places = [("server", self.ns, f"deploy/{self.release}-cloacina-server")]
         for tenant in TENANTS:
-            places.append((f"compiler of {tenant}", self.ns,
-                           "deploy/cloacina-compiler-" + tenant.replace("_", "-")))
+            if self.chart_compilers:
+                # Made by the server's actuator, in the tenant's namespace.
+                places.append((f"compiler of {tenant}", self.tenant_namespace(tenant),
+                               "deploy/cloacina-compiler"))
+            else:
+                places.append((f"compiler of {tenant}", self.ns,
+                               "deploy/cloacina-compiler-" + tenant.replace("_", "-")))
             places.append((f"agent of {tenant}", self.tenant_namespace(tenant),
                            "deploy/cloacina-agent"))
         found = []
@@ -316,7 +324,11 @@ class PublishWorld:
 
         With `agent_ref`, the driver applies the agent of each tenant itself
         (`deploy_agent`). With none, the server's Kubernetes actuator makes
-        them (CLOACINA_INITIAL_AGENTS=1)."""
+        them (CLOACINA_INITIAL_AGENTS=1).
+
+        With `self.chart_compilers`, the driver applies no compiler: the
+        server's actuator starts one for a tenant when its build queue gets a
+        package (CLOACINA-T-1034)."""
         for tenant in TENANTS:
             code, body = self.api("POST", "/v1/tenants", key=self.bootstrap_key,
                                   body={"name": tenant}, expect=None)
@@ -334,7 +346,8 @@ class PublishWorld:
                                   body={"name": f"{tenant}-admin", "role": "admin"},
                                   expect=(200, 201))
             self.admin_keys[tenant] = created["key"]
-            self.deploy_compiler(tenant, compiler_ref)
+            if not self.chart_compilers:
+                self.deploy_compiler(tenant, compiler_ref)
             if agent_ref is not None:
                 self.deploy_agent(tenant, agent_ref)
         self.wait_for_agents()
@@ -346,7 +359,7 @@ class PublishWorld:
 
         The manifests copy `crates/cloacina-server/src/actuator/kubernetes.rs`
         (`agent_deployment_manifest`, `network_policy_manifest`) and the key
-        has the actuator's role (`read`, tenant-scoped). The driver does this
+        has the actuator's role (`agent`, tenant-scoped). The driver does this
         because the server does not start with `fleet.actuator=kubernetes`
         today (see features/publishing/README.md). Keep the copy in step with
         the actuator, or the probe scenario measures the wrong pod.
@@ -355,7 +368,7 @@ class PublishWorld:
         if self.kubectl_json("get", "deploy", "cloacina-agent", "-n", ns):
             return
         _, created = self.api("POST", f"/v1/tenants/{tenant}/keys", key=self.bootstrap_key,
-                              body={"name": f"agent:{tenant}:bdd-driver", "role": "read"},
+                              body={"name": f"agent:{tenant}:bdd-driver", "role": "agent"},
                               expect=(200, 201))
         managed = {"cloacina.managed": "true"}
         labels = {"app.kubernetes.io/name": "cloacina-agent", "cloacina.managed": "true",

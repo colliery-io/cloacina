@@ -227,6 +227,9 @@ pub struct PythonTaskWrapper {
     /// The task's own time limit, from `@task(timeout_seconds=N)`
     /// (CLOACINA-T-1014). `None` = the executor's limit applies.
     timeout: Option<std::time::Duration>,
+    /// The task's agent pool, CPU and memory requests and inline mark, from
+    /// `@task(pool=.., cpu=.., memory=.., inline=..)` (CLOACINA-T-1027).
+    placement: cloacina_workflow::TaskPlacement,
 }
 
 impl PythonTaskWrapper {
@@ -275,6 +278,22 @@ impl PythonTaskWrapper {
     }
 }
 
+/// The traceback of a Python exception as `traceback.format_exception` gives
+/// it: the frames, the exception, and the exceptions it was raised from.
+/// Empty when Python cannot format it.
+pub(crate) fn format_python_traceback(py: Python<'_>, err: &PyErr) -> String {
+    py.import("traceback")
+        .and_then(|module| {
+            module.call_method1(
+                "format_exception",
+                (err.get_type(py), err.value(py), err.traceback(py)),
+            )
+        })
+        .and_then(|lines| lines.extract::<Vec<String>>())
+        .map(|lines| lines.concat())
+        .unwrap_or_default()
+}
+
 // SAFETY: PythonTaskWrapper holds PyObject fields which are not Send/Sync.
 // This is safe because ALL access to PyObject fields goes through Python::with_gil()
 // or tokio::task::spawn_blocking + Python::with_gil(), ensuring the GIL is held
@@ -312,7 +331,12 @@ impl cloacina::Task for PythonTaskWrapper {
         //    later in the async caller so the graph can be `.await`ed.
         let task_id_for_body = task_id.clone();
         let on_failure_for_body = Python::attach(|py| on_failure.as_ref().map(|f| f.clone_ref(py)));
+        // The blocking thread does not inherit the caller's span: enter it
+        // there, so lines logged while the body runs keep the task's ids
+        // (CLOACINA-T-1024).
+        let span = tracing::Span::current();
         let (mut final_context, returned_handle) = tokio::task::spawn_blocking(move || {
+            let _entered = span.enter();
             Python::attach(|py| {
                 let original_data = context.data().clone();
                 let py_context = PyContext::from_rust_context(context);
@@ -361,6 +385,9 @@ impl cloacina::Task for PythonTaskWrapper {
                     }
                     Err(e) => {
                         let error_message = format!("Python task execution failed: {}", e);
+                        // CLOACINA-T-1024: the traceback goes with the failure
+                        // as its details. The callback gets the message only.
+                        let traceback = format_python_traceback(py, &e);
                         if let Some(callback) = on_failure_for_body {
                             if let Err(callback_err) =
                                 callback.call1(py, (&task_id_for_body, &error_message, py_context))
@@ -372,7 +399,10 @@ impl cloacina::Task for PythonTaskWrapper {
                             }
                         }
                         Err(cloacina::TaskError::ExecutionFailed {
-                            message: error_message,
+                            message: cloacina::task_logs::with_error_details(
+                                &error_message,
+                                &traceback,
+                            ),
                             task_id: task_id_for_body.clone(),
                             timestamp: chrono::Utc::now(),
                         })
@@ -577,6 +607,10 @@ impl cloacina::Task for PythonTaskWrapper {
         self.timeout
     }
 
+    fn placement(&self) -> cloacina_workflow::TaskPlacement {
+        self.placement.clone()
+    }
+
     fn checkpoint(
         &self,
         _context: &cloacina::Context<serde_json::Value>,
@@ -686,6 +720,9 @@ pub struct TaskDecorator {
     trigger_rules: serde_json::Value,
     /// `timeout_seconds=N` — the task's own time limit (CLOACINA-T-1014).
     timeout: Option<std::time::Duration>,
+    /// `pool=`, `cpu=`, `memory=`, `inline=` (CLOACINA-T-1027), checked when
+    /// the decorator is called.
+    placement: cloacina_workflow::TaskPlacement,
 }
 
 #[pymethods]
@@ -723,6 +760,7 @@ impl TaskDecorator {
         let policy = self.retry_policy.clone();
         let trigger_rules = self.trigger_rules.clone();
         let timeout = self.timeout;
+        let placement = self.placement.clone();
         let function = func.clone_ref(py);
         let on_success_cb = self.on_success.as_ref().map(|f| f.clone_ref(py));
         let on_failure_cb = self.on_failure.as_ref().map(|f| f.clone_ref(py));
@@ -820,6 +858,7 @@ impl TaskDecorator {
                         cg_invocation: cg_invocation_clone,
                         trigger_rules: trigger_rules_clone.clone(),
                         timeout,
+                        placement: placement.clone(),
                     }) as Arc<dyn cloacina::Task>
                 }
             });
@@ -905,7 +944,11 @@ impl TaskDecorator {
     invokes = None,
     post_invocation = None,
     trigger_rules = None,
-    timeout_seconds = None
+    timeout_seconds = None,
+    pool = None,
+    cpu = None,
+    memory = None,
+    inline = false
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn task(
@@ -925,6 +968,10 @@ pub fn task(
     post_invocation: Option<Py<PyAny>>,
     trigger_rules: Option<Py<PyAny>>,
     timeout_seconds: Option<u64>,
+    pool: Option<String>,
+    cpu: Option<Py<PyAny>>,
+    memory: Option<Py<PyAny>>,
+    inline: bool,
 ) -> PyResult<TaskDecorator> {
     // CLOACI-T-0882: two retry-authoring surfaces exist — the `retry_*` kwargs
     // and a `RetryPolicy` value object. Accept either, never both: silently
@@ -981,6 +1028,19 @@ pub fn task(
     }
     let timeout = timeout_seconds.map(std::time::Duration::from_secs);
 
+    // CLOACINA-T-1027: the agent pool, the CPU and memory requests and the
+    // inline mark. Checked here, when the decorator is called, by the same
+    // rules as `#[task]` and the server's pool routes.
+    let placement = cloacina_workflow::TaskPlacement {
+        pool,
+        cpu: quantity_argument(py, "cpu", cpu)?,
+        memory: quantity_argument(py, "memory", memory)?,
+        inline,
+    };
+    placement
+        .validate()
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("@task({e})")))?;
+
     Ok(TaskDecorator {
         id,
         dependencies: dependencies.unwrap_or_default(),
@@ -991,7 +1051,34 @@ pub fn task(
         post_invocation,
         trigger_rules,
         timeout,
+        placement,
     })
+}
+
+/// Read a `cpu=` or `memory=` argument of `@task` (CLOACINA-T-1027): a string
+/// with a Kubernetes quantity (`"500m"`, `"32Gi"`), or a number (`4`, `0.5`),
+/// which is taken as its text. Anything else is a `TypeError`.
+fn quantity_argument(py: Python, name: &str, value: Option<Py<PyAny>>) -> PyResult<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.bind(py);
+    if value.is_none() {
+        return Ok(None);
+    }
+    if let Ok(text) = value.extract::<String>() {
+        return Ok(Some(text));
+    }
+    let is_bool = value.is_instance_of::<pyo3::types::PyBool>();
+    let is_number = value.is_instance_of::<pyo3::types::PyInt>()
+        || value.is_instance_of::<pyo3::types::PyFloat>();
+    if is_number && !is_bool {
+        return Ok(Some(value.str()?.extract::<String>()?));
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(format!(
+        "@task({name}=...) must be a string with a Kubernetes quantity (for example \
+         \"500m\" or \"32Gi\") or a number"
+    )))
 }
 
 #[cfg(test)]
@@ -1081,6 +1168,10 @@ with score_graph:
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                false,
             )
             .unwrap();
 
@@ -1159,6 +1250,10 @@ def post(ctx):
                 Some(post.unbind()),
                 None,
                 None,
+                None,
+                None,
+                None,
+                false,
             )
             .unwrap();
 
@@ -1216,6 +1311,10 @@ def post(ctx):
                     None,
                     None,
                     limit,
+                    None,
+                    None,
+                    None,
+                    false,
                 )
                 .unwrap();
                 let user_fn = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
@@ -1241,6 +1340,90 @@ def post(ctx):
         assert_eq!(get("plain").timeout(), None);
     }
 
+    // CLOACINA-T-1024: a failed Python task keeps its traceback as the
+    // details of the failure; the message stays the exception type and text.
+    #[tokio::test]
+    #[serial]
+    async fn test_failed_task_keeps_its_traceback_as_details() {
+        Python::initialize();
+        let rt = Arc::new(cloacina::Runtime::empty());
+        let _scope = ScopedRuntime::new(rt.clone()).unwrap();
+
+        Python::attach(|py| {
+            super::push_workflow_context(super::PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "t1024_traceback",
+            ));
+            let decorator = task(
+                py,
+                Some("boom".to_string()),
+                None,
+                None,
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+            )
+            .unwrap();
+            let locals = pyo3::types::PyDict::new(py);
+            py.run(
+                c_str!(
+                    "def inner(ctx):\n    raise ValueError('bad row 7')\n\n\
+                     def boom(ctx):\n    try:\n        inner(ctx)\n    \
+                     except ValueError as e:\n        \
+                     raise RuntimeError('load failed') from e\n"
+                ),
+                Some(&locals),
+                Some(&locals),
+            )
+            .unwrap();
+            let user_fn = locals.get_item("boom").unwrap().unwrap();
+            decorator.__call__(py, user_fn.unbind()).unwrap();
+            super::pop_workflow_context();
+        });
+
+        let ns = cloacina::TaskNamespace::new("public", "embedded", "t1024_traceback", "boom");
+        let task = rt.get_task(&ns).expect("the task is registered");
+        let err = task
+            .execute(cloacina::Context::new())
+            .await
+            .expect_err("the task raises");
+        let text = err.to_string();
+        let (message, details) = cloacina::task_logs::split_error_details(&text);
+
+        assert_eq!(
+            message,
+            "Task execution failed: Python task execution failed: RuntimeError: load failed"
+        );
+        let details = details.expect("the traceback is kept");
+        assert!(
+            details.contains("Traceback (most recent call last):"),
+            "{details}"
+        );
+        assert!(details.contains("in boom"), "{details}");
+        assert!(details.contains("in inner"), "{details}");
+        // The exception it was raised from is there too.
+        assert!(details.contains("ValueError: bad row 7"), "{details}");
+        assert!(
+            details.trim_end().ends_with("RuntimeError: load failed"),
+            "{details}"
+        );
+        assert!(details.len() <= cloacina::task_logs::MAX_ERROR_DETAILS_BYTES + 64);
+    }
+
     #[test]
     #[serial]
     fn test_task_timeout_seconds_of_zero_is_refused() {
@@ -1263,10 +1446,145 @@ def post(ctx):
                 None,
                 None,
                 Some(0),
+                None,
+                None,
+                None,
+                false,
             )
             .err()
             .expect("zero is refused");
             assert!(err.to_string().contains("greater than 0"));
+        });
+    }
+
+    // CLOACINA-T-1027: `@task(pool=, cpu=, memory=, inline=)` reach the task,
+    // which the planner and the fleet read through `Task::placement()`.
+    #[test]
+    #[serial]
+    fn test_task_pool_and_requests_reach_the_task() {
+        Python::initialize();
+        let rt = Arc::new(cloacina::Runtime::empty());
+        let _scope = ScopedRuntime::new(rt.clone()).unwrap();
+        Python::attach(|py| {
+            super::push_workflow_context(super::PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "t1027_placement",
+            ));
+            let text = |s: &str| -> Option<Py<PyAny>> {
+                Some(pyo3::types::PyString::new(py, s).into_any().unbind())
+            };
+            let four: Option<Py<PyAny>> = Some(py.eval(c_str!("4"), None, None).unwrap().unbind());
+            for (id, pool, cpu, memory, inline) in [
+                ("big", Some("large"), four, text("32Gi"), true),
+                ("small", None, text("500m"), text("512Mi"), false),
+                ("plain", None, None, None, false),
+            ] {
+                let decorator = task(
+                    py,
+                    Some(id.to_string()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    pool.map(str::to_string),
+                    cpu,
+                    memory,
+                    inline,
+                )
+                .unwrap();
+                let user_fn = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
+                decorator.__call__(py, user_fn.into()).unwrap();
+            }
+            super::pop_workflow_context();
+        });
+
+        let get = |id: &str| {
+            rt.get_task(&cloacina::TaskNamespace::new(
+                "public",
+                "embedded",
+                "t1027_placement",
+                id,
+            ))
+            .expect("the task is registered")
+            .placement()
+        };
+        let big = get("big");
+        assert_eq!(big.pool_name(), "large");
+        assert_eq!(big.cpu_millis(), Some(4000));
+        assert_eq!(big.memory_bytes(), Some(32 << 30));
+        assert!(big.inline);
+        let small = get("small");
+        assert_eq!(small.pool_name(), "default");
+        assert_eq!(small.cpu_millis(), Some(500));
+        assert_eq!(small.memory_bytes(), Some(512 << 20));
+        assert!(!small.inline);
+        assert!(get("plain").is_default());
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_bad_pool_or_quantity_is_refused() {
+        Python::initialize();
+        Python::attach(|py| {
+            let text = |s: &str| -> Option<Py<PyAny>> {
+                Some(pyo3::types::PyString::new(py, s).into_any().unbind())
+            };
+            let eval = |code: &std::ffi::CStr| -> Option<Py<PyAny>> {
+                Some(py.eval(code, None, None).unwrap().unbind())
+            };
+            type Case<'a> = (
+                Option<&'a str>,
+                Option<Py<PyAny>>,
+                Option<Py<PyAny>>,
+                &'a str,
+            );
+            let cases: Vec<Case<'_>> = vec![
+                (Some("Large_Pool"), None, None, "pool:"),
+                (None, text("lots"), None, "cpu:"),
+                (None, text("0"), None, "cpu:"),
+                (None, None, text("32GB"), "memory:"),
+                (None, None, eval(c_str!("-1")), "memory:"),
+                (None, eval(c_str!("True")), None, "must be a string"),
+                (None, None, eval(c_str!("[1]")), "must be a string"),
+            ];
+            for (pool, cpu, memory, needle) in cases {
+                let err = task(
+                    py,
+                    Some("bad".to_string()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    pool.map(str::to_string),
+                    cpu,
+                    memory,
+                    false,
+                )
+                .err()
+                .unwrap_or_else(|| panic!("a bad value is refused ({needle})"));
+                assert!(err.to_string().contains(needle), "{needle}: {err}");
+            }
         });
     }
 
@@ -1301,6 +1619,10 @@ def post(ctx):
                 Some(post.unbind()),
                 None,
                 None,
+                None,
+                None,
+                None,
+                false,
             )
             .unwrap();
 
@@ -1365,6 +1687,10 @@ with g:
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                false,
             )
             .unwrap();
             let err = decorator.__call__(py, user_fn.into()).unwrap_err();

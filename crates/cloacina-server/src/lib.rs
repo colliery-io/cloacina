@@ -44,10 +44,14 @@ pub mod identity;
 pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
+pub mod placement_check;
 pub mod retention;
 pub mod routes;
 pub mod secrets;
+pub mod startup_migrations;
+pub mod task_logs;
 pub mod tenant_runner_cache;
+pub mod upload_limit;
 
 /// CORS configuration (CLOACI-T-0643 / REQ-009). Disabled unless at least
 /// one allowed origin is configured — browser consumers (the TS SDK / UI)
@@ -283,9 +287,9 @@ pub struct AppState {
     /// Operator-configurable via `CLOACINA_INITIAL_AGENTS` (default 1); `0`
     /// disables auto-provision.
     pub initial_agents: u32,
-    /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
-    /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
-    /// a matched route absent from this map is denied.
+    /// The authorization table (CLOACINA-T-1055): one row for each route,
+    /// read by the `guard` middleware. Built once at start; a route with no
+    /// row stops the start, and is refused if it is ever reached.
     pub authz_table: Arc<crate::routes::authz::AuthzTable>,
     /// CLOACI-T-0789/0790: the OIDC relying party, if an issuer is configured
     /// (`CLOACINA_OIDC_*`) and discovery succeeded; `None` → OIDC login is off.
@@ -313,9 +317,16 @@ pub struct AppState {
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
     default_executor: &str,
+    require_signatures: bool,
+    verification_org_id: Option<uuid::Uuid>,
+    context_limits: cloacina::executor::ContextSizeLimits,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
+    // CLOACINA-T-1047: one server-wide limit on the size of a task context.
+    builder = builder
+        .context_warn_bytes(context_limits.warn_bytes)
+        .context_max_bytes(context_limits.max_bytes);
     if let Some(interval) = reconcile_interval {
         builder = builder.registry_reconcile_interval(interval);
     }
@@ -323,29 +334,14 @@ fn runner_config_for_tenant_cache(
     // runners so their dispatcher sends tenant tasks to the same executor (and
     // a dispatcher exists at all, which `register_executor` requires).
     builder = builder.default_executor(default_executor);
+    // CLOACINA-T-1037: the same signature requirement as the admin runner, so
+    // a tenant's reconciler makes the same signature-existence check on load.
+    builder = builder
+        .require_signatures(require_signatures)
+        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
     builder
         .build()
         .expect("default tenant runner config builds cleanly")
-}
-
-/// Validate security-related CLI args at server boot.
-///
-/// Extracted from `run()` so it's unit-testable without spinning up the
-/// full server. Currently enforces: `--require-signatures` is only meaningful
-/// paired with `--verification-org-id`; reject the combo at boot rather than
-/// surface a 403 on first upload (CLOACI-I-0103 / T-0567).
-fn validate_security_args(
-    require_signatures: bool,
-    verification_org_id: Option<&uuid::Uuid>,
-) -> Result<()> {
-    if require_signatures && verification_org_id.is_none() {
-        anyhow::bail!(
-            "--require-signatures requires --verification-org-id <UUID> \
-             (or set CLOACINA_VERIFICATION_ORG_ID env var). Without a trusted \
-             org_id the server has no way to verify uploaded signatures."
-        );
-    }
-    Ok(())
 }
 
 /// Run the API server.
@@ -384,6 +380,12 @@ pub async fn run(
     // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
     // A task with a limit of its own gets that limit, capped at the maximum.
     fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
+    // CLOACINA-T-1064: how long a fleet task waits, per attempt, while agents
+    // cannot fetch its package artifact. Zero: no wait.
+    fleet_artifact_fetch_wait: std::time::Duration,
+    // CLOACINA-T-1047: the warning and the hard limit on the size of a task
+    // context, for every runner and the fleet executor of this server.
+    context_limits: cloacina::executor::ContextSizeLimits,
     // CORS opt-in (CLOACI-T-0643 / REQ-009). Disabled unless at least one
     // allowed origin is configured.
     cors: CorsConfig,
@@ -395,8 +397,16 @@ pub async fn run(
 ) -> Result<()> {
     // Validate CORS config before any heavy startup work.
     let cors_layer = cors.layer()?;
-    // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
-    validate_security_args(require_signatures, verification_org_id.as_ref())?;
+    // CLOACINA-A-0018: `--require-signatures` with no `--verification-org-id`
+    // is a valid posture. Each tenant then trusts only its own keys.
+    // CLOACINA-T-1055: every route has a row in the authorization table, or
+    // the server does not start. Checked before any heavy start-up work.
+    check_route_coverage(&crate::routes::authz::build_authz_table())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // A rule of the OIDC map with a role that is not `read`, `write` or
+    // `admin` stops the start: to skip it would change which rule wins.
+    crate::oidc::MappingPolicy::check(&std::env::var("CLOACINA_OIDC_MAP").unwrap_or_default())
+        .map_err(|e| anyhow::anyhow!("CLOACINA_OIDC_MAP: {e}"))?;
 
     // CLOACI-T-0582: enable strict search_path checking on the server.
     // Adds a `current_schema()` round-trip on every tenant-scoped
@@ -444,9 +454,16 @@ pub async fn run(
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Build the base subscriber with stderr + file layers
+    // CLOACINA-T-1024: stderr is text, or JSON when `--log-format json`.
+    let stderr_layer = match task_logs::log_format() {
+        cloacina::task_logs::LogFormat::Text => fmt::layer().with_writer(std::io::stderr).boxed(),
+        cloacina::task_logs::LogFormat::Json => {
+            fmt::layer().json().with_writer(std::io::stderr).boxed()
+        }
+    };
     let subscriber = tracing_subscriber::registry()
         .with(filter)
-        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(stderr_layer)
         .with(fmt::layer().json().with_writer(non_blocking));
 
     // Conditionally add OpenTelemetry tracing layer
@@ -518,7 +535,8 @@ pub async fn run(
          executor. status is `completed`, `failed` or `retried`. \
          reason is `ok` on success, or one of the bounded failure categories: \
          `task_error`, `timeout`, `validation_failed`, `infrastructure`, \
-         `context_load_failed`, `task_not_found`, `claim_lost`, `unknown`. \
+         `context_load_failed`, `context_too_large`, `task_not_found`, \
+         `claim_lost`, `unknown`. \
          workflow and tenant are as on `cloacina_workflows_total`."
     );
     metrics::describe_counter!(
@@ -571,7 +589,8 @@ pub async fn run(
     );
     metrics::describe_gauge!(
         "cloacina_waiting_tasks",
-        "Tasks that wait for capacity, by tenant: status Ready and past \
+        "Tasks that wait for capacity, by tenant and agent pool (a task with \
+         no pool is in `default`): status Ready and past \
          their `waiting_since`. Read from the database every 5 seconds. A \
          task that is put off because no agent had a free slot is counted \
          the whole time. A task in a retry backoff is not counted until the \
@@ -580,7 +599,7 @@ pub async fn run(
     metrics::describe_gauge!(
         "cloacina_oldest_waiting_task_age_seconds",
         "Seconds since the oldest waiting task began to wait \
-         (`waiting_since`), by tenant; 0 when no task waits. Read with \
+         (`waiting_since`), by tenant and agent pool; 0 when no task waits. Read with \
          `cloacina_waiting_tasks`."
     );
     metrics::describe_gauge!(
@@ -731,6 +750,7 @@ pub async fn run(
     );
     // CLOACINA-T-1024: the alert webhook counters.
     crate::alerts::describe_metrics();
+    crate::actuator::compiler::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -749,12 +769,44 @@ pub async fn run(
          while they still run."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_refused_results_total",
+        "Agent reports for a dispatch this replica waits for that were refused \
+         because of their sender (CLOACINA-T-1050): `reason` is `other_tenant` \
+         (the agent is in another tenant than the dispatch) or `not_the_target` \
+         (the packet is not addressed to that agent). The report changes no \
+         state. An honest agent does not cause one."
+    );
+    metrics::describe_counter!(
+        "cloacina_delivery_refused_acks_total",
+        "Acks on the delivery WebSocket for an outbox row that is not addressed \
+         to the connection's own recipient and tenant (CLOACINA-T-1052). The \
+         row is left as it is. One per re-targeted packet that an evicted \
+         agent acks is normal; more means a client acks rows it was not sent."
+    );
+    metrics::describe_counter!(
+        "cloacina_delivery_refused_subscriptions_total",
+        "Delivery WebSocket upgrades refused because the key may not open the \
+         recipient (CLOACINA-T-1051): `reason` is `unknown_agent`, \
+         `other_tenant`, `other_key`, `no_owner`, `no_tenant` or \
+         `unknown_recipient`."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_dispatch_deferred_total",
         "Fleet dispatch tries put back in the queue because no agent could \
          take the task: no live agent of its tenant had a free slot, or the \
          chosen agent was full (CLOACINA-T-1012). The task keeps its attempt \
          count and is tried again after 2 s. Sustained growth means a tenant \
          needs more agents."
+    );
+    metrics::describe_counter!(
+        "cloacina_fleet_artifact_fetch_refusals_total",
+        "Fleet dispatches that an agent refused because it could not fetch \
+         the task's package artifact or source (CLOACINA-T-1064). The task \
+         waits and is dispatched again with no use of a retry attempt, for \
+         up to --fleet-artifact-fetch-wait-s per attempt; the refusal at or \
+         past that limit fails the attempt and is counted too. Sustained \
+         growth means agents cannot reach the server's artifact route, or a \
+         package artifact is gone."
     );
     metrics::describe_counter!(
         "cloacina_fleet_work_reassigned_total",
@@ -779,6 +831,23 @@ pub async fn run(
          Replaces the silent `let _ = persist_*` patterns flagged as OPS-15."
     );
     metrics::describe_counter!(
+        "cloacina_context_size_warnings_total",
+        "Total task contexts over the warning size (`--context-warn-bytes`, \
+         default 1 MiB) and not over the hard limit, by tenant \
+         (CLOACINA-T-1047). Counted for the context a task returns and for \
+         the input context built for a task. Each one also writes a warn log \
+         with the task, the size and the largest keys."
+    );
+    metrics::describe_histogram!(
+        "cloacina_context_size_bytes",
+        "Serialized size in bytes of a task context, by kind and tenant \
+         (CLOACINA-T-1047). kind is `result` (the context a task returned, \
+         measured where the result is written, for the in-process and the \
+         fleet executor) or `input` (the context built for a task from its \
+         dependencies, measured before the task runs or is sent to an \
+         agent). A context over the hard limit is recorded too."
+    );
+    metrics::describe_counter!(
         "cloacina_context_merge_failures_total",
         "Total failures merging dependency contexts into a task's input \
          context. `kind` ∈ `parse` (dependency context JSON failed to \
@@ -790,6 +859,10 @@ pub async fn run(
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
     runner_builder = runner_builder.registry_storage_backend("database");
+    // CLOACINA-T-1047: one server-wide limit on the size of a task context.
+    runner_builder = runner_builder
+        .context_warn_bytes(context_limits.warn_bytes)
+        .context_max_bytes(context_limits.max_bytes);
     if let Some(interval) = reconcile_interval {
         runner_builder = runner_builder.registry_reconcile_interval(interval);
     }
@@ -842,10 +915,21 @@ pub async fn run(
         tracing::error!("{e}");
         anyhow::anyhow!(e)
     })?;
-    admin_database
-        .run_migrations()
+    // CLOACINA-T-1056: `public`, then each tenant schema. A tenant schema
+    // that cannot be migrated stops the start.
+    startup_migrations::migrate_at_start(&admin_database, startup_migrations::TenantSchemas::All)
         .await
-        .map_err(|e| anyhow::anyhow!("failed to run migrations: {e}"))?;
+        .map_err(|e| {
+            tracing::error!("{e}");
+            anyhow::anyhow!(e)
+        })?;
+    // CLOACINA-T-1027: each runner's reconciler asks this check when it loads
+    // a package: a task that names an agent pool the tenant does not have, or
+    // requests more than one agent of its pool can hold, refuses the package.
+    // Registered before the first runner is made, which takes it then.
+    cloacina::registry::register_task_placement_check(Arc::new(
+        placement_check::PoolPlacementCheck::new(admin_database.clone()),
+    ));
     let public_secret_resolver = secrets::runner_secret_resolver("public", &admin_database);
     let runner = DefaultRunner::with_database_secrets(
         admin_database,
@@ -858,7 +942,11 @@ pub async fn run(
 
     info!("Connected to Postgres, migrations applied");
 
-    let endpoint_registry = EndpointRegistry::new();
+    // CLOACINA-T-1053: the server's registry requires a tenant on every
+    // graph endpoint. The reconciler of each runner stamps its tenant
+    // (`public` for the admin runner), so no graph loads with the allow-all
+    // policy of embedded use, and a key reaches its own tenant's graphs only.
+    let endpoint_registry = EndpointRegistry::requiring_tenants();
     let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
     let mut graph_scheduler_inner =
         ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone());
@@ -1096,7 +1184,13 @@ pub async fn run(
         let cache = crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
                 .expect("max(1) is non-zero"),
-            runner_config_for_tenant_cache(reconcile_interval, &default_executor),
+            runner_config_for_tenant_cache(
+                reconcile_interval,
+                &default_executor,
+                require_signatures,
+                verification_org_id,
+                context_limits,
+            ),
         )
         // CLOACI-T-0581 follow-up: per-tenant runners share the global graph
         // scheduler so their reconcilers can route packaged CGs. The scheduler
@@ -1120,7 +1214,8 @@ pub async fn run(
                         Arc::new(std::sync::atomic::AtomicU64::new(0)),
                         Arc::new(std::sync::atomic::AtomicU64::new(0)),
                         None,
-                    );
+                    )
+                    .with_context_limits(context_limits);
                     let fleet_executor = crate::fleet_executor::FleetExecutor::new(
                         dal,
                         reg_outbox_dal.clone(),
@@ -1131,7 +1226,8 @@ pub async fn run(
                         runner.runtime(),
                     )
                     .with_secret_resolver_factory(reg_secret_factory.clone())
-                    .with_task_time_limits(fleet_task_time_limits);
+                    .with_task_time_limits(fleet_task_time_limits)
+                    .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
                     if runner.register_executor("fleet", Arc::new(fleet_executor)) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
@@ -1193,10 +1289,16 @@ pub async fn run(
     // against the detected host (refuses Docker-on-Kubernetes, refuses with no
     // Docker socket).
     let actuator_kind = crate::actuator::guard::actuator_kind_from_env();
+    // CLOACINA-T-1034: the settings of the per-tenant compilers. Off unless
+    // CLOACINA_TENANT_COMPILERS is true. A value that cannot be used stops the
+    // start, as a bad actuator does.
+    let tenant_compilers = crate::actuator::compiler::CompilerSettings::from_env(&database_url)
+        .map_err(|e| anyhow::anyhow!("FATAL: per-tenant compiler settings: {e}"))?;
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
         runner.database().clone(),
+        tenant_compilers,
     )
     .map_err(|e| {
         anyhow::anyhow!(
@@ -1262,6 +1364,11 @@ pub async fn run(
     // CLOACINA_DEMO_TENANT_KEYS; a no-op in normal deployments.
     bootstrap_demo_tenant_keys(&state).await?;
 
+    // CLOACINA-T-1055: a key whose stored role is not one of the four holds
+    // no permission. Name such keys at start, so an operator sees why a key
+    // that worked before the upgrade is refused.
+    warn_keys_with_unknown_role(&state).await;
+
     // Operational-metrics publisher (CLOACI-T-0718): pushes server/compiler/
     // fleet/reconciler snapshots to a subscribed Operations UI over the WS
     // substrate (direct sink push, not the durable outbox). No-op when nothing
@@ -1293,7 +1400,8 @@ pub async fn run(
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
             None,
-        );
+        )
+        .with_context_limits(context_limits);
         let fleet_executor = crate::fleet_executor::FleetExecutor::new(
             unified_dal.clone(),
             // Global runner: outbox == its own (admin) DAL (CLOACI-T-0781).
@@ -1306,7 +1414,8 @@ pub async fn run(
         )
         // CLOACI-T-0862: activate the secret resolver seam on the global executor.
         .with_secret_resolver_factory(secret_resolver_factory.clone())
-        .with_task_time_limits(fleet_task_time_limits);
+        .with_task_time_limits(fleet_task_time_limits)
+        .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
         if state
             .runner
             .register_executor("fleet", Arc::new(fleet_executor))
@@ -1339,7 +1448,10 @@ pub async fn run(
                     fleet_coordinator.clone(),
                     delivery_wake.clone(),
                     registry,
-                );
+                )
+                // CLOACINA-T-1039: a graph firing gets the server's default
+                // fleet time limit, like a task that sets none.
+                .with_task_time_limits(fleet_task_time_limits);
                 state
                     .graph_scheduler
                     .set_graph_executor(Arc::new(graph_fleet))
@@ -1528,6 +1640,11 @@ pub async fn run(
         let loop_dal = unified_dal.clone();
         let loop_db = state.database.clone();
         let loop_registry = agent_registry.clone();
+        // CLOACINA-T-1034: where the loop reads each tenant's build queue.
+        let loop_build_queues = crate::actuator::compiler::DalBuildQueues::new(
+            state.database.clone(),
+            state.tenant_databases.clone(),
+        );
         let mut loop_shutdown = substrate_shutdown_rx.clone();
         let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
         let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
@@ -1689,6 +1806,17 @@ pub async fn run(
                                     ),
                                 }
                             }
+
+                            // (c) COMPILERS (CLOACINA-T-1034) — one compiler for
+                            // each tenant whose build queue has work, none after
+                            // the queue was empty for the cooldown. After the
+                            // agents, so their namespace and policy exist.
+                            crate::actuator::compiler::run_compiler_pass(
+                                loop_actuator.as_ref(),
+                                &loop_build_queues,
+                                chrono::Utc::now(),
+                            )
+                            .await;
                         })
                         .await;
                     }
@@ -2029,438 +2157,383 @@ fn metrics_router(handle: metrics_exporter_prometheus::PrometheusHandle) -> Rout
         .fallback(fallback_404)
 }
 
-/// Build the main router. `serve_metrics` is false when a separate metrics
-/// listener is on: `/metrics` then answers 404 here (an explicit route, so the
-/// embedded UI fallback never answers for it).
-fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
-    use axum::{
-        extract::DefaultBodyLimit, middleware, routing::delete, routing::post, routing::put,
-    };
+/// Every route of the server, registered through [`RouteSet`] so the
+/// start-up check can compare them with the authorization table
+/// (CLOACINA-T-1055). The first set is the top level (no key), the second is
+/// the `/v1` nest. `serve_metrics` is false when a separate metrics listener
+/// is on: `/metrics` then answers 404 here (an explicit route, so the embedded
+/// UI fallback never answers for it).
+///
+/// Register a route here and give it a row in
+/// `routes::authz::build_authz_table`. With no row the server does not start.
+fn registered_routes(
+    serve_metrics: bool,
+) -> (
+    crate::routes::authz::RouteSet,
+    crate::routes::authz::RouteSet,
+) {
+    use crate::routes::authz::RouteSet;
 
-    // Authenticated routes — behind auth middleware
-    let auth_routes = Router::new()
+    let v1 = RouteSet::new("/v1")
         // Key management
-        .route("/auth/keys", post(crate::routes::keys::create_key))
-        .route("/auth/keys", get(crate::routes::keys::list_keys))
-        .route(
-            "/auth/keys/{key_id}",
-            delete(crate::routes::keys::revoke_key),
-        )
+        .post("/auth/keys", crate::routes::keys::create_key)
+        .get("/auth/keys", crate::routes::keys::list_keys)
+        .delete("/auth/keys/{key_id}", crate::routes::keys::revoke_key)
         // WebSocket ticket exchange (single-use, short-lived)
-        .route(
-            "/auth/ws-ticket",
-            post(crate::routes::keys::create_ws_ticket),
-        )
+        .post("/auth/ws-ticket", crate::routes::keys::create_ws_ticket)
         // CLOACI-T-0794: login-session lifecycle (authenticated — caller's own key).
-        .route("/auth/refresh", post(crate::routes::session::refresh))
-        .route("/auth/logout", post(crate::routes::session::logout))
+        .post("/auth/refresh", crate::routes::session::refresh)
+        .post("/auth/logout", crate::routes::session::logout)
         // CLOACI-T-0803: the caller's own role, so the UI can gate write/admin controls.
-        .route("/auth/whoami", get(crate::routes::session::whoami))
+        .get("/auth/whoami", crate::routes::session::whoami)
         // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
-        .route("/agents", get(crate::routes::agent::list_agents))
+        .get("/agents", crate::routes::agent::list_agents)
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124
-        .route(
-            "/compiler/status",
-            get(crate::routes::compiler::compiler_status),
-        )
+        .get("/compiler/status", crate::routes::compiler::compiler_status)
         // Audit record (CLOACINA-T-1024): the platform form and the tenant form.
-        .route("/audit", get(crate::routes::audit::list_audit))
-        .route(
+        .get("/audit", crate::routes::audit::list_audit)
+        .get(
             "/tenants/{tenant_id}/audit",
-            get(crate::routes::audit::list_tenant_audit),
+            crate::routes::audit::list_tenant_audit,
         )
         // Tenant management
-        .route("/tenants", post(crate::routes::tenants::create_tenant))
-        .route("/tenants", get(crate::routes::tenants::list_tenants))
-        .route(
+        .post("/tenants", crate::routes::tenants::create_tenant)
+        .get("/tenants", crate::routes::tenants::list_tenants)
+        .delete(
             "/tenants/{schema_name}",
-            delete(crate::routes::tenants::remove_tenant),
+            crate::routes::tenants::remove_tenant,
         )
         // Tenant-scoped key creation (admin-only)
-        .route(
+        .post(
             "/tenants/{tenant_id}/keys",
-            post(crate::routes::keys::create_tenant_key),
+            crate::routes::keys::create_tenant_key,
         )
         // CLOACI-T-0784: tenant-admin key self-service (list + revoke own-tenant).
-        .route(
+        .get(
             "/tenants/{tenant_id}/keys",
-            get(crate::routes::keys::list_tenant_keys),
+            crate::routes::keys::list_tenant_keys,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/keys/{key_id}",
-            delete(crate::routes::keys::revoke_tenant_key),
+            crate::routes::keys::revoke_tenant_key,
         )
         // CLOACI-T-0797: tenant-admin local-account management.
-        .route(
+        .post(
             "/tenants/{tenant_id}/accounts",
-            post(crate::routes::local_auth::create_account),
+            crate::routes::local_auth::create_account,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/accounts",
-            get(crate::routes::local_auth::list_accounts),
+            crate::routes::local_auth::list_accounts,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/accounts/{account_id}",
-            delete(crate::routes::local_auth::disable_account),
+            crate::routes::local_auth::disable_account,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/accounts/{account_id}/password",
-            post(crate::routes::local_auth::reset_password),
+            crate::routes::local_auth::reset_password,
+        )
+        // CLOACINA-T-1061: the trusted keys of package signing, per tenant.
+        .post(
+            "/tenants/{tenant_id}/trusted-keys",
+            crate::routes::trusted_keys::add_trusted_key,
+        )
+        .get(
+            "/tenants/{tenant_id}/trusted-keys",
+            crate::routes::trusted_keys::list_trusted_keys,
+        )
+        .delete(
+            "/tenants/{tenant_id}/trusted-keys/{key_id}",
+            crate::routes::trusted_keys::revoke_trusted_key,
         )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
-        .route(
+        .post(
             "/tenants/{tenant_id}/secrets",
-            post(crate::routes::secrets::create_secret),
+            crate::routes::secrets::create_secret,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/secrets",
-            get(crate::routes::secrets::list_secrets),
+            crate::routes::secrets::list_secrets,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/secrets/{name}",
-            get(crate::routes::secrets::get_secret),
+            crate::routes::secrets::get_secret,
         )
-        .route(
+        .put(
             "/tenants/{tenant_id}/secrets/{name}",
-            put(crate::routes::secrets::rotate_secret),
+            crate::routes::secrets::rotate_secret,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/secrets/{name}",
-            delete(crate::routes::secrets::delete_secret),
+            crate::routes::secrets::delete_secret,
         )
         // CLOACI-T-0808: agent-capacity limits (admin default + per-tenant exceptions).
-        .route(
+        .post(
             "/tenants/{tenant_id}/limits",
-            post(crate::routes::limits::set_tenant_limit),
+            crate::routes::limits::set_tenant_limit,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/limits",
-            get(crate::routes::limits::get_tenant_limit),
+            crate::routes::limits::get_tenant_limit,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/limits",
-            delete(crate::routes::limits::clear_tenant_limit),
+            crate::routes::limits::clear_tenant_limit,
         )
         // CLOACINA-T-1021: agent pools (settings and size of each pool of a tenant).
-        .route(
+        .get(
             "/tenants/{tenant_id}/pools",
-            get(crate::routes::pools::list_pools),
+            crate::routes::pools::list_pools,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/pools/{pool}",
-            get(crate::routes::pools::get_pool)
-                .put(crate::routes::pools::put_pool)
-                .delete(crate::routes::pools::delete_pool),
+            crate::routes::pools::get_pool,
+        )
+        .put(
+            "/tenants/{tenant_id}/pools/{pool}",
+            crate::routes::pools::put_pool,
+        )
+        .delete(
+            "/tenants/{tenant_id}/pools/{pool}",
+            crate::routes::pools::delete_pool,
         )
         // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
-        .route(
+        .get(
             "/tenants/{tenant_id}/fleet",
-            get(crate::routes::fleet::get_fleet),
+            crate::routes::fleet::get_fleet,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/fleet/provision",
-            post(crate::routes::fleet::provision),
+            crate::routes::fleet::provision,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/fleet/deprovision",
-            post(crate::routes::fleet::deprovision),
+            crate::routes::fleet::deprovision,
         )
         // Workflow packages (tenant-scoped)
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows",
-            post(crate::routes::workflows::upload_workflow),
+            crate::routes::workflows::upload_workflow,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows",
-            get(crate::routes::workflows::list_workflows),
+            crate::routes::workflows::list_workflows,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}",
-            get(crate::routes::workflows::get_workflow),
+            crate::routes::workflows::get_workflow,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/source",
-            get(crate::routes::workflows::get_workflow_source),
+            crate::routes::workflows::get_workflow_source,
         )
         // Pause / resume a workflow (block new executions) — CLOACI-T-0749.
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/pause",
-            post(crate::routes::workflows::pause_workflow),
+            crate::routes::workflows::pause_workflow,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/resume",
-            post(crate::routes::workflows::resume_workflow),
+            crate::routes::workflows::resume_workflow,
         )
         // Versions of a package: list, and make an earlier one active
         // (CLOACINA-T-1018). The static `versions` segment wins over the
         // `{version}` wildcard of the delete route below.
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/versions",
-            get(crate::routes::workflows::list_workflow_versions),
+            crate::routes::workflows::list_workflow_versions,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
-            post(crate::routes::workflows::activate_workflow_version),
+            crate::routes::workflows::activate_workflow_version,
         )
         // Named workflow instances (CLOACI-T-0894). Declared BEFORE the
         // `{version}` delete so the static `instances` segment is never
         // shadowed by the version wildcard.
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/instances",
-            post(crate::routes::instances::create_instance),
+            crate::routes::instances::create_instance,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/instances",
-            get(crate::routes::instances::list_instances),
+            crate::routes::instances::list_instances,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
-            get(crate::routes::instances::get_instance),
+            crate::routes::instances::get_instance,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
-            delete(crate::routes::instances::delete_instance),
+            crate::routes::instances::delete_instance,
         )
         // Backfills (CLOACINA-T-1020). The static `backfills` segment wins
         // over the `{version}` wildcard of the delete route below.
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/backfills",
-            post(crate::routes::backfills::create_backfill),
+            crate::routes::backfills::create_backfill,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/backfills",
-            get(crate::routes::backfills::list_backfills),
+            crate::routes::backfills::list_backfills,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
-            get(crate::routes::backfills::get_backfill),
+            crate::routes::backfills::get_backfill,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
-            post(crate::routes::backfills::cancel_backfill),
+            crate::routes::backfills::cancel_backfill,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
-            post(crate::routes::backfills::retry_backfill),
+            crate::routes::backfills::retry_backfill,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
-            delete(crate::routes::workflows::delete_workflow),
+            crate::routes::workflows::delete_workflow,
         )
         // Trigger schedules (tenant-scoped, read-only)
-        .route(
+        .get(
             "/tenants/{tenant_id}/triggers",
-            get(crate::routes::triggers::list_triggers),
+            crate::routes::triggers::list_triggers,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/triggers/{name}",
-            get(crate::routes::triggers::get_trigger),
+            crate::routes::triggers::get_trigger,
         )
         // Pause / resume a schedule (cron or trigger) — CLOACI-T-0749.
-        .route(
+        .post(
             "/tenants/{tenant_id}/triggers/{name}/pause",
-            post(crate::routes::triggers::pause_trigger),
+            crate::routes::triggers::pause_trigger,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/triggers/{name}/resume",
-            post(crate::routes::triggers::resume_trigger),
+            crate::routes::triggers::resume_trigger,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/triggers/{name}/fire",
-            post(crate::routes::triggers::fire_trigger),
+            crate::routes::triggers::fire_trigger,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/triggers/{name}/interface",
-            get(crate::routes::triggers::get_trigger_interface),
+            crate::routes::triggers::get_trigger_interface,
         )
         // Executions (tenant-scoped)
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/execute",
-            post(crate::routes::executions::execute_workflow),
+            crate::routes::executions::execute_workflow,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions",
-            get(crate::routes::executions::list_executions),
+            crate::routes::executions::list_executions,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions/{exec_id}",
-            get(crate::routes::executions::get_execution),
+            crate::routes::executions::get_execution,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions/{exec_id}/events",
-            get(crate::routes::executions::get_execution_events),
+            crate::routes::executions::get_execution_events,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions/{exec_id}/tasks",
-            get(crate::routes::executions::get_execution_tasks),
+            crate::routes::executions::get_execution_tasks,
         )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::authz::authz_mw,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::auth::require_auth,
-        ));
-
-    // Computation graph health routes — behind auth.
-    // CLOACI-T-0595 / API-08: paths are relative to the `/v1` nest below
-    // (previously these used absolute `/v1/...` and were merged at the
-    // top level, bypassing the `/v1` nest's middleware contract).
-    let graph_health_routes = Router::new()
-        .route(
+        // Computation graph health routes. Paths are relative to the `/v1`
+        // nest (CLOACI-T-0595 / API-08).
+        .get(
             "/health/accumulators",
-            get(crate::routes::health_graphs::list_accumulators),
+            crate::routes::health_graphs::list_accumulators,
         )
-        .route(
+        .get(
             "/health/reactors",
-            get(crate::routes::health_graphs::list_reactors),
+            crate::routes::health_graphs::list_reactors,
         )
         // Operator manual reactor fire (CLOACI-T-0751) — REST surface over the
-        // existing reactor ForceFire/FireWith mechanics. Per-op authZ + audit
-        // live in the handler; the route-layer auth below supplies the key.
-        .route(
+        // existing reactor ForceFire/FireWith mechanics. The tenant policy of
+        // the endpoint is checked in the handler.
+        .post(
             "/health/reactors/{name}/fire",
-            post(crate::routes::health_graphs::fire_reactor),
+            crate::routes::health_graphs::fire_reactor,
         )
         // Observable fires (CLOACI-T-0766): recent fires + per-minute cadence.
-        .route(
+        .get(
             "/health/reactors/{name}/fires",
-            get(crate::routes::health_graphs::list_reactor_fires),
+            crate::routes::health_graphs::list_reactor_fires,
         )
-        .route(
+        .get(
             "/health/reactors/{name}/fires/timeseries",
-            get(crate::routes::health_graphs::reactor_fire_timeseries),
+            crate::routes::health_graphs::reactor_fire_timeseries,
         )
         // Operator manual accumulator inject (CLOACI-T-0753) — REST analogue of
         // the WS accumulator-push path; typed JSON event, server-side encoding.
-        .route(
+        .post(
             "/health/accumulators/{name}/inject",
-            post(crate::routes::health_graphs::inject_accumulator),
+            crate::routes::health_graphs::inject_accumulator,
         )
         // Declared input-interface discovery (CLOACI-I-0128 / T-0758) — the typed
         // slots an operator supplies to fire/inject; backs UI typed forms.
-        .route(
+        .get(
             "/health/reactors/{name}/interface",
-            get(crate::routes::health_graphs::get_reactor_interface),
+            crate::routes::health_graphs::get_reactor_interface,
         )
-        .route(
+        .get(
             "/health/accumulators/{name}/interface",
-            get(crate::routes::health_graphs::get_accumulator_interface),
+            crate::routes::health_graphs::get_accumulator_interface,
         )
-        .route(
-            "/health/graphs",
-            get(crate::routes::health_graphs::list_graphs),
-        )
-        .route(
+        .get("/health/graphs", crate::routes::health_graphs::list_graphs)
+        .get(
             "/health/graphs/{name}",
-            get(crate::routes::health_graphs::get_graph),
+            crate::routes::health_graphs::get_graph,
         )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::authz::authz_mw,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::auth::require_auth,
-        ));
-
-    // WebSocket routes — auth handled in the handler (before upgrade).
-    // Relative paths so they nest cleanly under `/v1` per API-08.
-    let ws_routes = Router::new()
-        .route(
-            "/ws/accumulator/{name}",
-            get(crate::routes::ws::accumulator_ws),
-        )
-        .route("/ws/reactor/{name}", get(crate::routes::ws::reactor_ws))
-        // Substrate delivery (CLOACI-I-0115 / T-0627). Auth handled in the
-        // handler (header bearer or single-use ticket); tenant inferred from
-        // the authenticated key and enforced against delivery_outbox.tenant_id.
-        .route(
+        // WebSocket routes. The upgrade request goes through the middleware
+        // like a REST route (bearer key, or a single-use ticket).
+        .get("/ws/accumulator/{name}", crate::routes::ws::accumulator_ws)
+        .get("/ws/reactor/{name}", crate::routes::ws::reactor_ws)
+        // Substrate delivery (CLOACI-I-0115 / T-0627). The tenant comes from
+        // the authenticated key and is enforced against
+        // delivery_outbox.tenant_id.
+        .get(
             "/ws/delivery/{recipient}",
-            get(crate::routes::delivery_ws::delivery_ws),
-        );
-
-    // Execution-agent fleet (CLOACI-I-0114 / T-0631). All endpoints share
-    // the standard authed-route middleware; tenant + admin checks live in
-    // each handler. Register/heartbeat persist to the DB-backed roster
-    // (CLOACI-T-0916); result rendezvouses with the FleetExecutor (T-0633).
-    let agent_routes = axum::routing::Router::new()
-        .route(
-            "/agent/register",
-            axum::routing::post(crate::routes::agent::register_agent),
+            crate::routes::delivery_ws::delivery_ws,
         )
-        .route(
-            "/agent/heartbeat",
-            axum::routing::post(crate::routes::agent::heartbeat_agent),
+        // Execution-agent fleet (CLOACI-I-0114 / T-0631): a key of role
+        // `agent` only. Register/heartbeat persist to the DB-backed roster
+        // (CLOACI-T-0916); result rendezvouses with the FleetExecutor (T-0633).
+        .post("/agent/register", crate::routes::agent::register_agent)
+        .post("/agent/heartbeat", crate::routes::agent::heartbeat_agent)
+        .post("/agent/keys", crate::routes::agent::replenish_keys)
+        .post("/agent/result", crate::routes::agent::report_result)
+        .post(
+            "/agent/undecodable",
+            crate::routes::agent::report_undecodable,
         )
-        .route(
-            "/agent/keys",
-            axum::routing::post(crate::routes::agent::replenish_keys),
-        )
-        .route(
-            "/agent/result",
-            axum::routing::post(crate::routes::agent::report_result),
-        )
-        .route(
+        .get(
             "/agent/artifact/{digest}",
-            axum::routing::get(crate::routes::agent::fetch_artifact),
+            crate::routes::agent::fetch_artifact,
         )
-        .route(
-            "/agent/source/{digest}",
-            axum::routing::get(crate::routes::agent::fetch_source),
+        .get("/agent/source/{digest}", crate::routes::agent::fetch_source)
+        .get(
+            "/agent/python-vendor/{digest}",
+            crate::routes::agent::fetch_python_vendor,
         )
-        .route(
+        .get(
             "/agent/providers/{digest}",
-            axum::routing::get(crate::routes::agent::fetch_providers),
+            crate::routes::agent::fetch_providers,
         )
-        // All four agent endpoints authenticate with an API key (bearer) and
-        // extract `Extension<AuthenticatedKey>`. The layer MUST be attached
-        // here, before the merge into `auth_routes` below: `.route_layer` only
-        // covers routes already in the router, so `auth_routes`' own layer does
-        // NOT reach these merged routes. Without this, `register_agent` panics
-        // on the missing extension → 500 → the agent exits on register. The
-        // delivery WS (ws_routes) is deliberately NOT key-authed — it uses a
-        // single-use ws-ticket — so auth stays per-sub-router, not nest-wide.
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::authz::authz_mw,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::auth::require_auth,
-        ));
+        // The login routes: the caller has no key yet. Their rows are public.
+        .post("/auth/local/login", crate::routes::local_auth::local_login)
+        .get("/auth/oidc/login", crate::routes::oidc_auth::oidc_login)
+        .get("/auth/callback", crate::routes::oidc_auth::oidc_callback);
 
-    // All of v1 in a single nest — API-08 invariant: anything served
-    // under `/v1/*` shares the same middleware stack.
-    let v1 = auth_routes
-        .merge(graph_health_routes)
-        .merge(ws_routes)
-        .merge(agent_routes)
-        // Public auth entry points (caller has no bearer key yet — NOT behind
-        // require_auth / authz_mw; they mint the key). CLOACI-T-0796/0790.
-        .merge(
-            Router::new()
-                .route(
-                    "/auth/local/login",
-                    post(crate::routes::local_auth::local_login),
-                )
-                .route(
-                    "/auth/oidc/login",
-                    get(crate::routes::oidc_auth::oidc_login),
-                )
-                .route(
-                    "/auth/callback",
-                    get(crate::routes::oidc_auth::oidc_callback),
-                ),
-        );
-
-    // Public routes — no auth
-    Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
-        .route(
+    // No key: liveness, metrics, the API document.
+    let top = RouteSet::new("")
+        .get("/health", health)
+        .get("/ready", ready)
+        .add(
+            axum::http::Method::GET,
             "/metrics",
             if serve_metrics {
                 get(metrics)
@@ -2470,17 +2543,44 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
         )
         // Machine-readable API contract (CLOACI-T-0643 / REQ-001). Same
         // document the `emit-openapi` subcommand writes to disk.
-        .route(
-            "/openapi.json",
-            get(|| async {
-                (
-                    [(axum::http::header::CONTENT_TYPE, "application/json")],
-                    crate::openapi::openapi_json(),
-                )
-            }),
-        )
-        // All v1 routes (auth + graph health + ws) under one nest.
-        .nest("/v1", v1)
+        .get("/openapi.json", || async {
+            (
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                crate::openapi::openapi_json(),
+            )
+        });
+
+    (top, v1)
+}
+
+/// Compare the routes of the server with the authorization table, both ways
+/// (CLOACINA-T-1055). The server calls it before it listens: a route with no
+/// row, or a row with no route, stops the start.
+pub fn check_route_coverage(
+    table: &crate::routes::authz::AuthzTable,
+) -> Result<(), crate::routes::authz::CoverageError> {
+    // `/metrics` is registered on the main router in both modes.
+    let (top, v1) = registered_routes(true);
+    let mut registered = top.registered().to_vec();
+    registered.extend_from_slice(v1.registered());
+    crate::routes::authz::check_coverage(&registered, table)
+}
+
+/// Build the main router: every route of [`registered_routes`], with the
+/// authorization middleware on the whole `/v1` nest. One layer, put on after
+/// every `/v1` route is registered, so no route can be outside it.
+fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
+    use axum::{extract::DefaultBodyLimit, middleware};
+
+    let (top, v1) = registered_routes(serve_metrics);
+    let (v1, _) = v1.into_parts();
+    let v1 = v1.route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        crate::routes::authz::guard,
+    ));
+    let (top, _) = top.into_parts();
+
+    top.nest("/v1", v1)
         // CLOACI-I-0130: with the UI embedded, unmatched non-API paths serve
         // the SPA (assets immutable, index.html no-store); API prefixes keep
         // the JSON 404. Feature-off = today's JSON 404 for everything.
@@ -2494,8 +2594,11 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
                 fallback_404
             }
         })
-        // Body size limit: 100MB (matches PackageValidator)
-        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        // Body size limit: the package upload limit, a server setting with a
+        // default of 100 MiB (CLOACINA-T-1048).
+        .layer(DefaultBodyLimit::max(
+            crate::upload_limit::max_request_body_bytes(),
+        ))
         // API request metrics (counts by method and status)
         .layer(middleware::from_fn(api_request_metrics))
         // Request ID + tracing span (outermost — wraps everything)
@@ -2713,6 +2816,37 @@ async fn bootstrap_admin_key(
     Ok(())
 }
 
+/// The unrevoked keys whose role string is not a role: `(id, name, role)`.
+fn keys_with_unknown_role(
+    keys: &[cloacina::dal::unified::api_keys::ApiKeyInfo],
+) -> Vec<(String, String, String)> {
+    keys.iter()
+        .filter(|k| !k.revoked && crate::routes::authz::Role::parse(&k.permissions).is_none())
+        .map(|k| (k.id.to_string(), k.name.clone(), k.permissions.clone()))
+        .collect()
+}
+
+/// Log each unrevoked key whose role is not `read`, `write`, `admin` or
+/// `agent`: it authenticates and is refused on every route (CLOACINA-T-1055).
+/// A read error is logged; it does not stop the start.
+async fn warn_keys_with_unknown_role(state: &AppState) {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal.api_keys().list_keys().await {
+        Ok(keys) => {
+            for (id, name, role) in keys_with_unknown_role(&keys) {
+                warn!(
+                    key_id = %id,
+                    key_name = %name,
+                    role = %role,
+                    "this API key has a role that is not read, write, admin or agent: it is \
+                     refused on every route. Revoke it and create a key with one of the four roles"
+                );
+            }
+        }
+        Err(e) => warn!("could not read the API keys to check their roles: {e}"),
+    }
+}
+
 /// CLOACI-T-0779 — demo-only: seed deterministic tenant-SCOPED API keys from the
 /// `CLOACINA_DEMO_TENANT_KEYS` env so the demo can demonstrate tenant isolation
 /// with known keys (like the bootstrap admin key). Format: comma-separated
@@ -2743,6 +2877,13 @@ async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
             .copied()
             .filter(|r| !r.is_empty())
             .unwrap_or("admin");
+        if crate::routes::authz::Role::parse(role).is_none() {
+            warn!(
+                "CLOACINA_DEMO_TENANT_KEYS: skipping the key of '{}': '{}' is not a role (read, write, admin, agent)",
+                tenant, role
+            );
+            continue;
+        }
         let hash = cloacina::security::api_keys::hash_api_key(key);
         match dal
             .api_keys()
@@ -2785,12 +2926,102 @@ mod tests {
     use std::io::Write;
     use tower::ServiceExt;
 
+    /// CLOACINA-T-1055: the routes the server registers and the
+    /// authorization table agree, with and without `/metrics` on the main
+    /// listener. Needs no database.
+    #[test]
+    fn test_every_registered_route_has_a_row() {
+        let table = crate::routes::authz::build_authz_table();
+        assert_eq!(check_route_coverage(&table), Ok(()));
+        for serve_metrics in [true, false] {
+            let (top, v1) = registered_routes(serve_metrics);
+            let mut registered = top.registered().to_vec();
+            registered.extend_from_slice(v1.registered());
+            assert_eq!(registered.len(), table.len());
+            assert_eq!(
+                crate::routes::authz::check_coverage(&registered, &table),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
+    fn test_keys_with_unknown_role_are_found() {
+        let key =
+            |name: &str, role: &str, revoked: bool| cloacina::dal::unified::api_keys::ApiKeyInfo {
+                id: uuid::Uuid::new_v4(),
+                name: name.to_string(),
+                permissions: role.to_string(),
+                created_at: chrono::Utc::now(),
+                revoked,
+                tenant_id: Some("acme".to_string()),
+                is_admin: false,
+                expires_at: None,
+                issued_via: None,
+            };
+        let keys = vec![
+            key("a", "read", false),
+            key("b", "write", false),
+            key("c", "admin", false),
+            key("d", "agent", false),
+            key("e", "owner", false),
+            key("f", "owner", true),
+            key("g", "", false),
+        ];
+        let found: Vec<(String, String)> = keys_with_unknown_role(&keys)
+            .into_iter()
+            .map(|(_, name, role)| (name, role))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("e".to_string(), "owner".to_string()),
+                ("g".to_string(), String::new())
+            ]
+        );
+    }
+
+    /// A route added to the server's own router with no row fails the check
+    /// that the server runs before it listens.
+    #[test]
+    fn test_a_new_route_with_no_row_stops_the_start() {
+        let table = crate::routes::authz::build_authz_table();
+        let (top, v1) = registered_routes(true);
+        let v1 = v1.post("/tenants/{tenant_id}/forgotten", || async {});
+        let mut registered = top.registered().to_vec();
+        registered.extend_from_slice(v1.registered());
+        let err = crate::routes::authz::check_coverage(&registered, &table).unwrap_err();
+        assert_eq!(
+            err.routes_without_row,
+            vec!["POST /v1/tenants/{tenant_id}/forgotten"]
+        );
+        // A row taken out of the table fails it the other way.
+        let mut short = crate::routes::authz::AuthzTable::default();
+        for r in table.rows().iter().skip(1) {
+            short.add(r.method.clone(), r.path, r.row);
+        }
+        let err = check_route_coverage(&short).unwrap_err();
+        assert_eq!(err.routes_without_row, vec!["GET /health"]);
+    }
+
     /// Router tests of the audit record (CLOACINA-T-1024).
+    mod agent_ownership;
     mod audit_routes;
+    /// Router tests of the authorization model (CLOACINA-T-1055).
+    mod authz_routes;
+    /// Router tests of backfills (CLOACINA-T-1020).
     mod backfill_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;
+    /// Router tests of the trusted keys of package signing (CLOACINA-T-1061).
+    mod trusted_key_routes;
+
+    /// Server start migrates each tenant schema (CLOACINA-T-1056).
+    mod tenant_migrations;
+
+    /// Tenant delete reports a failed drop (CLOACINA-T-1068).
+    mod tenant_removal;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
@@ -2866,8 +3097,10 @@ mod tests {
             database: database.clone(),
             runner,
             key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
-            endpoint_registry: EndpointRegistry::new(),
-            graph_scheduler: Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new())),
+            endpoint_registry: EndpointRegistry::requiring_tenants(),
+            graph_scheduler: Arc::new(ComputationGraphScheduler::new(
+                EndpointRegistry::requiring_tenants(),
+            )),
             delivery_sink: _test_delivery_sink,
             delivery_wake: _test_delivery_wake,
             agent_registry: Arc::new(crate::agent_registry::AgentRegistry::new(
@@ -2886,7 +3119,7 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None, "default"),
+                runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -2940,8 +3173,9 @@ mod tests {
     #[serial]
     async fn secret_factory_resolves_stored_secret_end_to_end() {
         use crate::fleet_executor::FleetSecretResolverFactory;
-        use crate::secrets::{ServerFleetSecretResolverFactory, tenant_org_id};
+        use crate::secrets::ServerFleetSecretResolverFactory;
         use base64::Engine;
+        use cloacina::security::tenant_org_id;
         use cloacina::security::{KEK_ENV_VAR, SecretStore};
 
         let state = test_state().await;
@@ -3333,11 +3567,6 @@ mod tests {
         // Let the listener connect and the loop take its first tick.
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-        let task_id = cloacina::UniversalUuid::new_v4();
-        let rx = replica_a
-            .fleet_coordinator
-            .register_dispatch(task_id, "dispatch-1".to_string());
-
         let auth = crate::routes::auth::AuthenticatedKey {
             key_id: uuid::Uuid::new_v4(),
             name: "t1015-agent".to_string(),
@@ -3345,9 +3574,41 @@ mod tests {
             tenant_id: None,
             is_admin: true,
         };
+        // CLOACINA-T-1050: a report is taken only from a registered agent
+        // that the caller key holds, so the agent registers first (through
+        // replica B, with the key that reports).
+        let agent_id = format!("t1015-agent-{}", uuid::Uuid::new_v4());
+        replica_b
+            .agent_registry
+            .register(
+                cloacina::dal::unified::FleetAgentRegistration {
+                    agent_id: agent_id.clone(),
+                    target_triple: "aarch64-apple-darwin".to_string(),
+                    capabilities: vec![],
+                    max_concurrency: 1,
+                    cpu_millis: None,
+                    memory_bytes: None,
+                },
+                cloacina::security::ServerKeyPool::new(),
+                &crate::routes::agent::principal_of(&auth),
+            )
+            .await
+            .expect("registration must persist")
+            .expect("a new agent id is free");
+
+        let task_id = cloacina::UniversalUuid::new_v4();
+        let rx = replica_a.fleet_coordinator.register_dispatch(
+            task_id,
+            cloacina::security::ownership::DispatchTarget {
+                tenant_id: None,
+                agent_id: agent_id.clone(),
+                dispatch_id: Some("dispatch-1".to_string()),
+            },
+        );
+
         let report = AgentResultRequest {
             protocol_version: AGENT_PROTOCOL_VERSION,
-            agent_id: format!("t1015-agent-{}", uuid::Uuid::new_v4()),
+            agent_id: agent_id.clone(),
             task_execution_id: task_id.0.to_string(),
             attempt: 1,
             dispatch_id: Some("dispatch-1".to_string()),
@@ -3420,6 +3681,7 @@ mod tests {
         shutdown_tx.send(true).unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inbox_loop).await;
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), listener).await;
+        let _ = replica_b.agent_registry.deregister(&agent_id).await;
     }
 
     /// A WS ticket minted "on replica A" must redeem "on replica B" — and only
@@ -3525,19 +3787,29 @@ mod tests {
 
         let agent_id = format!("t0916-agent-{}", uuid::Uuid::new_v4().simple());
         let tenant = format!("t0916-tenant-{}", uuid::Uuid::new_v4().simple());
+        let owner_key = cloacina::security::ownership::Principal {
+            key_id: uuid::Uuid::new_v4(),
+            tenant_id: Some(tenant.clone()),
+            is_admin: false,
+        };
         registry_a
             .register(
                 cloacina::dal::unified::FleetAgentRegistration {
                     agent_id: agent_id.clone(),
-                    tenant_id: Some(tenant.clone()),
                     target_triple: "aarch64-apple-darwin".to_string(),
                     capabilities: vec![],
                     max_concurrency: 4,
+                    // CLOACINA-T-1027: the agent's totals are on the roster
+                    // row, so every replica packs against the same size.
+                    cpu_millis: Some(4000),
+                    memory_bytes: Some(32 << 30),
                 },
                 cloacina::security::ServerKeyPool::new(),
+                &owner_key,
             )
             .await
-            .expect("registration must persist");
+            .expect("registration must persist")
+            .expect("a new agent id is free");
 
         // Replica B sees the agent as live, with the right tenant.
         let live_b = registry_b.live_agents().await.expect("roster read");
@@ -3546,10 +3818,15 @@ mod tests {
             .find(|a| a.agent_id == agent_id)
             .expect("agent registered via replica A must be live on replica B");
         assert_eq!(seen.tenant_id.as_deref(), Some(tenant.as_str()));
+        assert_eq!(seen.cpu_millis, Some(4000));
+        assert_eq!(seen.memory_bytes, Some(32 << 30));
         assert_eq!(
-            registry_b.agent_tenant(&agent_id).await.expect("lookup"),
-            Some(Some(tenant.clone())),
-            "cross-tenant guard must resolve the tenant on any replica"
+            registry_b.agent_owner(&agent_id).await.expect("lookup"),
+            Some(cloacina::security::ownership::AgentOwner {
+                tenant_id: Some(tenant.clone()),
+                owner_key_id: Some(owner_key.key_id),
+            }),
+            "the ownership guard must resolve the tenant and the owner key on any replica"
         );
 
         // Same-tenant selection on replica B picks it.
@@ -3557,7 +3834,8 @@ mod tests {
             &live_b,
             &Some(tenant.clone()),
             &None,
-            cloacina_api_types::DEFAULT_AGENT_POOL,
+            &crate::agent_registry::TaskDemand::pool(cloacina_api_types::DEFAULT_AGENT_POOL),
+            &crate::agent_registry::FleetLoad::new(),
         )
         .expect("selection must see the other replica's agent");
         assert_eq!(chosen.agent_id, agent_id);
@@ -3759,6 +4037,216 @@ mod tests {
             items.iter().any(|g| g["name"] == "t0916_crash_graph"),
             "the crashed graph must remain visible via /v1/health/graphs: {body}"
         );
+    }
+
+    /// CLOACINA-T-1053: on a server a graph of the `public` tenant carries the
+    /// tenant `public`, and "no tenant" on a key grants nothing.
+    ///
+    /// - A graph with no tenant is refused at load.
+    /// - A key of another tenant and a key with no tenant that is not an admin
+    ///   (an OIDC `_` rule) do not see the `public` graph, and cannot inject
+    ///   into or fire it.
+    /// - The key with no tenant still reads `whoami`.
+    /// - A `public` key and the admin key see the graph.
+    #[tokio::test]
+    #[serial]
+    async fn t1053_public_graph_is_closed_to_other_tenants_and_no_tenant_keys() {
+        use cloacina::computation_graph::reactor::{
+            CompiledGraphFn, InputStrategy, ReactionCriteria,
+        };
+        use cloacina::computation_graph::scheduler::{
+            AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
+            ComputationGraphDeclaration, ReactorDeclaration,
+        };
+        use cloacina::computation_graph::types::GraphResult;
+        use cloacina::computation_graph::{InputCache, SourceName};
+        use tokio::sync::{mpsc, watch};
+
+        /// An accumulator that reads its socket and emits nothing.
+        struct DrainFactory;
+        impl AccumulatorFactory for DrainFactory {
+            fn spawn(
+                &self,
+                _name: String,
+                _boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+                mut shutdown_rx: watch::Receiver<bool>,
+                _config: AccumulatorSpawnConfig,
+            ) -> (mpsc::Sender<Vec<u8>>, tokio::task::JoinHandle<()>) {
+                let (socket_tx, mut socket_rx) = mpsc::channel::<Vec<u8>>(64);
+                let handle = tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            changed = shutdown_rx.changed() => {
+                                if changed.is_err() || *shutdown_rx.borrow() {
+                                    break;
+                                }
+                            }
+                            event = socket_rx.recv() => {
+                                if event.is_none() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+                (socket_tx, handle)
+            }
+        }
+
+        fn decl(tenant: Option<&str>) -> ComputationGraphDeclaration {
+            let graph_fn: CompiledGraphFn =
+                Arc::new(|_cache: InputCache| Box::pin(async { GraphResult::completed(vec![]) }));
+            ComputationGraphDeclaration {
+                name: "t1053_public_graph".to_string(),
+                accumulators: vec![AccumulatorDeclaration {
+                    name: "t1053_public_acc".to_string(),
+                    factory: Arc::new(DrainFactory),
+                }],
+                reactor: ReactorDeclaration {
+                    criteria: ReactionCriteria::WhenAny,
+                    strategy: InputStrategy::Latest,
+                    graph_fn,
+                    constructor: None,
+                },
+                tenant_id: tenant.map(str::to_string),
+                reactor_name: Some("t1053_public_rx".to_string()),
+                topology: None,
+            }
+        }
+
+        // The registry and the scheduler as `run` builds them.
+        let mut state = test_state().await;
+        let registry = EndpointRegistry::requiring_tenants();
+        state.endpoint_registry = registry.clone();
+        state.graph_scheduler = Arc::new(ComputationGraphScheduler::new(registry.clone()));
+
+        let err = state
+            .graph_scheduler
+            .load_graph(decl(None))
+            .await
+            .expect_err("the server refuses a graph with no tenant");
+        assert!(err.contains("has no tenant"), "{err}");
+        state
+            .graph_scheduler
+            .load_graph(decl(Some("public")))
+            .await
+            .expect("the public graph loads");
+
+        let admin_key = create_test_api_key(&state).await;
+        let public_key = create_tenant_api_key(&state, "public", "admin").await;
+        let acme_key = create_tenant_api_key(&state, "t1053_acme", "admin").await;
+        // The key an OIDC `_` rule mints: no tenant, not a platform admin.
+        let no_tenant_key = {
+            let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+            cloacina::dal::DAL::new(state.database.clone())
+                .api_keys()
+                .create_key(&hash, "t1053-no-tenant", None, false, "admin")
+                .await
+                .expect("create the no-tenant key");
+            plaintext
+        };
+        let scheduler = state.graph_scheduler.clone();
+        let app = build_router(state);
+
+        let get = |uri: &str, key: &str| {
+            axum::http::Request::builder()
+                .uri(uri)
+                .header("Authorization", format!("Bearer {key}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let post = |uri: &str, key: &str, body: serde_json::Value| {
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Authorization", format!("Bearer {key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let names = |body: &serde_json::Value| -> Vec<String> {
+            body["items"]
+                .as_array()
+                .expect("items array")
+                .iter()
+                .filter_map(|i| i["name"].as_str().map(str::to_string))
+                .collect()
+        };
+
+        for (who, key) in [("another tenant", &acme_key), ("no tenant", &no_tenant_key)] {
+            for uri in [
+                "/v1/health/graphs",
+                "/v1/health/reactors",
+                "/v1/health/accumulators",
+            ] {
+                let (status, body) = send_request(app.clone(), get(uri, key)).await;
+                assert_eq!(status, StatusCode::OK, "{who}: GET {uri}: {body}");
+                assert!(
+                    !names(&body).iter().any(|n| n.starts_with("t1053_public_")),
+                    "{who}: GET {uri} must not list the public graph: {body}"
+                );
+            }
+            let (status, _) = send_request(
+                app.clone(),
+                get("/v1/health/graphs/t1053_public_graph", key),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{who}: graph detail");
+            let (status, _) = send_request(
+                app.clone(),
+                get("/v1/health/reactors/t1053_public_rx/fires", key),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{who}: reactor fires");
+
+            let (status, body) = send_request(
+                app.clone(),
+                post(
+                    "/v1/health/accumulators/t1053_public_acc/inject",
+                    key,
+                    serde_json::json!({ "event": { "v": 1 } }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{who}: inject: {body}");
+            let (status, body) = send_request(
+                app.clone(),
+                post(
+                    "/v1/health/reactors/t1053_public_rx/fire",
+                    key,
+                    serde_json::json!({ "mode": "force_fire" }),
+                ),
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{who}: fire: {body}");
+        }
+
+        // What the key with no tenant keeps: its own session routes.
+        let (status, body) =
+            send_request(app.clone(), get("/v1/auth/whoami", &no_tenant_key)).await;
+        assert_eq!(status, StatusCode::OK, "whoami: {body}");
+
+        // The public tenant's own key and the platform admin see the graph.
+        for (who, key) in [("public", &public_key), ("admin", &admin_key)] {
+            let (status, body) = send_request(app.clone(), get("/v1/health/graphs", key)).await;
+            assert_eq!(status, StatusCode::OK, "{who}: {body}");
+            assert!(
+                names(&body).contains(&"t1053_public_graph".to_string()),
+                "{who} must see the public graph: {body}"
+            );
+        }
+        let (status, body) = send_request(
+            app.clone(),
+            post(
+                "/v1/health/accumulators/t1053_public_acc/inject",
+                &public_key,
+                serde_json::json!({ "event": { "v": 1 } }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "public inject: {body}");
+
+        scheduler.shutdown_all().await;
     }
 
     #[tokio::test]
@@ -4810,19 +5298,69 @@ mod tests {
             .uri("/v1/auth/keys")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"name": "new-test-key"}"#))
+            .body(Body::from(r#"{"name": "new-test-key", "role": "read"}"#))
             .unwrap();
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::CREATED);
         assert!(body["key"].as_str().unwrap().starts_with("clk_"));
         assert_eq!(body["name"], "new-test-key");
+        assert_eq!(body["permissions"], "read");
+        assert_eq!(body["is_admin"], false);
         assert!(body["id"].as_str().is_some());
+    }
+
+    /// CLOACINA-T-1055: a key request with no role is refused with 400, on
+    /// both key routes. It made an `admin` key before. An unknown role is
+    /// refused the same way, and `agent` is a role a key can have.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_key_with_no_role_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        for (uri, body, want) in [
+            (
+                "/v1/auth/keys",
+                r#"{"name": "no-role"}"#,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/v1/tenants/public/keys",
+                r#"{"name": "no-role"}"#,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/v1/tenants/public/keys",
+                r#"{"name": "bad-role", "role": "owner"}"#,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/v1/tenants/public/keys",
+                r#"{"name": "an-agent", "role": "agent"}"#,
+                StatusCode::CREATED,
+            ),
+        ] {
+            let req = axum::http::Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            let (status, answer) = send_request(build_router(state.clone()), req).await;
+            assert_eq!(status, want, "{uri} {body}: {answer}");
+            if want == StatusCode::CREATED {
+                assert_eq!(answer["permissions"], "agent");
+            } else {
+                assert_eq!(answer["code"], "invalid_request");
+            }
+        }
     }
 
     #[tokio::test]
     #[serial]
-    async fn test_create_key_missing_name_returns_422() {
+    async fn test_create_key_missing_name_returns_400() {
         let state = test_state().await;
         let token = create_test_api_key(&state).await;
         let app = build_router(state);
@@ -4836,8 +5374,8 @@ mod tests {
             .unwrap();
 
         let (status, _) = send_request(app, req).await;
-        // axum returns 422 for deserialization failures
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        // A body that is not a key request is refused with 400.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -5754,7 +6292,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, "default"),
+            runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
         ));
 
         let schema_a = format!(
@@ -5965,8 +6503,8 @@ mod tests {
         (status, body)
     }
 
-    /// Two tenants and the public schema, each with one package, and a key of
-    /// each tenant.
+    /// Two tenants and the public schema, each with one package, and an `agent`
+    /// key of each tenant and of `public`.
     struct FetchTenants {
         state: AppState,
         admin_token: String,
@@ -5974,6 +6512,7 @@ mod tests {
         schema_b: String,
         key_a: String,
         key_b: String,
+        key_public: String,
         pkg_a: SeededFetchPackage,
         pkg_b: SeededFetchPackage,
         pkg_public: SeededFetchPackage,
@@ -6013,8 +6552,11 @@ mod tests {
         let pkg_b = seed_fetch_package(&db_b, "b").await;
         let pkg_public = seed_fetch_package(&state.database, "public").await;
 
-        let key_a = create_tenant_api_key(&state, &schema_a, "read").await;
-        let key_b = create_tenant_api_key(&state, &schema_b, "read").await;
+        // The fetch routes ask `agent.act`: only a key of role `agent` holds
+        // it (CLOACINA-T-1055).
+        let key_a = create_tenant_api_key(&state, &schema_a, "agent").await;
+        let key_b = create_tenant_api_key(&state, &schema_b, "agent").await;
+        let key_public = create_tenant_api_key(&state, "public", "agent").await;
 
         FetchTenants {
             state,
@@ -6023,6 +6565,7 @@ mod tests {
             schema_b,
             key_a,
             key_b,
+            key_public,
             pkg_a,
             pkg_b,
             pkg_public,
@@ -6092,7 +6635,8 @@ mod tests {
     /// CLOACINA-T-1016: a key of a named tenant gets its own package on all
     /// three routes. Before the fix the source and providers routes read the
     /// admin schema, so a named tenant's Python package could not be fetched.
-    /// The platform admin key still reads the public schema.
+    /// An agent key of the `public` tenant reads the public schema. The
+    /// platform admin key is not an agent (CLOACINA-T-1055): 403.
     #[tokio::test]
     #[serial]
     async fn agent_fetch_routes_serve_the_callers_own_tenant() {
@@ -6102,7 +6646,7 @@ mod tests {
         for (who, key, pkg) in [
             ("tenant A", &t.key_a, &t.pkg_a),
             ("tenant B", &t.key_b, &t.pkg_b),
-            ("platform admin", &t.admin_token, &t.pkg_public),
+            ("public", &t.key_public, &t.pkg_public),
         ] {
             let (status, body) =
                 agent_get(&t.state, key, &format!("/v1/agent/artifact/{}", pkg.digest)).await;
@@ -6133,15 +6677,29 @@ mod tests {
             );
         }
 
-        // The platform admin key reads the admin schema only: a tenant's
-        // digest is not there.
+        // A key of the `public` tenant reads the admin schema only: a
+        // tenant's digest is not there.
         let (status, _) = agent_get(
             &t.state,
-            &t.admin_token,
+            &t.key_public,
             &format!("/v1/agent/source/{}", t.pkg_a.digest),
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // The platform admin flag does not grant `agent.act`, and neither
+        // does a tenant's `read` key: no fetch, on any of the three routes.
+        let reader = create_tenant_api_key(&t.state, &t.schema_a, "read").await;
+        for route in AGENT_FETCH_ROUTES {
+            for (who, key, digest) in [
+                ("platform admin", &t.admin_token, &t.pkg_public.digest),
+                ("read key of tenant A", &reader, &t.pkg_a.digest),
+            ] {
+                let (status, _) =
+                    agent_get(&t.state, key, &format!("/v1/agent/{}/{}", route, digest)).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{}: {}", who, route);
+            }
+        }
 
         teardown_fetch_tenants(t).await;
     }
@@ -7004,6 +7562,7 @@ mod tests {
         signer
             .sign_package_with_db_key(
                 tf.path(),
+                org_id,
                 key_info.id,
                 &master_key,
                 /* store_signature= */ true,
@@ -7053,45 +7612,24 @@ mod tests {
         // accepted it (failure further downstream is out of scope here).
     }
 
-    // ── Security args validation (CLOACI-I-0103 / T-0567) ─────────────────
+    // ── Signature config of the tenant runners ────────────────────────────
 
+    /// CLOACINA-T-1037: the config of per-tenant runners carries the server's
+    /// signature requirement, as the admin runner's config does.
     #[test]
-    fn validate_security_args_default_passes() {
-        // Default config: no signature requirement, no org_id. Most common deployment.
-        assert!(validate_security_args(false, None).is_ok());
-    }
-
-    #[test]
-    fn validate_security_args_org_without_require_passes() {
-        // Configuring an org_id without enabling require_signatures is allowed
-        // (operator may want it pre-staged before flipping the flag).
-        let uuid = uuid::Uuid::new_v4();
-        assert!(validate_security_args(false, Some(&uuid)).is_ok());
-    }
-
-    #[test]
-    fn validate_security_args_require_with_org_passes() {
-        // The fully-configured opt-in posture.
-        let uuid = uuid::Uuid::new_v4();
-        assert!(validate_security_args(true, Some(&uuid)).is_ok());
-    }
-
-    #[test]
-    fn validate_security_args_require_without_org_fails() {
-        // The bad combo we want to catch at boot, not at first upload.
-        let result = validate_security_args(true, None);
-        let err = result.expect_err("expected validation failure");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("verification-org-id"),
-            "error must name the missing flag for the operator; got: {}",
-            msg
+    fn tenant_runner_config_carries_the_signature_requirement() {
+        let org = uuid::Uuid::new_v4();
+        let on =
+            runner_config_for_tenant_cache(None, "default", true, Some(org), Default::default());
+        assert!(on.require_signatures());
+        assert_eq!(
+            on.verification_org_id(),
+            Some(cloacina::UniversalUuid::from(org))
         );
-        assert!(
-            msg.contains("CLOACINA_VERIFICATION_ORG_ID"),
-            "error must also name the env var alternative; got: {}",
-            msg
-        );
+
+        let off = runner_config_for_tenant_cache(None, "default", false, None, Default::default());
+        assert!(!off.require_signatures());
+        assert_eq!(off.verification_org_id(), None);
     }
 
     /// CLOACI-T-0811: leader election via a Postgres advisory lock.
@@ -7322,7 +7860,7 @@ mod tests {
         );
     }
 
-    /// A key whose 15-minute TTL already lapsed cannot refresh: `require_auth`
+    /// A key whose 15-minute TTL already lapsed cannot refresh: the `guard` middleware
     /// rejects it before the handler runs. Sane, and the documented reason the
     /// SPA must refresh on a timer rather than on demand after idling.
     #[tokio::test]

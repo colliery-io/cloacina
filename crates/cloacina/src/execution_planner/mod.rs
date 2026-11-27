@@ -142,6 +142,19 @@ use crate::{Context, Database, Workflow};
 
 use scheduler_loop::SchedulerLoop;
 
+/// One task row the planner writes for a new workflow execution.
+struct PlannedTaskRow {
+    task_name: String,
+    trigger_rules: String,
+    task_config: String,
+    max_attempts: i32,
+    /// CLOACINA-T-1027: the task's agent pool (`None` = `default`) and its
+    /// requests, from `Task::placement()`.
+    pool: Option<String>,
+    cpu_request_millis: Option<i64>,
+    memory_request_bytes: Option<i64>,
+}
+
 /// The main Task Scheduler that manages workflow execution and task readiness.
 ///
 /// The TaskScheduler converts Workflow definitions into persistent database execution plans,
@@ -371,7 +384,7 @@ impl TaskScheduler {
 
         // Build all task data BEFORE the transaction
         let task_ids = workflow.topological_sort()?;
-        let mut task_data: Vec<(String, String, String, i32)> = Vec::with_capacity(task_ids.len());
+        let mut task_data: Vec<PlannedTaskRow> = Vec::with_capacity(task_ids.len());
 
         for task_id in &task_ids {
             let trigger_rules = self.get_task_trigger_rules(&workflow, task_id);
@@ -381,12 +394,23 @@ impl TaskScheduler {
                 .map(|t| t.retry_policy().max_attempts)
                 .unwrap_or(3);
 
-            task_data.push((
-                task_id.to_string(),
-                trigger_rules.to_string(),
-                task_config.to_string(),
+            // CLOACINA-T-1027: the task's agent pool and requests go on its
+            // row, so the fleet packs by them and the waiting gauges group
+            // by pool.
+            let placement = workflow
+                .get_task(task_id)
+                .map(|t| t.placement())
+                .unwrap_or_default();
+
+            task_data.push(PlannedTaskRow {
+                task_name: task_id.to_string(),
+                trigger_rules: trigger_rules.to_string(),
+                task_config: task_config.to_string(),
                 max_attempts,
-            ));
+                pool: placement.pool.clone(),
+                cpu_request_millis: placement.cpu_millis().and_then(|v| i64::try_from(v).ok()),
+                memory_request_bytes: placement.memory_bytes().and_then(|v| i64::try_from(v).ok()),
+            });
         }
 
         // Prepare workflow execution data
@@ -437,7 +461,7 @@ impl TaskScheduler {
         workflow_name: String,
         workflow_version: String,
         stored_context: Option<UniversalUuid>,
-        task_data: Vec<(String, String, String, i32)>,
+        task_data: Vec<PlannedTaskRow>,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -463,17 +487,20 @@ impl TaskScheduler {
                     .execute(conn)?;
 
                 // Insert all tasks
-                for (task_name, trigger_rules, task_config, max_attempts) in task_data {
+                for task in task_data {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
                             workflow_execution_id,
-                            task_name,
+                            task_name: task.task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
-                            max_attempts,
-                            trigger_rules,
-                            task_configuration: task_config,
+                            max_attempts: task.max_attempts,
+                            trigger_rules: task.trigger_rules,
+                            task_configuration: task.task_config,
+                            pool: task.pool,
+                            cpu_request_millis: task.cpu_request_millis,
+                            memory_request_bytes: task.memory_request_bytes,
                             created_at: now,
                             updated_at: now,
                         })
@@ -498,7 +525,7 @@ impl TaskScheduler {
         workflow_name: String,
         workflow_version: String,
         stored_context: Option<UniversalUuid>,
-        task_data: Vec<(String, String, String, i32)>,
+        task_data: Vec<PlannedTaskRow>,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -524,17 +551,20 @@ impl TaskScheduler {
                     .execute(conn)?;
 
                 // Insert all tasks
-                for (task_name, trigger_rules, task_config, max_attempts) in task_data {
+                for task in task_data {
                     diesel::insert_into(task_executions::table)
                         .values(&NewUnifiedTaskExecution {
                             id: UniversalUuid::new_v4(),
                             workflow_execution_id,
-                            task_name,
+                            task_name: task.task_name,
                             status: "NotStarted".to_string(),
                             attempt: 1,
-                            max_attempts,
-                            trigger_rules,
-                            task_configuration: task_config,
+                            max_attempts: task.max_attempts,
+                            trigger_rules: task.trigger_rules,
+                            task_configuration: task.task_config,
+                            pool: task.pool,
+                            cpu_request_millis: task.cpu_request_millis,
+                            memory_request_bytes: task.memory_request_bytes,
                             created_at: now,
                             updated_at: now,
                         })
@@ -634,5 +664,107 @@ impl TaskScheduler {
     ) -> serde_json::Value {
         // In the future, this could include task-specific configuration
         serde_json::json!({})
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod placement_row_tests {
+    //! CLOACINA-T-1027: the planner writes a task's agent pool and requests
+    //! on its row when it creates the rows of a workflow execution. The fleet
+    //! packs by the requests, and the waiting gauges group by the pool.
+
+    use super::*;
+    use crate::{Task, TaskError};
+    use cloacina_workflow::TaskPlacement;
+
+    struct PlacedStub {
+        id: String,
+        placement: TaskPlacement,
+    }
+
+    #[async_trait::async_trait]
+    impl Task for PlacedStub {
+        async fn execute(
+            &self,
+            context: Context<serde_json::Value>,
+        ) -> Result<Context<serde_json::Value>, TaskError> {
+            Ok(context)
+        }
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn dependencies(&self) -> &[TaskNamespace] {
+            &[]
+        }
+        fn placement(&self) -> TaskPlacement {
+            self.placement.clone()
+        }
+    }
+
+    fn stub(id: &str, placement: TaskPlacement) -> Arc<dyn Task> {
+        Arc::new(PlacedStub {
+            id: id.to_string(),
+            placement,
+        })
+    }
+
+    #[tokio::test]
+    async fn the_planner_writes_the_pool_and_requests_on_the_task_rows() {
+        let url = format!(
+            "file:placement_rows_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let database = Database::new(&url, "", 5);
+        database.run_migrations().await.expect("migrations");
+
+        let build = || {
+            Workflow::builder("placement_rows_workflow")
+                .add_task(stub(
+                    "big",
+                    TaskPlacement {
+                        pool: Some("large".to_string()),
+                        cpu: Some("500m".to_string()),
+                        memory: Some("32Gi".to_string()),
+                        inline: false,
+                    },
+                ))
+                .expect("add big")
+                .add_task(stub("plain", TaskPlacement::default()))
+                .expect("add plain")
+                .build()
+                .expect("build")
+        };
+        let runtime = Arc::new(Runtime::empty());
+        runtime.register_workflow("placement_rows_workflow".to_string(), build);
+
+        let scheduler =
+            TaskScheduler::with_poll_interval_sync(database.clone(), Duration::from_millis(100))
+                .with_runtime(runtime);
+        let execution_id = scheduler
+            .schedule_workflow_execution("placement_rows_workflow", Context::new())
+            .await
+            .expect("schedule");
+
+        let dal = DAL::new(database);
+        let rows = dal
+            .task_execution()
+            .get_all_tasks_for_workflow(UniversalUuid(execution_id))
+            .await
+            .expect("task rows");
+        assert_eq!(rows.len(), 2);
+        let row = |suffix: &str| {
+            rows.iter()
+                .find(|t| t.task_name.ends_with(suffix))
+                .unwrap_or_else(|| panic!("a row for {suffix}: {rows:?}"))
+        };
+        let big = row("::big");
+        assert_eq!(big.pool.as_deref(), Some("large"));
+        assert_eq!(big.cpu_request_millis, Some(500));
+        assert_eq!(big.memory_request_bytes, Some(32 << 30));
+        assert_eq!(big.fleet_agent_id, None);
+        let plain = row("::plain");
+        assert_eq!(plain.pool, None);
+        assert_eq!(plain.cpu_request_millis, None);
+        assert_eq!(plain.memory_request_bytes, None);
     }
 }

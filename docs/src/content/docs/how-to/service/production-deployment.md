@@ -177,19 +177,36 @@ Every workflow run writes rows that stay after it finishes: one
 started it, and per task one `task_executions` row, one
 `task_execution_metadata` row and one `contexts` row with the full context
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
-row. The server can remove them with a background retention job, once you set a period.
+row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
 | `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions and any event push still waiting in `delivery_outbox`. `0` = off. |
-| `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `3600` | A `delivery_outbox` row is deleted this long after its ack. `0` = off. |
+| `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
+
+Where to set them:
+
+- **Helm chart `cloacina-server`:** the values `retention.runHistoryDays`,
+  `retention.outboxAckedSeconds` and `retention.intervalSeconds`. The chart
+  defaults are the server's (`0`, `3600`, `300`), so an install keeps run
+  history for ever until you set `retention.runHistoryDays`.
+
+  ```sh
+  helm upgrade cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
+    --reuse-values --set retention.runHistoryDays=30
+  ```
+
+- **`cloacinactl server start`:** the same flags, the env vars, or the keys
+  `run_history_retention_days`, `outbox_acked_retention_s` and
+  `retention_interval_s` of `[server]` in `config.toml`.
 
 What to know:
 
 - **Only finished runs are deleted.** A run that is Pending, Running or Paused is never touched, however old. A context is deleted only when no remaining run or task references it.
 - **The delete is final.** After the period, `GET /v1/tenants/{tenant_id}/executions/{exec_id}` and the UI no longer show the run. If you must keep history longer (audit, compliance), raise the period or set it to `0`, or export before it expires.
-- **Run history is kept until you set a period.** `--run-history-retention-days` is `0` by default, so no run is deleted. When you set a period, the first passes remove every finished run older than it. Acked `delivery_outbox` rows are queue records, not history, and are cleared after an hour by default.
+- **Run history is kept until you set a period.** `--run-history-retention-days` is `0` by default, so no run is deleted. When you set a period, the first passes remove every finished run older than it.
+- **Acked outbox rows are kept until you set a period.** `--outbox-acked-retention-s` is `0` by default, so no acked `delivery_outbox` row is deleted and the table grows by one row for each message that its recipient acked: an execution event pushed to a subscriber, an alert, and on an agent fleet each task dispatch, whose row holds the task's context. These rows are queue records, not history. `3600` deletes each one an hour after its ack.
 - **Per tenant.** Each pass covers the admin (`public`) schema and every tenant schema, with the same periods.
 - **One replica at a time.** Each pass is gated on a Postgres advisory lock, so replicas do not work in parallel.
 - **Bounded work.** A pass removes at most 5,000 runs and 100,000 acked outbox rows per schema; a backlog drains over the next passes. Postgres reuses the freed space after autovacuum; the files on disk do not shrink without `VACUUM FULL`.
@@ -214,13 +231,15 @@ upgrade like this:
 
 1. **Back up the database first.** Run a fresh backup ([Back Up and Restore](../backup-and-restore/)) so you can roll back if a migration misbehaves.
 2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.12.0`), never `:latest`, so the rollout is reproducible.
-3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed.
+3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed. The start migrates the `public` schema and then the schema of each tenant, one after the other. A new tenant's schema gets its migrations when the tenant is created. The pending migrations of one schema run in one transaction under a PostgreSQL advisory lock: replicas that start together run them once (the others wait, then find nothing to do), and a migration that fails rolls back all of that schema's pending migrations and leaves the schema as it was. If a tenant's schema fails, the server goes on to the other tenants, logs each failure with the tenant's name, and then exits with an error that names every tenant that failed; the schemas that did migrate stay migrated. Fix the named schema and start the server again. A tenant schema with nothing pending costs one short transaction at start.
 4. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
 
 **Downtime note:** a single-replica server has a brief gap between stop and ready.
 For zero-downtime, run multiple replicas against one PostgreSQL database (see
 [Horizontal Scaling](../../../explanation/service/horizontal-scaling/)) and
 roll them one at a time behind the proxy.
+
+**Upgrade note, cron schedules:** migration 060 adds a unique index on cron schedules: one schedule per workflow, cron expression and timezone (named instances are not in it). Where a schema holds the same schedule more than once, the migration keeps the row with the latest `last_run_at`, moves the fire records (`schedule_executions`) of the other rows to it with one record per fire time, and deletes the other rows. Run history (`workflow_executions`) is not changed.
 
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore

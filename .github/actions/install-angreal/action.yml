@@ -1,0 +1,23 @@
+---
+# Installs angreal with pip, from outside the checkout (CLOACINA-T-1102).
+#
+# pip runs `rustc --version` with a 0.5 second timeout to fill its
+# User-Agent. On a runner `rustc` is the rustup proxy. Inside the checkout
+# the proxy reads rust-toolchain.toml and starts to install that toolchain;
+# pip kills it half way. The next "Set up Rust" step then fails with
+# "failed to install component: 'clippy-preview-...', detected conflict:
+# 'bin/cargo-clippy'". Outside the checkout the proxy installs nothing.
+#
+# Any other pip call that runs in the checkout before the first cargo call
+# of a job needs the same working directory.
+name: Install angreal
+description: Install angreal with pip, outside the checkout
+runs:
+  using: composite
+  steps:
+    - name: Install angreal
+      shell: bash
+      working-directory: ${{ runner.temp }}
+      run: |
+        python -m pip install --upgrade pip
+        pip install angreal

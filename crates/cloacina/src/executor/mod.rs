@@ -45,6 +45,8 @@
 //! All components are thread-safe and can be used in concurrent environments.
 
 pub mod context_builder;
+/// Size limits on a task context (CLOACINA-T-1047).
+pub mod context_size;
 /// Slot access for packaged tasks that defer (CLOACI-T-0897).
 pub(crate) mod deferral_registry;
 /// The engine's `CloacinaHost` implementation — services packaged
@@ -58,6 +60,7 @@ pub mod types;
 pub mod workflow_executor;
 
 pub use context_builder::TaskContextBuilder;
+pub use context_size::{ContextKind, ContextSizeLimits};
 pub use result_handler::TaskResultHandler;
 
 pub use host_impl::EngineHost;

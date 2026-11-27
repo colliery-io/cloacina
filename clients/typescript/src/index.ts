@@ -17,6 +17,7 @@
 export {
   CloacinaApiError,
   CloacinaClient,
+  type AddTrustedKeyBody,
   type AuditEvent,
   type AuditListResponse,
   type CloacinaClientOptions,
@@ -28,6 +29,8 @@ export {
   type schemas,
   type SecretListResponse,
   type SecretMetadata,
+  type TrustedKey,
+  type TrustedKeyListResponse,
 } from "./client.js";
 
 export {

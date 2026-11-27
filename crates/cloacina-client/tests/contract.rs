@@ -291,6 +291,57 @@ async fn full_rest_surface_contract() {
     assert_eq!(deleted_secret.status, "deleted");
     assert_eq!(deleted_secret.name, secret_name);
 
+    // ---- trusted keys of package signing (CLOACINA-T-1061) ----
+    // 32 bytes no other run has, as 64 hexadecimal characters.
+    let public_key = format!(
+        "{:064x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let added_key = client
+        .add_trusted_key(
+            &types::AddTrustedKeyRequest {
+                name: Some("rs-contract-key".to_string()),
+                public_key: Some(public_key.clone()),
+                public_key_pem: None,
+            },
+            None,
+        )
+        .await
+        .expect("add_trusted_key");
+    assert_eq!(added_key.name.as_deref(), Some("rs-contract-key"));
+    assert_eq!(added_key.fingerprint.len(), 64);
+    assert!(!added_key.revoked);
+
+    let trusted = client
+        .list_trusted_keys(None)
+        .await
+        .expect("list_trusted_keys");
+    assert!(trusted.items.iter().any(|k| k.id == added_key.id));
+
+    let revoked_key = client
+        .revoke_trusted_key(&added_key.id, None)
+        .await
+        .expect("revoke_trusted_key");
+    assert_eq!(revoked_key.status, "revoked");
+    assert_eq!(revoked_key.id, added_key.id);
+
+    let trusted = client
+        .list_trusted_keys(None)
+        .await
+        .expect("list_trusted_keys");
+    assert!(
+        trusted
+            .items
+            .iter()
+            .any(|k| k.id == added_key.id && k.revoked)
+    );
+
+    let missing_key = client.revoke_trusted_key(RANDOM_UUID, None).await;
+    assert!(matches!(missing_key, Err(ClientError::NotFound(_))));
+
     // ---- agent pools (CLOACINA-T-1021) ----
     let pool_name = "rs-contract".to_string();
     // Every tenant has the pool `default`.

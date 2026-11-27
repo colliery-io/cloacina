@@ -104,6 +104,8 @@ Cloacina deliberately uses all three observability surfaces because each is good
 - **Structured logs** answer "what happened to *this specific* request / task / firing" with full context. Cloacina emits logs with `request_id` spans so the operator can pivot from a metric anomaly to the request that drove it. JSON-formatted, daily-rotated, retention controlled by `--log-retention-days` (CLOACI-I-0109).
 - **Traces** answer "what was the critical path" across the request → DAL → scheduler → executor chain. Cloacina ships an OpenTelemetry layer that activates only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; no overhead when disabled. Spans cover the same boundaries that the `request_id_middleware` log spans do, so logs and traces share IDs.
 
+Task output is not stored. A task's `print` and `println!` go to the log of the process that ran it; the server keeps the task's last error and, for a failed Python task, its traceback. Each log line that an agent or the server writes while a task runs carries the tenant, workflow, run id, task and attempt, and the server can link each task in the web UI to your log stack. See [Find a Task's Logs](../../../how-to/service/find-a-tasks-logs/).
+
 When to reach for which:
 
 - **A metric is firing**: start in dashboards, narrow to the affected dimension via metric labels.

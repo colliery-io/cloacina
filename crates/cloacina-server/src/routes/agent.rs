@@ -34,11 +34,12 @@ use axum::response::{IntoResponse, Response};
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, EphemeralKeyEntry,
-    host_target_triple,
+    AgentRegisterResponse, AgentResultRequest, AgentResultResponse, AgentUndecodableRequest,
+    AgentUndecodableResponse, EphemeralKeyEntry, host_target_triple,
 };
 use cloacina::security::ServerKeyPool;
-use tracing::{debug, info};
+use cloacina::security::ownership::{AgentOwner, Principal, Refusal};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use cloacina::dal::unified::FleetAgentRegistration;
@@ -70,36 +71,57 @@ fn require_protocol_version(version: u32) -> Result<(), ApiError> {
     }
 }
 
-/// CLOACI-T-0785: reject an agent-protocol call whose caller key is not in the
-/// agent's tenant. God-mode (`is_admin`) bypasses. Unknown agents fall through
-/// (the handler's own not-found / orphan handling applies). Dispatch-time
-/// isolation already holds (`fleet_executor` only selects same-tenant agents);
-/// this closes the inbound `heartbeat`/`result` endpoints, which previously
-/// ignored the caller's tenant entirely. CLOACI-T-0916: the tenant is read
-/// from the DB-backed roster, so the guard holds no matter which replica
-/// handled the agent's registration.
-async fn reject_cross_tenant_agent(
+/// The caller key as the ownership rules see it
+/// ([`cloacina::security::ownership`]).
+pub(crate) fn principal_of(auth: &AuthenticatedKey) -> Principal {
+    Principal {
+        key_id: auth.key_id,
+        tenant_id: auth.tenant_id.clone(),
+        is_admin: auth.is_admin,
+    }
+}
+
+/// Refuse an agent-protocol call unless the caller key holds the agent
+/// (CLOACINA-T-1050, CLOACINA-T-1051; the rule is
+/// [`Principal::may_act_as_agent`]). Returns the roster row's owner.
+///
+/// - No row has the id: 404 `agent_not_registered`. The agent registers
+///   again.
+/// - The row is in another tenant, or another key holds it: 403
+///   `agent_access_denied`, one answer for both.
+///
+/// A platform admin key gets no bypass. The row is read from the DB-backed
+/// roster (CLOACI-T-0916), so the answer is the same on every replica.
+async fn require_agent_owner(
     state: &AppState,
     auth: &AuthenticatedKey,
     agent_id: &str,
-) -> Result<(), ApiError> {
-    if auth.is_admin {
-        return Ok(());
-    }
-    let agent_tenant = state
+) -> Result<AgentOwner, ApiError> {
+    let row = state
         .agent_registry
-        .agent_tenant(agent_id)
+        .agent_owner(agent_id)
         .await
         .map_err(|e| ApiError::internal_logged("agent roster lookup failed", &e))?;
-    if let Some(agent_tenant) = agent_tenant {
-        if agent_tenant != auth.tenant_id {
-            return Err(ApiError::forbidden(
-                "tenant_access_denied",
-                "agent belongs to a different tenant",
-            ));
+    match (principal_of(auth).may_act_as_agent(row.as_ref()), row) {
+        (Ok(()), Some(row)) => Ok(row),
+        (Err(Refusal::UnknownAgent), _) | (Ok(()), None) => Err(ApiError::not_found(
+            "agent_not_registered",
+            format!("agent not registered: {} (re-register)", agent_id),
+        )),
+        (Err(why), _) => {
+            warn!(
+                agent_id = %agent_id,
+                api_key = %auth.name,
+                tenant = ?auth.tenant_id,
+                reason = %why,
+                "agent call refused: the key does not hold this agent"
+            );
+            Err(ApiError::forbidden(
+                "agent_access_denied",
+                "this key does not hold the agent",
+            ))
         }
     }
-    Ok(())
 }
 
 /// `POST /v1/agent/register`
@@ -119,7 +141,8 @@ pub async fn register_agent(
     // agent's advertised entries. A pre-pool agent that sent only the single
     // `ephemeral_public_key` is accommodated by synthesizing one pool entry so
     // one secret-bearing dispatch can still be served; a modern agent sends a
-    // full pool. Re-registration overwrites the record (and its pool) wholesale.
+    // full pool. A register by the key that holds the id overwrites the
+    // record (and its pool) wholesale.
     let mut pool_entries = req.ephemeral_key_pool.clone();
     if pool_entries.is_empty() {
         if let Some(pk) = req.ephemeral_public_key.clone() {
@@ -133,20 +156,45 @@ pub async fn register_agent(
 
     // CLOACI-T-0916: the roster row is DB-backed (visible to every replica);
     // the one-time key pool is seeded on THIS replica (see agent_registry.rs).
-    state
+    //
+    // CLOACINA-T-1051: the row gets the tenant of the key and the key as its
+    // owner. An id the server assigned is new. An id the caller chose is
+    // checked in the same transaction as the write: a register for an id
+    // that another tenant or another key holds is refused, and the holder's
+    // row and key pool stay as they are.
+    let registered = state
         .agent_registry
         .register(
             FleetAgentRegistration {
                 agent_id: agent_id.clone(),
-                tenant_id: auth.tenant_id.clone(),
                 target_triple: req.target_triple.clone(),
                 capabilities: req.capabilities.clone(),
                 max_concurrency: req.max_concurrency,
+                // CLOACINA-T-1027: the agent's totals, when it reports them.
+                cpu_millis: req.cpu_millis,
+                memory_bytes: req.memory_bytes,
             },
             ServerKeyPool::from_entries(pool_entries),
+            &principal_of(&auth),
         )
         .await
         .map_err(|e| ApiError::internal_logged("agent registration persist failed", &e))?;
+    if let Err(why) = registered {
+        warn!(
+            agent_id = %agent_id,
+            api_key = %auth.name,
+            tenant = ?auth.tenant_id,
+            reason = %why,
+            "agent register refused: another key holds this agent id"
+        );
+        return Err(ApiError::conflict(
+            "agent_id_taken",
+            format!(
+                "agent id {agent_id} is held by another key; register with the key that holds \
+                 it, or with no agent_id to get a new one"
+            ),
+        ));
+    }
 
     info!(
         agent_id = %agent_id,
@@ -175,7 +223,7 @@ pub async fn heartbeat_agent(
     Json(req): Json<AgentHeartbeatRequest>,
 ) -> Result<Json<AgentHeartbeatResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
+    require_agent_owner(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0916: heartbeat lands in the DB-backed roster, so it succeeds
     // no matter which replica handled the registration (no more "not
@@ -194,7 +242,10 @@ pub async fn heartbeat_agent(
     // CLOACINA-T-1011 — renew the lease of the work packets the agent says it
     // still works on, so the delivery sweeper does not push them again. Best
     // effort: on a failure the sweeper pushes again and the agent ignores the
-    // re-push of a packet it has in work.
+    // re-push of a packet it has in work. The renewal names the rows by id;
+    // `renew_delivered` touches only the rows addressed to this agent, and
+    // the caller holds this agent (checked above), so one agent cannot renew
+    // the rows of another (CLOACINA-T-1052).
     if !req.in_flight_push_ids.is_empty() {
         let recipient = format!(
             "{}{}",
@@ -228,29 +279,18 @@ pub async fn heartbeat_agent(
 ///
 /// The agent appends fresh [`EphemeralKeyEntry`]s to its server-side pool, either
 /// in response to the heartbeat replenish signal or proactively. De-duped by
-/// `key_id`; an unknown agent is rejected (it should re-register).
+/// `key_id`. An unknown agent is rejected (it should re-register), and so is
+/// a key that does not hold the agent: the keys are what the server wraps
+/// the agent's secrets to.
 pub async fn replenish_keys(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Json(req): Json<AgentKeyReplenishRequest>,
 ) -> Result<Json<AgentKeyReplenishResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
-
     // CLOACI-T-0916: registration is checked against the DB-backed roster (any
     // replica); the keys themselves land in THIS replica's local pool.
-    let registered = state
-        .agent_registry
-        .agent_tenant(&req.agent_id)
-        .await
-        .map_err(|e| ApiError::internal_logged("agent roster lookup failed", &e))?
-        .is_some();
-    if !registered {
-        return Err(ApiError::not_found(
-            "agent_not_registered",
-            format!("agent not registered: {} (re-register)", req.agent_id),
-        ));
-    }
+    require_agent_owner(&state, &auth, &req.agent_id).await?;
     let accepted = state
         .agent_registry
         .replenish_secret_keys(&req.agent_id, req.keys);
@@ -272,35 +312,24 @@ pub async fn replenish_keys(
 /// retry, or a report whose replica stopped) changes no state. A report that
 /// can be neither forwarded nor stored is answered with a 5xx, so the agent
 /// sends it again.
+///
+/// CLOACINA-T-1050: the caller key must hold the agent the report names (an
+/// unknown agent id is a 404, another key's agent a 403). The wait then takes
+/// the report only if it comes from the tenant and the agent its packet went
+/// to, with the dispatch id of the packet
+/// ([`cloacina::security::ownership::DispatchTarget::check_report`]).
 pub async fn report_result(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
     Json(req): Json<AgentResultRequest>,
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
-    reject_cross_tenant_agent(&state, &auth, &req.agent_id).await?;
+    let agent_row = require_agent_owner(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
     // since the fleet only dispatches to agents with a runnable arch. Log it at
     // debug so the backstop stays quiet; real results (success/failure) stay at info.
-    if matches!(req.outcome, AgentOutcome::Refused { .. }) {
-        debug!(
-            agent_id = %req.agent_id,
-            task_id = %req.task_execution_id,
-            attempt = req.attempt,
-            outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
-            "agent reported result (refused — fail-closed guard)"
-        );
-    } else {
-        info!(
-            agent_id = %req.agent_id,
-            task_id = %req.task_execution_id,
-            attempt = req.attempt,
-            duration_ms = req.duration_ms,
-            outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
-            "agent reported result"
-        );
-    }
+    log_reported_result(&req);
 
     // The task_execution_id arrives from the wire as a string; the
     // coordinator's key is a `UniversalUuid` to match what the FleetExecutor
@@ -330,8 +359,20 @@ pub async fn report_result(
     let dispatch_id = req.dispatch_id.clone();
     let duration_ms = req.duration_ms;
     let inbox = cloacina::dal::DAL::new(state.database.clone());
-    match state.fleet_coordinator.accept(&inbox, task_id, req).await {
+    // The report goes on with the tenant of the agent row the key was checked
+    // against. A stored report keeps it, so the replica that takes it runs
+    // the same check.
+    let checked = crate::fleet_coordinator::CheckedReport::new(&agent_row, req);
+    match state
+        .fleet_coordinator
+        .accept(&inbox, task_id, checked)
+        .await
+    {
         Ok(crate::fleet_coordinator::Accepted::Local) => {}
+        // A wait here is for this dispatch and the sender is not the agent
+        // it went to. The coordinator logged and counted it; no state
+        // changed. The answer is the one an orphan gets.
+        Ok(crate::fleet_coordinator::Accepted::Refused(_)) => {}
         Ok(crate::fleet_coordinator::Accepted::Stored) => {
             tracing::info!(
                 task_id = %task_id,
@@ -351,6 +392,63 @@ pub async fn report_result(
     }
 
     Ok(Json(AgentResultResponse {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+    }))
+}
+
+/// `POST /v1/agent/undecodable` (CLOACINA-T-1058)
+///
+/// An agent got a push that it cannot decode. It has no task id, so it names
+/// the push by its delivery-outbox id. The server reads its own row, and the
+/// dispatch of that packet ends with a failure that names a likely version
+/// mismatch: the task's retry policy decides the next run, a graph firing
+/// ends with the error
+/// ([`crate::fleet_coordinator::fail_undecodable_packet`]).
+///
+/// The caller key must hold the agent (as for a result), and the row must be
+/// addressed to that agent in its tenant (as for an ack). A row of another
+/// recipient or tenant and an unknown row id get the same 404
+/// `delivery_row_not_found`, and nothing changes. A 5xx makes the agent send
+/// the message again.
+pub async fn report_undecodable(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Json(req): Json<AgentUndecodableRequest>,
+) -> Result<Json<AgentUndecodableResponse>, ApiError> {
+    use crate::fleet_coordinator::Undecodable;
+
+    require_protocol_version(req.protocol_version)?;
+    let agent_row = require_agent_owner(&state, &auth, &req.agent_id).await?;
+    let db = cloacina::dal::DAL::new(state.database.clone());
+    match crate::fleet_coordinator::fail_undecodable_packet(
+        &state.fleet_coordinator,
+        &db,
+        &agent_row,
+        &req,
+    )
+    .await
+    {
+        Ok(Undecodable::Failed(_)) | Ok(Undecodable::AlreadyAcked) => {}
+        Ok(Undecodable::NoRow) | Ok(Undecodable::NotOwned) => {
+            return Err(ApiError::not_found(
+                "delivery_row_not_found",
+                format!("no delivery row {} of this agent", req.push_id),
+            ));
+        }
+        Ok(Undecodable::NotAPacket) => {
+            return Err(ApiError::bad_request(
+                "not_a_work_packet",
+                format!("delivery row {} holds no work packet", req.push_id),
+            ));
+        }
+        Err(e) => {
+            return Err(ApiError::internal_logged(
+                "undecodable-packet message not accepted",
+                &e,
+            ));
+        }
+    }
+    Ok(Json(AgentUndecodableResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
     }))
 }
@@ -452,6 +550,61 @@ pub async fn fetch_source(
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
         .body(Body::from(bytes))
         .map_err(|e| ApiError::internal_logged("build source response", &e))?;
+    Ok(resp)
+}
+
+/// `GET /v1/agent/python-vendor/{digest}?platform=<arch>-<os>` — the
+/// dependencies the compiler vendored for the Python package whose active
+/// build has `content_hash == digest`, for the agent's platform
+/// (CLOACINA-T-1073). The body is the archive the agent's loader unpacks into
+/// `vendor/<platform>/`.
+///
+/// 204: the package has no vendored set for this platform (it ships its own
+/// `vendor/` folder, has no dependencies, or the compiler did not vendor for
+/// this platform). 404: no such package for the caller's tenant. Reads the
+/// caller's tenant, as `fetch_artifact` does.
+pub async fn fetch_python_vendor(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(digest): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Response, ApiError> {
+    let Some(platform) = params.get("platform").filter(|p| !p.is_empty()) else {
+        return Err(ApiError::bad_request(
+            "platform_required",
+            "give the agent's platform: ?platform=<arch>-<os>",
+        ));
+    };
+
+    let dal = cloacina::dal::DAL::new(caller_package_db(&state, &auth).await?);
+    let Some((package_name, version)) = dal
+        .workflow_packages()
+        .get_package_name_version_by_content_hash(&digest)
+        .await
+        .map_err(|e| ApiError::internal_logged("python vendor lookup failed", &e))?
+    else {
+        return Err(ApiError::not_found(
+            "package_not_found",
+            format!("no successfully-built package with digest {}", digest),
+        ));
+    };
+
+    let bytes = dal
+        .workflow_packages()
+        .get_python_vendor_artifact(&package_name, &version, platform)
+        .await
+        .map_err(|e| ApiError::internal_logged("python vendor lookup failed", &e))?;
+
+    let resp = match bytes {
+        Some(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(Body::from(bytes)),
+        None => Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(Body::empty()),
+    }
+    .map_err(|e| ApiError::internal_logged("build python vendor response", &e))?;
     Ok(resp)
 }
 
@@ -572,6 +725,55 @@ pub async fn list_agents(
     Json(cloacina_api_types::common::ListResponse::new(agents)).into_response()
 }
 
+/// The log lines of a reported result (CLOACINA-T-1072).
+///
+/// Info (debug for a refusal) names the report: the agent, the task, the
+/// attempt, the kind of outcome and the size of its payload. The context of a
+/// success and the message of a failure or a refusal are task data: they are
+/// in the trace line only, which an operator must turn on.
+fn log_reported_result(req: &AgentResultRequest) {
+    let (kind, payload_bytes) = match &req.outcome {
+        AgentOutcome::Success { context } => (
+            "success".to_string(),
+            serde_json::to_string(context).map(|s| s.len()).unwrap_or(0),
+        ),
+        AgentOutcome::Failure {
+            message,
+            classification,
+        } => (format!("failure({classification:?})"), message.len()),
+        AgentOutcome::Refused { reason, message } => {
+            (format!("refused({reason:?})"), message.len())
+        }
+    };
+    if matches!(req.outcome, AgentOutcome::Refused { .. }) {
+        debug!(
+            agent_id = %req.agent_id,
+            task_id = %req.task_execution_id,
+            attempt = req.attempt,
+            outcome = %kind,
+            payload_bytes,
+            "agent reported result (refused — fail-closed guard)"
+        );
+    } else {
+        info!(
+            agent_id = %req.agent_id,
+            task_id = %req.task_execution_id,
+            attempt = req.attempt,
+            duration_ms = req.duration_ms,
+            outcome = %kind,
+            payload_bytes,
+            "agent reported result"
+        );
+    }
+    tracing::trace!(
+        agent_id = %req.agent_id,
+        task_id = %req.task_execution_id,
+        attempt = req.attempt,
+        outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
+        "agent reported result: the full outcome (task data)"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,5 +791,144 @@ mod tests {
     fn require_protocol_version_accepts_current() {
         assert!(require_protocol_version(AGENT_PROTOCOL_VERSION).is_ok());
         assert!(require_protocol_version(AGENT_PROTOCOL_VERSION + 1).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1072: the log of a reported result holds no task data below
+    // trace.
+    // -----------------------------------------------------------------------
+
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone)]
+    struct StringWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for StringWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for StringWriter {
+        type Writer = StringWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// What `log_reported_result` writes for `req` with the log at `level`.
+    fn logged(level: tracing::Level, req: &AgentResultRequest) -> String {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(StringWriter(buffer.clone()))
+            .with_ansi(false)
+            .with_max_level(level)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || log_reported_result(req));
+        let bytes = buffer.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    fn report(outcome: AgentOutcome) -> AgentResultRequest {
+        AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: "agent-t1072".into(),
+            task_execution_id: "7f0c1a52-0000-4000-8000-000000001072".into(),
+            attempt: 2,
+            dispatch_id: None,
+            duration_ms: 41,
+            outcome,
+        }
+    }
+
+    fn success() -> AgentResultRequest {
+        report(AgentOutcome::Success {
+            context: serde_json::json!({ "customer_note": "value-from-the-task-context" }),
+        })
+    }
+
+    fn failure() -> AgentResultRequest {
+        report(AgentOutcome::Failure {
+            message: "row for robin has text-from-the-task-error".into(),
+            classification: cloacina::fleet::FailureClassification::TaskError,
+        })
+    }
+
+    fn refusal() -> AgentResultRequest {
+        report(AgentOutcome::Refused {
+            reason: cloacina::fleet::RefusalReason::ArtifactFetchFailed,
+            message: "text-from-the-refusal".into(),
+        })
+    }
+
+    #[test]
+    fn the_info_log_of_a_success_names_the_report_and_holds_no_context() {
+        let out = logged(tracing::Level::INFO, &success());
+        assert!(out.contains("agent reported result"), "{out}");
+        assert!(out.contains("agent-t1072"), "{out}");
+        assert!(
+            out.contains("7f0c1a52-0000-4000-8000-000000001072"),
+            "{out}"
+        );
+        assert!(out.contains("attempt=2"), "{out}");
+        assert!(out.contains("duration_ms=41"), "{out}");
+        assert!(out.contains("outcome=success"), "{out}");
+        // The JSON of the context is 47 bytes.
+        assert!(out.contains("payload_bytes=47"), "{out}");
+        assert!(
+            !out.contains("value-from-the-task-context"),
+            "the info log holds a value of the task context: {out}"
+        );
+        assert!(
+            !out.contains("customer_note"),
+            "the info log holds a key of the task context: {out}"
+        );
+    }
+
+    #[test]
+    fn the_info_log_of_a_failure_names_the_kind_and_holds_no_message() {
+        let out = logged(tracing::Level::INFO, &failure());
+        assert!(out.contains("agent reported result"), "{out}");
+        assert!(out.contains("outcome=failure(TaskError)"), "{out}");
+        assert!(
+            !out.contains("text-from-the-task-error"),
+            "the info log holds the error message of the task: {out}"
+        );
+    }
+
+    /// `--verbose` is debug: it shows a refusal, and still no task data.
+    #[test]
+    fn the_debug_log_holds_no_task_data() {
+        for req in [success(), failure(), refusal()] {
+            let out = logged(tracing::Level::DEBUG, &req);
+            assert!(out.contains("agent reported result"), "{out}");
+            for data in [
+                "value-from-the-task-context",
+                "text-from-the-task-error",
+                "text-from-the-refusal",
+            ] {
+                assert!(!out.contains(data), "the debug log holds {data}: {out}");
+            }
+        }
+        let out = logged(tracing::Level::DEBUG, &refusal());
+        assert!(
+            out.contains("outcome=refused(ArtifactFetchFailed)"),
+            "{out}"
+        );
+        // A refusal is not in the info log.
+        assert_eq!(logged(tracing::Level::INFO, &refusal()), "");
+    }
+
+    /// Trace is the one level with the full outcome.
+    #[test]
+    fn the_trace_log_holds_the_full_outcome() {
+        assert!(logged(tracing::Level::TRACE, &success()).contains("value-from-the-task-context"));
+        assert!(logged(tracing::Level::TRACE, &failure()).contains("text-from-the-task-error"));
+        assert!(logged(tracing::Level::TRACE, &refusal()).contains("text-from-the-refusal"));
     }
 }

@@ -36,6 +36,7 @@ fn role_of(s: &str) -> KeyRole {
     match s {
         "write" => KeyRole::Write,
         "admin" => KeyRole::Admin,
+        "agent" => KeyRole::Agent,
         _ => KeyRole::Read,
     }
 }
@@ -213,7 +214,12 @@ pub fn Keys() -> impl IntoView {
                     <TextInput label="Name" placeholder="ci-deploy" value=name />
                     <Select
                         label="Role"
-                        options=vec!["read".to_string(), "write".to_string(), "admin".to_string()]
+                        options=vec![
+                            "read".to_string(),
+                            "write".to_string(),
+                            "admin".to_string(),
+                            "agent".to_string(),
+                        ]
                         value=role
                     />
                     <Show when=move || !error.get().is_empty()>

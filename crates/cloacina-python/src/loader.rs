@@ -265,6 +265,18 @@ pub fn import_and_register_python_workflow_named(
             // 1. Ensure cloaca module is available
             ensure_cloaca_module(py)?;
 
+            // 1b. CLOACINA-T-1048: a module of this package's vendor folder
+            //     that a package loaded before provides at another version
+            //     fails the load, before anything of this package goes on
+            //     sys.path.
+            if vendor_dir.exists() {
+                crate::vendor_conflicts::check_and_register(
+                    py,
+                    &crate::vendor_conflicts::owner_label(Some(tenant_id.as_str()), &package_name),
+                    &vendor_dir,
+                )?;
+            }
+
             // 2. Add paths to sys.path (append, not insert — avoid shadowing stdlib)
             let sys = py.import("sys")?;
             let path = sys.getattr("path")?;
@@ -495,6 +507,10 @@ pub fn import_python_computation_graph(
     // CLOACI-T-0921: whose import this is, stamped onto every registration.
     let registration_scope =
         crate::registration_scope::RegistrationScope::new(tenant_id, package_name);
+    let vendor_owner = crate::vendor_conflicts::owner_label(
+        tenant_id,
+        package_name.unwrap_or(graph_name.as_str()),
+    );
     let timeout = import_timeout();
 
     // CLOACI-T-0919: same import-hang ladder as the workflow path.
@@ -513,6 +529,11 @@ pub fn import_python_computation_graph(
         Python::attach(|py| {
             thread_ident.record(py);
             ensure_cloaca_module(py)?;
+
+            // CLOACINA-T-1048: the same conflict rule as the workflow path.
+            if vendor_dir.exists() {
+                crate::vendor_conflicts::check_and_register(py, &vendor_owner, &vendor_dir)?;
+            }
 
             let sys = py.import("sys")?;
             let path = sys.getattr("path")?;

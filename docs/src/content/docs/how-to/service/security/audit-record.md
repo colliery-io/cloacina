@@ -57,7 +57,7 @@ A `read` or `write` key cannot read the audit record.
 | `actor_key_name` | Name of that key. |
 | `actor_identity` | Who the key was minted for at login: `oidc:<issuer>:<sub>` or `local:<account_id>`. `null` for a manually created key. |
 | `action` | One of the fixed strings below. |
-| `target_kind` | What the action applied to: `package`, `workflow`, `trigger`, `instance`, `key`, `tenant`, `secret`, `fleet`, `limit`, `pool`, `account`. |
+| `target_kind` | What the action applied to: `package`, `workflow`, `trigger`, `instance`, `key`, `tenant`, `secret`, `trusted_key`, `fleet`, `limit`, `pool`, `account`. |
 | `target` | Name or id of the target. `null` on a `denied` row. |
 | `outcome` | `ok`, or `denied` when authorization refused the request. |
 | `detail` | A small JSON object with facts of the action. |
@@ -90,6 +90,8 @@ or an execution context. A secret action records the secret's name only.
 | `secret.create` | `POST /v1/tenants/{t}/secrets` | secret name | — |
 | `secret.rotate` | `PUT /v1/tenants/{t}/secrets/{name}` | secret name | — |
 | `secret.delete` | `DELETE /v1/tenants/{t}/secrets/{name}` | secret name | — |
+| `trusted_key.add` | `POST /v1/tenants/{t}/trusted-keys` | trusted key id | `fingerprint`, `name` |
+| `trusted_key.revoke` | `DELETE /v1/tenants/{t}/trusted-keys/{key_id}` | trusted key id | — |
 | `fleet.provision` | `POST /v1/tenants/{t}/fleet/provision` | tenant name | `desired_count` |
 | `fleet.deprovision` | `POST /v1/tenants/{t}/fleet/deprovision` | tenant name | `desired_count` |
 | `limit.set` | `POST /v1/tenants/{t}/limits` | tenant name | `max_agents` |

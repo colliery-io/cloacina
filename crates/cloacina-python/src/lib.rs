@@ -71,6 +71,19 @@ pub mod bindings;
 // cloacina core under `registry/loader/python_loader`; moved here in
 // CLOACI-T-0529 phase B because it's Python-specific.
 pub mod package_loader;
+pub mod vendor_conflicts;
+
+/// The version of the Python interpreter this process is linked with
+/// (`"3.11.9"`). It reads a constant of libpython: it needs no interpreter
+/// lock, and works before the interpreter starts.
+pub fn interpreter_version() -> String {
+    // SAFETY: `Py_GetVersion` returns a pointer to a static NUL-terminated
+    // string. It can be called before `Py_Initialize` and without the GIL.
+    let full = unsafe { std::ffi::CStr::from_ptr(pyo3::ffi::Py_GetVersion()) }
+        .to_string_lossy()
+        .to_string();
+    full.split_whitespace().next().unwrap_or("").to_string()
+}
 
 // Implementation of `cloacina::python_runtime::PythonRuntime`. The server
 // calls `install()` at startup to register this crate's impl into the
@@ -271,6 +284,10 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
+                None,
+                false,
             )
             .unwrap();
 

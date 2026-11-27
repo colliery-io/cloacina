@@ -20,7 +20,7 @@
 //! yet). It verifies a password against [`local_accounts`], and on success
 //! mints a short-TTL bearer key tagged `issued_via = local:<account_id>` via the
 //! provider-agnostic [`crate::identity::mint_for_principal`]. The key flows
-//! through `require_auth` + the Phase 0 authZ matcher exactly like any other.
+//! through the `guard` middleware and the authZ matcher exactly like any other.
 //!
 //! No refresh-token row is stored for local accounts: the key's `local:<id>`
 //! provenance + the account's `status` column ARE the refresh validity, which
@@ -354,6 +354,17 @@ pub async fn local_login(
                 role = %account.role,
                 "local login succeeded — minted short-TTL key"
             );
+            // The audit row of a login names the key the login minted.
+            audit_record::note_as(
+                audit_record::Actor {
+                    key_id: info.id.to_string(),
+                    key_name: info.name.clone(),
+                    identity: info.issued_via.clone(),
+                },
+                info.tenant_id.as_deref(),
+                AuditEvent::ok(audit_record::actions::AUTH_LOGIN, account.username.as_str())
+                    .detail(serde_json::json!({ "via": "local", "role": info.permissions })),
+            );
             (
                 StatusCode::OK,
                 Json(LocalLoginResponse {
@@ -371,7 +382,7 @@ pub async fn local_login(
 
 // ---------------------------------------------------------------------------
 // Tenant-admin local-account management (CLOACI-T-0797). All routes are
-// `TenantParam + Admin` in the authz table, so the caller is already confined
+// `accounts.manage` in the tenant of the path, so the caller is already confined
 // to `{tenant_id}`; the DAL list/update calls are additionally tenant-scoped.
 // ---------------------------------------------------------------------------
 
@@ -423,6 +434,7 @@ fn to_account_info(a: LocalAccount) -> AccountInfo {
     request_body = CreateAccountRequest,
     responses(
         (status = 201, description = "Account created", body = AccountInfo),
+        (status = 400, description = "The role is not one of read, write, admin", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
@@ -431,10 +443,16 @@ fn to_account_info(a: LocalAccount) -> AccountInfo {
 )]
 pub async fn create_account(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     Json(body): Json<CreateAccountRequest>,
 ) -> impl IntoResponse {
+    // CLOACINA-T-1055: an account holds one of the roles a person may hold.
+    // An unknown role would grant nothing; `agent` is for API keys only.
+    if !crate::routes::authz::Role::parse(&body.role).is_some_and(|r| r.is_for_people()) {
+        return ApiError::bad_request("invalid_request", "role must be one of read, write, admin")
+            .into_response();
+    }
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal
         .local_accounts()
@@ -442,14 +460,11 @@ pub async fn create_account(
         .await
     {
         Ok(a) => {
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::ACCOUNT_CREATE, a.id.to_string())
                     .detail(serde_json::json!({ "username": a.username, "role": a.role })),
-            )
-            .await;
+            );
             (StatusCode::CREATED, Json(to_account_info(a))).into_response()
         }
         Err(e) => {
@@ -511,7 +526,7 @@ pub async fn list_accounts(
 )]
 pub async fn disable_account(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, account_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let id = match uuid::Uuid::parse_str(&account_id) {
@@ -528,13 +543,10 @@ pub async fn disable_account(
         .await
     {
         Ok(true) => {
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::ACCOUNT_DISABLE, account_id.as_str()),
-            )
-            .await;
+            );
             Json(AccountActionResponse {
                 status: "disabled".to_string(),
                 id: account_id,
@@ -570,7 +582,7 @@ pub async fn disable_account(
 )]
 pub async fn reset_password(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, account_id)): Path<(String, String)>,
     Json(body): Json<ResetPasswordRequest>,
 ) -> impl IntoResponse {
@@ -588,16 +600,13 @@ pub async fn reset_password(
         .await
     {
         Ok(true) => {
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(
                     audit_record::actions::ACCOUNT_PASSWORD_RESET,
                     account_id.as_str(),
                 ),
-            )
-            .await;
+            );
             Json(AccountActionResponse {
                 status: "password_reset".to_string(),
                 id: account_id,

@@ -221,15 +221,12 @@ pub async fn execute_workflow(
                 "Executed workflow '{}' for tenant '{}': {}",
                 name, tenant_id, execution.execution_id
             );
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::WORKFLOW_RUN, name.as_str()).detail(
                     serde_json::json!({ "execution_id": execution.execution_id.to_string() }),
                 ),
-            )
-            .await;
+            );
             // CLOACI-T-0776: mark this as a manual operator run so the UI can
             // distinguish it from cron/trigger/reactor-driven runs. Best-effort —
             // a tagging failure must not fail the (already-started) execution.
@@ -564,10 +561,34 @@ pub async fn get_execution_tasks(
         .await
     {
         Ok(tasks) => {
+            // CLOACINA-T-1047: the size of the context each task returned.
+            // The task rows are served without sizes if this read fails.
+            let context_sizes = match dal
+                .task_execution_metadata()
+                .context_sizes_for_workflow(universal_id)
+                .await
+            {
+                Ok(sizes) => sizes,
+                Err(e) => {
+                    tracing::warn!(
+                        execution_id = %exec_id,
+                        error = %e,
+                        "could not read task context sizes"
+                    );
+                    Default::default()
+                }
+            };
+            // CLOACINA-T-1024: the link to the task's logs, when the server
+            // has a log URL template.
+            let log_urls = crate::task_logs::url_template();
             let items: Vec<TaskExecutionDetail> = tasks
                 .into_iter()
                 .map(|t| TaskExecutionDetail {
+                    context_size_bytes: context_sizes.get(&t.id).copied(),
                     id: t.id.0.to_string(),
+                    log_url: log_urls.map(|template| {
+                        template.render(&tenant_id, &id.to_string(), &t.task_name, t.attempt)
+                    }),
                     task_name: t.task_name,
                     status: t.status,
                     started_at: t.started_at.map(|ts| ts.0.to_rfc3339()),

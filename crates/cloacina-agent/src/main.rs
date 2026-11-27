@@ -44,8 +44,9 @@ use clap::Parser;
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, EphemeralKeyEntry, GRAPH_PACKET_KIND,
-    GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket, host_target_triple,
+    AgentRegisterResponse, AgentResultRequest, AgentUndecodableRequest, EphemeralKeyEntry,
+    GRAPH_PACKET_KIND, GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket,
+    host_target_triple,
 };
 use cloacina::security::{AgentKeyPool, InMemorySecretResolver};
 use futures_util::{SinkExt, StreamExt};
@@ -96,6 +97,17 @@ struct Args {
     /// `pool:<name>`. Not set: the server counts the agent in `default`.
     #[arg(long, env = "CLOACINA_AGENT_POOL")]
     pool: Option<String>,
+    /// Total CPU this agent offers to tasks, a Kubernetes quantity (`4`,
+    /// `500m`). Reported at registration; the server places tasks by their
+    /// CPU requests against it. Not set: the agent reports none and the
+    /// server packs it by `--max-concurrency` only. The agent does not limit
+    /// a task by it.
+    #[arg(long, env = "CLOACINA_AGENT_CPU")]
+    cpu: Option<String>,
+    /// Total memory this agent offers to tasks, a Kubernetes quantity
+    /// (`32Gi`, `512Mi`). Reported at registration, as `--cpu` is.
+    #[arg(long, env = "CLOACINA_AGENT_MEMORY")]
+    memory: Option<String>,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -105,6 +117,21 @@ struct Args {
     /// packets to skip the REST fetch on cache hit.
     #[arg(long, env = "CLOACINA_AGENT_CACHE_DIR")]
     cache_dir: Option<std::path::PathBuf>,
+    /// The largest size, in bytes, that a package archive may unpack to.
+    /// The agent refuses to
+    /// load a package or a provider archive that unpacks to more. Default: 524288000 (500 MiB). The limits of 10,000 entries and
+    /// of 10 times the archive size stay. CLOACINA-T-1048.
+    #[arg(
+        long,
+        env = "CLOACINA_MAX_UNPACKED_BYTES",
+        default_value_t = cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES
+    )]
+    max_unpacked_bytes: u64,
+    /// Format of the agent's log lines on stdout: `text`, or `json` (one JSON
+    /// object per line, for a log stack). In `json`, a line written while a
+    /// task runs has the task's ids under `span` (CLOACINA-T-1024).
+    #[arg(long, env = "CLOACINA_AGENT_LOG_FORMAT", default_value_t)]
+    log_format: cloacina::task_logs::LogFormat,
 }
 
 /// The environment variable the agent's key may arrive in.
@@ -175,6 +202,10 @@ fn main() -> Result<()> {
     // SAFETY: no thread has been started yet.
     unsafe { remove_api_key_from_env() };
     resolve_api_key(&mut args)?;
+    cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
+        args.max_unpacked_bytes,
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -187,12 +218,17 @@ async fn async_main(args: Args) -> Result<()> {
     // rustls has both ring and aws-lc-rs compiled in; without a process
     // default, a wss:// connect panics choosing one.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    match args.log_format {
+        cloacina::task_logs::LogFormat::Text => {
+            tracing_subscriber::fmt().with_env_filter(filter).init()
+        }
+        cloacina::task_logs::LogFormat::Json => tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .init(),
+    }
 
     if let Err(e) = run(args).await {
         error!(error = ?e, "agent exited with error");
@@ -201,11 +237,54 @@ async fn async_main(args: Args) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod log_format_tests {
+    use super::*;
+    use cloacina::task_logs::LogFormat;
+
+    fn parse(extra: &[&str]) -> Result<Args, clap::Error> {
+        let mut argv = vec!["cloacina-agent", "--server", "http://localhost:8080"];
+        argv.extend_from_slice(extra);
+        Args::try_parse_from(argv)
+    }
+
+    #[test]
+    fn the_log_format_is_text_unless_json_is_asked_for() {
+        assert_eq!(parse(&[]).unwrap().log_format, LogFormat::Text);
+        assert_eq!(
+            parse(&["--log-format", "json"]).unwrap().log_format,
+            LogFormat::Json
+        );
+        assert!(parse(&["--log-format", "yaml"]).is_err());
+    }
+}
+
 /// Backoff bounds for the reconnect loop.
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
+/// The totals the agent reports at registration (CLOACINA-T-1027): CPU in
+/// millicores and memory in bytes, from `--cpu` and `--memory`. A flag that
+/// is not set, or is empty (an env var set to nothing), reports none. A value
+/// that is not a Kubernetes quantity above zero stops the agent at start.
+fn agent_totals(cpu: Option<&str>, memory: Option<&str>) -> Result<(Option<u64>, Option<u64>)> {
+    fn set(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|v| !v.is_empty())
+    }
+    let cpu_millis = set(cpu)
+        .map(cloacina::fleet::parse_cpu_millis)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--cpu / CLOACINA_AGENT_CPU: {e}"))?;
+    let memory_bytes = set(memory)
+        .map(cloacina::fleet::parse_memory_bytes)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--memory / CLOACINA_AGENT_MEMORY: {e}"))?;
+    Ok((cpu_millis, memory_bytes))
+}
+
 async fn run(args: Args) -> Result<()> {
+    // CLOACINA-T-1027: a bad total stops the start, before any connection.
+    agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
     let server_base = args.server.trim_end_matches('/').to_string();
     let http = reqwest::Client::builder()
         .user_agent(concat!("cloacina-agent/", env!("CARGO_PKG_VERSION")))
@@ -245,10 +324,18 @@ async fn run(args: Args) -> Result<()> {
     // NOT take the agent down — it re-registers and reconnects with capped
     // exponential backoff. A session that actually connected resets the backoff;
     // repeated failures (server still down) back off up to RECONNECT_BACKOFF_MAX.
+    //
+    // CLOACINA-T-1050: the agent keeps one id for the life of the process. The
+    // first register gets it (the `--agent-id` given, or one the server
+    // assigns); every later session registers with it again. The server takes
+    // a result only from a registered agent, so a task that is still running
+    // when the socket drops must report under an id that stays registered.
+    let mut session_agent_id: Option<String> = args.agent_id.clone();
     let mut backoff = RECONNECT_BACKOFF_MIN;
     loop {
         match connect_and_serve(
             &args,
+            &mut session_agent_id,
             &http,
             &server_base,
             &target_triple,
@@ -281,8 +368,10 @@ async fn run(args: Args) -> Result<()> {
 /// has ended (caller reconnects immediately) and `Err` if the session could not
 /// be established (caller backs off). The per-session heartbeat task is aborted
 /// on every exit path so it never outlives its registration.
+#[allow(clippy::too_many_arguments)]
 async fn connect_and_serve(
     args: &Args,
+    session_agent_id: &mut Option<String>,
     http: &reqwest::Client,
     server_base: &str,
     target_triple: &str,
@@ -298,31 +387,53 @@ async fn connect_and_serve(
     let ephemeral_key_pool: Vec<EphemeralKeyEntry> =
         { key_pool.lock().await.mint(KEY_POOL_TARGET) };
 
-    // ── 1. Register (fresh each session — the server may have restarted and
-    //       forgotten us, in which case a stale agent_id would be unroutable).
+    // ── 1. Register (each session — the server may have restarted and
+    //       forgotten us). The id is the one of the earlier sessions of this
+    //       process, if there was one: the server lets the key that holds an
+    //       agent id register it again.
     // CLOACINA-T-1021: the agent's pool is registered as the capability
     // `pool:<name>`. With no pool the server counts the agent in `default`.
     let mut capabilities = args.capabilities.clone();
     if let Some(pool) = args.pool.as_deref().filter(|p| !p.is_empty()) {
         capabilities.push(format!("pool:{pool}"));
     }
-    let register_resp = register(
+    // CLOACINA-T-1027: the agent's total CPU and memory, when it was given
+    // them. The server places tasks by their requests against these.
+    let (cpu_millis, memory_bytes) = agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
+    let register_resp = match register(
         http,
         server_base,
         &args.api_key,
-        &args.agent_id,
+        session_agent_id,
         args.max_concurrency,
         target_triple,
         &capabilities,
         ephemeral_key_pool,
+        cpu_millis,
+        memory_bytes,
     )
     .await
-    .context("agent register failed")?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            // 409: another key holds the id now (the row of this agent was
+            // removed while it was away, and the id was registered again).
+            // An id the server assigned is dropped, and the next try gets a
+            // new one. An id the operator chose is kept: the operator decides.
+            if args.agent_id.is_none() && is_agent_id_taken(&e) {
+                *session_agent_id = None;
+            }
+            return Err(e).context("agent register failed");
+        }
+    };
     let agent_id = register_resp.agent_id.clone();
+    *session_agent_id = Some(agent_id.clone());
     info!(
         agent_id = %agent_id,
         target_triple = %target_triple,
         max_concurrency = args.max_concurrency,
+        cpu_millis = ?cpu_millis,
+        memory_bytes = ?memory_bytes,
         heartbeat_interval_seconds = register_resp.heartbeat_interval_seconds,
         "agent registered with server"
     );
@@ -378,6 +489,14 @@ async fn connect_and_serve(
 // HTTP helpers
 // ────────────────────────────────────────────────────────────────────
 
+/// Whether a register failed because another key holds the agent id (the
+/// server answers 409, CLOACINA-T-1051).
+fn is_agent_id_taken(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<reqwest::Error>()
+        .and_then(|e| e.status())
+        .is_some_and(|status| status == reqwest::StatusCode::CONFLICT)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn register(
     http: &reqwest::Client,
@@ -388,6 +507,8 @@ async fn register(
     target_triple: &str,
     capabilities: &[String],
     ephemeral_key_pool: Vec<EphemeralKeyEntry>,
+    cpu_millis: Option<u64>,
+    memory_bytes: Option<u64>,
 ) -> Result<AgentRegisterResponse> {
     let body = AgentRegisterRequest {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -400,6 +521,8 @@ async fn register(
         // field is retired in favor of the pool.
         ephemeral_public_key: None,
         ephemeral_key_pool,
+        cpu_millis,
+        memory_bytes,
     };
     let resp = http
         .post(format!("{}/v1/agent/register", server))
@@ -446,16 +569,43 @@ fn is_permanent_status(status: reqwest::StatusCode) -> bool {
         && status != reqwest::StatusCode::TOO_MANY_REQUESTS
 }
 
+/// What the agent sends to the server about one packet: the result of its
+/// work, or the news that it could not decode the packet.
+trait PacketReport: Serialize {
+    /// The route that takes it.
+    const PATH: &'static str;
+    /// What it is about, for the log.
+    fn subject(&self) -> String;
+}
+
+impl PacketReport for AgentResultRequest {
+    const PATH: &'static str = "/v1/agent/result";
+    fn subject(&self) -> String {
+        format!(
+            "task {} ({})",
+            self.task_execution_id,
+            summarize_outcome(&self.outcome)
+        )
+    }
+}
+
+impl PacketReport for AgentUndecodableRequest {
+    const PATH: &'static str = "/v1/agent/undecodable";
+    fn subject(&self) -> String {
+        format!("undecodable push {}", self.push_id)
+    }
+}
+
 /// POST one report, one time, with a time limit on the whole request.
-async fn post_result(
+async fn post_result<R: PacketReport>(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
-    req: &AgentResultRequest,
+    req: &R,
     attempt_timeout: Duration,
 ) -> std::result::Result<(), PostError> {
     let resp = http
-        .post(format!("{}/v1/agent/result", server))
+        .post(format!("{}{}", server, R::PATH))
         .bearer_auth(api_key)
         .timeout(attempt_timeout)
         .json(req)
@@ -689,7 +839,24 @@ async fn handle_text_frame(
             // CLOACI-T-0722: whole-graph firings ride their own packet kind.
             if kind == GRAPH_PACKET_KIND {
                 let cur = in_flight.load(Ordering::SeqCst);
-                let packet = decode_graph_packet(&env).context("decode graph packet")?;
+                // CLOACINA-T-1058: a packet that does not decode is reported
+                // by its push id, whatever the load of the agent.
+                let packet = match decode_graph_packet(&env).context("decode graph packet") {
+                    Ok(packet) => packet,
+                    Err(e) => {
+                        guard.hand_over();
+                        spawn_undecodable(
+                            http.clone(),
+                            server.to_string(),
+                            api_key.to_string(),
+                            agent_id.to_string(),
+                            format!("{e:#}"),
+                            ack_tx.clone(),
+                            push_id,
+                        );
+                        return Ok(());
+                    }
+                };
                 if cur >= max_concurrency {
                     warn!(
                         in_flight = cur,
@@ -729,6 +896,23 @@ async fn handle_text_frame(
                 return Ok(());
             }
 
+            let packet = match decode_packet(&env).context("decode work packet") {
+                Ok(packet) => packet,
+                Err(e) => {
+                    guard.hand_over();
+                    spawn_undecodable(
+                        http.clone(),
+                        server.to_string(),
+                        api_key.to_string(),
+                        agent_id.to_string(),
+                        format!("{e:#}"),
+                        ack_tx.clone(),
+                        push_id,
+                    );
+                    return Ok(());
+                }
+            };
+
             // Capacity check: if we're saturated, refuse with Shutdown-ish.
             // (v1: a real fleet would refuse via the substrate so the relay
             // re-pushes to a less-loaded peer; here we accept + refuse so
@@ -739,7 +923,6 @@ async fn handle_text_frame(
                     in_flight = cur,
                     max_concurrency, "saturated; refusing packet"
                 );
-                let packet = decode_packet(&env);
                 guard.hand_over();
                 spawn_refusal(
                     http.clone(),
@@ -755,7 +938,6 @@ async fn handle_text_frame(
                 return Ok(());
             }
 
-            let packet = decode_packet(&env).context("decode work packet")?;
             guard.hand_over();
             spawn_packet_worker(
                 http.clone(),
@@ -1020,6 +1202,15 @@ async fn execute_python_graph(
                     message: format!("create python staging dir {:?}: {}", staging, e),
                 };
             }
+            let vendored_set = match fetch_vendored_set(http, server, api_key, &digest).await {
+                Ok(v) => v,
+                Err(e) => {
+                    return cloacina::fleet::AgentOutcome::Refused {
+                        reason: RefusalReason::ArtifactFetchFailed,
+                        message: format!("python vendored dependencies fetch failed: {}", e),
+                    };
+                }
+            };
             let Some(py) = cloacina::python_runtime::python_runtime() else {
                 return cloacina::fleet::AgentOutcome::Refused {
                     reason: RefusalReason::RuntimeLoadFailed,
@@ -1034,8 +1225,14 @@ async fn execute_python_graph(
             // effects (graph executors land in the process-global registry).
             let runtime_for_load = Arc::new(cloacina::Runtime::empty());
             let result = tokio::task::spawn_blocking(move || {
-                py.load_workflow_package(&archive, &staging, &tenant, &runtime_for_load)
-                    .map(|_| ())
+                py.load_workflow_package(
+                    &archive,
+                    vendored_set.as_deref(),
+                    &staging,
+                    &tenant,
+                    &runtime_for_load,
+                )
+                .map(|_| ())
             })
             .await;
             match result {
@@ -1331,26 +1528,65 @@ fn spawn_refusal(
     server: String,
     api_key: String,
     agent_id: String,
-    packet: Result<WorkPacket>,
+    packet: WorkPacket,
     reason: RefusalReason,
     message: String,
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
 ) {
     tokio::spawn(async move {
-        if let Ok(packet) = packet {
-            let req = AgentResultRequest {
-                protocol_version: AGENT_PROTOCOL_VERSION,
-                agent_id,
-                task_execution_id: packet.task_execution_id.clone(),
-                attempt: packet.attempt,
-                dispatch_id: packet.dispatch_id.clone(),
-                duration_ms: 0,
-                outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
-            };
-            let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
-            report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
-        }
+        let req = AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id,
+            task_execution_id: packet.task_execution_id.clone(),
+            attempt: packet.attempt,
+            dispatch_id: packet.dispatch_id.clone(),
+            duration_ms: 0,
+            outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
+        };
+        let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
+        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
+        finish_and_ack(&ack_tx, push_id);
+    });
+}
+
+/// Tell the server that this agent cannot decode a push, then ack it
+/// (CLOACINA-T-1058).
+///
+/// The agent could not read the packet, so it has no task id for a report:
+/// it names the push id, and the server finds the task in its own outbox
+/// row and fails the dispatch. Before, a full agent acked such a push with
+/// no report, and an agent with a free slot neither acked nor reported: the
+/// task waited out its time limit either way.
+///
+/// The message is retried as a report is. The packet's time limit is not
+/// known, so the tries go on for [`ReportPolicy::min_window`] at least. The
+/// push is acked after that, whatever the result, for the reasons
+/// [`report_outcome`] gives. A server from before the route answers 404: the
+/// push is acked and the task waits out its time limit, as before.
+fn spawn_undecodable(
+    http: reqwest::Client,
+    server: String,
+    api_key: String,
+    agent_id: String,
+    error: String,
+    ack_tx: mpsc::UnboundedSender<Message>,
+    push_id: i64,
+) {
+    error!(
+        push_id,
+        error = %error,
+        "cannot decode a pushed packet (a server of another version?); telling the server"
+    );
+    tokio::spawn(async move {
+        let req = AgentUndecodableRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id,
+            push_id,
+            error,
+            agent_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        };
+        report_outcome(&http, &server, &api_key, &req, Instant::now()).await;
         finish_and_ack(&ack_tx, push_id);
     });
 }
@@ -1424,11 +1660,11 @@ fn server_wait_end(received_at: Instant, timeout_seconds: u32) -> Instant {
 /// to this agent again and run again for a dispatch the server gave up on, on
 /// top of the server's own retry. While the tries go on the push id is still
 /// in work, so the heartbeat keeps its lease and a re-push is ignored.
-async fn report_outcome(
+async fn report_outcome<R: PacketReport>(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
-    req: &AgentResultRequest,
+    req: &R,
     server_gives_up_at: Instant,
 ) -> ReportDelivery {
     report_with_policy(
@@ -1442,31 +1678,27 @@ async fn report_outcome(
     .await
 }
 
-async fn report_with_policy(
+async fn report_with_policy<R: PacketReport>(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
-    req: &AgentResultRequest,
+    req: &R,
     server_gives_up_at: Instant,
     policy: &ReportPolicy,
 ) -> ReportDelivery {
+    let subject = req.subject();
     let mut delay = policy.backoff_min;
     let mut stop_at: Option<Instant> = None;
     let mut attempt = 1u32;
     loop {
         let error = match post_result(http, server, api_key, req, policy.attempt_timeout).await {
             Ok(()) => {
-                debug!(
-                    task_id = %req.task_execution_id,
-                    outcome = %summarize_outcome(&req.outcome),
-                    attempt,
-                    "result reported"
-                );
+                debug!(report = %subject, attempt, "result reported");
                 return ReportDelivery::Delivered;
             }
             Err(PostError::Permanent(e)) => {
                 error!(
-                    task_id = %req.task_execution_id,
+                    report = %subject,
                     error = %e,
                     "the server rejected the result; not sent again"
                 );
@@ -1478,7 +1710,7 @@ async fn report_with_policy(
         let stop_at = *stop_at.get_or_insert(server_gives_up_at.max(now + policy.min_window));
         if attempt >= policy.max_attempts || now + delay > stop_at {
             error!(
-                task_id = %req.task_execution_id,
+                report = %subject,
                 attempts = attempt,
                 error = %error,
                 "result not delivered and the retries are used up; \
@@ -1487,7 +1719,7 @@ async fn report_with_policy(
             return ReportDelivery::GaveUp;
         }
         warn!(
-            task_id = %req.task_execution_id,
+            report = %subject,
             attempt,
             retry_in_ms = delay.as_millis() as u64,
             error = %error,
@@ -1550,6 +1782,30 @@ async fn fetch_source_archive(
         .await?
         .error_for_status()?;
     Ok(resp.bytes().await?.to_vec())
+}
+
+/// Fetch the dependencies the compiler vendored for a Python package and this
+/// agent's platform, from `GET /v1/agent/python-vendor/{digest}`
+/// (CLOACINA-T-1073). `Ok(None)`: the server holds no set for this platform
+/// (204), or it is a server from before the route (404). The loader then
+/// refuses a package that pins dependencies and ships none.
+async fn fetch_vendored_set(
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    digest: &str,
+) -> Result<Option<Vec<u8>>> {
+    let platform = cloacina::cloacina_workflow_plugin::python_env::host_platform();
+    // A platform is `<arch>-<os>`: letters, digits, `_` and `-`.
+    let url = format!(
+        "{}/v1/agent/python-vendor/{}?platform={}",
+        server, digest, platform
+    );
+    let resp = http.get(&url).bearer_auth(api_key).send().await?;
+    match resp.status() {
+        reqwest::StatusCode::NO_CONTENT | reqwest::StatusCode::NOT_FOUND => Ok(None),
+        _ => Ok(Some(resp.error_for_status()?.bytes().await?.to_vec())),
+    }
 }
 
 /// Load a Rust cdylib package into `runtime`: fetch + cache the artifact by
@@ -1822,6 +2078,15 @@ async fn load_python_package(
             message: e,
         })?;
 
+    // CLOACINA-T-1073: the dependencies the compiler vendored for this
+    // platform, when the server holds a set.
+    let vendored_set = fetch_vendored_set(http, server, api_key, digest)
+        .await
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: format!("python vendored dependencies fetch failed: {}", e),
+        })?;
+
     let staging = cache_dir.join(format!("pysrc-{}", digest));
     std::fs::create_dir_all(&staging).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
         reason: RefusalReason::RuntimeLoadFailed,
@@ -1848,8 +2113,14 @@ async fn load_python_package(
     // worker. We discard the LoadedPythonWorkflow (it may hold non-Send PyObjects)
     // and only care that the tasks registered into `runtime`.
     let result = tokio::task::spawn_blocking(move || {
-        py.load_workflow_package(&archive, &staging, &tenant, &runtime_for_load)
-            .map(|_| ())
+        py.load_workflow_package(
+            &archive,
+            vendored_set.as_deref(),
+            &staging,
+            &tenant,
+            &runtime_for_load,
+        )
+        .map(|_| ())
     })
     .await;
 
@@ -2019,9 +2290,22 @@ async fn process_work_packet(
         }
     }
 
-    // 6. Execute under the packet's timeout.
+    // 6. Execute under the packet's timeout, inside the task's span
+    //    (CLOACINA-T-1024): a log line written while the task runs carries
+    //    the tenant, workflow, run, task, attempt and dispatch.
+    use tracing::Instrument as _;
+    let task_span = cloacina::task_logs::task_span(
+        packet.tenant_id.as_deref().unwrap_or("public"),
+        &packet.task_name,
+        &packet.workflow_execution_id,
+        packet.attempt,
+        packet.dispatch_id.as_deref(),
+    );
     let timeout = std::time::Duration::from_secs(packet.timeout_seconds.max(1) as u64);
-    match tokio::time::timeout(timeout, task.execute(context)).await {
+    match tokio::time::timeout(timeout, task.execute(context))
+        .instrument(task_span)
+        .await
+    {
         Ok(Ok(output)) => {
             let output_value = context_to_value(&output);
             cloacina::fleet::AgentOutcome::Success {
@@ -2129,6 +2413,7 @@ fn synthetic_package_metadata(
         declared_params: vec![],
         declared_surfaces: vec![],
         task_docs: Default::default(),
+        python_platforms: None,
     }
 }
 
@@ -2289,6 +2574,33 @@ mod tests {
         }
     }
 
+    /// CLOACINA-T-1051: the server answers 409 to a register for an agent id
+    /// that another key holds. The agent tells that from any other failure,
+    /// so it can drop an id the server assigned and get a new one.
+    #[tokio::test]
+    async fn a_refused_agent_id_is_told_from_other_register_failures() {
+        async fn try_register(status: u16) -> anyhow::Error {
+            let (server, _hits) = result_server(vec![status]).await;
+            register(
+                &reqwest::Client::new(),
+                &server,
+                "key",
+                &Some("agent-a".to_string()),
+                1,
+                "aarch64-apple-darwin",
+                &[],
+                Vec::new(),
+                None,
+                None,
+            )
+            .await
+            .expect_err("the register fails")
+        }
+        assert!(is_agent_id_taken(&try_register(409).await));
+        assert!(!is_agent_id_taken(&try_register(403).await));
+        assert!(!is_agent_id_taken(&try_register(500).await));
+    }
+
     /// The real policy with the waits cut to milliseconds.
     fn fast_policy() -> ReportPolicy {
         ReportPolicy {
@@ -2425,7 +2737,7 @@ mod tests {
             server,
             "key".into(),
             "agent-a".into(),
-            Ok(pkt("any-triple")),
+            pkt("any-triple"),
             RefusalReason::Shutdown,
             "agent at max_concurrency".into(),
             ack_tx,
@@ -2444,6 +2756,194 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 2);
         match ack {
             Message::Text(t) => assert!(t.contains("991015"), "ack names the push id: {t}"),
+            other => panic!("unexpected frame: {other:?}"),
+        }
+    }
+
+    // ── CLOACINA-T-1058: a packet the agent cannot decode ────────────────
+
+    /// A payload that is a work packet of another shape: it has the task's
+    /// ids, and lacks fields this agent needs (`artifact`,
+    /// `timeout_seconds`), as a packet from a newer or older server can.
+    fn other_shape_payload() -> String {
+        let payload = serde_json::json!({
+            "protocol_version": AGENT_PROTOCOL_VERSION,
+            "task_execution_id": "00000000-0000-0000-0000-000000001058",
+            "firing_id": "00000000-0000-0000-0000-000000001058",
+            "attempt": 1,
+            "dispatch_id": "d1",
+        });
+        BASE64.encode(serde_json::to_vec(&payload).unwrap())
+    }
+
+    /// A local HTTP server that takes one request, answers 200, and hands
+    /// the request (head and body) to the test.
+    async fn capture_server() -> (String, tokio::sync::oneshot::Receiver<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let Ok(read) = sock.read(&mut chunk).await else {
+                    return;
+                };
+                if read == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..read]);
+                let text = String::from_utf8_lossy(&buf).to_ascii_lowercase();
+                if let Some(head_end) = text.find("\r\n\r\n") {
+                    let want = text
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if buf.len() >= head_end + 4 + want {
+                        break;
+                    }
+                }
+            }
+            let body = r#"{"protocol_version":1}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                 content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = sock.write_all(resp.as_bytes()).await;
+            let _ = sock.shutdown().await;
+            let _ = tx.send(String::from_utf8_lossy(&buf).to_string());
+        });
+        (format!("http://{addr}"), rx)
+    }
+
+    /// Give the agent one push frame it cannot decode. Returns the request
+    /// the server got (if one came) and whether the agent acked the push.
+    async fn deliver_undecodable(
+        push_id: i64,
+        kind: &str,
+        payload_b64: Option<&str>,
+        in_flight: u32,
+        max_concurrency: u32,
+    ) -> (Option<String>, bool) {
+        let (server, request) = capture_server().await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        let mut frame = serde_json::json!({"type": "push", "id": push_id, "kind": kind});
+        if let Some(payload) = payload_b64 {
+            frame["payload_b64"] = serde_json::json!(payload);
+        }
+        let _ = handle_text_frame(
+            frame.to_string(),
+            &reqwest::Client::new(),
+            &server,
+            "key",
+            "agent-a",
+            "any-triple",
+            &Arc::new(AtomicU32::new(in_flight)),
+            max_concurrency,
+            &ack_tx,
+            &Arc::new(tempdir()),
+            &empty_key_pool(),
+        )
+        .await;
+        // The message and the ack come from a spawned task.
+        let request = tokio::time::timeout(Duration::from_secs(2), request)
+            .await
+            .ok()
+            .and_then(|r| r.ok());
+        let acked = match tokio::time::timeout(Duration::from_secs(2), ack_rx.recv()).await {
+            Ok(Some(Message::Text(t))) => t.contains(&push_id.to_string()),
+            _ => false,
+        };
+        (request, acked)
+    }
+
+    /// The server is told of the push by its id, on the undecodable route,
+    /// and the push is acked after that.
+    fn assert_told_and_acked(push_id: i64, got: (Option<String>, bool)) {
+        let (request, acked) = got;
+        let request = request.unwrap_or_else(|| {
+            panic!("the server must learn of the packet: acked={acked}, reports=0")
+        });
+        assert!(
+            request.starts_with("POST /v1/agent/undecodable "),
+            "the route: {request}"
+        );
+        assert!(
+            request.contains(&format!("\"push_id\":{push_id}")),
+            "the message names the push id: {request}"
+        );
+        assert!(request.contains("\"agent_id\":\"agent-a\""), "{request}");
+        assert!(acked, "the push is acked after the message");
+        assert!(
+            !push_registry().in_work_ids().contains(&push_id),
+            "the push is not in work any more"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_full_agent_reports_a_packet_it_cannot_decode() {
+        let id = 1_058_001;
+        let payload = other_shape_payload();
+        let got = deliver_undecodable(id, WORK_PACKET_KIND, Some(&payload), 1, 1).await;
+        assert_told_and_acked(id, got);
+    }
+
+    #[tokio::test]
+    async fn an_agent_with_a_free_slot_reports_a_packet_it_cannot_decode() {
+        let id = 1_058_002;
+        let payload = other_shape_payload();
+        let got = deliver_undecodable(id, WORK_PACKET_KIND, Some(&payload), 0, 1).await;
+        assert_told_and_acked(id, got);
+    }
+
+    #[tokio::test]
+    async fn an_agent_reports_a_graph_packet_it_cannot_decode() {
+        let id = 1_058_003;
+        let payload = other_shape_payload();
+        let got = deliver_undecodable(id, GRAPH_PACKET_KIND, Some(&payload), 0, 1).await;
+        assert_told_and_acked(id, got);
+    }
+
+    /// The payload carries no task id at all: not base64, not JSON, missing.
+    #[tokio::test]
+    async fn an_agent_reports_a_packet_with_no_readable_payload() {
+        let not_json = BASE64.encode(b"\x00\xffnot json");
+        let payloads = [Some("%%% not base64 %%%"), Some(not_json.as_str()), None];
+        for (n, payload) in payloads.into_iter().enumerate() {
+            let id = 1_058_010 + n as i64;
+            let got = deliver_undecodable(id, WORK_PACKET_KIND, payload, 0, 1).await;
+            assert_told_and_acked(id, got);
+        }
+    }
+
+    /// A server from before the route answers 404: the agent sends the
+    /// message one time and acks the push.
+    #[tokio::test]
+    async fn an_agent_acks_an_undecodable_packet_when_the_server_has_no_route() {
+        let (server, hits) = result_server(vec![404]).await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        spawn_undecodable(
+            reqwest::Client::new(),
+            server,
+            "key".into(),
+            "agent-a".into(),
+            "deserialize WorkPacket JSON".into(),
+            ack_tx,
+            1_058_020,
+        );
+        let ack = tokio::time::timeout(Duration::from_secs(5), ack_rx.recv())
+            .await
+            .expect("the ack comes")
+            .expect("ack channel open");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        match ack {
+            Message::Text(t) => assert!(t.contains("1058020"), "ack names the push id: {t}"),
             other => panic!("unexpected frame: {other:?}"),
         }
     }
@@ -2531,7 +3031,71 @@ mod tests {
             wrapped_secrets: Vec::new(),
             secret_key_id: None,
             dispatch_id: None,
+            pool: None,
+            cpu_millis: None,
+            memory_bytes: None,
+            inline: false,
         }
+    }
+
+    // CLOACINA-T-1027: the totals an agent reports come from `--cpu` and
+    // `--memory` (or their env vars), in the Kubernetes forms.
+    #[test]
+    fn agent_totals_are_read_from_the_flags() {
+        assert_eq!(
+            agent_totals(Some("4"), Some("32Gi")).unwrap(),
+            (Some(4000), Some(32 << 30))
+        );
+        assert_eq!(
+            agent_totals(Some("500m"), Some("512Mi")).unwrap(),
+            (Some(500), Some(512 << 20))
+        );
+        // The managed Deployment and a hand start can give one and not the other.
+        assert_eq!(
+            agent_totals(None, Some("1Gi")).unwrap(),
+            (None, Some(1 << 30))
+        );
+    }
+
+    #[test]
+    fn an_agent_with_no_totals_reports_none() {
+        assert_eq!(agent_totals(None, None).unwrap(), (None, None));
+        // An env var set to nothing is "not set".
+        assert_eq!(agent_totals(Some(""), Some("  ")).unwrap(), (None, None));
+    }
+
+    #[test]
+    fn a_bad_total_stops_the_agent_and_names_the_flag() {
+        let err = agent_totals(Some("lots"), None).unwrap_err().to_string();
+        assert!(err.contains("--cpu"), "{err}");
+        let err = agent_totals(None, Some("32GB")).unwrap_err().to_string();
+        assert!(err.contains("--memory"), "{err}");
+        let err = agent_totals(Some("0"), None).unwrap_err().to_string();
+        assert!(err.contains("zero"), "{err}");
+    }
+
+    #[test]
+    fn the_total_flags_parse_from_the_command_line() {
+        let args = Args::try_parse_from([
+            "cloacina-agent",
+            "--server",
+            "http://localhost:8080",
+            "--api-key",
+            "k",
+            "--pool",
+            "large",
+            "--cpu",
+            "8",
+            "--memory",
+            "64Gi",
+        ])
+        .expect("the flags parse");
+        assert_eq!(args.cpu.as_deref(), Some("8"));
+        assert_eq!(args.memory.as_deref(), Some("64Gi"));
+        assert_eq!(
+            agent_totals(args.cpu.as_deref(), args.memory.as_deref()).unwrap(),
+            (Some(8000), Some(64u64 << 30))
+        );
     }
 
     fn empty_key_pool() -> Arc<AsyncMutex<AgentKeyPool>> {
@@ -2790,5 +3354,16 @@ mod tests {
         unsafe { remove_api_key_from_env() };
         let after = std::fs::read("/proc/self/environ").unwrap();
         assert!(!holds_key(&after), "the key is still in /proc/self/environ");
+    }
+
+    // ── CLOACINA-T-1048: the unpack limit is a setting ───────────────────
+
+    #[test]
+    fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
+        assert_eq!(parse_args(&[]).max_unpacked_bytes, 524_288_000);
+        assert_eq!(
+            parse_args(&["--max-unpacked-bytes", "1073741824"]).max_unpacked_bytes,
+            1_073_741_824
+        );
     }
 }

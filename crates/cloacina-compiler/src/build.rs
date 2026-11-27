@@ -213,11 +213,14 @@ async fn run_build(
     let archive_path_inner = archive_path.clone();
     let extract_dir_inner = extract_dir.clone();
     let source_dir = tokio::task::spawn_blocking(move || {
-        fidius_core::package::unpack_package(&archive_path_inner, &extract_dir_inner)
+        cloacina_workflow_plugin::unpack_limit::unpack_package(
+            &archive_path_inner,
+            &extract_dir_inner,
+        )
     })
     .await
     .map_err(|e| BuildError::internal(format!("unpack task panicked: {e}")))?
-    .map_err(|e| BuildError::internal(format!("fidius_core::unpack_package failed: {e}")))?;
+    .map_err(|e| BuildError::internal(format!("unpack of the package archive failed: {e}")))?;
 
     let manifest = load_manifest(&source_dir).map_err(BuildError::internal)?;
     let language = manifest_language(&manifest);
@@ -273,11 +276,32 @@ async fn run_build(
 
     let result = match language.as_str() {
         "python" => {
-            debug!("pure-Python package: skipping cargo build, using empty artifact");
-            Ok(CargoBuildSuccess {
-                artifact: Vec::new(),
-                exit_status: Some(0),
-            })
+            // CLOACINA-T-1073: no cargo build. The dependencies of the lock
+            // file are vendored, one stored set per platform; a package that
+            // ships `vendor/` is used as it is.
+            debug!("Python package: no cargo build, empty artifact");
+            match vendor_python_dependencies(
+                registry,
+                package_id,
+                &meta.package_name,
+                &meta.version,
+                &manifest,
+                &source_dir,
+                work.path(),
+                config,
+            )
+            .await
+            {
+                Ok(()) => Ok(CargoBuildSuccess {
+                    artifact: Vec::new(),
+                    exit_status: Some(0),
+                }),
+                Err(reason) => Err(BuildError::Failed {
+                    reason,
+                    exit_status: None,
+                    exit_signal: None,
+                }),
+            }
         }
         _ => cargo_build(package_id, &source_dir, config).await,
     };
@@ -547,6 +571,63 @@ async fn run_build(
         }
     };
     final_result
+}
+
+/// The Python step of a build (CLOACINA-T-1073): vendor the dependencies the
+/// package's lock file names and store one set per platform, or, for a
+/// package that ships `vendor/` or has no dependencies, make sure no set of an
+/// earlier build of the same version is left. An `Err` is the build error.
+///
+/// A per-target compiler (`--build-target`) does nothing here: it fills
+/// libraries for one architecture, and the primary compiler vendors for every
+/// platform of its settings.
+#[allow(clippy::too_many_arguments)]
+async fn vendor_python_dependencies(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package_id: uuid::Uuid,
+    package_name: &str,
+    version: &str,
+    manifest: &toml::Value,
+    source_dir: &Path,
+    work: &Path,
+    config: &CompilerConfig,
+) -> Result<(), String> {
+    use crate::python::VendorOutcome;
+
+    if config.build_target.is_some() {
+        return Ok(());
+    }
+    let requires_python = manifest
+        .get("metadata")
+        .and_then(|m| m.get("requires_python"))
+        .and_then(|v| v.as_str());
+    let outcome = crate::python::vendor_package(
+        package_name,
+        version,
+        requires_python,
+        source_dir,
+        work,
+        &config.python,
+        &child_policy(config),
+    )
+    .await?;
+
+    let stored = match outcome {
+        VendorOutcome::Prebuilt | VendorOutcome::NoDependencies => {
+            registry.clear_python_vendor(package_name, version).await
+        }
+        VendorOutcome::Vendored(sets) => {
+            // The package runs where it has a set, and nowhere else.
+            let platforms: Vec<String> = sets.iter().map(|s| s.platform.clone()).collect();
+            let rows = sets.into_iter().map(|s| (s.platform, s.archive)).collect();
+            registry
+                .store_python_vendor(package_id, package_name, version, rows, Some(platforms))
+                .await
+        }
+    };
+    stored.map_err(|e| {
+        format!("failed to store the vendored dependencies of {package_name} v{version}: {e}")
+    })
 }
 
 fn load_manifest(source_dir: &Path) -> Result<toml::Value, String> {
@@ -1222,6 +1303,7 @@ mod tests {
             tenant_schema: None,
             build_target: None,
             build_target_package: None,
+            python: Default::default(),
         }
     }
 

@@ -10,6 +10,8 @@ This guide covers operating the long-running `cloacina-compiler`
 service: the binary that claims pending build rows from the database,
 compiles user-supplied package source into `.so` / `.dylib`
 artifacts, and writes them back for runner instances to load.
+For a Python package it vendors the dependencies of the package's
+lock file: see [Python packages](#python-packages-vendoring-dependencies).
 
 This is the **service** path. For laptop / CI use of
 `cloacinactl package build` + `pack`, see
@@ -82,6 +84,10 @@ firewall is the control: drop outbound connections from the
 `cloacina-compiler` UID (or, on Kubernetes, give the compiler pods an
 egress NetworkPolicy), and allow only the registry hosts when you run
 online builds.
+
+Python builds download wheels unless the compiler runs with
+`--python-offline`: see
+[What the compiler downloads, and from where](#what-the-compiler-downloads-and-from-where).
 
 ### 3. Configure `--build-timeout-s`
 
@@ -172,6 +178,305 @@ packages can resolve under `--offline`. Curate it explicitly.
    tree, then re-run `cargo vendor` against the union, and replace
    the compiler's vendor dir. Restart the compiler.
 
+## How many compilers a deployment runs
+
+A compiler serves one schema. A deployment runs:
+
+- **One compiler for `public`**, that you deploy: the Helm chart's
+  `compiler.enabled=true`, or your own process. It runs all the time.
+- **One compiler per tenant**, that you deploy with `--tenant-schema`, or that
+  the server makes for you. Without one, a package published to the tenant
+  stays `pending`: a Rust package and a Python package alike, because the
+  compiler is the process that completes every package (it runs no cargo for
+  a Python one).
+
+### Compilers the server makes
+
+With a fleet actuator (`CLOACINA_FLEET_ACTUATOR=kubernetes` or `docker`) and
+`CLOACINA_TENANT_COMPILERS=true`, the server runs the tenant compilers itself.
+The Helm chart sets both with `fleet.actuator=kubernetes`
+(`fleet.compiler.enabled` is `true` by default). No step is needed when a
+tenant is created.
+
+On each tick of the fleet loop (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30 s)
+the server reads the build queue of every tenant schema: the `pending` and
+`building` rows of `workflow_packages`, the rows the compiler claims.
+
+| The tenant's queue | The tenant's compiler |
+|---|---|
+| has a `pending` or `building` package | is created if there is none, and set to 1 replica |
+| is empty, and the last build ended or failed less than the cooldown ago | stays as it is |
+| has been empty for the cooldown (`CLOACINA_TENANT_COMPILER_COOLDOWN_S`, default 300 s) | is set to 0 replicas |
+| never held a package | does not exist |
+
+A tenant has at most one compiler. The server keeps no record of the wanted
+state: it works it out from the queue on each tick, so any replica can lead a
+tick. A removed tenant loses its compiler: `DELETE /v1/tenants/{name}` deletes
+the Deployment and its NetworkPolicy and writes an empty value over the
+database URL Secret.
+
+On Kubernetes the compiler of a tenant is a Deployment `cloacina-compiler` in
+the tenant's namespace (`cloacina-tenant-<tenant>`), next to its agents. With
+the Docker actuator it is one container with the labels
+`cloacina.compiler=true` and `cloacina.compiler-tenant=<tenant>`; the
+resources, the hardening, the cache volumes and the NetworkPolicy below do not
+apply there.
+
+**A start is a cold start.** The pod's cargo home and target directory are
+`emptyDir` volumes, so a compiler that starts has empty caches: its first
+build downloads and compiles every dependency of the package. Builds that
+follow while it runs reuse them. A longer cooldown keeps the caches longer; it
+also keeps the pod's requested CPU and memory reserved.
+
+**Settings** (environment of the server; the chart renders them from
+`fleet.compiler.*`):
+
+| Variable | Chart value | Default | What it sets |
+|---|---|---|---|
+| `CLOACINA_TENANT_COMPILERS` | `enabled` | off (chart: on) | Run a compiler per tenant. |
+| `CLOACINA_TENANT_COMPILER_IMAGE` | `image` | `cloacina-compiler:latest` (chart: the image of `compiler.image`) | The compiler image. |
+| `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | `cargoFlags` | empty (chart: `build --lib`) | The whole cargo flag list, separated by spaces (`--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. |
+| `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `vendorDir` | unset | `--vendor-dir`: a path inside the image. |
+| `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `devWorkspace` | unset | `--dev-workspace`: a path inside the image. Development only. |
+| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `targetDir` | `/workspace/target` | `--cargo-target-dir`. |
+| `CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S` | `buildTimeoutSeconds` | unset (the compiler's 600) | `--build-timeout-s`. |
+| `CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS` | `pollIntervalMs` | `1000` | `--poll-interval-ms`. |
+| `CLOACINA_TENANT_COMPILER_COOLDOWN_S` | `cooldownSeconds` | `300` | How long the queue must be empty before the compiler is set to 0. |
+| `CLOACINA_TENANT_COMPILER_CPU_REQUEST`, `_MEMORY_REQUEST`, `_CPU_LIMIT`, `_MEMORY_LIMIT` | `resources` | `500m`, `1Gi`, `2`, `4Gi` | Requests and limits of the compiler container. |
+| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | `cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
+| `CLOACINA_TENANT_COMPILER_HARDENED` | `hardened` | `true` | The pod hardening below. |
+| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | `databaseUrlSecretRef` | the server's own URL | The database URL of the tenant compilers. |
+| `CLOACINA_TENANT_COMPILER_EGRESS` | `egress` | `internet` | Where a build may fetch crates from: `internet`, `all` or `none`. |
+| `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | `egressCidrs` | empty | More egress CIDR blocks, every port. |
+| `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | `databaseCidrs` | empty | CIDR blocks of the database. |
+
+A value the server cannot use (a CIDR block that does not parse, an egress
+mode it does not know) stops the server at start with a message that names
+the variable.
+
+**The pod.** With `hardened` the pod runs as uid and gid `10001`, not root,
+with the `RuntimeDefault` seccomp profile, a read-only root filesystem, no
+capabilities and no privilege escalation, and mounts no service account
+token. The paths a build writes are `emptyDir` volumes: the compiler's home
+(`/var/cloacina/home`: unpacked sources and logs), the cargo home
+(`/var/cloacina/cargo`), the target directory and `/tmp`. The image must be
+usable by uid `10001`: the toolchain readable, and nothing it needs written
+outside those four paths. `hardened=false` runs the image as it is built, on
+its own filesystem; use it only for a development image that carries its
+caches. The compiler listens on `127.0.0.1:9000` only, and the pod has no
+probe.
+
+**The database URL.** The server writes the URL into a Secret
+`cloacina-compiler-db` in the tenant's namespace, and the pod reads it as the
+environment variable `DATABASE_URL`. It is not on the pod's command line. By
+default it is the server's own URL, which reaches every schema: the same
+credential the chart's own compiler has. To give the tenant compilers a
+weaker one, set `CLOACINA_TENANT_COMPILER_DATABASE_URL` (chart:
+`fleet.compiler.databaseUrlSecretRef`) to the URL of a role you made for
+builds. A tenant compiler reads and writes four tables of its tenant's
+schema, `workflow_packages`, `workflow_registry`, `package_providers` and
+`package_artifacts`, and nothing in `public`. All tenant compilers get the
+same URL. The host in the URL must resolve from the tenant namespaces: use a
+full Service name (`<service>.<namespace>.svc.cluster.local`), not a short
+one. A changed URL reaches a compiler when it next starts.
+
+**The network.** With `CLOACINA_FLEET_NETWORK_POLICY` on (the default), the
+server writes a NetworkPolicy `cloacina-compiler` for the compiler pods:
+
+- No ingress.
+- Egress to cluster DNS.
+- Egress to the database: TCP on the port of the database URL, to the blocks
+  in `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS`, or to every destination when
+  that list is empty (a NetworkPolicy cannot name a host).
+- Egress for crates, by `CLOACINA_TENANT_COMPILER_EGRESS`:
+  - `internet` (the default): TCP 443 to every public IPv4 address. The
+    private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+    `100.64.0.0/10`) and the link-local range (`169.254.0.0/16`) are left
+    out, so this rule opens no path to the cluster, the nodes or a cloud
+    metadata address.
+  - `all`: every destination and port.
+  - `none`: nothing more.
+- Egress to each block in `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS`, on every
+  port: a registry mirror, a git host, a proxy.
+
+The pods also get what the tenant's agent policy allows: DNS and the server.
+
+**An install with no route to a registry** sets `egress` to `none`, leaves
+`cargoFlags` empty so that builds run `--frozen --offline`, and sets
+`vendorDir` to a cargo home inside the compiler image that holds every crate
+a build may use (see [The `cargo vendor` workflow](#the-cargo-vendor-workflow)).
+With a mirror inside the network, list its CIDR in `egressCidrs` instead.
+
+## Python packages: vendoring dependencies
+
+A Python package has nothing to compile. Its build step is its dependencies.
+The compiler looks at the unpacked package:
+
+| The package has | The compiler |
+|---|---|
+| a `vendor/` folder | uses the package as it is. It runs no `uv` and downloads nothing. |
+| no `vendor/`, and no dependencies in `pyproject.toml` | does nothing. |
+| no `vendor/`, dependencies in `pyproject.toml`, and a `requirements.lock` | vendors: it installs the wheels the lock names, for each platform of its settings, and stores one set per platform. |
+| no `vendor/`, dependencies, and no `requirements.lock` | fails the build. It does not resolve versions: what runs is what the publisher locked with `cloacinactl package build`. |
+
+A server or an agent that loads the package gets the set of its own platform
+(`GET /v1/agent/python-vendor/{digest}` for an agent) and unpacks it into
+`vendor/<platform>/`. The uploaded archive is not changed.
+
+### How it vendors
+
+For each platform the compiler runs:
+
+```
+uv pip install --requirement requirements.lock --target <folder>
+  --python-platform <platform> --python-version <version>
+  --only-binary :all: --require-hashes --no-deps --link-mode copy
+  --no-config --no-python-downloads
+```
+
+- **Wheels only.** `--only-binary :all:` refuses a dependency that has no wheel
+  for the platform. The build fails and names it. No source distribution is
+  built, so no code of a dependency runs in the compiler: `uv` unpacks wheels.
+- **Exactly what the lock names.** `--no-deps` installs the pins of the lock
+  file and nothing else. `--require-hashes` refuses a wheel whose hash is not
+  in the lock file.
+- **The lock file is checked first.** It may hold pinned versions
+  (`name==version`) with `--hash` lines, environment markers and comments. An
+  option line (`-r`, `--index-url`, `--find-links`, …), a URL or a path fails
+  the build before `uv` starts: such a line would make `uv` read a file or a
+  server that the package's author chose.
+- **`--no-config`.** `uv` runs in the package's folder. A `uv.toml` or a
+  `[tool.uv]` table in the package does not change the index.
+- **A build child like `cargo`.** `uv` gets the cleared environment, the
+  `--build-timeout-s` limit and the `--build-rlimit-*` limits of every build
+  child, plus the proxy and certificate variables (`HTTP_PROXY`, `HTTPS_PROXY`,
+  `NO_PROXY`, `ALL_PROXY`, `SSL_CERT_FILE`, `SSL_CERT_DIR`). The limits apply
+  to each `uv` run, one per platform.
+- `uv` needs a Python interpreter on the machine. It does not download one.
+
+The set of each platform is checked against the archive limits before it is
+stored (`--max-unpacked-bytes`, 10,000 entries, 10 times the archive size): a
+set that a loader would refuse fails the build, with its size in the error.
+
+### Settings
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--python-platform <ARCH-OS>` (repeatable, or a comma-separated list) | `CLOACINA_COMPILER_PYTHON_PLATFORMS` | `aarch64-linux`, `x86_64-linux` | The platforms to vendor for: the platforms of the servers and agents that load Python packages. One of `aarch64-linux`, `x86_64-linux`, `aarch64-macos`, `x86_64-macos`, `x86_64-windows`. A package the compiler vendored loads on these platforms only. |
+| `--python-version <MAJOR.MINOR>` | `CLOACINA_COMPILER_PYTHON_VERSION` | `3.11` | The Python the wheels are for: the Python of the servers and agents (3.11 in the official images). A package whose `requires_python` excludes it fails to build. |
+| `--python-index-url <URL>` | `CLOACINA_COMPILER_PYTHON_INDEX_URL` | PyPI | The package index. The compiler gives it to `uv` in the environment (`UV_DEFAULT_INDEX`), not on the command line. For a URL with a password, set the variable and not the flag. |
+| `--python-wheel-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset | A folder of wheel files (`uv --find-links`): one more place to find wheels, next to the index. The index is still read. With `--python-offline` it is the only source. |
+| `--python-uv-cache-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR` | `uv`'s own, under the home folder | The cache folder of `uv`. The compiler's user must be able to write to it. |
+| `--python-offline` | `CLOACINA_COMPILER_PYTHON_OFFLINE` | off | No network for Python builds (`uv --offline`). With a wheel folder, only the folder is read (`--no-index`). With no wheel folder, the `uv` cache must hold every wheel. The compiler does not start with `--python-offline` and neither a wheel folder nor a cache folder. |
+| `--uv <PATH>` | `CLOACINA_UV` | `uv` on `PATH` | The `uv` program. |
+
+A per-target compiler (`--build-target`) does not vendor. The primary compiler
+vendors for every platform of its settings in one build.
+
+The Helm chart sets these for its own compiler from `compiler.python.*`
+(`platforms`, `version`, `indexUrl`, `wheelDir`, `offline`, `uvCacheDir`). The
+chart's default `uvCacheDir` is `/tmp/uv-cache`, on the pod's `/tmp` volume:
+the root filesystem of the pod is read-only.
+
+### What the compiler downloads, and from where
+
+With the default settings a Python build opens HTTPS connections to the package
+index and to the host that serves its files. For PyPI these are `pypi.org` and
+`files.pythonhosted.org`. It downloads the wheels that the lock file names, and
+the index pages of those distributions. It sends credentials only when the
+operator set them: in the index URL, or in the `.netrc` file of the compiler's
+user.
+
+If you restrict the compiler's egress (a firewall, or a NetworkPolicy), choose
+one:
+
+- allow TCP 443 to the index and its file host;
+- point `--python-index-url` at a mirror inside your network;
+- run with `--python-offline` and carry the wheels in the image (next section).
+
+### A compiler image that carries the wheels
+
+A compiler can vendor with no network when its image holds the wheels. Teams
+then pin the versions the image holds.
+
+1. Write the stack as a `pyproject.toml` and lock it, as a team does for a
+   package:
+
+   ```toml
+   [project]
+   name = "wheel-stack"
+   version = "1.0.0"
+   dependencies = ["pyarrow==26.0.1", "duckdb==2.0.1", "pyiceberg==0.12.0"]
+   ```
+
+   ```bash
+   uv pip compile pyproject.toml --universal --python-version 3.11 \
+     --generate-hashes --output-file stack.lock
+   ```
+
+2. Build an image on top of the compiler image. A first stage downloads the
+   wheels of the lock for both Linux architectures; the second copies them in:
+
+   ```dockerfile
+   FROM python:3.11-slim AS wheels
+   COPY stack.lock /stack.lock
+   RUN for arch in x86_64 aarch64; do \
+         pip download --no-deps --only-binary :all: --require-hashes \
+           --python-version 3.11 --implementation cp \
+           --abi cp311 --abi abi3 --abi none \
+           --platform manylinux_2_28_$arch \
+           --platform manylinux_2_17_$arch \
+           --platform manylinux2014_$arch \
+           -r /stack.lock -d /wheels || exit 1; \
+       done
+
+   FROM <your cloacina-compiler image>
+   COPY --from=wheels /wheels /opt/cloacina/wheels
+   ```
+
+   The compiler image must hold `uv` and a Python interpreter.
+   `docker/Dockerfile.compiler` has both.
+
+3. Start the compiler with the folder and no network for Python builds:
+
+   ```bash
+   cloacina-compiler \
+     --python-wheel-dir /opt/cloacina/wheels \
+     --python-offline \
+     --python-uv-cache-dir /tmp/uv-cache
+   ```
+
+   With the chart: `compiler.python.wheelDir=/opt/cloacina/wheels` and
+   `compiler.python.offline=true`.
+
+4. Give the teams `stack.lock`. A package whose lock file pins a version that
+   is not in the folder fails to build, and the error names the distribution
+   and the folder:
+
+   ```
+   `pyarrow` was not found for x86_64-linux with Python 3.11 in the wheel source
+   of this build (the wheel folder /opt/cloacina/wheels, no network).
+   ```
+
+To carry a `uv` cache in place of a wheel folder, fill it in the image build
+with the same install the compiler runs, then start the compiler with
+`--python-uv-cache-dir <that folder> --python-offline`:
+
+```dockerfile
+RUN for platform in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do \
+      uv pip install --requirement /stack.lock --target /tmp/fill-$platform \
+        --python-platform $platform --python-version 3.11 \
+        --only-binary :all: --require-hashes --no-deps \
+        --cache-dir /opt/cloacina/uv-cache || exit 1; \
+    done && rm -rf /tmp/fill-*
+```
+
+The compiler's user must be able to write to the cache folder.
+
+A wheel folder without `--python-offline` adds to the index: `uv` still reads
+the index for every distribution, and finds in the folder the wheels the index
+does not have (a private wheel, for example).
+
 ## Flag reference
 
 All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
@@ -186,6 +491,14 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 | `--build-rlimit-mem` | `CLOACINA_COMPILER_BUILD_RLIMIT_MEM` | `4G` |
 | `--build-rlimit-files` | `CLOACINA_COMPILER_BUILD_RLIMIT_FILES` | 1024 |
 | `--build-rlimit-procs` | `CLOACINA_COMPILER_BUILD_RLIMIT_PROCS` | 256 |
+| `--max-unpacked-bytes` | `CLOACINA_MAX_UNPACKED_BYTES` | 524288000 (500 MiB) |
+| `--python-platform` (repeatable) | `CLOACINA_COMPILER_PYTHON_PLATFORMS` | `aarch64-linux`, `x86_64-linux` |
+| `--python-version` | `CLOACINA_COMPILER_PYTHON_VERSION` | `3.11` |
+| `--python-index-url` | `CLOACINA_COMPILER_PYTHON_INDEX_URL` | unset (PyPI) |
+| `--python-wheel-dir` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset |
+| `--python-uv-cache-dir` | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR` | unset (`uv`'s own) |
+| `--python-offline` | `CLOACINA_COMPILER_PYTHON_OFFLINE` | off |
+| `--uv` | `CLOACINA_UV` | `uv` |
 | `--cargo-target-dir` | — | unset (per-build `target/`) |
 | `--tenant-schema` | `CLOACINA_TENANT_SCHEMA` | unset (public schema) |
 | `--build-target` | `CLOACINA_BUILD_TARGET` | unset (native host build) |
@@ -198,7 +511,9 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 - `--tenant-schema` scopes the compiler to a single tenant's Postgres schema
   for build isolation: it claims and builds **only** that tenant's pending
   packages, with separate source, logs, and target dir (no cross-tenant
-  leakage). Run one compiler per tenant. Omit for the default public schema.
+  leakage). Run one compiler per tenant, or let the server run them (see
+  [How many compilers a deployment runs](#how-many-compilers-a-deployment-runs)).
+  Omit for the default public schema.
 - `--build-target` runs the compiler as a per-target builder producing
   cdylibs for a given triple (e.g. `x86_64-linux`), backfilling
   `package_artifacts` for success packages that lack that architecture. Run

@@ -31,7 +31,7 @@ helm install fleet charts/cloacina-agent \
 | Value | Description |
 |---|---|
 | `server.url` | Base URL of the cloacina-server to register with. |
-| `apiKey` *or* `apiKeySecretRef.name` | API key (its tenant scope decides which tenants' work the agent receives). |
+| `apiKey` *or* `apiKeySecretRef.name` | API key of role `agent` (its tenant scope decides which tenants' work the agent receives). The server refuses an agent on a key of any other role. |
 
 ## Common values
 
@@ -39,6 +39,7 @@ helm install fleet charts/cloacina-agent \
 |---|---|---|
 | `replicaCount` | `2` | Number of agents. |
 | `server.maxConcurrency` | `4` | Concurrent work packets per agent. |
+| `logFormat` | `text` | Format of the agent's log lines on stdout: `text` or `json` (`--log-format`). |
 | `server.capabilities` | `[]` | Capability tags advertised at registration. |
 | `image.repository` / `image.tag` | ghcr image / appVersion | Agent image. |
 | `automountServiceAccountToken` | `false` | Mount a service account token in the pod. The agent does not use one. |

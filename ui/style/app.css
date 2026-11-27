@@ -282,6 +282,9 @@ circle.app-brandmark__node { fill: var(--brand-stroke); }
 .app-fires { padding-top: 4px; }
 .app-count { font-size: var(--fs-xs); }
 .app-prewrap { white-space: pre-wrap; }
+/* Details of a task's error (a traceback) under the error text. */
+.app-errdetails summary { cursor: pointer; color: var(--fg-2); }
+.app-errdetails__text { margin: 4px 0 0; max-height: 320px; max-width: 720px; overflow: auto; white-space: pre-wrap; color: var(--fg-2); }
 
 /* ---------- Workflow detail: average task timing ---------- */
 .app-avg { display: flex; flex-direction: column; gap: 7px; }

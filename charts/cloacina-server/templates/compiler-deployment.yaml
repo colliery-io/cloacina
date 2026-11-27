@@ -56,6 +56,27 @@ spec:
             {{- end }}
             - "--poll-interval-ms"
             - {{ .Values.compiler.pollIntervalMs | quote }}
+            {{- with .Values.compiler.python }}
+            {{- range .platforms }}
+            - "--python-platform"
+            - {{ . | quote }}
+            {{- end }}
+            {{- if .version }}
+            - "--python-version"
+            - {{ .version | quote }}
+            {{- end }}
+            {{- if .wheelDir }}
+            - "--python-wheel-dir"
+            - {{ .wheelDir | quote }}
+            {{- end }}
+            {{- if .uvCacheDir }}
+            - "--python-uv-cache-dir"
+            - {{ .uvCacheDir | quote }}
+            {{- end }}
+            {{- if .offline }}
+            - "--python-offline"
+            {{- end }}
+            {{- end }}
             {{- range .Values.compiler.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -81,6 +102,12 @@ spec:
             {{- else }}
             - name: DATABASE_URL
               value: {{ .Values.database.url | quote }}
+            {{- end }}
+            {{- if .Values.compiler.python.indexUrl }}
+            # In the environment, not in the arguments: the compiler gives it
+            # to uv the same way.
+            - name: CLOACINA_COMPILER_PYTHON_INDEX_URL
+              value: {{ .Values.compiler.python.indexUrl | quote }}
             {{- end }}
             {{- with .Values.compiler.extraEnv }}
             {{- toYaml . | nindent 12 }}

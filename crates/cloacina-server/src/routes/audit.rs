@@ -16,17 +16,21 @@
 
 //! Audit record (CLOACINA-T-1024): who did what, when, in which tenant.
 //!
-//! Two parts:
+//! Three parts:
 //!
-//! - [`record`]: the one helper a route calls after its action succeeds. It
-//!   writes a row to `audit_events` in the admin database. A failed write is
-//!   logged and counted (`cloacina_audit_write_errors_total`); it never fails
-//!   the request.
+//! - The row of a route in the authorization table names its audited
+//!   [`Action`] (CLOACINA-T-1055). The authorization middleware writes the
+//!   audit row after the handler answers, so a new route cannot forget it.
+//! - [`note`]: what a handler calls to add the target and the facts of the
+//!   action to that row. It writes nothing itself. A handler that calls
+//!   nothing still gets a row, with the target the route's row names.
 //! - The read API: `GET /v1/tenants/{tenant_id}/audit` (tenant admin) and
 //!   `GET /v1/audit` (platform admin).
 //!
 //! The table is in the admin schema with a tenant column, so a tenant's rows
-//! outlive its schema and platform actions have a place.
+//! outlive its schema and platform actions have a place. A failed write is
+//! logged and counted (`cloacina_audit_write_errors_total`); it never fails
+//! the request.
 //!
 //! An event carries names and ids only. Never put a secret value, a request
 //! body or an execution context in `detail`.
@@ -34,7 +38,6 @@
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
-    http::Method,
     response::IntoResponse,
 };
 use tracing::warn;
@@ -62,7 +65,7 @@ const fn action(name: &'static str, target_kind: &'static str) -> Action {
     Action { name, target_kind }
 }
 
-/// The fixed actions. One per audited route.
+/// The fixed actions. The authorization table gives each audited route one.
 pub mod actions {
     use super::{Action, action};
 
@@ -88,6 +91,8 @@ pub mod actions {
     pub const SECRET_CREATE: Action = action("secret.create", "secret");
     pub const SECRET_ROTATE: Action = action("secret.rotate", "secret");
     pub const SECRET_DELETE: Action = action("secret.delete", "secret");
+    pub const TRUSTED_KEY_ADD: Action = action("trusted_key.add", "trusted_key");
+    pub const TRUSTED_KEY_REVOKE: Action = action("trusted_key.revoke", "trusted_key");
     pub const FLEET_PROVISION: Action = action("fleet.provision", "fleet");
     pub const FLEET_DEPROVISION: Action = action("fleet.deprovision", "fleet");
     pub const LIMIT_SET: Action = action("limit.set", "limit");
@@ -97,10 +102,29 @@ pub mod actions {
     pub const ACCOUNT_CREATE: Action = action("account.create", "account");
     pub const ACCOUNT_DISABLE: Action = action("account.disable", "account");
     pub const ACCOUNT_PASSWORD_RESET: Action = action("account.password_reset", "account");
+    // CLOACINA-T-1055: state changes that had no audit row.
+    pub const REACTOR_FIRE: Action = action("reactor.fire", "reactor");
+    pub const REACTOR_PAUSE: Action = action("reactor.pause", "reactor");
+    pub const REACTOR_RESUME: Action = action("reactor.resume", "reactor");
+    pub const ACCUMULATOR_INJECT: Action = action("accumulator.inject", "accumulator");
+    pub const ACCUMULATOR_CONNECT: Action = action("accumulator.connect", "accumulator");
+    pub const AGENT_REGISTER: Action = action("agent.register", "agent");
+    pub const AGENT_KEYS: Action = action("agent.keys", "agent");
+    pub const AUTH_LOGIN: Action = action("auth.login", "session");
+    pub const AUTH_LOGOUT: Action = action("auth.logout", "session");
+}
+
+/// Who did it, when it is not the key of the request: a login has no key
+/// yet, so the handler names the key it minted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Actor {
+    pub key_id: String,
+    pub key_name: String,
+    pub identity: Option<String>,
 }
 
 /// One action to record. Build it with [`AuditEvent::ok`], add facts with
-/// [`AuditEvent::detail`], and pass it to [`record`].
+/// [`AuditEvent::detail`], and pass it to [`note`].
 #[derive(Debug, Clone)]
 pub struct AuditEvent {
     action: Action,
@@ -120,18 +144,124 @@ impl AuditEvent {
         }
     }
 
+    /// An action that succeeded, with no target.
+    pub fn ok_untargeted(action: Action) -> Self {
+        Self {
+            action,
+            target: None,
+            outcome: OUTCOME_OK,
+            detail: serde_json::json!({}),
+        }
+    }
+
+    /// An action the authorization check refused.
+    pub fn denied(action: Action, target: Option<String>, detail: serde_json::Value) -> Self {
+        Self {
+            action,
+            target,
+            outcome: OUTCOME_DENIED,
+            detail,
+        }
+    }
+
     /// Facts of the action as a small JSON object (a version, an execution
     /// id). Names and ids only.
     pub fn detail(mut self, detail: serde_json::Value) -> Self {
         self.detail = detail;
         self
     }
+
+    /// The audited action of this event.
+    pub fn action(&self) -> Action {
+        self.action
+    }
+
+    /// The same event under `action`: the middleware writes a row under the
+    /// action its route's row names.
+    pub(crate) fn with_action(mut self, action: Action) -> Self {
+        self.action = action;
+        self
+    }
 }
 
-/// Write one audit row for `event`, done by `auth`, in `tenant` (`None` for a
-/// platform action). Never fails the request: an error is logged and counted
-/// in `cloacina_audit_write_errors_total`.
-pub async fn record(
+/// What a handler noted for the audit row of its request.
+#[derive(Debug, Clone)]
+pub struct Noted {
+    pub actor: Option<Actor>,
+    pub tenant: Option<String>,
+    pub event: AuditEvent,
+}
+
+/// The notes of one request, collected while its handler runs.
+#[derive(Debug, Default)]
+pub struct Notes {
+    pub noted: Vec<Noted>,
+}
+
+tokio::task_local! {
+    static NOTES: std::sync::Mutex<Notes>;
+}
+
+fn with_notes(f: impl FnOnce(&mut Notes)) {
+    // Outside the middleware (a unit test that calls a handler) there is no
+    // slot: the note is dropped.
+    let _ = NOTES.try_with(|slot| {
+        if let Ok(mut notes) = slot.lock() {
+            f(&mut notes);
+        }
+    });
+}
+
+/// Add the target and the facts of the action to the audit row of this
+/// request. `tenant` is the tenant the action happened in (`None` for a
+/// platform action). The middleware writes the row after the handler answers.
+pub fn note(tenant: Option<&str>, event: AuditEvent) {
+    let tenant = tenant.map(str::to_string);
+    with_notes(|n| {
+        n.noted.push(Noted {
+            actor: None,
+            tenant,
+            event,
+        })
+    });
+}
+
+/// [`note`] for a route with no key in the request (a login): `actor` is the
+/// key the handler minted.
+pub fn note_as(actor: Actor, tenant: Option<&str>, event: AuditEvent) {
+    let tenant = tenant.map(str::to_string);
+    with_notes(|n| {
+        n.noted.push(Noted {
+            actor: Some(actor),
+            tenant,
+            event,
+        })
+    });
+}
+
+/// Run `f` (the handler) with a slot for its notes; give its answer and the
+/// notes. Called by the authorization middleware only.
+pub(crate) async fn collect_notes<F: std::future::Future>(f: F) -> (F::Output, Notes) {
+    NOTES
+        .scope(std::sync::Mutex::new(Notes::default()), async {
+            let out = f.await;
+            let notes = NOTES.with(|slot| {
+                slot.lock()
+                    .map(|mut n| std::mem::take(&mut *n))
+                    .unwrap_or_default()
+            });
+            (out, notes)
+        })
+        .await
+}
+
+/// Write one audit row for `event`, done by the key `auth`, in `tenant`
+/// (`None` for a platform action). Never fails the request: an error is
+/// logged and counted in `cloacina_audit_write_errors_total`.
+///
+/// Called by the authorization middleware, and by a WebSocket handler for a
+/// command that arrives after the upgrade. A REST handler calls [`note`].
+pub(crate) async fn record(
     state: &AppState,
     auth: &AuthenticatedKey,
     tenant: Option<&str>,
@@ -140,18 +270,34 @@ pub async fn record(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     // The person behind a key minted at login is on the key row
     // (`issued_via`), not on `AuthenticatedKey`.
-    let actor_identity = match dal.api_keys().get_key(auth.key_id).await {
+    let identity = match dal.api_keys().get_key(auth.key_id).await {
         Ok(info) => info.and_then(|k| k.issued_via),
         Err(e) => {
             warn!(key_id = %auth.key_id, error = %e, "audit: could not read the key's identity");
             None
         }
     };
+    let actor = Actor {
+        key_id: auth.key_id.to_string(),
+        key_name: auth.name.clone(),
+        identity,
+    };
+    record_as(state, actor, tenant, event).await;
+}
+
+/// [`record`] with the actor given.
+pub(crate) async fn record_as(
+    state: &AppState,
+    actor: Actor,
+    tenant: Option<&str>,
+    event: AuditEvent,
+) {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
     let row = NewAuditEvent {
         tenant_id: tenant.map(str::to_string),
-        actor_key_id: auth.key_id.to_string(),
-        actor_key_name: auth.name.clone(),
-        actor_identity,
+        actor_key_id: actor.key_id,
+        actor_key_name: actor.key_name,
+        actor_identity: actor.identity,
         action: event.action.name.to_string(),
         target_kind: event.action.target_kind.to_string(),
         target: event.target,
@@ -167,77 +313,6 @@ pub async fn record(
             "audit: write failed; the action itself is not affected"
         );
     }
-}
-
-/// The audited action behind a route, `path` is
-/// the route as registered (no `/v1` prefix). `None` for a route that writes
-/// no audit row.
-pub fn action_for_route(method: &Method, path: &str) -> Option<Action> {
-    use actions::*;
-    let hit = match (method.as_str(), path) {
-        ("POST", "/tenants/{tenant_id}/workflows") => PACKAGE_UPLOAD,
-        ("DELETE", "/tenants/{tenant_id}/workflows/{name}/{version}") => PACKAGE_DELETE,
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate") => {
-            PACKAGE_ACTIVATE
-        }
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/pause") => WORKFLOW_PAUSE,
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/resume") => WORKFLOW_RESUME,
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/execute") => WORKFLOW_RUN,
-        ("POST", "/tenants/{tenant_id}/triggers/{name}/pause") => TRIGGER_PAUSE,
-        ("POST", "/tenants/{tenant_id}/triggers/{name}/resume") => TRIGGER_RESUME,
-        ("POST", "/tenants/{tenant_id}/triggers/{name}/fire") => TRIGGER_FIRE,
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/instances") => INSTANCE_CREATE,
-        ("DELETE", "/tenants/{tenant_id}/workflows/{name}/instances/{instance}") => INSTANCE_DELETE,
-        // Backfills (CLOACINA-T-1020).
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/backfills") => BACKFILL_CREATE,
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel") => BACKFILL_CANCEL,
-        ("POST", "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry") => BACKFILL_RETRY,
-        ("POST", "/auth/keys") | ("POST", "/tenants/{tenant_id}/keys") => KEY_CREATE,
-        ("DELETE", "/auth/keys/{key_id}") | ("DELETE", "/tenants/{tenant_id}/keys/{key_id}") => {
-            KEY_REVOKE
-        }
-        ("POST", "/tenants") => TENANT_CREATE,
-        ("DELETE", "/tenants/{schema_name}") => TENANT_DELETE,
-        ("POST", "/tenants/{tenant_id}/secrets") => SECRET_CREATE,
-        ("PUT", "/tenants/{tenant_id}/secrets/{name}") => SECRET_ROTATE,
-        ("DELETE", "/tenants/{tenant_id}/secrets/{name}") => SECRET_DELETE,
-        ("POST", "/tenants/{tenant_id}/fleet/provision") => FLEET_PROVISION,
-        ("POST", "/tenants/{tenant_id}/fleet/deprovision") => FLEET_DEPROVISION,
-        ("POST", "/tenants/{tenant_id}/limits") => LIMIT_SET,
-        ("DELETE", "/tenants/{tenant_id}/limits") => LIMIT_CLEAR,
-        ("PUT", "/tenants/{tenant_id}/pools/{pool}") => POOL_SET,
-        ("DELETE", "/tenants/{tenant_id}/pools/{pool}") => POOL_DELETE,
-        ("POST", "/tenants/{tenant_id}/accounts") => ACCOUNT_CREATE,
-        ("DELETE", "/tenants/{tenant_id}/accounts/{account_id}") => ACCOUNT_DISABLE,
-        ("POST", "/tenants/{tenant_id}/accounts/{account_id}/password") => ACCOUNT_PASSWORD_RESET,
-        _ => return None,
-    };
-    Some(hit)
-}
-
-/// Record an authorization denial on an audited route. Called by the authz
-/// middleware. A denial on a route that writes no audit row (every read)
-/// records nothing. `tenant` is the tenant named in the path, when the route
-/// has one. `request_path` is the URL path: it holds names and ids only.
-pub async fn record_denied(
-    state: &AppState,
-    auth: &AuthenticatedKey,
-    tenant: Option<&str>,
-    method: &Method,
-    route: &str,
-    request_path: &str,
-    reason: &str,
-) {
-    let Some(action) = action_for_route(method, route) else {
-        return;
-    };
-    let event = AuditEvent {
-        action,
-        target: None,
-        outcome: OUTCOME_DENIED,
-        detail: serde_json::json!({ "reason": reason, "path": request_path }),
-    };
-    record(state, auth, tenant, event).await;
 }
 
 /// The `detail` of a `package.upload` row: the package name and version as
@@ -433,23 +508,6 @@ pub async fn list_audit(
 mod tests {
     use super::*;
 
-    /// Every audited route is a real route: it has a row in the
-    /// authorization table. A renamed route would otherwise stop recording
-    /// denials with no test failing.
-    #[test]
-    fn audit_route_map_names_only_routes_of_the_authz_table() {
-        let table = crate::routes::authz::build_authz_table();
-        let mut audited = 0;
-        for (method, path) in table.keys() {
-            if action_for_route(method, path).is_some() {
-                audited += 1;
-                assert_ne!(method, Method::GET, "a read is not audited: {path}");
-            }
-        }
-        // 30 actions; key create and key revoke each have two routes.
-        assert_eq!(audited, 32);
-    }
-
     #[test]
     fn audit_actions_are_named_kind_dot_verb() {
         assert_eq!(actions::PACKAGE_UPLOAD.name, "package.upload");
@@ -466,67 +524,38 @@ mod tests {
         );
     }
 
-    #[test]
-    fn audit_route_map_gives_action_and_kind() {
-        assert_eq!(
-            action_for_route(&Method::POST, "/tenants/{tenant_id}/workflows"),
-            Some(actions::PACKAGE_UPLOAD)
-        );
-        assert_eq!(
-            action_for_route(&Method::PUT, "/tenants/{tenant_id}/secrets/{name}"),
-            Some(actions::SECRET_ROTATE)
-        );
-        assert_eq!(
-            action_for_route(&Method::PUT, "/tenants/{tenant_id}/pools/{pool}"),
-            Some(actions::POOL_SET)
-        );
-        assert_eq!(
-            action_for_route(&Method::DELETE, "/tenants/{tenant_id}/pools/{pool}"),
-            Some(actions::POOL_DELETE)
-        );
-        assert_eq!(actions::POOL_SET.name, "pool.set");
-        assert_eq!(actions::POOL_DELETE.target_kind, "pool");
-        // Reading pools writes no audit row.
-        assert_eq!(
-            action_for_route(&Method::GET, "/tenants/{tenant_id}/pools/{pool}"),
-            None
-        );
-        assert_eq!(
-            action_for_route(&Method::GET, "/tenants/{tenant_id}/workflows"),
-            None
-        );
-        assert_eq!(action_for_route(&Method::POST, "/auth/refresh"), None);
-        // Backfills (CLOACINA-T-1020): create, cancel and retry are audited;
-        // list and inspect are reads.
-        assert_eq!(
-            action_for_route(
-                &Method::POST,
-                "/tenants/{tenant_id}/workflows/{name}/backfills"
-            ),
-            Some(actions::BACKFILL_CREATE)
-        );
-        assert_eq!(
-            action_for_route(
-                &Method::POST,
-                "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel"
-            ),
-            Some(actions::BACKFILL_CANCEL)
-        );
-        assert_eq!(
-            action_for_route(
-                &Method::POST,
-                "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry"
-            ),
-            Some(actions::BACKFILL_RETRY)
-        );
-        assert_eq!(actions::BACKFILL_RETRY.target_kind, "backfill");
-        assert_eq!(
-            action_for_route(
-                &Method::GET,
-                "/tenants/{tenant_id}/workflows/{name}/backfills/{id}"
-            ),
-            None
-        );
+    #[tokio::test]
+    async fn audit_notes_are_collected_for_the_request_only() {
+        // Outside a request the note is dropped, not a panic.
+        note(None, AuditEvent::ok(actions::WORKFLOW_RUN, "etl"));
+
+        let ((), notes) = collect_notes(async {
+            note(
+                Some("acme"),
+                AuditEvent::ok(actions::WORKFLOW_RUN, "etl")
+                    .detail(serde_json::json!({"execution_id": "e-1"})),
+            );
+        })
+        .await;
+        assert_eq!(notes.noted.len(), 1);
+        assert_eq!(notes.noted[0].tenant.as_deref(), Some("acme"));
+        assert_eq!(notes.noted[0].event.target.as_deref(), Some("etl"));
+        assert_eq!(notes.noted[0].event.detail["execution_id"], "e-1");
+        assert!(notes.noted[0].actor.is_none());
+
+        let ((), notes) = collect_notes(async {
+            note_as(
+                Actor {
+                    key_id: "k".into(),
+                    key_name: "login".into(),
+                    identity: Some("local:1".into()),
+                },
+                Some("acme"),
+                AuditEvent::ok(actions::AUTH_LOGIN, "robin"),
+            )
+        })
+        .await;
+        assert_eq!(notes.noted[0].actor.as_ref().unwrap().key_name, "login");
     }
 
     #[test]

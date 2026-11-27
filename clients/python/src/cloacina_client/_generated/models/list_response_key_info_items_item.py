@@ -20,7 +20,7 @@ class ListResponseKeyInfoItemsItem:
         id (str): Key UUID.
         is_admin (bool):
         name (str):
-        permissions (str): Role string: `read` | `write` | `admin`.
+        permissions (str): Role string: `read` | `write` | `admin` | `agent`.
         revoked (bool):
         tenant_id (None | str | Unset): Tenant scope; `null` for global keys.
     """

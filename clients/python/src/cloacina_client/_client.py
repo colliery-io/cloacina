@@ -98,6 +98,11 @@ from ._generated.api.triggers import (
     pause_trigger,
     resume_trigger,
 )
+from ._generated.api.trusted_keys import (
+    add_trusted_key,
+    list_trusted_keys,
+    revoke_trusted_key,
+)
 from ._generated.api.workflows import (
     activate_workflow_version,
     delete_workflow,
@@ -110,6 +115,7 @@ from ._generated.api.workflows import (
     upload_workflow,
 )
 from ._generated.models import (
+    AddTrustedKeyRequest,
     AgentPoolSettings,
     CreateAccountRequest,
     CreateBackfillRequest,
@@ -435,6 +441,51 @@ class Client(_Base):
         return _unwrap(
             delete_secret.sync_detailed(
                 self.tenant_segment(tenant), name, client=self._gen
+            )
+        )
+
+    # ---- trusted keys of package signing ----
+    #
+    # The keys a tenant trusts. A tenant admin manages its own tenant's keys;
+    # a platform admin names the tenant.
+
+    def list_trusted_keys(self, tenant: str | None = None):
+        """List the tenant's trusted keys. A revoked key stays in the list."""
+        return _unwrap(
+            list_trusted_keys.sync_detailed(
+                self.tenant_segment(tenant), client=self._gen
+            )
+        )
+
+    def add_trusted_key(
+        self,
+        *,
+        public_key_pem: str | None = None,
+        public_key: str | None = None,
+        name: str | None = None,
+        tenant: str | None = None,
+    ):
+        """Add an Ed25519 public key to the tenant's trusted keys.
+
+        Give the key as PEM (`public_key_pem`) or as the raw 32 bytes in
+        hexadecimal (`public_key`): exactly one of the two.
+        """
+        body = AddTrustedKeyRequest(
+            name=UNSET if name is None else name,
+            public_key=UNSET if public_key is None else public_key,
+            public_key_pem=UNSET if public_key_pem is None else public_key_pem,
+        )
+        return _unwrap(
+            add_trusted_key.sync_detailed(
+                self.tenant_segment(tenant), client=self._gen, body=body
+            )
+        )
+
+    def revoke_trusted_key(self, key_id: str, tenant: str | None = None):
+        """Revoke a trusted key of the tenant, by its id."""
+        return _unwrap(
+            revoke_trusted_key.sync_detailed(
+                self.tenant_segment(tenant), key_id, client=self._gen
             )
         )
 

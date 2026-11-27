@@ -231,4 +231,18 @@ pub trait Task: Send + Sync {
     fn timeout(&self) -> Option<std::time::Duration> {
         None
     }
+
+    /// Returns where the task wants to run on an execution-agent fleet and
+    /// what it asks for (CLOACINA-T-1027): its agent pool, its CPU and memory
+    /// requests, and the `inline` mark.
+    ///
+    /// The default declares nothing: the pool `default`, no request, not
+    /// inline. Set by `#[task(pool = "large", cpu = "4", memory = "32Gi")]`.
+    ///
+    /// The fleet places the task on an agent of its pool that has room for
+    /// the requests. A request is used for placement only. The in-process
+    /// executor does not read it.
+    fn placement(&self) -> crate::TaskPlacement {
+        crate::TaskPlacement::default()
+    }
 }

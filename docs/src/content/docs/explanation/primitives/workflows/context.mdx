@@ -51,6 +51,12 @@ raw = ctx.get("raw")
   database between task executions.
 - **Typed (Rust):** `Context<T>` is generic; the common case is
   `Context<serde_json::Value>`.
+- **Small:** a context is for metadata and references, not for data. Write
+  large data to storage in the task and pass the reference (a path, a URI, a
+  row id) in the context.
+- **Size limits:** a context over 1 MiB is logged as a warning; a task whose
+  context is over 16 MiB fails and is not retried. Both limits are settings.
+  See [Context size limits](../../../engine/context-management/#context-size-limits).
 - **Initial + final:** you pass an initial context to `execute`; the result exposes
   the `final_context`.
 

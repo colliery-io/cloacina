@@ -397,6 +397,140 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
     }
 
+    /// CLOACINA-T-1073: make the vendored sets of a Python package version be
+    /// exactly `sets` (platform, digest, archive). One row per platform, under
+    /// the key `python-vendor:<platform>`. The rows of the version that are not
+    /// in `sets` are removed, so a build with no vendored set (the package
+    /// ships `vendor/`, or has no dependencies) leaves none behind.
+    pub async fn replace_python_vendor_artifacts(
+        &self,
+        package_name: &str,
+        version: &str,
+        sets: Vec<(String, String, Vec<u8>)>,
+    ) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        use crate::database::universal_types::UniversalBinary;
+        use cloacina_workflow_plugin::python_vendor::{
+            VENDOR_ARTIFACT_PREFIX, vendor_artifact_key,
+        };
+        let rows: Vec<crate::dal::unified::models::NewPackageArtifact> = sets
+            .into_iter()
+            .map(
+                |(platform, digest, data)| crate::dal::unified::models::NewPackageArtifact {
+                    id: UniversalUuid::new_v4(),
+                    package_name: package_name.to_string(),
+                    version: version.to_string(),
+                    tenant_id: None,
+                    target_triple: vendor_artifact_key(&platform),
+                    content_hash: digest,
+                    compiled_data: UniversalBinary::new(data),
+                    created_at: UniversalTimestamp::now(),
+                },
+            )
+            .collect();
+        let (pn, ver) = (package_name.to_string(), version.to_string());
+        let pattern = format!("{VENDOR_ARTIFACT_PREFIX}%");
+        crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                diesel::delete(package_artifacts::table)
+                    .filter(package_artifacts::package_name.eq(&pn))
+                    .filter(package_artifacts::version.eq(&ver))
+                    .filter(package_artifacts::target_triple.like(&pattern))
+                    .execute(conn)?;
+                for row in &rows {
+                    diesel::insert_into(package_artifacts::table)
+                        .values(row)
+                        .execute(conn)?;
+                }
+                Ok(())
+            })
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+    }
+
+    /// CLOACINA-T-1073: the platforms that a Python package version has a
+    /// vendored set for, sorted.
+    pub async fn python_vendor_platforms(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Vec<String>, RegistryError> {
+        use crate::database::schema::unified::package_artifacts;
+        use cloacina_workflow_plugin::python_vendor::{
+            VENDOR_ARTIFACT_PREFIX, vendor_artifact_platform,
+        };
+        let (pn, ver) = (package_name.to_string(), version.to_string());
+        let pattern = format!("{VENDOR_ARTIFACT_PREFIX}%");
+        let keys: Vec<String> = crate::interact_on_backend!(self.dal, |conn| {
+            package_artifacts::table
+                .filter(package_artifacts::package_name.eq(pn))
+                .filter(package_artifacts::version.eq(ver))
+                .filter(package_artifacts::target_triple.like(pattern))
+                .select(package_artifacts::target_triple)
+                .load::<String>(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        let mut platforms: Vec<String> = keys
+            .iter()
+            .filter_map(|k| vendor_artifact_platform(k).map(str::to_string))
+            .collect();
+        platforms.sort();
+        platforms.dedup();
+        Ok(platforms)
+    }
+
+    /// CLOACINA-T-1073: the vendored set of a Python package version for
+    /// `platform`, or `None` when the compiler stored none for it. The set of
+    /// another platform never serves: environment markers make the sets differ
+    /// even when no wheel holds compiled code.
+    pub async fn get_python_vendor_artifact(
+        &self,
+        package_name: &str,
+        version: &str,
+        platform: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        use cloacina_workflow_plugin::python_vendor::vendor_artifact_key;
+        self.get_artifact_data_for_target(package_name, version, &vendor_artifact_key(platform))
+            .await
+    }
+
+    /// CLOACINA-T-1073: write `python_platforms` into the stored metadata of a
+    /// package row: the platforms a compiler vendored compiled code for, or
+    /// `None` for any platform. Fleet dispatch reads it
+    /// ([`DispatchPackage::python_platforms`]).
+    pub async fn set_python_platforms(
+        &self,
+        package_id: Uuid,
+        platforms: Option<Vec<String>>,
+    ) -> Result<(), RegistryError> {
+        let pid = UniversalUuid(package_id);
+        let stored: Option<String> = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .select(workflow_packages::metadata)
+                .first::<String>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        let Some(stored) = stored else {
+            return Ok(());
+        };
+        let mut metadata: PackageMetadata =
+            serde_json::from_str(&stored).map_err(RegistryError::Serialization)?;
+        if metadata.python_platforms == platforms {
+            return Ok(());
+        }
+        metadata.python_platforms = platforms;
+        let json = serde_json::to_string(&metadata).map_err(RegistryError::Serialization)?;
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::metadata.eq(json))
+                .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(())
+    }
+
     /// CLOACI-T-0836: upsert one bundled constructor provider for a consumer
     /// package. `provider_data` is the provider's packed `.cloacina` archive
     /// (arch-neutral WASM) that the reconciler unpacks into a `providers/` tree at
@@ -930,6 +1064,12 @@ pub struct DispatchPackage {
     pub content_hash: String,
     /// `"python"` when the build produced no cdylib, else `"rust"`.
     pub language: String,
+    /// CLOACINA-T-1048: the platforms (`<arch>-<os>`, the form of an agent's
+    /// `target_triple`) a Python package can run on. `None` means any
+    /// platform: the package has no vendored dependencies with compiled code.
+    /// Always `None` for a Rust package: its platforms are its per-target
+    /// artifacts.
+    pub python_platforms: Option<Vec<String>>,
 }
 
 impl DispatchPackage {
@@ -938,13 +1078,32 @@ impl DispatchPackage {
             .compiled_data
             .map(|b| !b.into_inner().is_empty())
             .unwrap_or(false);
+        let python_platforms = if has_cdylib {
+            None
+        } else {
+            python_platforms_of_metadata(&row.metadata)
+        };
         Self {
             package_id: row.id.0,
             version: row.version,
             content_hash: row.content_hash,
             language: if has_cdylib { "rust" } else { "python" }.to_string(),
+            python_platforms,
         }
     }
+}
+
+/// CLOACINA-T-1048: the `python_platforms` of a stored `metadata` JSON.
+/// `None` (any platform) when the key is absent, null, empty or not readable.
+pub fn python_platforms_of_metadata(metadata_json: &str) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_str(metadata_json).ok()?;
+    let list: Vec<String> = value
+        .get("python_platforms")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    if list.is_empty() { None } else { Some(list) }
 }
 
 /// CLOACI-T-0908 (consumer): pick the provider rows THIS host should stage from
@@ -1023,6 +1182,7 @@ mod tests {
             declared_params: vec![],
             declared_surfaces: vec![],
             task_docs: Default::default(),
+            python_platforms: None,
         }
     }
 
@@ -1285,6 +1445,247 @@ mod tests {
                 .execute(conn)
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_python_platforms_of_metadata() {
+        assert_eq!(python_platforms_of_metadata("{}"), None);
+        assert_eq!(
+            python_platforms_of_metadata(r#"{"python_platforms":null}"#),
+            None
+        );
+        assert_eq!(
+            python_platforms_of_metadata(r#"{"python_platforms":[]}"#),
+            None
+        );
+        assert_eq!(python_platforms_of_metadata("not json"), None);
+        assert_eq!(
+            python_platforms_of_metadata(
+                r#"{"python_platforms":["aarch64-linux","x86_64-linux"]}"#
+            ),
+            Some(vec![
+                "aarch64-linux".to_string(),
+                "x86_64-linux".to_string()
+            ])
+        );
+    }
+
+    /// CLOACINA-T-1048: dispatch gets the platforms of a Python package with
+    /// native vendored dependencies, and "any" for one without, and for a
+    /// Rust package.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_dispatch_package_carries_python_platforms() {
+        use crate::database::universal_types::UniversalBinary;
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+
+        async fn store(dal: &DAL, name: &str, platforms: Option<Vec<String>>, compiled: Vec<u8>) {
+            let mut meta = sample_metadata(name, "1.0.0");
+            meta.python_platforms = platforms;
+            let id = dal
+                .workflow_packages()
+                .store_package_metadata(
+                    &Uuid::new_v4().to_string(),
+                    &meta,
+                    crate::models::workflow_packages::StorageType::Database,
+                    None,
+                )
+                .await
+                .unwrap();
+            let (pid, hash) = (UniversalUuid(id), format!("hash-{name}"));
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::content_hash.eq(hash),
+                        workflow_packages::compiled_data.eq(Some(UniversalBinary::new(compiled))),
+                    ))
+                    .execute(conn)
+            })
+            .unwrap();
+        }
+
+        let linux = vec!["aarch64-linux".to_string(), "x86_64-linux".to_string()];
+        store(&dal, "py-native", Some(linux.clone()), Vec::new()).await;
+        store(&dal, "py-pure", None, Vec::new()).await;
+        store(&dal, "rust-pkg", Some(linux.clone()), vec![1, 2, 3]).await;
+
+        let native = wp
+            .get_active_dispatch("py-native", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(native.language, "python");
+        assert_eq!(native.python_platforms, Some(linux));
+
+        let pure = wp
+            .get_active_dispatch("py-pure", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pure.python_platforms, None);
+
+        let rust = wp
+            .get_active_dispatch("rust-pkg", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(rust.language, "rust");
+        assert_eq!(rust.python_platforms, None);
+    }
+
+    /// CLOACINA-T-1073: the vendored sets of a Python package version are
+    /// stored one per platform, replaced as a whole, and never read as the
+    /// library of a platform.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_python_vendor_artifacts_are_stored_per_platform() {
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let set = |p: &str, b: &[u8]| (p.to_string(), format!("digest-{p}"), b.to_vec());
+
+        wp.replace_python_vendor_artifacts(
+            "etl",
+            "1.0.0",
+            vec![set("x86_64-linux", b"x86"), set("aarch64-linux", b"arm")],
+        )
+        .await
+        .unwrap();
+        wp.replace_python_vendor_artifacts("etl", "2.0.0", vec![set("x86_64-linux", b"v2")])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            wp.python_vendor_platforms("etl", "1.0.0").await.unwrap(),
+            vec!["aarch64-linux".to_string(), "x86_64-linux".to_string()]
+        );
+        assert_eq!(
+            wp.get_python_vendor_artifact("etl", "1.0.0", "aarch64-linux")
+                .await
+                .unwrap(),
+            Some(b"arm".to_vec())
+        );
+        // Version is part of the key.
+        assert_eq!(
+            wp.get_python_vendor_artifact("etl", "2.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            Some(b"v2".to_vec())
+        );
+        // A platform with no set gets none: another platform's set never serves.
+        assert_eq!(
+            wp.get_python_vendor_artifact("etl", "2.0.0", "aarch64-linux")
+                .await
+                .unwrap(),
+            None
+        );
+        // The row is not the library of the platform: the reconciler and
+        // dispatch ask by the bare triple.
+        assert_eq!(
+            wp.get_artifact_data_for_target("etl", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            wp.get_artifact_digest_for_target("etl", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            None
+        );
+
+        // A library row of the same version is left alone by a replace.
+        wp.upsert_artifact("etl", "1.0.0", None, "x86_64-linux", "lib", b"lib".to_vec())
+            .await
+            .unwrap();
+        wp.replace_python_vendor_artifacts("etl", "1.0.0", vec![set("x86_64-linux", b"new")])
+            .await
+            .unwrap();
+        assert_eq!(
+            wp.python_vendor_platforms("etl", "1.0.0").await.unwrap(),
+            vec!["x86_64-linux".to_string()]
+        );
+        assert_eq!(
+            wp.get_python_vendor_artifact("etl", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            Some(b"new".to_vec())
+        );
+        assert_eq!(
+            wp.get_artifact_data_for_target("etl", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap(),
+            Some(b"lib".to_vec())
+        );
+
+        // A build with nothing to vendor removes the sets.
+        wp.replace_python_vendor_artifacts("etl", "1.0.0", Vec::new())
+            .await
+            .unwrap();
+        assert!(
+            wp.python_vendor_platforms("etl", "1.0.0")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            wp.python_vendor_platforms("etl", "2.0.0")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    /// CLOACINA-T-1073: the compiler records where a vendored set with
+    /// compiled code runs, and dispatch reads it.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_python_vendor_set_python_platforms_reaches_dispatch() {
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let id = wp
+            .store_package_metadata(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("py-lock", "1.0.0"),
+                crate::models::workflow_packages::StorageType::Database,
+                None,
+            )
+            .await
+            .unwrap();
+        let pid = UniversalUuid(id);
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set((
+                    workflow_packages::build_status.eq("success"),
+                    workflow_packages::content_hash.eq("hash-py-lock"),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+
+        let linux = vec!["aarch64-linux".to_string(), "x86_64-linux".to_string()];
+        wp.set_python_platforms(id, Some(linux.clone()))
+            .await
+            .unwrap();
+        let got = wp
+            .get_active_dispatch("py-lock", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.python_platforms, Some(linux));
+
+        wp.set_python_platforms(id, None).await.unwrap();
+        let got = wp
+            .get_active_dispatch("py-lock", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.python_platforms, None);
+
+        // A row that is gone is not an error.
+        wp.set_python_platforms(Uuid::new_v4(), None).await.unwrap();
     }
 
     /// An execution runs all its tasks on the version its first task was

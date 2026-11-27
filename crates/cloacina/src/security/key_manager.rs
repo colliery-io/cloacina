@@ -136,13 +136,23 @@ pub trait KeyManager: Send + Sync {
     ) -> Result<SigningKeyInfo, KeyError>;
 
     /// Get information about a signing key (without the private key).
-    async fn get_signing_key_info(&self, key_id: UniversalUuid)
-    -> Result<SigningKeyInfo, KeyError>;
+    ///
+    /// The key must belong to `org_id`. A key of another organization gives
+    /// [`KeyError::NotFound`], the same answer as for an unknown key.
+    async fn get_signing_key_info(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<SigningKeyInfo, KeyError>;
 
     /// Get the decrypted signing key for signing operations.
     ///
+    /// The key must belong to `org_id`. A key of another organization gives
+    /// [`KeyError::NotFound`], the same answer as for an unknown key.
+    ///
     /// # Arguments
     ///
+    /// * `org_id` - Organization that owns the key
     /// * `key_id` - The signing key ID
     /// * `master_key` - 32-byte AES-256 key for decrypting the private key
     ///
@@ -151,12 +161,20 @@ pub trait KeyManager: Send + Sync {
     /// Tuple of (public_key, private_key) as raw bytes.
     async fn get_signing_key(
         &self,
+        org_id: UniversalUuid,
         key_id: UniversalUuid,
         master_key: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>), KeyError>;
 
     /// Export a public key in multiple formats for distribution.
-    async fn export_public_key(&self, key_id: UniversalUuid) -> Result<PublicKeyExport, KeyError>;
+    ///
+    /// The key must belong to `org_id`. A key of another organization gives
+    /// [`KeyError::NotFound`], the same answer as for an unknown key.
+    async fn export_public_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<PublicKeyExport, KeyError>;
 
     /// Import an external public key to trust for verification.
     ///
@@ -181,10 +199,26 @@ pub trait KeyManager: Send + Sync {
     ) -> Result<TrustedKeyInfo, KeyError>;
 
     /// Revoke a signing key (prevents future signing operations).
-    async fn revoke_signing_key(&self, key_id: UniversalUuid) -> Result<(), KeyError>;
+    ///
+    /// The key must belong to `org_id`. A key of another organization is not
+    /// revoked and the call returns [`KeyError::NotFound`], the same answer
+    /// as for an unknown key.
+    async fn revoke_signing_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<(), KeyError>;
 
     /// Revoke a trusted key (prevents future verification with this key).
-    async fn revoke_trusted_key(&self, key_id: UniversalUuid) -> Result<(), KeyError>;
+    ///
+    /// The key must be one that `org_id` trusts directly. A key of another
+    /// organization is not revoked and the call returns
+    /// [`KeyError::NotFound`], the same answer as for an unknown key.
+    async fn revoke_trusted_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<(), KeyError>;
 
     /// Grant trust from a parent organization to a child organization.
     ///
