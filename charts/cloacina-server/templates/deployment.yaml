@@ -220,6 +220,52 @@ spec:
             - name: CLOACINA_TENANT_COMPILER_DATABASE_CIDRS
               value: {{ join "," . | quote }}
             {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_HOME_SIZE
+              value: {{ .Values.fleet.compiler.homeSize | quote }}
+            # The cache claim of the tenant compilers (CLOACINA-T-1117).
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM
+              value: {{ .Values.fleet.compiler.cacheClaim.enabled | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE
+              value: {{ .Values.fleet.compiler.cacheClaim.size | quote }}
+            {{- with .Values.fleet.compiler.cacheClaim.storageClass }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS
+              value: {{ . | quote }}
+            {{- end }}
+            # Python settings of the tenant compilers (CLOACINA-T-1117).
+            {{- with .Values.fleet.compiler.python }}
+            {{- with .platforms }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .version }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_VERSION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .indexUrlSecretRef.name }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .indexUrlSecretRef.name }}
+                  key: {{ .indexUrlSecretRef.key }}
+            {{- else if .indexUrl }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL
+              value: {{ .indexUrl | quote }}
+            {{- end }}
+            {{- with .wheelDir }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .offline }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE
+              value: "true"
+            {{- end }}
+            {{- with .uvCacheDir }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE
+              value: {{ .cacheSize | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             # Wait for the database at start (CLOACINA-T-1035).

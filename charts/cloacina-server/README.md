@@ -75,6 +75,11 @@ The chart fails fast if you don't configure exactly one of:
 | `alertWebhook.maxAttempts` | `8` | The most sends of one alert (`CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS`) |
 | `alertWebhook.publicBaseUrl` | `""` | Public URL of the server, for the links in an alert (`CLOACINA_PUBLIC_BASE_URL`) |
 | `alertWebhook.secretRef.name` / `.key` | `""` / `secret` | Existing Secret that holds the signing secret (`CLOACINA_ALERT_WEBHOOK_SECRET`) |
+| `fleet.compiler.cacheClaim.enabled` | `true` | A PersistentVolumeClaim `cloacina-compiler-cache` per tenant compiler for its cargo home, target directory and uv cache, kept across scale to zero and deleted with the tenant; `false` uses emptyDirs (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM`) |
+| `fleet.compiler.cacheClaim.size` | `20Gi` | Requested size of the claim (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE`) |
+| `fleet.compiler.cacheClaim.storageClass` | `""` | Storage class of the claim; empty = the cluster's default class (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS`) |
+| `fleet.compiler.homeSize` | `4Gi` | Size limit of the home volume of a hardened tenant compiler pod (`CLOACINA_TENANT_COMPILER_HOME_SIZE`) |
+| `fleet.compiler.python.*` | compiler defaults | Python settings of the tenant compilers: `platforms`, `version`, `indexUrl` or `indexUrlSecretRef` (put in the tenant's Secret `cloacina-compiler-db`), `wheelDir`, `offline`, `uvCacheDir`, `cacheSize` (`4Gi`) (`CLOACINA_TENANT_COMPILER_PYTHON_*`) |
 | `livenessProbe`/`readinessProbe`/`startupProbe` | `/v1/health` HTTP probes | Override or disable per probe |
 
 See [`values.yaml`](./values.yaml) for the full reference.

@@ -467,12 +467,24 @@ reach depends on which compiler builds the package.
 [Run cloacina-compiler in Production](../../../how-to/service/running-the-compiler/#how-many-compilers-a-deployment-runs)):
 
 - **Other tenants' source and build output: no.** The compiler serves one
-  schema and runs in its own pod in the tenant's namespace. Its target
-  directory, cargo home and temp directories are the pod's own volumes, and
-  they are emptied each time the compiler starts.
+  schema and runs in its own pod in the tenant's namespace. Its home and temp
+  directories are the pod's own `emptyDir`s, emptied each time the compiler
+  starts. Its target directory, cargo home and `uv` cache are on the tenant's
+  cache claim `cloacina-compiler-cache` (with `fleet.compiler.cacheClaim`, the
+  default): the claim holds that one tenant's caches only (downloaded crates
+  and wheels, and the build output of the tenant's packages), not the
+  unpacked package sources and not the database or index URL, and is deleted
+  with the tenant. The caches outlive a
+  restart: build output that one package's build code wrote into the target
+  directory stays there for the tenant's next builds, until the tenant is
+  removed or the claim is deleted. Packages of one tenant share the target
+  directory while the compiler runs, with or without the claim.
 - **The database URL: yes.** The URL is the pod's `DATABASE_URL` environment
   variable, from a Secret. It is not on the command line. Build code has the
-  compiler's uid, so it can read `/proc/<compiler pid>/environ`.
+  compiler's uid, so it can read `/proc/<compiler pid>/environ`. The same
+  holds for a Python package index URL set with
+  `fleet.compiler.python.indexUrl`: it is in the same Secret and in the
+  compiler's environment.
 - **What that URL opens.** By default it is the server's own URL, which
   reaches every tenant's schema. With
   `fleet.compiler.databaseUrlSecretRef` it is the URL of the role the operator

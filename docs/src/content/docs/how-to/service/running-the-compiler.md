@@ -212,21 +212,34 @@ the server reads the build queue of every tenant schema: the `pending` and
 A tenant has at most one compiler. The server keeps no record of the wanted
 state: it works it out from the queue on each tick, so any replica can lead a
 tick. A removed tenant loses its compiler: `DELETE /v1/tenants/{name}` deletes
-the Deployment and its NetworkPolicy and writes an empty value over the
-database URL Secret.
+the Deployment, its NetworkPolicy and its cache claim, and writes an empty
+value over the database URL and the Python index URL in the Secret.
 
 On Kubernetes the compiler of a tenant is a Deployment `cloacina-compiler` in
 the tenant's namespace (`cloacina-tenant-<tenant>`), next to its agents. With
 the Docker actuator it is one container with the labels
 `cloacina.compiler=true` and `cloacina.compiler-tenant=<tenant>`; the
-resources, the hardening, the cache volumes and the NetworkPolicy below do not
-apply there.
+resources, the hardening, the cache volumes, the cache claim and the
+NetworkPolicy below do not apply there. The container runs on the image's own
+filesystem, and its cargo home holds the toolchain: a volume kept over it
+would keep an old toolchain after an image upgrade, so the Docker actuator
+keeps no cache between starts.
 
-**A start is a cold start.** The pod's cargo home and target directory are
-`emptyDir` volumes, so a compiler that starts has empty caches: its first
-build downloads and compiles every dependency of the package. Builds that
-follow while it runs reuse them. A longer cooldown keeps the caches longer; it
-also keeps the pod's requested CPU and memory reserved.
+**The caches are kept on a claim.** A hardened tenant compiler mounts a
+PersistentVolumeClaim `cloacina-compiler-cache` in the tenant's namespace,
+which holds its cargo home, its target directory and its `uv` cache. The
+server makes the claim at the first start (with the cluster's default storage
+class unless `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS` names one),
+keeps it when the compiler is scaled to 0, and deletes it when the tenant is
+removed. So only the first start of a tenant's compiler, or a start on a new
+claim, is a cold start: its first build downloads and compiles every
+dependency. A claim that exists is not changed: a new size or class applies
+to the claim made after the old one is deleted. Nothing prunes the claim; the
+target directory grows with the builds, and a full claim fails a build with
+no space left. With `CLOACINA_TENANT_COMPILER_CACHE_CLAIM=false`, or with
+`hardened=false`, there is no claim: the caches are `emptyDir` volumes, and
+every start from 0 replicas is a cold start. A longer cooldown keeps a running
+compiler longer; it also keeps the pod's requested CPU and memory reserved.
 
 **Settings** (environment of the server; the chart renders them from
 `fleet.compiler.*`):
@@ -238,30 +251,55 @@ also keeps the pod's requested CPU and memory reserved.
 | `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | `cargoFlags` | empty (chart: `build --lib`) | The whole cargo flag list, separated by spaces (`--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. |
 | `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `vendorDir` | unset | `--vendor-dir`: a path inside the image. |
 | `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `devWorkspace` | unset | `--dev-workspace`: a path inside the image. Development only. |
-| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `targetDir` | `/workspace/target` | `--cargo-target-dir`. |
+| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `targetDir` | `/workspace/target` | `--cargo-target-dir`, when there is no cache claim. With the claim it is `/var/cloacina/cache/target`. |
 | `CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S` | `buildTimeoutSeconds` | unset (the compiler's 600) | `--build-timeout-s`. |
 | `CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS` | `pollIntervalMs` | `1000` | `--poll-interval-ms`. |
 | `CLOACINA_TENANT_COMPILER_COOLDOWN_S` | `cooldownSeconds` | `300` | How long the queue must be empty before the compiler is set to 0. |
 | `CLOACINA_TENANT_COMPILER_CPU_REQUEST`, `_MEMORY_REQUEST`, `_CPU_LIMIT`, `_MEMORY_LIMIT` | `resources` | `500m`, `1Gi`, `2`, `4Gi` | Requests and limits of the compiler container. |
-| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | `cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
+| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | `cacheSize` | `8Gi` | Size limit of each cache `emptyDir` (cargo home, target directory), when there is no cache claim. |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM` | `cacheClaim.enabled` | `true` | A PersistentVolumeClaim per tenant compiler for the cargo home, the target directory and the `uv` cache. Hardened pods only. |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE` | `cacheClaim.size` | `20Gi` | Requested size of the claim: the sum of the `emptyDir` limits it replaces (8Gi, 8Gi, 4Gi). |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS` | `cacheClaim.storageClass` | unset (the cluster's default class) | Storage class of the claim. |
 | `CLOACINA_TENANT_COMPILER_HARDENED` | `hardened` | `true` | The pod hardening below. |
 | `CLOACINA_TENANT_COMPILER_DATABASE_URL` | `databaseUrlSecretRef` | the server's own URL | The database URL of the tenant compilers. |
 | `CLOACINA_TENANT_COMPILER_EGRESS` | `egress` | `internet` | Where a build may fetch crates from: `internet`, `all` or `none`. |
 | `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | `egressCidrs` | empty | More egress CIDR blocks, every port. |
 | `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | `databaseCidrs` | empty | CIDR blocks of the database. |
+| `CLOACINA_TENANT_COMPILER_HOME_SIZE` | `homeSize` | `4Gi` | Size limit of the home volume of a hardened pod. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS` | `python.platforms` | unset (the compiler's `aarch64-linux`, `x86_64-linux`) | `CLOACINA_COMPILER_PYTHON_PLATFORMS` of the compiler, comma-separated. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_VERSION` | `python.version` | unset (the compiler's 3.11) | `CLOACINA_COMPILER_PYTHON_VERSION`. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL` | `python.indexUrl`, or `python.indexUrlSecretRef` | unset (PyPI) | The package index. Written into the Secret `cloacina-compiler-db`, not into the pod spec. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR` | `python.wheelDir` | unset | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR`: a folder of wheels inside the image. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE` | `python.offline` | `false` | `CLOACINA_COMPILER_PYTHON_OFFLINE`. In a hardened pod it needs a wheel folder. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR` | `python.uvCacheDir` | unset (hardened: `/var/cloacina/cache/uv` on the claim, or `/var/cloacina/uv-cache` with no claim) | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`. |
+| `CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE` | `python.cacheSize` | `4Gi` | Size limit of the `uv` cache `emptyDir` of a hardened pod with no claim. |
 
 A value the server cannot use (a CIDR block that does not parse, an egress
-mode it does not know) stops the server at start with a message that names
-the variable.
+mode it does not know, a Python platform the compiler does not know, a Python
+version that is not `major.minor`, a folder that is not an absolute path,
+offline in a hardened pod with no wheel folder, a claim size that is not a
+storage quantity above zero, or a storage class name that is not a DNS
+subdomain) stops the server at start with a message that names the variable.
+
+The server also gives each tenant compiler its own unpack limit
+(`CLOACINA_MAX_UNPACKED_BYTES`) when it is not the default, as it does for
+the agents it starts.
 
 **The pod.** With `hardened` the pod runs as uid and gid `10001`, not root,
 with the `RuntimeDefault` seccomp profile, a read-only root filesystem, no
 capabilities and no privilege escalation, and mounts no service account
-token. The paths a build writes are `emptyDir` volumes: the compiler's home
-(`/var/cloacina/home`: unpacked sources and logs), the cargo home
-(`/var/cloacina/cargo`), the target directory and `/tmp`. The image must be
-usable by uid `10001`: the toolchain readable, and nothing it needs written
-outside those four paths. `hardened=false` runs the image as it is built, on
+token. The paths a build writes are volumes. The compiler's home
+(`/var/cloacina/home`: unpacked sources, logs and the Python vendoring
+folders; `homeSize`, default 4 GiB) and `/tmp` (1 GiB) are `emptyDir`s. With
+the cache claim, the claim is mounted at `/var/cloacina/cache`, and the cargo
+home (`cargo`), the target directory (`target`) and the `uv` cache (`uv`) are
+folders in it that the compiler's user makes. The pod sets `fsGroup` `10001`,
+so the claim is writable by that user on a storage class whose driver applies
+`fsGroup` (most block storage does; some NFS drivers do not). With no claim they are `emptyDir`s:
+the cargo home (`/var/cloacina/cargo`) and the target directory (each
+`cacheSize`, default 8 GiB) and the `uv` cache (`/var/cloacina/uv-cache`,
+`python.cacheSize`, default 4 GiB). The image must be usable by uid `10001`:
+the toolchain readable, and nothing it needs written outside those paths. `hardened=false` runs the image as it is built, on
 its own filesystem; use it only for a development image that carries its
 caches. The compiler listens on `127.0.0.1:9000` only, and the pod has no
 probe.
@@ -278,7 +316,9 @@ schema, `workflow_packages`, `workflow_registry`, `package_providers` and
 `package_artifacts`, and nothing in `public`. All tenant compilers get the
 same URL. The host in the URL must resolve from the tenant namespaces: use a
 full Service name (`<service>.<namespace>.svc.cluster.local`), not a short
-one. A changed URL reaches a compiler when it next starts.
+one. A changed URL reaches a compiler when it next starts. A Python package
+index URL, when one is set, is a second key of the same Secret,
+`python-index-url`, read as `CLOACINA_COMPILER_PYTHON_INDEX_URL`.
 
 **The network.** With `CLOACINA_FLEET_NETWORK_POLICY` on (the default), the
 server writes a NetworkPolicy `cloacina-compiler` for the compiler pods:
@@ -476,6 +516,76 @@ The compiler's user must be able to write to the cache folder.
 A wheel folder without `--python-offline` adds to the index: `uv` still reads
 the index for every distribution, and finds in the folder the wheels the index
 does not have (a private wheel, for example).
+
+### Python in the compilers the server makes
+
+A [tenant compiler](#compilers-the-server-makes) vendors as the chart's own
+compiler does. The server gives it the settings of
+`CLOACINA_TENANT_COMPILER_PYTHON_*` (chart: `fleet.compiler.python.*`) as the
+compiler's `CLOACINA_COMPILER_PYTHON_*` variables. One that is not set leaves
+the compiler's default. All tenant compilers get the same settings.
+
+**The image.** `fleet.compiler.image` (by default the image of
+`compiler.image`) must hold `uv` and a Python interpreter. The image of
+`docker/Dockerfile.compiler` copies `uv` to `/usr/local/bin/uv` and installs
+`python3` (3.11 on Debian bookworm); a test of `cloacina-server` checks that
+the Dockerfile does both. For an image of your own, check it before you use
+it:
+
+```bash
+docker run --rm --entrypoint uv <image> --version
+docker run --rm --entrypoint python3 <image> --version
+```
+
+A build in an image with no `uv` fails, and the error says that the compiler
+image must hold `uv`.
+
+**The egress.** A Python build downloads from the package index, through the
+compiler's NetworkPolicy:
+
+| `fleet.compiler.egress` | What a Python build needs |
+|---|---|
+| `internet` (the default) | Nothing more for PyPI: the rule allows TCP 443 to public IPv4 addresses, where `pypi.org` and `files.pythonhosted.org` are. |
+| `all` | Nothing more. |
+| `none` | `python.offline=true` and `python.wheelDir`: an image that carries the wheels (see [A compiler image that carries the wheels](#a-compiler-image-that-carries-the-wheels)). |
+
+An index inside the cluster or the private network has a private address,
+which the `internet` rule leaves out. Put its CIDR in
+`CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` (chart: `fleet.compiler.egressCidrs`),
+and its URL in `python.indexUrl` or `python.indexUrlSecretRef`. The rule is
+IPv4 only.
+
+**The index URL** can hold a password. The server writes it into the Secret
+`cloacina-compiler-db` of the tenant's namespace, next to the database URL,
+and the pod reads it from there. It is in no pod spec and in no log.
+
+**The space.** In a hardened pod, the `uv` cache is a folder of the cache
+claim (`cacheClaim.size`, default 20 GiB, shared with the cargo caches), or,
+with no claim, its own `emptyDir` at `/var/cloacina/uv-cache`
+(`python.cacheSize`, default 4 GiB). The build folder is in the home
+(`homeSize`, default 4 GiB). For each platform in turn,
+a build holds the filled folder, its archive and an unpacked check of the
+archive; then only the archive stays. A heavy set of 286 MiB unpacked (an
+81 MiB archive) for the two default platforms needs about 0.75 GiB of the home
+at its peak, next to the package's source and the logs; the `uv` cache holds
+the wheels on its own volume. A pod that writes past a size limit is evicted:
+its build stays `building` until a compiler's sweeper puts it back in the
+queue, and runs out of space the same way the next time. Raise `homeSize` and
+`python.cacheSize` for larger sets, or vendor for fewer platforms. A `uv` cache baked into the
+image does not work in a hardened pod: its root filesystem is read-only. A
+wheel folder in the image does, because `uv` only reads it.
+
+**A cold start downloads every wheel.** With the cache claim, the `uv` cache
+is kept when a tenant's compiler is scaled to 0, so only the first start of
+the tenant's compiler, or a start on a new claim, is cold. The first Python
+build then downloads every wheel its lock file names, for each platform, from
+the index: the cost is the size of those wheels over the cluster's link to
+the index. Later builds, after a restart too, read the cache for the wheels
+it holds. With no claim (`cacheClaim.enabled=false`, or `hardened=false`) the
+`uv` cache is not kept between starts, and each start from 0 replicas is
+cold. A wheel
+folder in the image, with `python.offline=true`, downloads nothing at any
+start.
 
 ## Flag reference
 
