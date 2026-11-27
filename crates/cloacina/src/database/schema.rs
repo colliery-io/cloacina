@@ -275,6 +275,9 @@ mod unified_schema {
             available_capacity -> Integer,
             registered_at -> DbTimestamp,
             last_heartbeat_at -> DbTimestamp,
+            /// The API key that registered the agent (CLOACINA-T-1051).
+            /// NULL on a row from before the column.
+            owner_key_id -> Nullable<DbUuid>,
         }
     }
 

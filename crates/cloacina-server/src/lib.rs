@@ -749,6 +749,28 @@ pub async fn run(
          while they still run."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_refused_results_total",
+        "Agent reports for a dispatch this replica waits for that were refused \
+         because of their sender (CLOACINA-T-1050): `reason` is `other_tenant` \
+         (the agent is in another tenant than the dispatch) or `not_the_target` \
+         (the packet is not addressed to that agent). The report changes no \
+         state. An honest agent does not cause one."
+    );
+    metrics::describe_counter!(
+        "cloacina_delivery_refused_acks_total",
+        "Acks on the delivery WebSocket for an outbox row that is not addressed \
+         to the connection's own recipient and tenant (CLOACINA-T-1052). The \
+         row is left as it is. One per re-targeted packet that an evicted \
+         agent acks is normal; more means a client acks rows it was not sent."
+    );
+    metrics::describe_counter!(
+        "cloacina_delivery_refused_subscriptions_total",
+        "Delivery WebSocket upgrades refused because the key may not open the \
+         recipient (CLOACINA-T-1051): `reason` is `unknown_agent`, \
+         `other_tenant`, `other_key`, `no_owner`, `no_tenant` or \
+         `unknown_recipient`."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_dispatch_deferred_total",
         "Fleet dispatch tries put back in the queue because no agent could \
          take the task: no live agent of its tenant had a free slot, or the \
@@ -2786,6 +2808,7 @@ mod tests {
     use tower::ServiceExt;
 
     /// Router tests of the audit record (CLOACINA-T-1024).
+    mod agent_ownership;
     mod audit_routes;
     mod backfill_routes;
 
@@ -3333,11 +3356,6 @@ mod tests {
         // Let the listener connect and the loop take its first tick.
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
-        let task_id = cloacina::UniversalUuid::new_v4();
-        let rx = replica_a
-            .fleet_coordinator
-            .register_dispatch(task_id, "dispatch-1".to_string());
-
         let auth = crate::routes::auth::AuthenticatedKey {
             key_id: uuid::Uuid::new_v4(),
             name: "t1015-agent".to_string(),
@@ -3345,9 +3363,39 @@ mod tests {
             tenant_id: None,
             is_admin: true,
         };
+        // CLOACINA-T-1050: a report is taken only from a registered agent
+        // that the caller key holds, so the agent registers first (through
+        // replica B, with the key that reports).
+        let agent_id = format!("t1015-agent-{}", uuid::Uuid::new_v4());
+        replica_b
+            .agent_registry
+            .register(
+                cloacina::dal::unified::FleetAgentRegistration {
+                    agent_id: agent_id.clone(),
+                    target_triple: "aarch64-apple-darwin".to_string(),
+                    capabilities: vec![],
+                    max_concurrency: 1,
+                },
+                cloacina::security::ServerKeyPool::new(),
+                &crate::routes::agent::principal_of(&auth),
+            )
+            .await
+            .expect("registration must persist")
+            .expect("a new agent id is free");
+
+        let task_id = cloacina::UniversalUuid::new_v4();
+        let rx = replica_a.fleet_coordinator.register_dispatch(
+            task_id,
+            cloacina::security::ownership::DispatchTarget {
+                tenant_id: None,
+                agent_id: agent_id.clone(),
+                dispatch_id: Some("dispatch-1".to_string()),
+            },
+        );
+
         let report = AgentResultRequest {
             protocol_version: AGENT_PROTOCOL_VERSION,
-            agent_id: format!("t1015-agent-{}", uuid::Uuid::new_v4()),
+            agent_id: agent_id.clone(),
             task_execution_id: task_id.0.to_string(),
             attempt: 1,
             dispatch_id: Some("dispatch-1".to_string()),
@@ -3420,6 +3468,7 @@ mod tests {
         shutdown_tx.send(true).unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), inbox_loop).await;
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), listener).await;
+        let _ = replica_b.agent_registry.deregister(&agent_id).await;
     }
 
     /// A WS ticket minted "on replica A" must redeem "on replica B" — and only
@@ -3525,19 +3574,25 @@ mod tests {
 
         let agent_id = format!("t0916-agent-{}", uuid::Uuid::new_v4().simple());
         let tenant = format!("t0916-tenant-{}", uuid::Uuid::new_v4().simple());
+        let owner_key = cloacina::security::ownership::Principal {
+            key_id: uuid::Uuid::new_v4(),
+            tenant_id: Some(tenant.clone()),
+            is_admin: false,
+        };
         registry_a
             .register(
                 cloacina::dal::unified::FleetAgentRegistration {
                     agent_id: agent_id.clone(),
-                    tenant_id: Some(tenant.clone()),
                     target_triple: "aarch64-apple-darwin".to_string(),
                     capabilities: vec![],
                     max_concurrency: 4,
                 },
                 cloacina::security::ServerKeyPool::new(),
+                &owner_key,
             )
             .await
-            .expect("registration must persist");
+            .expect("registration must persist")
+            .expect("a new agent id is free");
 
         // Replica B sees the agent as live, with the right tenant.
         let live_b = registry_b.live_agents().await.expect("roster read");
@@ -3547,9 +3602,12 @@ mod tests {
             .expect("agent registered via replica A must be live on replica B");
         assert_eq!(seen.tenant_id.as_deref(), Some(tenant.as_str()));
         assert_eq!(
-            registry_b.agent_tenant(&agent_id).await.expect("lookup"),
-            Some(Some(tenant.clone())),
-            "cross-tenant guard must resolve the tenant on any replica"
+            registry_b.agent_owner(&agent_id).await.expect("lookup"),
+            Some(cloacina::security::ownership::AgentOwner {
+                tenant_id: Some(tenant.clone()),
+                owner_key_id: Some(owner_key.key_id),
+            }),
+            "the ownership guard must resolve the tenant and the owner key on any replica"
         );
 
         // Same-tenant selection on replica B picks it.

@@ -245,10 +245,18 @@ async fn run(args: Args) -> Result<()> {
     // NOT take the agent down — it re-registers and reconnects with capped
     // exponential backoff. A session that actually connected resets the backoff;
     // repeated failures (server still down) back off up to RECONNECT_BACKOFF_MAX.
+    //
+    // CLOACINA-T-1050: the agent keeps one id for the life of the process. The
+    // first register gets it (the `--agent-id` given, or one the server
+    // assigns); every later session registers with it again. The server takes
+    // a result only from a registered agent, so a task that is still running
+    // when the socket drops must report under an id that stays registered.
+    let mut session_agent_id: Option<String> = args.agent_id.clone();
     let mut backoff = RECONNECT_BACKOFF_MIN;
     loop {
         match connect_and_serve(
             &args,
+            &mut session_agent_id,
             &http,
             &server_base,
             &target_triple,
@@ -281,8 +289,10 @@ async fn run(args: Args) -> Result<()> {
 /// has ended (caller reconnects immediately) and `Err` if the session could not
 /// be established (caller backs off). The per-session heartbeat task is aborted
 /// on every exit path so it never outlives its registration.
+#[allow(clippy::too_many_arguments)]
 async fn connect_and_serve(
     args: &Args,
+    session_agent_id: &mut Option<String>,
     http: &reqwest::Client,
     server_base: &str,
     target_triple: &str,
@@ -298,27 +308,42 @@ async fn connect_and_serve(
     let ephemeral_key_pool: Vec<EphemeralKeyEntry> =
         { key_pool.lock().await.mint(KEY_POOL_TARGET) };
 
-    // ── 1. Register (fresh each session — the server may have restarted and
-    //       forgotten us, in which case a stale agent_id would be unroutable).
+    // ── 1. Register (each session — the server may have restarted and
+    //       forgotten us). The id is the one of the earlier sessions of this
+    //       process, if there was one: the server lets the key that holds an
+    //       agent id register it again.
     // CLOACINA-T-1021: the agent's pool is registered as the capability
     // `pool:<name>`. With no pool the server counts the agent in `default`.
     let mut capabilities = args.capabilities.clone();
     if let Some(pool) = args.pool.as_deref().filter(|p| !p.is_empty()) {
         capabilities.push(format!("pool:{pool}"));
     }
-    let register_resp = register(
+    let register_resp = match register(
         http,
         server_base,
         &args.api_key,
-        &args.agent_id,
+        session_agent_id,
         args.max_concurrency,
         target_triple,
         &capabilities,
         ephemeral_key_pool,
     )
     .await
-    .context("agent register failed")?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            // 409: another key holds the id now (the row of this agent was
+            // removed while it was away, and the id was registered again).
+            // An id the server assigned is dropped, and the next try gets a
+            // new one. An id the operator chose is kept: the operator decides.
+            if args.agent_id.is_none() && is_agent_id_taken(&e) {
+                *session_agent_id = None;
+            }
+            return Err(e).context("agent register failed");
+        }
+    };
     let agent_id = register_resp.agent_id.clone();
+    *session_agent_id = Some(agent_id.clone());
     info!(
         agent_id = %agent_id,
         target_triple = %target_triple,
@@ -377,6 +402,14 @@ async fn connect_and_serve(
 // ────────────────────────────────────────────────────────────────────
 // HTTP helpers
 // ────────────────────────────────────────────────────────────────────
+
+/// Whether a register failed because another key holds the agent id (the
+/// server answers 409, CLOACINA-T-1051).
+fn is_agent_id_taken(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<reqwest::Error>()
+        .and_then(|e| e.status())
+        .is_some_and(|status| status == reqwest::StatusCode::CONFLICT)
+}
 
 #[allow(clippy::too_many_arguments)]
 async fn register(
@@ -2287,6 +2320,31 @@ mod tests {
                 context: serde_json::json!({}),
             },
         }
+    }
+
+    /// CLOACINA-T-1051: the server answers 409 to a register for an agent id
+    /// that another key holds. The agent tells that from any other failure,
+    /// so it can drop an id the server assigned and get a new one.
+    #[tokio::test]
+    async fn a_refused_agent_id_is_told_from_other_register_failures() {
+        async fn try_register(status: u16) -> anyhow::Error {
+            let (server, _hits) = result_server(vec![status]).await;
+            register(
+                &reqwest::Client::new(),
+                &server,
+                "key",
+                &Some("agent-a".to_string()),
+                1,
+                "aarch64-apple-darwin",
+                &[],
+                Vec::new(),
+            )
+            .await
+            .expect_err("the register fails")
+        }
+        assert!(is_agent_id_taken(&try_register(409).await));
+        assert!(!is_agent_id_taken(&try_register(403).await));
+        assert!(!is_agent_id_taken(&try_register(500).await));
     }
 
     /// The real policy with the waits cut to milliseconds.

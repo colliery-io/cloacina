@@ -198,7 +198,17 @@ impl FleetGraphExecutor {
 
         // 5. Rendezvous BEFORE enqueue (a fast agent must not race the receiver).
         let firing_id = UniversalUuid::new_v4();
-        let rx = self.coordinator.register_pending(firing_id);
+        // CLOACINA-T-1050: a firing has no dispatch id (the firing id names
+        // one dispatch). The wait takes a report only from this tenant and
+        // this agent, as a task dispatch does.
+        let rx = self.coordinator.register_dispatch(
+            firing_id,
+            cloacina::security::ownership::DispatchTarget {
+                tenant_id: fire.tenant_id.clone(),
+                agent_id: agent_id.clone(),
+                dispatch_id: None,
+            },
+        );
 
         let packet = GraphWorkPacket {
             protocol_version: AGENT_PROTOCOL_VERSION,
@@ -235,9 +245,12 @@ impl FleetGraphExecutor {
             tenant_id: fire.tenant_id.clone(),
             payload,
         };
-        if let Err(e) = self.outbox_dal.delivery_outbox().enqueue(row).await {
-            self.coordinator.cancel(firing_id);
-            return Err(format!("delivery_outbox enqueue: {e}"));
+        match self.outbox_dal.delivery_outbox().enqueue(row).await {
+            Ok(row) => self.coordinator.packet_enqueued(firing_id, row.id),
+            Err(e) => {
+                self.coordinator.cancel(firing_id);
+                return Err(format!("delivery_outbox enqueue: {e}"));
+            }
         }
         self.delivery_wake.wake();
         debug!(
