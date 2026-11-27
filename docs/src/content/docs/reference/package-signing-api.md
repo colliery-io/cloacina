@@ -29,7 +29,7 @@ revocations take effect immediately.
 | `trust_public_key` | `(org_id, public_key: &[u8], name: Option<&str>) -> TrustedKeyInfo` | Trust a raw 32-byte Ed25519 public key for verification. |
 | `trust_public_key_pem` | `(org_id, pem: &str, name: Option<&str>) -> TrustedKeyInfo` | Trust a public key supplied in PEM form. |
 | `revoke_signing_key` | `(key_id) -> ()` | Prevent future signing with this key. |
-| `revoke_trusted_key` | `(key_id) -> ()` | Prevent future verification against this trusted key. |
+| `revoke_trusted_key` | `(org_id, key_id) -> ()` | Prevent future verification against this trusted key. The key must be trusted directly by `org_id`; a key of another org gives `KeyError::NotFound`. |
 | `grant_trust` | `(parent_org, child_org) -> ()` | Parent org implicitly trusts all keys the child org trusts. |
 | `revoke_trust` | `(parent_org, child_org) -> ()` | Revoke a trust grant between organizations. |
 
