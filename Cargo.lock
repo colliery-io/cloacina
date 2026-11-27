@@ -811,6 +811,7 @@ dependencies = [
  "clap",
  "cloacina",
  "cloacina-python",
+ "fidius-core",
  "futures-util",
  "libc",
  "reqwest 0.13.5",
