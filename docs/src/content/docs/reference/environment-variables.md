@@ -154,7 +154,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
 | `CLOACINA_AGENT_MEMORY` | Total memory the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--memory`. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
-| `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator does not set it. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
+| `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator sets it to `json` on the agents it starts when the server's own `CLOACINA_AGENT_LOG_FORMAT` is `json` (see [Actuator selection](#actuator-selection)). See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
 
@@ -181,6 +181,7 @@ These server-side variables drive the **agent self-management control plane**: t
 | `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-io/cloacina-agent:latest` | Server (actuator) | No |
 | `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
 | `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
+| `CLOACINA_AGENT_LOG_FORMAT` | Format of the log lines of the agents the actuator starts: `text` or `json`. One value for every tenant and pool. For `json` the actuator sets `CLOACINA_AGENT_LOG_FORMAT=json` on each agent it starts; for `text` it sets nothing, and the agent writes text. A value that is not `text` or `json` stops the server at start, with any actuator. The Kubernetes actuator applies a change on its next reconcile, which rolls the agent pods. The Docker actuator applies it to the containers it starts after the change; a running container keeps its format. The chart renders it from `fleet.agentLogFormat`. The per-tenant compilers have no log format setting. | `text` | `json` | Server (actuator) | No |
 
 #### Kubernetes agent-pod hardening
 
@@ -552,7 +553,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_AGENT_CPU` | Agent | Total CPU the agent reports for task placement (unset: none) |
 | `CLOACINA_AGENT_MEMORY` | Agent | Total memory the agent reports for task placement (unset: none) |
-| `CLOACINA_AGENT_LOG_FORMAT` | Agent | Format of the agent's log lines: `text` (default) or `json` |
+| `CLOACINA_AGENT_LOG_FORMAT` | Agent; Server (actuator) | Format of the agent's log lines: `text` (default) or `json`. On the server: the format of the agents the actuator starts |
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |

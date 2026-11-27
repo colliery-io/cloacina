@@ -176,11 +176,14 @@ pub fn actuator_kind_from_env() -> String {
 /// (fail-closed). On `Ok` the server proceeds; on `Err` the caller MUST refuse
 /// to start. `database` is used by the actuator to mint per-tenant agent keys.
 /// `compilers` turns the per-tenant compilers on (CLOACINA-T-1034).
+/// `agent_log_format` is the log format of the agents the actuator starts
+/// (CLOACINA-T-1101).
 pub fn build_actuator(
     kind: &str,
     substrate: &dyn Substrate,
     database: Database,
     compilers: Option<super::compiler::CompilerSettings>,
+    agent_log_format: cloacina::task_logs::LogFormat,
 ) -> Result<Arc<dyn FleetActuator>, GuardError> {
     let db_docker = database.clone();
     let compilers_docker = compilers.clone();
@@ -188,11 +191,11 @@ pub fn build_actuator(
         kind,
         substrate,
         move || {
-            DockerActuator::from_env(db_docker, compilers_docker)
+            DockerActuator::from_env(db_docker, compilers_docker, agent_log_format)
                 .map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
         },
         move || {
-            KubernetesActuator::from_env(database, compilers)
+            KubernetesActuator::from_env(database, compilers, agent_log_format)
                 .map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
         },
     )

@@ -208,6 +208,13 @@ fleet:
   # the short Service name does not resolve.
   agentServerUrl: ""
 
+  # Format of the log lines of the agents the actuator starts: `text` or
+  # `json` (CLOACINA_AGENT_LOG_FORMAT). The server sets the same variable on
+  # each agent pod. `text` renders nothing and leaves the agent pods as they
+  # are; a change to `json` rolls them. Another value stops the server at
+  # start. The server's own format is `server.logFormat`.
+  agentLogFormat: text
+
   # ServiceAccount the server runs as when the actuator is enabled. The chart
   # creates it (and the RBAC below) only when actuator=kubernetes.
   serviceAccount:

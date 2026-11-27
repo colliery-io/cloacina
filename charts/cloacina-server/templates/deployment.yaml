@@ -126,6 +126,12 @@ spec:
               value: {{ .Values.fleet.agentImage | quote }}
             - name: CLOACINA_AGENT_SERVER_URL
               value: {{ .Values.fleet.agentServerUrl | default (printf "http://%s.%s.svc.cluster.local:%v" (include "cloacina-server.fullname" .) .Release.Namespace .Values.service.port) | quote }}
+            {{- if ne (.Values.fleet.agentLogFormat | default "text") "text" }}
+            # Log format of the agents the actuator starts (CLOACINA-T-1101).
+            # Not rendered for `text`, the agent's default.
+            - name: CLOACINA_AGENT_LOG_FORMAT
+              value: {{ .Values.fleet.agentLogFormat | quote }}
+            {{- end }}
             # Agent pod resource requests/limits (CLOACI-T-0819) — applied by the
             # actuator to every cloacina-agent pod it creates.
             - name: CLOACINA_AGENT_CPU_REQUEST

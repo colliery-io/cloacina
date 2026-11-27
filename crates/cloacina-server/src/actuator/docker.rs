@@ -158,6 +158,11 @@ pub struct DockerConfig {
     /// Server URL injected as the agent's `CLOACINA_SERVER`
     /// (`CLOACINA_AGENT_SERVER_URL`, default `http://server:8080`).
     pub server_url: String,
+    /// Log format of the agents (`CLOACINA_AGENT_LOG_FORMAT`, default
+    /// `text`), set on each agent container as the same variable
+    /// (CLOACINA-T-1101). The server checks the value at start and gives it
+    /// here: [`DockerConfig::from_env`] leaves the default.
+    pub agent_log_format: cloacina::task_logs::LogFormat,
 }
 
 impl DockerConfig {
@@ -177,6 +182,7 @@ impl DockerConfig {
             image,
             network,
             server_url,
+            agent_log_format: Default::default(),
         }
     }
 }
@@ -213,6 +219,9 @@ pub struct SpawnSpec {
     /// The pool settings that map onto a container (`image` is already applied
     /// to [`SpawnSpec::image`]).
     pub settings: DockerPoolSettings,
+    /// The agent's log format (`CLOACINA_AGENT_LOG_FORMAT`). `text` leaves
+    /// the variable out: the agent's own default.
+    pub log_format: cloacina::task_logs::LogFormat,
 }
 
 /// The Docker Engine operations the actuator needs. Abstracted so `reconcile`
@@ -396,10 +405,14 @@ impl DockerActuator {
     pub fn from_env(
         database: Database,
         compilers: Option<super::compiler::CompilerSettings>,
+        agent_log_format: cloacina::task_logs::LogFormat,
     ) -> Result<Self, ActuatorError> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| ActuatorError::Substrate(format!("docker connect failed: {e}")))?;
-        let config = DockerConfig::from_env();
+        let config = DockerConfig {
+            agent_log_format,
+            ..DockerConfig::from_env()
+        };
         let ops = Arc::new(BollardOps::new(docker));
         let actuator = Self {
             ops: ops.clone(),
@@ -522,6 +535,7 @@ impl FleetActuator for DockerActuator {
                     key_id: key.id,
                     pool: pool.clone(),
                     settings: applied.clone(),
+                    log_format: self.config.agent_log_format,
                 };
                 self.ops.spawn(spec).await?;
                 spawned += 1;
@@ -637,6 +651,11 @@ fn spawn_env(spec: &SpawnSpec) -> Vec<String> {
     // Not set for the default, so the environment is as before.
     if let Some(bytes) = cloacina::cloacina_workflow_plugin::unpack_limit::child_env_value() {
         env.push(format!("CLOACINA_MAX_UNPACKED_BYTES={bytes}"));
+    }
+    // The agent's log format (CLOACINA-T-1101). Not set for `text`, so the
+    // environment is as before.
+    if let Some(format) = super::agent_log_format_env_value(spec.log_format) {
+        env.push(format!("{}={format}", super::AGENT_LOG_FORMAT_ENV));
     }
     env
 }
@@ -882,6 +901,7 @@ mod tests {
             image: "cloacina-agent:latest".to_string(),
             network: Some("cloacina_net".to_string()),
             server_url: "http://server:8080".to_string(),
+            agent_log_format: Default::default(),
         }
     }
 
@@ -1045,6 +1065,28 @@ mod tests {
         assert_eq!(host.memory, None);
         assert_eq!(host.nano_cpus, None);
         assert_eq!(specs[0].settings.label(), "");
+    }
+
+    /// CLOACINA-T-1101: with the server's setting at `json`, a started agent
+    /// container carries the variable. The default adds nothing: the test
+    /// above pins the whole environment.
+    #[tokio::test]
+    async fn spawn_gives_the_agent_the_log_format_of_the_config() {
+        let mut cfg = config();
+        cfg.agent_log_format = cloacina::task_logs::LogFormat::Json;
+        let ops = Arc::new(MockOps::with_running(0));
+        let act = DockerActuator::new(ops.clone(), minter(), cfg);
+        act.reconcile("acme", 1).await.unwrap();
+
+        let specs = ops.spawn_specs.lock().unwrap();
+        assert_eq!(
+            spawn_env(&specs[0]),
+            vec![
+                "CLOACINA_SERVER=http://server:8080".to_string(),
+                "CLOACINA_API_KEY=clk_test_0".to_string(),
+                "CLOACINA_AGENT_LOG_FORMAT=json".to_string(),
+            ]
+        );
     }
 
     #[tokio::test]
