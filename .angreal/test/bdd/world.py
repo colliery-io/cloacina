@@ -41,6 +41,9 @@ class PublishWorld:
         self.bootstrap_key = bootstrap_key
         self.secret_kek = secret_kek
         self.tag = tag
+        # The tenants of this deployment. A world with more tenants (the
+        # standing workload, CLOACINA-T-1107) sets its own list.
+        self.tenants = TENANTS
         self.base_url = None
         self.home = Path(tempfile.mkdtemp(prefix="bdd-publish-home-"))
         # cargo honours CARGO_TARGET_DIR, so the driver does too: a worktree can
@@ -259,7 +262,7 @@ class PublishWorld:
         compiler pod and each agent pod: (where, parsed JSON). Says in which
         processes a package's code ran."""
         places = [("server", self.ns, f"deploy/{self.release}-cloacina-server")]
-        for tenant in TENANTS:
+        for tenant in self.tenants:
             if self.chart_compilers:
                 # Made by the server's actuator, in the tenant's namespace.
                 places.append((f"compiler of {tenant}", self.tenant_namespace(tenant),
@@ -329,7 +332,7 @@ class PublishWorld:
         With `self.chart_compilers`, the driver applies no compiler: the
         server's actuator starts one for a tenant when its build queue gets a
         package (CLOACINA-T-1034)."""
-        for tenant in TENANTS:
+        for tenant in self.tenants:
             code, body = self.api("POST", "/v1/tenants", key=self.bootstrap_key,
                                   body={"name": tenant}, expect=None)
             # A tenant that exists answers 400 with the SQL error, not 409.
@@ -490,8 +493,8 @@ class PublishWorld:
         while time.time() < deadline:
             _, roster = self.api("GET", "/v1/agents", key=self.bootstrap_key, expect=(200,))
             items = roster.get("items", []) if isinstance(roster, dict) else []
-            have = {t for t in TENANTS if any(a.get("tenant_id") == t for a in items)}
-            if have == set(TENANTS):
+            have = {t for t in self.tenants if any(a.get("tenant_id") == t for a in items)}
+            if have == set(self.tenants):
                 return
             time.sleep(5)
         raise AssertionError("not every tenant has a registered agent within the timeout")

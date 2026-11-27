@@ -1,0 +1,111 @@
+{
+  "_about": "Written by hand from the API types and the table definitions (no server was run). Three tenants, twenty minutes past noon: the self-driving workflow of team_a published a Python version at 11:40, a Rust version with a build error at 11:50, and went back a version at 12:15.",
+  "taken_at": "2026-11-27T12:20:00Z",
+  "disturbances": [],
+  "admin": {
+    "db": {
+      "clock": {"rows": [{"now": "2026-11-27T12:20:00.123456+00:00"}]},
+      "agents": {"rows": [
+        {"tenant_id": "team_a", "agents": 2, "last_heartbeat": "2026-11-27T12:19:55.101"},
+        {"tenant_id": "team_b", "agents": 2, "last_heartbeat": "2026-11-27T12:19:57.330"},
+        {"tenant_id": "team_c", "agents": 2, "last_heartbeat": "2026-11-27T12:19:51.004"}
+      ]}
+    }
+  },
+  "tenants": {
+    "team_a": {
+      "api": {
+        "versions_target_py": {"status": 200, "body": {"items": [
+          {"id": "0a6f3f0e-0000-4000-8000-000000000013", "package_name": "standing-target-py", "version": "0.1.3", "active": false, "superseded": true, "build_status": "success", "content_hash": "aa13", "created_at": "2026-11-27T11:40:03+00:00", "compiled_at": "2026-11-27T11:40:09+00:00"},
+          {"id": "0a6f3f0e-0000-4000-8000-000000000012", "package_name": "standing-target-py", "version": "0.1.2", "active": true, "superseded": false, "build_status": "success", "content_hash": "aa12", "created_at": "2026-11-27T10:40:03+00:00", "compiled_at": "2026-11-27T10:40:08+00:00"},
+          {"id": "0a6f3f0e-0000-4000-8000-000000000011", "package_name": "standing-target-py", "version": "0.1.1", "active": false, "superseded": true, "build_status": "success", "content_hash": "aa11", "created_at": "2026-11-27T10:10:03+00:00", "compiled_at": "2026-11-27T10:10:07+00:00"}
+        ]}},
+        "versions_target_rust": {"status": 200, "body": {"items": [
+          {"id": "0a6f3f0e-0000-4000-8000-000000000022", "package_name": "standing-target-rust", "version": "0.1.2", "active": false, "superseded": false, "build_status": "failed", "build_error": "error[E0425]: cannot find function `standing_target_total_that_does_not_exist` in this scope", "content_hash": "ab12", "created_at": "2026-11-27T11:50:03+00:00"},
+          {"id": "0a6f3f0e-0000-4000-8000-000000000021", "package_name": "standing-target-rust", "version": "0.1.1", "active": true, "superseded": false, "build_status": "success", "content_hash": "ab11", "created_at": "2026-11-27T10:55:03+00:00", "compiled_at": "2026-11-27T10:55:41+00:00"}
+        ]}}
+      },
+      "db": {
+        "first_run": {"rows": [{"first_run": "2026-11-27T09:00:05.210", "runs": 412}]},
+        "last_runs": {"rows": [
+          {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.004"},
+          {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.310"},
+          {"workflow_name": "standing_archive", "runs": 3, "last_started": "2026-11-27T12:00:02.118"},
+          {"workflow_name": "standing_flaky", "runs": 36, "last_started": "2026-11-27T12:15:01.500"},
+          {"workflow_name": "standing_driver", "runs": 36, "last_started": "2026-11-27T12:15:01.220"},
+          {"workflow_name": "standing_hold", "runs": 36, "last_started": "2026-11-27T11:20:04.900"},
+          {"workflow_name": "standing_target_py", "runs": 36, "last_started": "2026-11-27T12:15:04.100"}
+        ]},
+        "driver_runs": {"rows": [
+          {"id": "5d0c1a10-0000-4000-8000-0000000a1140", "status": "Completed", "started_at": "2026-11-27T11:40:01.220", "completed_at": "2026-11-27T11:40:05.900",
+           "context": "{\"tenant\": \"team_a\", \"offset\": 0, \"other_tenant\": \"team_b\", \"scheduled_time\": \"2026-11-27T11:40:00+00:00\", \"standing_driver_plan\": {\"slot\": 8, \"actions\": []}, \"standing_driver_actions\": [{\"action\": \"publish\", \"package\": \"standing-target-py\", \"version\": \"0.1.3\", \"status\": 201, \"bytes\": 612, \"at\": \"2026-11-27T11:40:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1140\", \"at\": \"2026-11-27T11:40:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T11:40:05Z\"}]}"},
+          {"id": "5d0c1a10-0000-4000-8000-0000000a1150", "status": "Completed", "started_at": "2026-11-27T11:50:01.180", "completed_at": "2026-11-27T11:50:05.400",
+           "context": "{\"tenant\": \"team_a\", \"standing_driver_actions\": [{\"action\": \"publish_broken\", \"package\": \"standing-target-rust\", \"version\": \"0.1.2\", \"status\": 201, \"bytes\": 1490, \"at\": \"2026-11-27T11:50:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1150\", \"at\": \"2026-11-27T11:50:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T11:50:05Z\"}]}"},
+          {"id": "5d0c1a10-0000-4000-8000-0000000a1215", "status": "Completed", "started_at": "2026-11-27T12:15:01.220", "completed_at": "2026-11-27T12:15:05.010",
+           "context": "{\"tenant\": \"team_a\", \"standing_driver_actions\": [{\"action\": \"step_back\", \"package\": \"standing-target-py\", \"version\": \"0.1.2\", \"status\": 200, \"at\": \"2026-11-27T12:15:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1215\", \"at\": \"2026-11-27T12:15:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T12:15:05Z\"}]}"}
+        ]}
+      }
+    },
+    "team_b": {
+      "api": {
+        "versions_target_py": {"status": 200, "body": {"items": [
+          {"id": "0b6f3f0e-0000-4000-8000-000000000011", "package_name": "standing-target-py", "version": "0.1.1", "active": true, "superseded": false, "build_status": "success", "content_hash": "ba11", "created_at": "2026-11-27T11:35:03+00:00", "compiled_at": "2026-11-27T11:35:08+00:00"},
+          {"id": "0b6f3f0e-0000-4000-8000-000000000010", "package_name": "standing-target-py", "version": "0.1.0", "active": false, "superseded": true, "build_status": "success", "content_hash": "ba10", "created_at": "2026-11-27T09:05:03+00:00", "compiled_at": "2026-11-27T09:05:09+00:00"}
+        ]}},
+        "versions_target_rust": {"status": 200, "body": {"items": [
+          {"id": "0b6f3f0e-0000-4000-8000-000000000020", "package_name": "standing-target-rust", "version": "0.1.0", "active": true, "superseded": false, "build_status": "success", "content_hash": "bb10", "created_at": "2026-11-27T09:05:04+00:00", "compiled_at": "2026-11-27T09:05:52+00:00"}
+        ]}}
+      },
+      "db": {
+        "first_run": {"rows": [{"first_run": "2026-11-27T09:00:06.870", "runs": 398}]},
+        "last_runs": {"rows": [
+          {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.090"},
+          {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.400"},
+          {"workflow_name": "standing_archive", "runs": 3, "last_started": "2026-11-27T12:00:01.870"},
+          {"workflow_name": "standing_flaky", "runs": 36, "last_started": "2026-11-27T12:15:01.610"},
+          {"workflow_name": "standing_driver", "runs": 36, "last_started": "2026-11-27T12:15:01.300"}
+        ]},
+        "driver_runs": {"rows": [
+          {"id": "5d0c1a10-0000-4000-8000-0000000b1135", "status": "Completed", "started_at": "2026-11-27T11:35:01.300", "completed_at": "2026-11-27T11:35:05.200",
+           "context": {"tenant": "team_b", "standing_driver_actions": [
+             {"action": "publish", "package": "standing-target-py", "version": "0.1.1", "status": 201, "bytes": 610, "at": "2026-11-27T11:35:03Z"},
+             {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000b1135", "at": "2026-11-27T11:35:04Z"}]}},
+          {"id": "5d0c1a10-0000-4000-8000-0000000b1215", "status": "Completed", "started_at": "2026-11-27T12:15:01.300", "completed_at": "2026-11-27T12:15:04.800",
+           "context": {"tenant": "team_b", "standing_driver_actions": [
+             {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000b1215", "at": "2026-11-27T12:15:03Z"},
+             {"action": "other_tenant", "other_tenant": "team_c", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
+        ]}
+      }
+    },
+    "team_c": {
+      "api": {
+        "versions_target_py": {"status": 200, "body": {"items": [
+          {"id": "0c6f3f0e-0000-4000-8000-000000000011", "package_name": "standing-target-py", "version": "0.1.1", "active": true, "superseded": false, "build_status": "success", "content_hash": "ca11", "created_at": "2026-11-27T11:15:03+00:00", "compiled_at": "2026-11-27T11:15:08+00:00"},
+          {"id": "0c6f3f0e-0000-4000-8000-000000000010", "package_name": "standing-target-py", "version": "0.1.0", "active": false, "superseded": true, "build_status": "success", "content_hash": "ca10", "created_at": "2026-11-27T09:05:05+00:00", "compiled_at": "2026-11-27T09:05:11+00:00"}
+        ]}},
+        "versions_target_rust": {"status": 200, "body": {"items": [
+          {"id": "0c6f3f0e-0000-4000-8000-000000000020", "package_name": "standing-target-rust", "version": "0.1.0", "active": true, "superseded": false, "build_status": "success", "content_hash": "cb10", "created_at": "2026-11-27T09:05:06+00:00", "compiled_at": "2026-11-27T09:06:01+00:00"}
+        ]}}
+      },
+      "db": {
+        "first_run": {"rows": [{"first_run": "2026-11-27T09:00:07.440", "runs": 401}]},
+        "last_runs": {"rows": [
+          {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.150"},
+          {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.480"},
+          {"workflow_name": "standing_archive", "runs": 3, "last_started": "2026-11-27T12:00:02.300"},
+          {"workflow_name": "standing_flaky", "runs": 36, "last_started": "2026-11-27T12:15:01.700"},
+          {"workflow_name": "standing_driver", "runs": 36, "last_started": "2026-11-27T12:15:01.390"}
+        ]},
+        "driver_runs": {"rows": [
+          {"id": "5d0c1a10-0000-4000-8000-0000000c1115", "status": "Completed", "started_at": "2026-11-27T11:15:01.390", "completed_at": "2026-11-27T11:15:05.100",
+           "context": {"tenant": "team_c", "standing_driver_actions": [
+             {"action": "publish", "package": "standing-target-py", "version": "0.1.1", "status": 201, "bytes": 611, "at": "2026-11-27T11:15:03Z"}]}},
+          {"id": "5d0c1a10-0000-4000-8000-0000000c1215", "status": "Completed", "started_at": "2026-11-27T12:15:01.390", "completed_at": "2026-11-27T12:15:04.700",
+           "context": {"tenant": "team_c", "standing_driver_actions": [
+             {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000c1215", "at": "2026-11-27T12:15:03Z"},
+             {"action": "other_tenant", "other_tenant": "team_a", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
+        ]}
+      }
+    }
+  }
+}

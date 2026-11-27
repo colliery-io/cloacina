@@ -1,0 +1,15 @@
+# Fixture of the behaviour suite's standing workload (CLOACINA-T-1107): a
+# short data job on a five-minute schedule, in Rust. It carries version deps,
+# the form a team ships, so the tenant's compiler in the cluster builds it.
+[package]
+name = "standing-rollup-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "standing_rollup"
+language = "rust"
+description = "standing workload: a short data job every five minutes"
+author = "behaviour-suite"
