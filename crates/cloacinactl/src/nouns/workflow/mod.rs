@@ -47,6 +47,11 @@ enum WorkflowVerb {
         /// Context JSON file path, or `-` for stdin.
         #[arg(long)]
         context: Option<String>,
+        /// The workflow priority of this run: 0 (the highest) to 10. The
+        /// default is what the workflow declares, or 5. A priority above
+        /// what your key may set is lowered to your limit, with a warning.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=10))]
+        priority: Option<u8>,
     },
 }
 
@@ -93,19 +98,31 @@ impl WorkflowCmd {
                     .await?;
                 render::object(&body, output)
             }
-            WorkflowVerb::Run { name, context } => {
+            WorkflowVerb::Run {
+                name,
+                context,
+                priority,
+            } => {
                 // The execute endpoint expects the context nested under a
                 // `context` key (`ExecuteRequest { context: Option<Value> }`);
                 // posting the bare file JSON makes the server silently drop it
                 // ("Skipping insertion of empty context"). Wrap it here.
                 let ctx = load_context(context.as_deref())?;
-                let body = serde_json::json!({ "context": ctx });
+                let mut body = serde_json::json!({ "context": ctx });
+                if let Some(priority) = priority {
+                    body["priority"] = serde_json::json!(priority);
+                }
                 let resp: serde_json::Value = client
                     .post(
                         &format!("/v1/tenants/{tenant}/workflows/{name}/execute"),
                         &body,
                     )
                     .await?;
+                // CLOACINA-T-1045: a lowered priority is a warning on
+                // stderr, not a quiet field of the answer.
+                if let Some(notice) = priority_warning(&resp) {
+                    eprintln!("{notice}");
+                }
                 if let Some(id) = resp
                     .get("execution_id")
                     .or_else(|| resp.get("id"))
@@ -119,6 +136,16 @@ impl WorkflowCmd {
             }
         }
     }
+}
+
+/// The warning line for a run whose priority was lowered: the server's
+/// `priority_notice`, with a `warning:` prefix. `None` when the answer has
+/// no notice.
+fn priority_warning(response: &serde_json::Value) -> Option<String> {
+    response
+        .get("priority_notice")
+        .and_then(|notice| notice.as_str())
+        .map(|notice| format!("warning: {notice}"))
 }
 
 fn load_context(source: Option<&str>) -> Result<serde_json::Value, CliError> {

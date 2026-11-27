@@ -25,6 +25,13 @@ pub struct ExecuteRequest {
     /// Optional JSON context to pass to the workflow.
     #[serde(default)]
     pub context: Option<serde_json::Value>,
+    /// The workflow priority this run asks for: an integer from 0 (the
+    /// highest) to 10 (CLOACINA-T-1045). With none, the run gets the
+    /// priority the workflow declares, or 5. A priority above what the
+    /// caller may set is not refused: the run gets the caller's limit, and
+    /// the answer says so in `priority` and `priority_notice`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
 }
 
 /// `202 Accepted` body for a scheduled workflow execution.
@@ -37,6 +44,14 @@ pub struct ExecuteResponse {
     pub tenant_id: String,
     /// Always `"scheduled"` at accept time.
     pub status: String,
+    /// The workflow priority of the run: the one asked for and the one
+    /// given (CLOACINA-T-1045). `null` from a server before priorities.
+    #[serde(default)]
+    pub priority: Option<crate::priority::PriorityGrant>,
+    /// Set when the given priority is lower than the one asked for: one
+    /// sentence that says what was asked, what was given and why.
+    #[serde(default)]
+    pub priority_notice: Option<String>,
 }
 
 /// Query string for `GET /tenants/{tenant_id}/executions`
@@ -68,6 +83,10 @@ pub struct ExecutionSummary {
     /// The UI marks manual runs with a "manual" pill.
     #[serde(default)]
     pub trigger_origin: Option<String>,
+    /// The workflow priority of the execution: asked and given
+    /// (CLOACINA-T-1045). `null` for an execution from before priorities.
+    #[serde(default)]
+    pub priority: Option<crate::priority::PriorityGrant>,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}` response.
@@ -77,6 +96,10 @@ pub struct ExecutionDetail {
     pub tenant_id: String,
     pub execution_id: String,
     pub status: String,
+    /// The workflow priority of the execution: asked and given
+    /// (CLOACINA-T-1045). `null` for an execution from before priorities.
+    #[serde(default)]
+    pub priority: Option<crate::priority::PriorityGrant>,
 }
 
 /// One row in the execution event log.
