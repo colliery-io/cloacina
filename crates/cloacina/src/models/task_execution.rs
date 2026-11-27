@@ -50,6 +50,12 @@ pub struct TaskExecution {
     /// ends.
     #[serde(default)]
     pub waiting_since: Option<UniversalTimestamp>,
+    /// The time of the first dispatch of this attempt that an agent refused
+    /// because it could not fetch the package artifact (CLOACINA-T-1064).
+    /// The later refusals of the attempt keep it. `None` when the attempt had
+    /// no such refusal; cleared when a retry is scheduled.
+    #[serde(default)]
+    pub artifact_fetch_wait_since: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }

@@ -59,6 +59,18 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    `cloacina_fleet_dispatch_deferred_total` to see it. The task is in
    `cloacina_waiting_tasks` for as long as it waits, and
    `cloacina_oldest_waiting_task_age_seconds` grows.
+   A task also waits when the agent refuses the packet because it **could not
+   fetch the package artifact** (the server restarts, the artifact is not
+   there yet). The task goes back to `Ready`, keeps its attempt count, and is
+   dispatched again after a delay that starts at 2 s and grows to 30 s. Each
+   try selects an agent again, so it can go to a different agent. This wait
+   has a limit, `--fleet-artifact-fetch-wait-s`
+   (`CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S`, default `300`), counted per
+   attempt from the first refused fetch. A refusal at or past the limit fails
+   the attempt with the error `agent could not fetch the package artifact`,
+   and the task's retry policy decides what follows; a new attempt gets the
+   full wait again. `cloacina_fleet_artifact_fetch_refusals_total` counts
+   these refusals.
 3. **Resolve the artifact.** For the first task of an execution it looks up
    the active (built, non-superseded) version of the task's package in that
    tenant and records it as the execution's **version pin**. For each later

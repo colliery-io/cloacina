@@ -1006,6 +1006,7 @@ mod tests {
             claimed_by: None,
             heartbeat_at: None,
             waiting_since: None,
+            artifact_fetch_wait_since: None,
             created_at: at(0),
             updated_at: at(90),
         }

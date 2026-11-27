@@ -180,6 +180,53 @@ fn agent_failure_error(
 /// roster on every scheduler tick.
 const NO_CAPACITY_RETRY_DELAY: Duration = Duration::from_secs(2);
 
+/// The default of `--fleet-artifact-fetch-wait-s` (CLOACINA-T-1064): how long
+/// a task waits, per attempt, while agents cannot fetch its package artifact.
+///
+/// An artifact that is still on its way (a build that finishes, a replica
+/// that catches up, a server that restarts) is there in seconds to a few
+/// minutes; one that is gone never comes. 300 s covers a rolling restart of
+/// the server, and is the default time limit of a fleet task
+/// ([`FleetTaskTimeLimits::DEFAULT_SECONDS`]), so a task whose artifact is
+/// gone fails about as soon as a task that hangs.
+pub const DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS: u64 = 300;
+
+/// The longest delay before the next dispatch try of a task that waits for
+/// its package artifact (CLOACINA-T-1064).
+const ARTIFACT_FETCH_RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
+
+/// The delay before the next dispatch try of a task whose artifact an agent
+/// could not fetch, `waited` after the first such refusal of the attempt.
+///
+/// It is the time waited so far, from [`NO_CAPACITY_RETRY_DELAY`] up to
+/// [`ARTIFACT_FETCH_RETRY_DELAY_MAX`]: tries about 2, 4, 8, 16, 32 and then
+/// every 30 s after the first refusal. So a server that restarts does not
+/// get a dispatch every 2 s from each waiting task. The delay is cut to what
+/// is left of `limit`, so the last try comes at the limit and not up to 30 s
+/// after it.
+fn artifact_fetch_retry_delay(waited: Duration, limit: Duration) -> Duration {
+    let left = limit.saturating_sub(waited);
+    waited
+        .clamp(NO_CAPACITY_RETRY_DELAY, ARTIFACT_FETCH_RETRY_DELAY_MAX)
+        .min(left.max(NO_CAPACITY_RETRY_DELAY))
+}
+
+/// The error of an attempt that ends because agents could not fetch the
+/// task's package artifact for the whole wait (CLOACINA-T-1064).
+fn artifact_fetch_gave_up_message(
+    agent_message: &str,
+    waited: Duration,
+    limit: Duration,
+) -> String {
+    format!(
+        "agent could not fetch the package artifact (ArtifactFetchFailed): {}; \
+         gave up after {} s (limit {} s)",
+        agent_message,
+        waited.as_secs(),
+        limit.as_secs()
+    )
+}
+
 /// Baseline advertised capacity so an empty fleet still reports a value the
 /// dispatcher can throttle against.
 const MIN_ADVERTISED_CAPACITY: usize = 0;
@@ -244,6 +291,9 @@ pub struct FleetExecutor {
     secret_resolver_factory: Option<Arc<dyn FleetSecretResolverFactory>>,
     /// CLOACINA-T-1014: the default and the maximum time limit of a task.
     time_limits: FleetTaskTimeLimits,
+    /// CLOACINA-T-1064: how long a task waits, per attempt, while agents
+    /// cannot fetch its package artifact. Zero: no wait.
+    artifact_fetch_wait: Duration,
 }
 
 impl FleetExecutor {
@@ -275,7 +325,17 @@ impl FleetExecutor {
             instance_id,
             secret_resolver_factory: None,
             time_limits: FleetTaskTimeLimits::default(),
+            artifact_fetch_wait: Duration::from_secs(DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS),
         }
+    }
+
+    /// CLOACINA-T-1064: set how long a task waits, per attempt, while agents
+    /// cannot fetch its package artifact (the server's
+    /// `--fleet-artifact-fetch-wait-s`). Zero: the first such refusal fails
+    /// the attempt.
+    pub fn with_artifact_fetch_wait(mut self, wait: Duration) -> Self {
+        self.artifact_fetch_wait = wait;
+        self
     }
 
     /// CLOACINA-T-1014: set the default and the maximum time limit of a task
@@ -403,11 +463,36 @@ impl FleetExecutor {
         event: &TaskReadyEvent,
         waiting_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
     ) -> ExecutionResult {
-        const WHY: &str = "the agent refused: full or shutting down";
         metrics::counter!("cloacina_fleet_dispatch_deferred_total").increment(1);
+        self.defer_refused(
+            event,
+            waiting_before,
+            NO_CAPACITY_RETRY_DELAY,
+            None,
+            "the agent refused: full or shutting down",
+        )
+        .await
+    }
+
+    /// Undo the start of a dispatch that an agent refused and put the task
+    /// back in the queue for `delay`, with its attempt kept.
+    ///
+    /// `fetch_wait_since` is `Some` for a refusal because the agent could not
+    /// fetch the package artifact (CLOACINA-T-1064): the task row then
+    /// records from when it waits for its artifact, unless it already does.
+    async fn defer_refused(
+        &self,
+        event: &TaskReadyEvent,
+        waiting_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
+        delay: Duration,
+        fetch_wait_since: Option<cloacina::database::universal_types::UniversalTimestamp>,
+        why: &'static str,
+    ) -> ExecutionResult {
+        const WHY_LOG: &str =
+            "fleet: the agent did not run the task; it waits and keeps its attempt";
         let not_before = cloacina::database::universal_types::UniversalTimestamp(
             chrono::Utc::now()
-                + chrono::Duration::from_std(NO_CAPACITY_RETRY_DELAY)
+                + chrono::Duration::from_std(delay)
                     .unwrap_or_else(|_| chrono::Duration::seconds(2)),
         );
         // A dropped write here would leave the task `Running` with no claim,
@@ -415,22 +500,37 @@ impl FleetExecutor {
         let mut tries = 0;
         loop {
             tries += 1;
-            match self
-                .dal
-                .task_execution()
-                .defer_dispatch_after_start(
-                    event.task_execution_id,
-                    self.instance_id,
-                    not_before,
-                    waiting_before,
-                )
-                .await
-            {
+            let tasks = self.dal.task_execution();
+            let written = match fetch_wait_since {
+                Some(since) => {
+                    tasks
+                        .defer_dispatch_after_fetch_refusal(
+                            event.task_execution_id,
+                            self.instance_id,
+                            not_before,
+                            waiting_before,
+                            since,
+                        )
+                        .await
+                }
+                None => {
+                    tasks
+                        .defer_dispatch_after_start(
+                            event.task_execution_id,
+                            self.instance_id,
+                            not_before,
+                            waiting_before,
+                        )
+                        .await
+                }
+            };
+            match written {
                 Ok(true) => {
                     debug!(
                         task_id = %event.task_execution_id,
-                        why = WHY,
-                        "fleet: no capacity now; the task waits and keeps its attempt"
+                        why,
+                        delay_ms = delay.as_millis() as u64,
+                        WHY_LOG
                     );
                     break;
                 }
@@ -439,7 +539,7 @@ impl FleetExecutor {
                     // an end state: its state is not this executor's to write.
                     debug!(
                         task_id = %event.task_execution_id,
-                        why = WHY,
+                        why,
                         "fleet: refused dispatch not put back; this executor no longer \
                          holds the claim, or the task has ended"
                     );
@@ -950,20 +1050,23 @@ impl TaskExecutor for FleetExecutor {
             // and clears `waiting_since`. Read the wait first: when the agent
             // refuses the packet as full, the start is undone and the wait
             // goes back as it was.
-            let waiting_before = match self
+            //
+            // CLOACINA-T-1064: the same read gives the time of the first
+            // refused artifact fetch of this attempt, if there was one.
+            let (waiting_before, fetch_wait_before) = match self
                 .dal
                 .task_execution()
                 .get_by_id(event.task_execution_id)
                 .await
             {
-                Ok(task) => task.waiting_since,
+                Ok(task) => (task.waiting_since, task.artifact_fetch_wait_since),
                 Err(e) => {
                     debug!(
                         task_id = %event.task_execution_id,
                         error = %e,
                         "fleet: could not read the task's wait before the start"
                     );
-                    None
+                    (None, None)
                 }
             };
             if let Err(e) = self
@@ -1046,6 +1149,58 @@ impl TaskExecutor for FleetExecutor {
                     .defer_refused_for_capacity(&event, waiting_before)
                     .await);
             }
+            // CLOACINA-T-1064: `ArtifactFetchFailed` is "I could not fetch the
+            // package". The task did not run, and the cause can pass (a
+            // server that restarts, an artifact still on its way): the task
+            // waits and is dispatched again, with no use of a retry attempt.
+            // The wait has a limit per attempt, counted from the first such
+            // refusal, which the task row records. At or past the limit the
+            // refusal is a failed attempt, below, with an error that says so.
+            let mut fetch_gave_up_after = None;
+            if matches!(
+                result_req.outcome,
+                AgentOutcome::Refused {
+                    reason: cloacina::fleet::RefusalReason::ArtifactFetchFailed,
+                    ..
+                }
+            ) {
+                metrics::counter!("cloacina_fleet_artifact_fetch_refusals_total").increment(1);
+                let now = chrono::Utc::now();
+                let since = fetch_wait_before.map(|at| at.0).unwrap_or(now);
+                let waited = (now - since).to_std().unwrap_or_default();
+                if waited < self.artifact_fetch_wait {
+                    let delay = artifact_fetch_retry_delay(waited, self.artifact_fetch_wait);
+                    info!(
+                        task_id = %event.task_execution_id,
+                        agent_id = %agent_id,
+                        waited_s = waited.as_secs(),
+                        limit_s = self.artifact_fetch_wait.as_secs(),
+                        retry_in_ms = delay.as_millis() as u64,
+                        "fleet: the agent could not fetch the package artifact; the task \
+                         waits and keeps its attempt"
+                    );
+                    return Ok(self
+                        .defer_refused(
+                            &event,
+                            waiting_before,
+                            delay,
+                            Some(cloacina::database::universal_types::UniversalTimestamp(
+                                since,
+                            )),
+                            "the agent could not fetch the package artifact",
+                        )
+                        .await);
+                }
+                warn!(
+                    task_id = %event.task_execution_id,
+                    agent_id = %agent_id,
+                    waited_s = waited.as_secs(),
+                    limit_s = self.artifact_fetch_wait.as_secs(),
+                    "fleet: the package artifact could not be fetched within the wait; \
+                     the attempt fails"
+                );
+                fetch_gave_up_after = Some(waited);
+            }
             let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
             let outcome: Result<Context<serde_json::Value>, ExecutorError> =
                 match result_req.outcome {
@@ -1066,11 +1221,20 @@ impl TaskExecutor for FleetExecutor {
                         classification,
                     )),
                     AgentOutcome::Refused { reason, message } => {
-                        // Refusals are transient (target-triple mismatch, artifact
-                        // fetch failure, agent shutdown → reschedule). Map onto
-                        // TaskExecution; the retry policy decides whether to retry.
+                        // The other refusals (target-triple mismatch, runtime
+                        // load failure) and an artifact fetch refusal past its
+                        // wait. Map onto TaskExecution; the retry policy
+                        // decides whether to retry.
+                        let message = match fetch_gave_up_after {
+                            Some(waited) => artifact_fetch_gave_up_message(
+                                &message,
+                                waited,
+                                self.artifact_fetch_wait,
+                            ),
+                            None => format!("agent refused ({:?}): {}", reason, message),
+                        };
                         Err(ExecutorError::TaskExecution(TaskError::ExecutionFailed {
-                            message: format!("agent refused ({:?}): {}", reason, message),
+                            message,
                             task_id: event.task_name.clone(),
                             timestamp: chrono::Utc::now(),
                         }))
@@ -1526,6 +1690,15 @@ mod tests {
         /// a built package that holds [`TASK`]. The package has no cdylib, so
         /// it runs on an agent of any architecture.
         async fn stack(retry_policy: RetryPolicy) -> Stack {
+            stack_with_fetch_wait(
+                retry_policy,
+                Duration::from_secs(DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS),
+            )
+            .await
+        }
+
+        /// [`stack`] with the server's `--fleet-artifact-fetch-wait-s`.
+        async fn stack_with_fetch_wait(retry_policy: RetryPolicy, fetch_wait: Duration) -> Stack {
             use cloacina::database::schema::unified::workflow_packages;
             use diesel::prelude::*;
 
@@ -1595,20 +1768,23 @@ mod tests {
             });
 
             let coordinator = Arc::new(FleetCoordinator::new());
-            let executor = Arc::new(FleetExecutor::new(
-                dal.clone(),
-                dal.clone(),
-                registry,
-                coordinator.clone(),
-                cloacina::delivery::WakeHandle::default(),
-                TaskResultHandler::new(
+            let executor = Arc::new(
+                FleetExecutor::new(
                     dal.clone(),
-                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                    None,
-                ),
-                runtime,
-            ));
+                    dal.clone(),
+                    registry,
+                    coordinator.clone(),
+                    cloacina::delivery::WakeHandle::default(),
+                    TaskResultHandler::new(
+                        dal.clone(),
+                        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                        None,
+                    ),
+                    runtime,
+                )
+                .with_artifact_fetch_wait(fetch_wait),
+            );
             Stack {
                 dal,
                 coordinator,
@@ -1678,12 +1854,14 @@ mod tests {
             let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT);
             let mut found = None;
             for _ in 0..400 {
+                // SQLite with a shared cache answers "table is locked" when
+                // this read meets the executor's enqueue: read again.
                 let open = stack
                     .dal
                     .delivery_outbox()
                     .list_open_for_recipient(&recipient, 10)
                     .await
-                    .unwrap();
+                    .unwrap_or_default();
                 if let Some(push) = open.into_iter().find(|push| push.id > after) {
                     found = Some(push);
                     break;
@@ -1840,44 +2018,279 @@ mod tests {
             assert_eq!(after.waiting_since, None);
         }
 
+        // CLOACINA-T-1064: a refusal because the agent could not fetch the
+        // package artifact is a wait, up to a limit.
+
+        const FETCH_MESSAGE: &str = "GET /v1/agent/artifact/digest-1: connection refused";
+
+        fn fetch_refused() -> AgentOutcome {
+            AgentOutcome::Refused {
+                reason: RefusalReason::ArtifactFetchFailed,
+                message: FETCH_MESSAGE.to_string(),
+            }
+        }
+
+        /// Make the task's wait for its artifact `seconds` old.
+        async fn fetch_wait_started(dal: &DAL, event: &TaskReadyEvent, seconds: i64) {
+            use cloacina::database::schema::unified::task_executions;
+            use diesel::prelude::*;
+
+            let task_id = event.task_execution_id;
+            let since = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(seconds));
+            let aged: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(dal, |conn| {
+                    diesel::update(task_executions::table.find(task_id))
+                        .set(task_executions::artifact_fetch_wait_since.eq(Some(since)))
+                        .execute(conn)
+                });
+            assert_eq!(aged.unwrap(), 1);
+        }
+
+        /// Seconds from now until the task's next dispatch try.
+        fn retry_in_seconds(task: &TaskExecution) -> f64 {
+            let at = task.retry_at.expect("the next dispatch try has a time");
+            (at.0 - chrono::Utc::now()).num_milliseconds() as f64 / 1000.0
+        }
+
+        #[tokio::test]
+        async fn a_fetch_refusal_leaves_a_task_with_no_retries_ready_on_attempt_1() {
+            let stack = stack(policy(1, RetryCondition::AllErrors)).await;
+            let event = waiting_task(&stack.dal).await;
+            let before = row(&stack.dal, &event).await;
+            assert_eq!(before.artifact_fetch_wait_since, None);
+
+            dispatch(&stack, &event, 0, fetch_refused()).await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Ready", "the task waits; it did not fail");
+            assert_eq!(after.attempt, 1, "a fetch refusal uses no attempt");
+            assert_eq!(after.started_at, None, "the task did not start");
+            assert_eq!(
+                after.waiting_since, before.waiting_since,
+                "a refusal does not reset how long the task has waited"
+            );
+            assert_eq!(after.claimed_by, None, "the claim is released");
+            let retry_in = retry_in_seconds(&after);
+            assert!(
+                retry_in > 0.0 && retry_in <= 2.0,
+                "the first delay is 2 s, got {retry_in}"
+            );
+            assert_eq!(after.last_error, None, "a wait is not an error");
+            assert!(
+                after
+                    .artifact_fetch_wait_since
+                    .is_some_and(|at| (chrono::Utc::now() - at.0).num_seconds() < 5),
+                "the row records from when the task waits for its artifact"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_task_that_waits_for_its_artifact_is_counted_as_waiting() {
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+
+            dispatch(&stack, &event, 0, fetch_refused()).await;
+
+            let stats = stack
+                .dal
+                .task_execution()
+                .waiting_task_stats()
+                .await
+                .unwrap();
+            assert_eq!(stats.count, 1);
+            assert!(stats.oldest_age_seconds(chrono::Utc::now()) >= WAITED_SECONDS as f64);
+        }
+
+        #[tokio::test]
+        async fn a_task_that_waits_for_its_artifact_completes_on_attempt_1_when_the_fetch_works() {
+            let stack = stack(policy(1, RetryCondition::AllErrors)).await;
+            let event = waiting_task(&stack.dal).await;
+
+            let first = dispatch(&stack, &event, 0, fetch_refused()).await;
+            let second = dispatch(&stack, &event, first, fetch_refused()).await;
+            let waiting = row(&stack.dal, &event).await;
+            assert_eq!(waiting.status, "Ready");
+            assert_eq!(waiting.attempt, 1);
+
+            let done = AgentOutcome::Success {
+                context: serde_json::json!({"done": true}),
+            };
+            let third = dispatch(&stack, &event, second, done).await;
+            assert!(third > second, "each try is a new packet");
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Completed");
+            assert_eq!(after.attempt, 1);
+            assert!(after.started_at.is_some());
+            assert_eq!(after.waiting_since, None);
+        }
+
+        #[tokio::test]
+        async fn fetch_refusals_do_not_use_up_retry_attempts() {
+            let stack = stack(policy(3, RetryCondition::AllErrors)).await;
+            let event = waiting_task(&stack.dal).await;
+
+            // More refusals than the policy has attempts.
+            let mut last = 0;
+            let mut stamped = None;
+            for refusal in 1..=5 {
+                last = dispatch(&stack, &event, last, fetch_refused()).await;
+                let task = row(&stack.dal, &event).await;
+                assert_eq!(task.status, "Ready", "refusal {refusal}");
+                assert_eq!(task.attempt, 1, "refusal {refusal} used an attempt");
+                assert!(task.artifact_fetch_wait_since.is_some());
+                if refusal > 1 {
+                    assert_eq!(
+                        task.artifact_fetch_wait_since, stamped,
+                        "the wait counts from the first refusal"
+                    );
+                }
+                stamped = task.artifact_fetch_wait_since;
+            }
+
+            // Past the limit, the refusal is one failed attempt: the policy
+            // schedules attempt 2, which gets the full wait again.
+            fetch_wait_started(
+                &stack.dal,
+                &event,
+                DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS as i64 + 1,
+            )
+            .await;
+            dispatch(&stack, &event, last, fetch_refused()).await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Ready", "the policy retries");
+            assert_eq!(after.attempt, 2, "the limit uses one attempt");
+            assert_eq!(after.artifact_fetch_wait_since, None);
+        }
+
+        #[tokio::test]
+        async fn a_task_whose_artifact_stays_out_of_reach_fails_at_the_limit() {
+            let stack = stack(policy(1, RetryCondition::AllErrors)).await;
+            let event = waiting_task(&stack.dal).await;
+
+            // Under the limit the task waits, with a delay that grows to 30 s.
+            let first = dispatch(&stack, &event, 0, fetch_refused()).await;
+            fetch_wait_started(&stack.dal, &event, 100).await;
+            let second = dispatch(&stack, &event, first, fetch_refused()).await;
+            let waiting = row(&stack.dal, &event).await;
+            assert_eq!(waiting.status, "Ready");
+            let retry_in = retry_in_seconds(&waiting);
+            assert!(
+                retry_in > 25.0 && retry_in <= 30.0,
+                "the delay is at its 30 s cap, got {retry_in}"
+            );
+
+            // Just under the limit, the last try comes at the limit.
+            fetch_wait_started(
+                &stack.dal,
+                &event,
+                DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS as i64 - 10,
+            )
+            .await;
+            let third = dispatch(&stack, &event, second, fetch_refused()).await;
+            let waiting = row(&stack.dal, &event).await;
+            assert_eq!(waiting.status, "Ready");
+            let retry_in = retry_in_seconds(&waiting);
+            assert!(
+                retry_in > 5.0 && retry_in <= 10.0,
+                "the delay is what is left of the limit, got {retry_in}"
+            );
+
+            // Past the limit the attempt fails, and the task has no retries.
+            fetch_wait_started(
+                &stack.dal,
+                &event,
+                DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS as i64 + 1,
+            )
+            .await;
+            dispatch(&stack, &event, third, fetch_refused()).await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Failed");
+            assert_eq!(after.attempt, 1);
+            let error = after.last_error.expect("a failed task has its error");
+            assert!(
+                error.contains("could not fetch the package artifact")
+                    && error.contains("ArtifactFetchFailed")
+                    && error.contains(FETCH_MESSAGE)
+                    && error.contains("gave up after 30")
+                    && error.contains("(limit 300 s)"),
+                "the error names the artifact fetch and the limit: {error}"
+            );
+        }
+
+        #[tokio::test]
+        async fn with_a_fetch_wait_of_zero_the_first_fetch_refusal_fails_the_attempt() {
+            let stack =
+                stack_with_fetch_wait(policy(1, RetryCondition::AllErrors), Duration::ZERO).await;
+            let event = waiting_task(&stack.dal).await;
+
+            dispatch(&stack, &event, 0, fetch_refused()).await;
+
+            let after = row(&stack.dal, &event).await;
+            assert_eq!(after.status, "Failed");
+            assert_eq!(after.attempt, 1);
+            assert!(
+                after
+                    .last_error
+                    .is_some_and(|e| e.contains("could not fetch the package artifact"))
+            );
+        }
+
+        #[test]
+        fn the_fetch_retry_delay_grows_from_2_s_to_30_s_and_ends_at_the_limit() {
+            let limit = Duration::from_secs(300);
+            let delay = |waited_s: u64| {
+                artifact_fetch_retry_delay(Duration::from_secs(waited_s), limit).as_secs()
+            };
+            assert_eq!(delay(0), 2);
+            assert_eq!(delay(2), 2);
+            assert_eq!(delay(6), 6);
+            assert_eq!(delay(14), 14);
+            assert_eq!(delay(30), 30);
+            assert_eq!(delay(200), 30);
+            assert_eq!(delay(290), 10, "the last try comes at the limit");
+            assert_eq!(delay(299), 2, "never under 2 s");
+            // A limit under the first delay still waits 2 s between tries.
+            assert_eq!(
+                artifact_fetch_retry_delay(Duration::ZERO, Duration::from_secs(1)),
+                Duration::from_secs(2)
+            );
+        }
+
         // The other refusals are failed attempts under the task's own retry
         // policy (CLOACINA-T-1014). These two tests record that, they do not
         // judge it.
 
         #[tokio::test]
-        async fn an_artifact_fetch_refusal_uses_a_retry_attempt() {
+        async fn a_runtime_load_refusal_uses_a_retry_attempt() {
             let stack = stack(policy(3, RetryCondition::AllErrors)).await;
             let event = waiting_task(&stack.dal).await;
 
-            dispatch(
-                &stack,
-                &event,
-                0,
-                refused(RefusalReason::ArtifactFetchFailed),
-            )
-            .await;
+            dispatch(&stack, &event, 0, refused(RefusalReason::RuntimeLoadFailed)).await;
 
             let after = row(&stack.dal, &event).await;
             assert_eq!(after.status, "Ready");
             assert_eq!(after.attempt, 2);
+            assert_eq!(after.artifact_fetch_wait_since, None);
         }
 
         #[tokio::test]
-        async fn an_artifact_fetch_refusal_fails_a_task_with_no_retries() {
+        async fn a_runtime_load_refusal_fails_a_task_with_no_retries() {
             let stack = stack(policy(1, RetryCondition::AllErrors)).await;
             let event = waiting_task(&stack.dal).await;
 
-            dispatch(
-                &stack,
-                &event,
-                0,
-                refused(RefusalReason::ArtifactFetchFailed),
-            )
-            .await;
+            dispatch(&stack, &event, 0, refused(RefusalReason::RuntimeLoadFailed)).await;
 
             let after = row(&stack.dal, &event).await;
             assert_eq!(after.status, "Failed");
             assert_eq!(after.attempt, 1);
+            assert!(
+                after
+                    .last_error
+                    .is_some_and(|e| e.contains("agent refused (RuntimeLoadFailed)"))
+            );
         }
     }
 
