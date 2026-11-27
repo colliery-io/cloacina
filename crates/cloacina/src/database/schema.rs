@@ -85,6 +85,8 @@ mod unified_schema {
             cpu_request_millis -> Nullable<BigInt>,
             memory_request_bytes -> Nullable<BigInt>,
             fleet_agent_id -> Nullable<Text>,
+            fleet_dispatch_id -> Nullable<Text>,
+            fleet_packet_row_id -> Nullable<BigInt>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }

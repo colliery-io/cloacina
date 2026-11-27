@@ -70,6 +70,15 @@ pub struct TaskExecution {
     /// claim (CLOACINA-T-1027). `None` when the task is on no agent.
     #[serde(default)]
     pub fleet_agent_id: Option<String>,
+    /// The `dispatch_id` of the fleet dispatch the task is in, while the
+    /// dispatch holds its claim (CLOACINA-T-1084). `None` when the task is in
+    /// no fleet dispatch.
+    #[serde(default)]
+    pub fleet_dispatch_id: Option<String>,
+    /// The `delivery_outbox` row (admin schema) of that dispatch's work
+    /// packet (CLOACINA-T-1084).
+    #[serde(default)]
+    pub fleet_packet_row_id: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
