@@ -23,8 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     slot is free when its worker has exited.
   - The server sends the agent a cancel when it gives up waiting for a
     result, and the agent kills that attempt.
-  - Each run pays for the start of a process and the load of the package: for
-    a Python task, a new interpreter and the import. To keep a short, small
+  - The first run of a package version on an agent pays for the start of a
+    process and the load of the package (for a Python task, a new interpreter
+    and the import); later runs reuse a warm worker (below). To keep a short, small
     task inside the agent process, mark it inline: `#[task(inline = true)]`
     in Rust, `@cloaca.task(inline=True)` in Python. An inline task has no
     memory limit and is not killed.
@@ -51,6 +52,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   small Rust graph on a debug build), and a reactor waits for each firing.
   An agent of this version with a server from before runs firings in
   workers: upgrade the server first.
+- **Fleet: warm workers** (CLOACINA-T-1126). After a task or a graph firing
+  the worker process stays, with the package loaded, and runs the next job
+  of the same package version, tenant and memory limit; never one of another
+  tenant, package or version. Measured on a debug build, the median job in a
+  warm worker against a new worker: a Rust task 8.7 ms against 792 ms, a
+  Rust graph firing 2.2 ms against 226 ms, a Python task 1.7 ms against
+  95 ms.
+  - The memory limit, the time limit and the cancel hold for each job; a kill
+    ends the warm worker. The agent empties the worker's `TMPDIR` after each
+    job. A job that changes the environment or leaves a process running ends
+    its worker after it.
+  - Jobs of one warm worker share the package's process state, as tasks did
+    in the agent process before worker processes: module-level state of a
+    Python package, statics of a Rust package, and the memory the worker
+    holds, which counts for the next job's memory limit.
+  - New agent flags: `--warm-workers` (default: the value of
+    `--max-concurrency`; `0` turns warm workers off),
+    `--warm-worker-idle-seconds` (60), `--warm-worker-max-jobs` (100),
+    `--warm-worker-max-memory-percent` (50). Idle warm workers hold memory
+    and no slot; above 80% of its memory the agent ends the largest one.
+  - New metrics on the server, from the agents' heartbeats:
+    `cloacina_fleet_worker_starts_total{start}` and
+    `cloacina_fleet_warm_workers_retired_total{reason}`. An older server
+    ignores the counts; an older agent sends none.
 
 ## [0.12.0] - 2026-10-13
 

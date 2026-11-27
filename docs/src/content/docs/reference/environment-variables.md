@@ -158,6 +158,10 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_MEMORY` | Total memory of the agent, a Kubernetes quantity above zero. Equivalent to `--memory`. The agent reports it less `CLOACINA_AGENT_RESERVED_MEMORY` and holds each task to a memory limit from it. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
 | `CLOACINA_AGENT_RESERVED_MEMORY` | The agent's own share of its memory, a Kubernetes quantity or `0`. Equivalent to `--reserved-memory`. The fleet actuator does not set it. | `128Mi` | `256Mi` | Agent | No |
 | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | The address-space ceiling of a task's worker process, as a multiple of the task's memory limit (64 GiB is added). `0`: no ceiling. Equivalent to `--task-address-space-factor`. The fleet actuator does not set it. | `8` | `0` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKERS` | The most idle [warm workers](../../explanation/service/execution-agent-fleet/#warm-workers) the agent keeps. `0`: none. Equivalent to `--warm-workers`. The fleet actuator does not set it. | The value of `CLOACINA_AGENT_MAX_CONCURRENCY` | `0` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS` | Seconds a warm worker may stay idle before the agent ends it. Equivalent to `--warm-worker-idle-seconds`. The fleet actuator does not set it. | `60` | `300` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | The most jobs one worker process runs. Equivalent to `--warm-worker-max-jobs`. The fleet actuator does not set it. | `100` | `1000` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | A worker that holds more than this share of its jobs' memory limit after a job is ended. Equivalent to `--warm-worker-max-memory-percent`. The fleet actuator does not set it. | `50` | `30` | Agent | No |
 | `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator does not set it. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
@@ -559,6 +563,10 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_MEMORY` | Agent | Total memory of the agent, for task placement and task memory limits (unset: none) |
 | `CLOACINA_AGENT_RESERVED_MEMORY` | Agent | The agent's own share of its memory (default `128Mi`) |
 | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | Agent | Address-space ceiling of a task's worker, as a multiple of its memory limit (default `8`; `0` = none) |
+| `CLOACINA_AGENT_WARM_WORKERS` | Agent | Most idle warm workers (default: max concurrency; `0` = none) |
+| `CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS` | Agent | Idle time of a warm worker (default `60`) |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | Agent | Most jobs of one worker process (default `100`) |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | Agent | Memory a warm worker may hold after a job, as a share of its limit (default `50`) |
 | `CLOACINA_AGENT_LOG_FORMAT` | Agent | Format of the agent's log lines: `text` (default) or `json` |
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |

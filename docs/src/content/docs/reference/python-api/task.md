@@ -89,10 +89,11 @@ def summarize(context):
 
 ## Inline tasks
 
-On an execution-agent fleet a task runs in a worker process of its own, which
-the agent starts for it: a new Python interpreter, the unpack of the package
-and the import of its module, for each run. `inline=True` makes the agent run
-the task inside the agent process.
+On an execution-agent fleet a task runs in a worker process. A new worker
+starts a Python interpreter, unpacks the package and imports its module; a
+[warm worker](../../../explanation/service/execution-agent-fleet/#warm-workers)
+that ran a task of the same package version and tenant before has done that
+already. `inline=True` makes the agent run the task inside the agent process.
 
 ```python
 @cloaca.task(inline=True)
