@@ -81,7 +81,8 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
         None => Database::new(&config.database_url, "", 5),
     };
     // The public/admin schema owns its migrations; tenant schemas are migrated by
-    // the server at tenant creation, so a tenant-scoped compiler must NOT migrate
+    // the server, at tenant creation and at each server start (CLOACINA-T-1056),
+    // so a tenant-scoped compiler must NOT migrate
     // (avoids racing the server and confining each compiler to its own schema).
     if config.tenant_schema.is_none() {
         database

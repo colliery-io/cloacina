@@ -965,6 +965,7 @@ dependencies = [
  "cloacina-build",
  "cloacina-python",
  "diesel",
+ "diesel_migrations",
  "hex",
  "hmac 0.13.0",
  "http-body-util",

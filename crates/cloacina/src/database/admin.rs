@@ -431,6 +431,95 @@ mod postgres_impl {
 
             Ok(schemas)
         }
+
+        /// The tenant schemas that hold migrations: each non-system schema
+        /// with a `__diesel_schema_migrations` table (CLOACINA-T-1056).
+        ///
+        /// `create_tenant` makes that table in the transaction that makes the
+        /// schema, so every tenant has it. A schema without it is not a
+        /// tenant of this server (another application's schema in the same
+        /// database) and is not in the list.
+        pub async fn list_migrated_tenant_schemas(&self) -> Result<Vec<String>, AdminError> {
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+
+            conn.interact(|conn| {
+                diesel::sql_query(
+                    "SELECT n.nspname::text AS nspname \
+                     FROM pg_catalog.pg_namespace n \
+                     JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid \
+                     WHERE c.relname = '__diesel_schema_migrations' \
+                     AND c.relkind = 'r' \
+                     AND n.nspname NOT LIKE 'pg_%' \
+                     AND n.nspname NOT IN ('information_schema', 'public') \
+                     ORDER BY n.nspname",
+                )
+                .load::<SchemaName>(conn)
+                .map(|rows| rows.into_iter().map(|r| r.nspname).collect())
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to list schemas: {}", e),
+            })?
+            .map_err(|e: diesel::result::Error| AdminError::SqlExecution {
+                message: format!("Failed to query schemas: {}", e),
+            })
+        }
+
+        /// Runs the pending migrations of one tenant schema, under the
+        /// migration lock (CLOACINA-T-1056). Returns how many ran: zero when
+        /// the schema is up to date, or when another process applied them
+        /// while this one waited for the lock.
+        ///
+        /// One transaction: the pending migrations of the schema are applied
+        /// together or not at all, so a failure leaves the schema as it was.
+        /// The `search_path` change is `SET LOCAL` and ends with the
+        /// transaction: the connection belongs to the shared admin pool.
+        pub async fn migrate_tenant_schema(&self, schema_name: &str) -> Result<usize, AdminError> {
+            validate_schema_name(schema_name)?;
+            let schema_name = schema_name.to_string();
+
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+
+            conn.interact(move |conn| {
+                let result =
+                    conn.transaction::<usize, AdminError, _>(|conn: &mut diesel::PgConnection| {
+                        let set_path_sql =
+                            format!("SET LOCAL search_path TO {}, public", schema_name);
+                        diesel::sql_query(&set_path_sql)
+                            .execute(conn)
+                            .map_err(|e| AdminError::SqlExecution {
+                                message: format!("Failed to set search_path: {}", e),
+                            })?;
+                        crate::database::migration_lock::run_pending_postgres_migrations_locked(
+                            conn,
+                        )
+                        .map_err(|e| AdminError::SqlExecution { message: e })
+                    });
+                // As in `create_tenant`: a pooled admin connection never
+                // leaves with a tenant search_path.
+                let _ = diesel::sql_query("SET search_path TO public").execute(conn);
+                result
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
+    }
+
+    /// Row of `list_migrated_tenant_schemas`.
+    #[derive(diesel::QueryableByName)]
+    struct SchemaName {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        nspname: String,
     }
 
     #[allow(dead_code)]
