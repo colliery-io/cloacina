@@ -54,6 +54,10 @@ pub const COMPILER_NAME: &str = "cloacina-compiler";
 pub const COMPILER_SECRET_NAME: &str = "cloacina-compiler-db";
 /// Key of the database URL in [`COMPILER_SECRET_NAME`].
 pub const COMPILER_SECRET_KEY: &str = "database-url";
+/// Key of the Python package index URL in [`COMPILER_SECRET_NAME`]
+/// (CLOACINA-T-1117). Present only when an index URL is set: it can hold a
+/// password, so it is never in the pod spec.
+pub const COMPILER_SECRET_INDEX_KEY: &str = "python-index-url";
 
 const LABEL_APP: &str = "app.kubernetes.io/name";
 const LABEL_COMPONENT: &str = "app.kubernetes.io/component";
@@ -65,6 +69,9 @@ const COMPILER_RUN_AS: i64 = 10001;
 /// Where a hardened pod mounts its writable volumes.
 const HOME_DIR: &str = "/var/cloacina/home";
 const CARGO_HOME_DIR: &str = "/var/cloacina/cargo";
+/// The `uv` cache of a hardened pod: its own emptyDir, so the cache does not
+/// fill the home, where the build folder is (CLOACINA-T-1117).
+const UV_CACHE_DIR: &str = "/var/cloacina/uv-cache";
 
 /// Private and link-local IPv4 ranges. The `internet` crate egress leaves
 /// them out, so a build cannot reach the cluster, the node or a cloud
@@ -229,6 +236,52 @@ pub struct CompilerSettings {
     /// Docker network of a compiler container (`CLOACINA_AGENT_NETWORK`, the
     /// one the agents use). Docker actuator only.
     pub docker_network: Option<String>,
+    /// Size limit of the home emptyDir of a hardened pod, where the build
+    /// folder is (`CLOACINA_TENANT_COMPILER_HOME_SIZE`, default `4Gi`).
+    pub home_size: String,
+    /// The Python settings of the compiler (CLOACINA-T-1117).
+    pub python: TenantPythonSettings,
+}
+
+/// The Python vendoring settings of a tenant's compiler (CLOACINA-T-1117),
+/// from `CLOACINA_TENANT_COMPILER_PYTHON_*`. Each one that is set is given to
+/// the compiler as its own `CLOACINA_COMPILER_PYTHON_*` setting; one that is
+/// not set leaves the compiler's default.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct TenantPythonSettings {
+    /// Platforms to vendor for (`_PYTHON_PLATFORMS`, comma-separated).
+    /// Empty: the compiler's default, `aarch64-linux` and `x86_64-linux`.
+    pub platforms: Vec<String>,
+    /// Python version, `major.minor` (`_PYTHON_VERSION`). `None`: 3.11.
+    pub version: Option<String>,
+    /// Package index URL (`_PYTHON_INDEX_URL`). `None`: PyPI. Can hold a
+    /// password: it goes in the Secret, never in the pod spec or a log.
+    pub index_url: Option<String>,
+    /// A folder of wheels in the compiler image (`_PYTHON_WHEEL_DIR`).
+    pub wheel_dir: Option<String>,
+    /// Vendor with no network (`_PYTHON_OFFLINE`).
+    pub offline: bool,
+    /// The `uv` cache folder (`_PYTHON_UV_CACHE_DIR`). `None`: in a
+    /// hardened pod, its own emptyDir; else `uv`'s default.
+    pub uv_cache_dir: Option<String>,
+    /// Size limit of the `uv` cache emptyDir of a hardened pod
+    /// (`_PYTHON_CACHE_SIZE`, default `4Gi`).
+    pub cache_size: String,
+}
+
+impl std::fmt::Debug for TenantPythonSettings {
+    /// The index URL can hold a password: it is never printed.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TenantPythonSettings")
+            .field("platforms", &self.platforms)
+            .field("version", &self.version)
+            .field("index_url", &self.index_url.as_ref().map(|_| "<redacted>"))
+            .field("wheel_dir", &self.wheel_dir)
+            .field("offline", &self.offline)
+            .field("uv_cache_dir", &self.uv_cache_dir)
+            .field("cache_size", &self.cache_size)
+            .finish()
+    }
 }
 
 impl std::fmt::Debug for CompilerSettings {
@@ -251,6 +304,8 @@ impl std::fmt::Debug for CompilerSettings {
             .field("egress_cidrs", &self.egress_cidrs)
             .field("database_cidrs", &self.database_cidrs)
             .field("docker_network", &self.docker_network)
+            .field("home_size", &self.home_size)
+            .field("python", &self.python)
             .finish()
     }
 }
@@ -280,6 +335,11 @@ impl CompilerSettings {
             egress_cidrs: Vec::new(),
             database_cidrs: Vec::new(),
             docker_network: None,
+            home_size: "4Gi".to_string(),
+            python: TenantPythonSettings {
+                cache_size: "4Gi".to_string(),
+                ..TenantPythonSettings::default()
+            },
         }
     }
 
@@ -397,6 +457,68 @@ impl CompilerSettings {
         s.egress_cidrs = cidrs("CLOACINA_TENANT_COMPILER_EGRESS_CIDRS")?;
         s.database_cidrs = cidrs("CLOACINA_TENANT_COMPILER_DATABASE_CIDRS")?;
         s.docker_network = get("CLOACINA_AGENT_NETWORK");
+        if let Some(v) = get("CLOACINA_TENANT_COMPILER_HOME_SIZE") {
+            s.home_size = v;
+        }
+
+        // CLOACINA-T-1117: the Python settings. Checked here, so a value the
+        // compiler would refuse stops the server and not each compiler pod.
+        let absolute = |key: &str| -> Result<Option<String>, String> {
+            match get(key) {
+                Some(dir) if !dir.starts_with('/') => {
+                    Err(format!("{key}: '{dir}' is not an absolute path"))
+                }
+                other => Ok(other),
+            }
+        };
+        let known = cloacina::cloacina_workflow_plugin::python_env::SUPPORTED_PLATFORMS;
+        for platform in get("CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            if !known.contains(&platform) {
+                return Err(format!(
+                    "CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS: '{platform}' is not one of {}",
+                    known.join(", ")
+                ));
+            }
+            if !s.python.platforms.iter().any(|p| p == platform) {
+                s.python.platforms.push(platform.to_string());
+            }
+        }
+        if let Some(v) = get("CLOACINA_TENANT_COMPILER_PYTHON_VERSION") {
+            let ok = v.split_once('.').is_some_and(|(major, minor)| {
+                !major.is_empty()
+                    && !minor.is_empty()
+                    && major.chars().all(|c| c.is_ascii_digit())
+                    && minor.chars().all(|c| c.is_ascii_digit())
+            });
+            if !ok {
+                return Err(format!(
+                    "CLOACINA_TENANT_COMPILER_PYTHON_VERSION: '{v}' is not major.minor, for example 3.11"
+                ));
+            }
+            s.python.version = Some(v);
+        }
+        s.python.index_url = get("CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL");
+        s.python.wheel_dir = absolute("CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR")?;
+        s.python.offline = flag("CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE", false)?;
+        s.python.uv_cache_dir = absolute("CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR")?;
+        if let Some(v) = get("CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE") {
+            s.python.cache_size = v;
+        }
+        // A hardened pod starts with an empty `uv` cache: offline, only a
+        // wheel folder in the image can hold the wheels.
+        if s.python.offline && s.hardened && s.python.wheel_dir.is_none() {
+            return Err(
+                "CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE: a hardened tenant compiler starts with \
+                 an empty uv cache, so offline it needs CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR \
+                 (a folder of wheels in the image)"
+                    .to_string(),
+            );
+        }
         Ok(Some(s))
     }
 
@@ -442,8 +564,53 @@ impl CompilerSettings {
             env.push(("HOME".to_string(), HOME_DIR.to_string()));
             env.push(("CARGO_HOME".to_string(), CARGO_HOME_DIR.to_string()));
         }
+        // CLOACINA-T-1117: the Python settings, as the compiler's own env
+        // vars. The index URL is not here: it comes from the Secret.
+        let py = &self.python;
+        if !py.platforms.is_empty() {
+            env.push((
+                "CLOACINA_COMPILER_PYTHON_PLATFORMS".to_string(),
+                py.platforms.join(","),
+            ));
+        }
+        if let Some(v) = &py.version {
+            env.push(("CLOACINA_COMPILER_PYTHON_VERSION".to_string(), v.clone()));
+        }
+        if let Some(dir) = &py.wheel_dir {
+            env.push((
+                "CLOACINA_COMPILER_PYTHON_WHEEL_DIR".to_string(),
+                dir.clone(),
+            ));
+        }
+        if py.offline {
+            env.push((
+                "CLOACINA_COMPILER_PYTHON_OFFLINE".to_string(),
+                "true".to_string(),
+            ));
+        }
+        let uv_cache = match (&py.uv_cache_dir, self.hardened) {
+            (Some(dir), _) => Some(dir.clone()),
+            (None, true) => Some(UV_CACHE_DIR.to_string()),
+            (None, false) => None,
+        };
+        if let Some(dir) = uv_cache {
+            env.push(("CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR".to_string(), dir));
+        }
         env
     }
+}
+
+/// The value of `CLOACINA_MAX_UNPACKED_BYTES` for a tenant's compiler: the
+/// server's own unpack limit, when it is not the default (CLOACINA-T-1117).
+/// The compiler refuses a vendored set that a loader with this limit would
+/// refuse.
+fn unpack_limit_env() -> Option<(String, String)> {
+    cloacina::cloacina_workflow_plugin::unpack_limit::child_env_value().map(|bytes| {
+        (
+            cloacina::cloacina_workflow_plugin::unpack_limit::MAX_UNPACKED_BYTES_ENV.to_string(),
+            bytes,
+        )
+    })
 }
 
 /// Whether `raw` is `address/prefix` with a prefix in range.
@@ -545,6 +712,26 @@ pub fn database_secret_manifest(namespace: &str, database_url: Option<&str>) -> 
     })
 }
 
+/// The Secret a running tenant compiler reads: the database URL and, when
+/// one is set, the Python package index URL (CLOACINA-T-1117), both of which
+/// can hold a password.
+pub fn compiler_secret_manifest(namespace: &str, settings: &CompilerSettings) -> serde_json::Value {
+    let mut secret = database_secret_manifest(namespace, Some(&settings.database_url));
+    if let Some(url) = &settings.python.index_url {
+        secret["stringData"][COMPILER_SECRET_INDEX_KEY] = serde_json::json!(url);
+    }
+    secret
+}
+
+/// The Secret written when a tenant goes: an empty value over the database
+/// URL and over the index URL (CLOACINA-T-1117). Each key is written, not
+/// left out: a key that an apply leaves out is not sure to be removed.
+pub fn emptied_secret_manifest(namespace: &str) -> serde_json::Value {
+    let mut secret = database_secret_manifest(namespace, None);
+    secret["stringData"][COMPILER_SECRET_INDEX_KEY] = serde_json::json!("");
+    secret
+}
+
 /// The compiler `Deployment` of one tenant. Pure. No `spec.replicas`: the
 /// count is set apart, as for the agents.
 ///
@@ -564,7 +751,17 @@ pub fn compiler_deployment_manifest(
             "secretKeyRef": { "name": COMPILER_SECRET_NAME, "key": COMPILER_SECRET_KEY }
         }
     })];
-    for (name, value) in settings.plain_env() {
+    if settings.python.index_url.is_some() {
+        // CLOACINA-T-1117: from the Secret too; the compiler gives it to uv in
+        // the environment, not on the command line.
+        env.push(serde_json::json!({
+            "name": "CLOACINA_COMPILER_PYTHON_INDEX_URL",
+            "valueFrom": {
+                "secretKeyRef": { "name": COMPILER_SECRET_NAME, "key": COMPILER_SECRET_INDEX_KEY }
+            }
+        }));
+    }
+    for (name, value) in settings.plain_env().into_iter().chain(unpack_limit_env()) {
         env.push(serde_json::json!({ "name": name, "value": value }));
     }
 
@@ -628,21 +825,25 @@ pub fn compiler_deployment_manifest(
             "readOnlyRootFilesystem": true,
             "capabilities": { "drop": ["ALL"] },
         });
-        // A build writes: the unpacked source and the logs (home), cargo's
-        // registry and git checkouts (cargo home), the build output (target)
-        // and scratch files (/tmp). With a read-only root each is an emptyDir,
-        // so a compiler that starts again starts with empty caches.
+        // A build writes: the unpacked source, the logs and the Python
+        // vendoring folders (home), cargo's registry and git checkouts (cargo
+        // home), the build output (target), scratch files (/tmp) and the
+        // wheels uv downloads (uv cache, CLOACINA-T-1117). With a read-only
+        // root each is an emptyDir, so a compiler that starts again starts
+        // with empty caches.
         pod["containers"][0]["volumeMounts"] = serde_json::json!([
             { "name": "home", "mountPath": HOME_DIR },
             { "name": "cargo-home", "mountPath": CARGO_HOME_DIR },
             { "name": "target", "mountPath": settings.target_dir },
             { "name": "tmp", "mountPath": "/tmp" },
+            { "name": "uv-cache", "mountPath": UV_CACHE_DIR },
         ]);
         pod["volumes"] = serde_json::json!([
-            { "name": "home", "emptyDir": { "sizeLimit": "2Gi" } },
+            { "name": "home", "emptyDir": { "sizeLimit": settings.home_size } },
             { "name": "cargo-home", "emptyDir": { "sizeLimit": settings.cache_size } },
             { "name": "target", "emptyDir": { "sizeLimit": settings.cache_size } },
             { "name": "tmp", "emptyDir": { "sizeLimit": "1Gi" } },
+            { "name": "uv-cache", "emptyDir": { "sizeLimit": settings.python.cache_size } },
         ]);
     }
     manifest
@@ -796,7 +997,7 @@ impl KubeCompilers {
                 KubeKind::Secret,
                 &namespace,
                 COMPILER_SECRET_NAME,
-                &database_secret_manifest(&namespace, Some(&self.settings.database_url)),
+                &compiler_secret_manifest(&namespace, &self.settings),
             )
             .await?;
         if self.network_policy {
@@ -857,7 +1058,7 @@ impl KubeCompilers {
                     KubeKind::Secret,
                     &namespace,
                     COMPILER_SECRET_NAME,
-                    &database_secret_manifest(&namespace, None),
+                    &emptied_secret_manifest(&namespace),
                 )
                 .await?;
             info!(tenant = %tenant_id, namespace = %namespace, "tenant compiler removed (kubernetes)");
@@ -1017,8 +1218,9 @@ pub trait CompilerContainerOps: Send + Sync {
 
 /// The compiler side of the Docker actuator: one container per tenant with
 /// work, none without. Of the settings it applies the image, the arguments,
-/// the database URL and the network. The resources, the hardening, the cache
-/// volumes and the NetworkPolicy have no counterpart here.
+/// the database URL, the Python settings and the network. The resources, the
+/// hardening, the cache volumes and the NetworkPolicy have no counterpart
+/// here.
 pub struct DockerCompilers {
     ops: Arc<dyn CompilerContainerOps>,
     settings: CompilerSettings,
@@ -1042,10 +1244,15 @@ impl DockerCompilers {
             ..self.settings.clone()
         };
         let mut env = vec![format!("DATABASE_URL={}", self.settings.database_url)];
+        // CLOACINA-T-1117: next to the database URL, in the environment only.
+        if let Some(url) = &self.settings.python.index_url {
+            env.push(format!("CLOACINA_COMPILER_PYTHON_INDEX_URL={url}"));
+        }
         env.extend(
             plain
                 .plain_env()
                 .into_iter()
+                .chain(unpack_limit_env())
                 .map(|(k, v)| format!("{k}={v}")),
         );
         CompilerContainer {
@@ -1688,13 +1895,16 @@ mod tests {
                 "/var/cloacina/home",
                 "/var/cloacina/cargo",
                 "/workspace/target",
-                "/tmp"
+                "/tmp",
+                "/var/cloacina/uv-cache",
             ]
         );
         let volumes = pod["volumes"].as_array().unwrap();
-        assert_eq!(volumes.len(), 4);
+        assert_eq!(volumes.len(), 5);
         assert!(volumes.iter().all(|v| v.get("emptyDir").is_some()));
+        assert_eq!(volumes[0]["emptyDir"]["sizeLimit"], "4Gi");
         assert_eq!(volumes[2]["emptyDir"]["sizeLimit"], "8Gi");
+        assert_eq!(volumes[4]["emptyDir"]["sizeLimit"], "4Gi");
 
         let env = container["env"].as_array().unwrap();
         let value = |name: &str| {
@@ -1706,7 +1916,268 @@ mod tests {
         assert_eq!(value("CARGO_HOME"), "/var/cloacina/cargo");
         assert_eq!(value("HOME"), "/var/cloacina/home");
         assert_eq!(value("CLOACINA_COMPILER_VENDOR_DIR"), "/opt/vendor");
+        // The uv cache is on its own volume.
+        assert_eq!(
+            value("CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR"),
+            "/var/cloacina/uv-cache"
+        );
         assert_eq!(container["resources"]["limits"]["memory"], "4Gi");
+    }
+
+    // -- the Python settings (CLOACINA-T-1117) -------------------------------
+
+    fn python_settings() -> CompilerSettings {
+        let mut s = settings();
+        s.python = TenantPythonSettings {
+            platforms: vec!["x86_64-linux".to_string()],
+            version: Some("3.12".to_string()),
+            index_url: Some("https://robin:idx-pw@pypi.example.com/simple".to_string()),
+            wheel_dir: Some("/opt/wheels".to_string()),
+            offline: false,
+            uv_cache_dir: None,
+            cache_size: "6Gi".to_string(),
+        };
+        s.home_size = "5Gi".to_string();
+        s
+    }
+
+    fn env_of(m: &serde_json::Value) -> Vec<serde_json::Value> {
+        m["spec"]["template"]["spec"]["containers"][0]["env"]
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn the_compiler_gets_the_python_settings_and_the_index_url_from_the_secret() {
+        let s = python_settings();
+        let m = compiler_deployment_manifest("cloacina-tenant-acme", "acme", &s);
+        let env = env_of(&m);
+        let value = |name: &str| {
+            env.iter()
+                .find(|e| e["name"] == name)
+                .map(|e| e["value"].clone())
+                .unwrap_or_else(|| panic!("no env {name}"))
+        };
+        assert_eq!(value("CLOACINA_COMPILER_PYTHON_PLATFORMS"), "x86_64-linux");
+        assert_eq!(value("CLOACINA_COMPILER_PYTHON_VERSION"), "3.12");
+        assert_eq!(value("CLOACINA_COMPILER_PYTHON_WHEEL_DIR"), "/opt/wheels");
+        assert!(
+            !env.iter()
+                .any(|e| e["name"] == "CLOACINA_COMPILER_PYTHON_OFFLINE")
+        );
+
+        // The index URL is read from the Secret, by a key of its own.
+        let index = env
+            .iter()
+            .find(|e| e["name"] == "CLOACINA_COMPILER_PYTHON_INDEX_URL")
+            .expect("the index URL env");
+        assert!(index.get("value").is_none());
+        assert_eq!(
+            index["valueFrom"]["secretKeyRef"]["name"],
+            COMPILER_SECRET_NAME
+        );
+        assert_eq!(
+            index["valueFrom"]["secretKeyRef"]["key"],
+            COMPILER_SECRET_INDEX_KEY
+        );
+        // Nowhere in the pod spec, and not in the settings' Debug.
+        assert!(!m.to_string().contains("idx-pw"));
+        assert!(!format!("{s:?}").contains("idx-pw"));
+
+        let secret = compiler_secret_manifest("cloacina-tenant-acme", &s);
+        assert_eq!(secret["stringData"][COMPILER_SECRET_KEY], URL);
+        assert_eq!(
+            secret["stringData"][COMPILER_SECRET_INDEX_KEY],
+            "https://robin:idx-pw@pypi.example.com/simple"
+        );
+
+        // The sizes of the home and of the uv cache.
+        let volumes = m["spec"]["template"]["spec"]["volumes"].as_array().unwrap();
+        assert_eq!(volumes[0]["emptyDir"]["sizeLimit"], "5Gi");
+        assert_eq!(volumes[4]["name"], "uv-cache");
+        assert_eq!(volumes[4]["emptyDir"]["sizeLimit"], "6Gi");
+    }
+
+    #[test]
+    fn with_no_python_settings_the_compiler_keeps_its_defaults() {
+        let m = compiler_deployment_manifest("cloacina-tenant-acme", "acme", &settings());
+        let names: Vec<String> = env_of(&m)
+            .iter()
+            .map(|e| e["name"].as_str().unwrap().to_string())
+            .collect();
+        // Only the cache folder, which the hardened pod needs on its volume.
+        let python: Vec<&String> = names
+            .iter()
+            .filter(|n| n.starts_with("CLOACINA_COMPILER_PYTHON_"))
+            .collect();
+        assert_eq!(python, ["CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR"]);
+        let secret = compiler_secret_manifest("cloacina-tenant-acme", &settings());
+        assert!(
+            secret["stringData"]
+                .get(COMPILER_SECRET_INDEX_KEY)
+                .is_none()
+        );
+
+        // Not hardened: uv's own cache folder, and no volume for it.
+        let mut s = settings();
+        s.hardened = false;
+        assert!(
+            !s.plain_env()
+                .iter()
+                .any(|(k, _)| k.starts_with("CLOACINA_COMPILER_PYTHON_"))
+        );
+    }
+
+    #[test]
+    fn offline_and_a_cache_folder_are_passed_on() {
+        let mut s = python_settings();
+        s.python.offline = true;
+        s.python.uv_cache_dir = Some("/var/cloacina/home/uv".to_string());
+        let env = s.plain_env();
+        assert!(env.contains(&(
+            "CLOACINA_COMPILER_PYTHON_OFFLINE".to_string(),
+            "true".to_string()
+        )));
+        assert!(env.contains(&(
+            "CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR".to_string(),
+            "/var/cloacina/home/uv".to_string()
+        )));
+    }
+
+    #[tokio::test]
+    async fn the_running_compiler_secret_holds_the_index_url_and_the_removal_empties_it() {
+        let ops = FakeKube::with_replicas(None);
+        let c = compilers(ops.clone(), python_settings());
+        c.reconcile("acme", CompilerWant::Run).await.unwrap();
+        let secret = ops.last(KubeKind::Secret);
+        assert_eq!(
+            secret["stringData"][COMPILER_SECRET_INDEX_KEY],
+            "https://robin:idx-pw@pypi.example.com/simple"
+        );
+
+        c.remove("acme").await.unwrap();
+        // Both keys are written over with an empty value.
+        let removed = ops.last(KubeKind::Secret);
+        assert!(!removed.to_string().contains("idx-pw"));
+        assert!(!removed.to_string().contains("s3cret"));
+        assert_eq!(removed["stringData"][COMPILER_SECRET_INDEX_KEY], "");
+        assert_eq!(removed["stringData"][COMPILER_SECRET_KEY], "");
+    }
+
+    #[test]
+    fn the_python_settings_are_read_from_the_environment() {
+        let s = CompilerSettings::from_lookup(
+            URL,
+            lookup(&[
+                ("CLOACINA_TENANT_COMPILERS", "true"),
+                (
+                    "CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS",
+                    "aarch64-linux, x86_64-linux,aarch64-linux",
+                ),
+                ("CLOACINA_TENANT_COMPILER_PYTHON_VERSION", "3.12"),
+                (
+                    "CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL",
+                    "https://pypi.example.com/simple",
+                ),
+                ("CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR", "/opt/wheels"),
+                ("CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE", "true"),
+                ("CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR", "/cache/uv"),
+                ("CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE", "10Gi"),
+                ("CLOACINA_TENANT_COMPILER_HOME_SIZE", "6Gi"),
+            ]),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.python.platforms, vec!["aarch64-linux", "x86_64-linux"]);
+        assert_eq!(s.python.version.as_deref(), Some("3.12"));
+        assert_eq!(
+            s.python.index_url.as_deref(),
+            Some("https://pypi.example.com/simple")
+        );
+        assert_eq!(s.python.wheel_dir.as_deref(), Some("/opt/wheels"));
+        assert!(s.python.offline);
+        assert_eq!(s.python.uv_cache_dir.as_deref(), Some("/cache/uv"));
+        assert_eq!(s.python.cache_size, "10Gi");
+        assert_eq!(s.home_size, "6Gi");
+
+        // The defaults.
+        let d =
+            CompilerSettings::from_lookup(URL, lookup(&[("CLOACINA_TENANT_COMPILERS", "true")]))
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            d.python,
+            TenantPythonSettings {
+                cache_size: "4Gi".to_string(),
+                ..TenantPythonSettings::default()
+            }
+        );
+        assert_eq!(d.home_size, "4Gi");
+    }
+
+    #[test]
+    fn a_python_value_that_cannot_be_used_is_an_error_that_names_the_setting() {
+        for (key, value) in [
+            ("CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS", "riscv64-linux"),
+            ("CLOACINA_TENANT_COMPILER_PYTHON_VERSION", "3"),
+            ("CLOACINA_TENANT_COMPILER_PYTHON_VERSION", "3.x"),
+            ("CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR", "wheels"),
+            ("CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR", "cache"),
+            ("CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE", "sometimes"),
+            // Hardened and offline with no wheel folder: the cache is empty
+            // at each start.
+            ("CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE", "true"),
+        ] {
+            let err = CompilerSettings::from_lookup(URL, move |k| {
+                if k == "CLOACINA_TENANT_COMPILERS" {
+                    Some("true".to_string())
+                } else if k == key {
+                    Some(value.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_err();
+            assert!(err.contains(key), "{key}={value}: {err}");
+        }
+        // Not hardened, offline with no wheel folder: the image may carry a
+        // cache.
+        let s = CompilerSettings::from_lookup(
+            URL,
+            lookup(&[
+                ("CLOACINA_TENANT_COMPILERS", "true"),
+                ("CLOACINA_TENANT_COMPILER_HARDENED", "false"),
+                ("CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE", "true"),
+            ]),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(s.python.offline);
+    }
+
+    /// CLOACINA-T-1117: the compiler image of the repository holds `uv` and a
+    /// Python interpreter, which the compiler needs to vendor.
+    #[test]
+    fn the_compiler_image_holds_uv_and_python() {
+        let dockerfile = include_str!("../../../../docker/Dockerfile.compiler");
+        let lines: Vec<&str> = dockerfile.lines().map(str::trim).collect();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("COPY --from=uv /uv /usr/local/bin/uv")),
+            "docker/Dockerfile.compiler does not copy uv"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("FROM ghcr.io/astral-sh/uv:")),
+            "docker/Dockerfile.compiler has no uv stage"
+        );
+        assert!(
+            lines.contains(&"python3 \\"),
+            "docker/Dockerfile.compiler does not install python3"
+        );
     }
 
     #[test]
