@@ -66,6 +66,7 @@ The cache is **per replica**. Each way a key is revoked sends a revocation notic
 - `POST /v1/auth/logout`
 - `POST /v1/auth/refresh`: the rotated-out key, and the key it revokes when the account is no longer active or the login session is over (CLOACINA-T-1128)
 - tenant delete, `DELETE /v1/tenants/{name}`: every key of the tenant (CLOACINA-T-1095)
+- the fleet actuator, when it revokes agent keys: a stopped Docker container's key, and on Kubernetes the tenant's old key after a rotation or a replacement (CLOACINA-T-1083)
 
 Every server listens and clears its whole key cache when a notice arrives, and again each time its listener connects. So:
 
@@ -73,7 +74,18 @@ Every server listens and clears its whole key cache when a notice arrives, and a
 
 A notice that cannot be sent does not fail a key revoke, a logout or a refresh: the key is revoked in the database, a warning is logged, and other replicas refuse it within the TTL. Tenant delete answers `500` in that case, and a second delete sends it again.
 
-The expiry of a minted login key sends no notice: an expired key is refused on a cache miss, so it can pass on a replica that cached it for at most 30 seconds after it expires.
+An expiry sends no notice and needs none: each replica's key cache drops an entry whose `expires_at` has passed, so an expired key is refused on every replica at once. It is answered `401` with the code `key_expired`; an unknown or revoked key is answered `401` with the code `unauthorized`.
+
+#### Key expiry
+
+A key can have an expiry (`expires_at`). After it the key is refused on every route.
+
+- **Keys a person creates.** `POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` take an optional `expires_at`, an RFC 3339 time in the future. There is no default: a key created with no `expires_at` does not expire. This holds for every role. The bootstrap key has no expiry.
+- **Login keys** (local accounts and OIDC) expire after the session TTL; see [Session lifecycle](#session-lifecycle-mint-refresh-logout).
+- **Agent keys of the Kubernetes actuator** expire 30 days after they are minted (`--agent-key-lifetime-days`). When 10 days are left (`--agent-key-rotate-days`), the next reconcile mints a new key for the tenant, writes it to the Secret `cloacina-agent-key`, and names it on every pool's pod template, so every pool's pods roll onto it. The agent does not ask for a key: the actuator rotates.
+- **The old agent key is revoked only after the rollout.** The old pods hold the old key until Kubernetes replaces them. The actuator revokes it on the first reconcile after which every pool's rollout is complete: every replica runs the new pod template and is available, and no pod of the old template is left. Until then the old key stays valid; if a rollout never completes, the old key expires. This holds for every key replacement, also one for a key that was revoked or of the wrong role.
+- **Agent keys of the Docker actuator** have no expiry. Each container has its own key, revoked when the container stops; the Docker actuator is for a single user.
+- **Hand-started agents.** An agent logs the expiry of its key when it registers, and a warning when less than 10 days are left. The operator creates a new key of role `agent` before then and restarts the agent with it; see [Manage API Keys](../../../how-to/service/manage-api-keys/#keys-that-expire).
 
 This is a deliberate trade, not an oversight:
 
@@ -295,6 +307,14 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 - **An unknown role grants nothing.** A stored key or local account whose role is not one of the four read as `read`; it is now refused on every route.
 - **The bootstrap key cannot act as an agent.**
 
+### Upgrading to agent key expiry
+
+- **Kubernetes agents move to an expiring key once.** A tenant's agent key from before has no expiry. On its first reconcile after the upgrade the actuator mints a key that expires, and every pool's agent Deployment rolls once. The old key is revoked when every pool's rollout is complete. Every key the actuator mints from then on expires and is rotated.
+- **An old key stays valid until the rollout is complete.** Before, the actuator revoked the old key as soon as it had applied the Deployments, while old pods still used it. Now it waits for every pool's rollout.
+- **Docker keys, keys a person created, and the bootstrap key** do not change: they have no expiry.
+- **A client that reads the `401` code** sees `key_expired` for an expired key, also a login key past its TTL, where it saw `unauthorized` before.
+- **No migration.** The `api_keys.expires_at` column exists already.
+
 ### Authenticating: identity providers
 
 A bearer key is always the *subject* the matcher evaluates, but there are three ways to obtain one:
@@ -307,7 +327,7 @@ In every case the result is an ordinary bearer key; authorization does not care 
 
 ### Session lifecycle: mint, refresh, logout
 
-Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`); directly-created API keys have neither and never expire.
+Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`). Directly-created API keys have no provenance, and an expiry only when their creator gave one ([Key expiry](#key-expiry)).
 
 - **Refresh** — `POST /v1/auth/refresh` re-checks that the underlying account / identity is still valid, mints a fresh key, and revokes the old one. The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
 - **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and sends the revocation notice, so every replica clears its auth cache.

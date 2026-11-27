@@ -28,6 +28,8 @@ command-line flags (most also accept an environment variable). The
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--max-package-bytes` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts. A larger upload is refused with status 413. |
 | `--max-unpacked-bytes` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to. A larger archive is refused at upload and at load. The compiler, the agent and `cloacinactl` read the same setting. |
+| `--agent-key-lifetime-days` | `CLOACINA_AGENT_KEY_LIFETIME_DAYS` | `30` | Days an agent key that the Kubernetes actuator mints stays valid. Docker actuator keys do not expire. |
+| `--agent-key-rotate-days` | `CLOACINA_AGENT_KEY_ROTATE_DAYS` | `10` | Days left on an agent key at which the Kubernetes actuator replaces it and rolls the pods. At least `1` and less than the lifetime. See [Key expiry](../../explanation/service/security-model/#key-expiry). |
 | `--database-wait-timeout-s` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds to wait at start for the database to accept a connection, with retries. After it the server exits with an error. `0` = one try. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject package uploads that are unsigned, or signed by a key that neither the tenant nor the server-wide org trusts. |
@@ -344,6 +346,8 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.cors_allowed_headers` | `[]` | Request headers allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-headers`. |
 | `server.max_package_bytes` | not set | The largest package archive, in bytes, that an upload accepts. Forwarded as `--max-package-bytes`. |
 | `server.max_unpacked_bytes` | not set | The largest size, in bytes, that a package archive may unpack to. Forwarded as `--max-unpacked-bytes`. |
+| `server.agent_key_lifetime_days` | not set | Days an agent key of the Kubernetes actuator stays valid. Forwarded as `--agent-key-lifetime-days`. |
+| `server.agent_key_rotate_days` | not set | Days left on an agent key at which it is replaced. Forwarded as `--agent-key-rotate-days`. |
 
 A key that is not set is not forwarded, and the server uses its own default
 (see [Server flags](#server-flags-cloacina-server)). The signing secret of the

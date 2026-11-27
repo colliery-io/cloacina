@@ -57,6 +57,33 @@ curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
   -d '{"name": "acme-bot", "role": "write"}' | jq -r '.key'
 ```
 
+## Keys that expire
+
+A key can have an expiry. Give `--expires-at` (or `"expires_at"` in the
+body) an RFC 3339 time in the future:
+
+```bash
+cloacinactl key create ci-bot --role write --expires-at 2027-01-31T00:00:00Z \
+  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+
+curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "acme-bot", "role": "write", "expires_at": "2027-01-31T00:00:00Z"}'
+```
+
+The answer and the key list show `expires_at`. A key created with no
+`expires_at` does not expire. A time in the past, or a value that is not an
+RFC 3339 time, is refused with `400` `invalid_expires_at`. After the expiry
+every route answers `401` with the code `key_expired`.
+
+**Agents.** The Kubernetes actuator gives its agents keys that expire after
+30 days and replaces them when 10 days are left; you do nothing. Docker
+actuator keys do not expire. An agent you start yourself logs its key's
+expiry when it registers (`the agent's API key expires`), and a warning when
+less than 10 days are left. Before the expiry, create a new key of role
+`agent`, restart the agent with it, and revoke the old key.
+
 ## List keys
 
 ```bash
@@ -82,7 +109,7 @@ The CLI is a thin wrapper over these endpoints (full details in the
 
 | Action | Method + path |
 |--------|---------------|
-| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ... }`; platform-admin only, always scoped to `public`) |
+| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ..., "expires_at": ... }`, `expires_at` optional; platform-admin only, always scoped to `public`) |
 | Create (named tenant) | `POST /v1/tenants/{tenant_id}/keys` (same body; tenant-admin or platform-admin) |
 | List | `GET /v1/auth/keys` (platform-admin) or `GET /v1/tenants/{tenant_id}/keys` (tenant-admin) |
 | Revoke | `DELETE /v1/auth/keys/{key_id}` or `DELETE /v1/tenants/{tenant_id}/keys/{key_id}` |
