@@ -439,6 +439,7 @@ mod unified_schema {
             params -> Nullable<Text>,
             instance_name -> Nullable<Text>,
             max_active_runs -> Nullable<Integer>,
+            backfill -> Nullable<Text>,
         }
     }
 

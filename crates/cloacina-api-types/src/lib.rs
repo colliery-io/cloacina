@@ -32,6 +32,7 @@
 //!   replaced. Changes here are API changes and must ride a release.
 
 pub mod audit;
+pub mod backfills;
 pub mod common;
 pub mod compiler;
 pub mod delivery;
@@ -50,6 +51,10 @@ pub mod triggers;
 pub mod workflows;
 
 pub use audit::{AuditEventInfo, AuditListResponse, ListAuditQuery};
+pub use backfills::{
+    BackfillDetail, BackfillFailedInterval, BackfillProgress, BackfillSummary,
+    CreateBackfillRequest, ListBackfillsQuery, RetryBackfillRequest,
+};
 pub use common::{ListResponse, TenantListResponse};
 pub use compiler::CompilerStatus;
 pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, ServerMessage};

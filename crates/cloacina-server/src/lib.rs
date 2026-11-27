@@ -2223,6 +2223,28 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
             delete(crate::routes::instances::delete_instance),
         )
+        // Backfills (CLOACINA-T-1020). The static `backfills` segment wins
+        // over the `{version}` wildcard of the delete route below.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            post(crate::routes::backfills::create_backfill),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            get(crate::routes::backfills::list_backfills),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
+            get(crate::routes::backfills::get_backfill),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+            post(crate::routes::backfills::cancel_backfill),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+            post(crate::routes::backfills::retry_backfill),
+        )
         .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::routes::workflows::delete_workflow),
@@ -2773,6 +2795,7 @@ mod tests {
 
     /// Router tests of the audit record (CLOACINA-T-1024).
     mod audit_routes;
+    mod backfill_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;

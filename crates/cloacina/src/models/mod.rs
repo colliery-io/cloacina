@@ -68,6 +68,7 @@
 // pub mod auth_audit_log;
 // #[cfg(feature = "auth")]
 // pub mod auth_tokens;
+pub mod backfill;
 pub mod context;
 pub mod delivery_outbox;
 pub mod execution_event;

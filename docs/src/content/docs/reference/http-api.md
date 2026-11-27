@@ -994,6 +994,120 @@ Instance summary shape: `id`, `workflow_name`, `instance_name`, `params`,
 `cron_expression`, `timezone`, `catchup_policy`, `max_active_runs` (when one
 is declared), `enabled`, `paused`, `next_run_at`, `last_run_at`, `created_at`.
 
+### Backfills
+
+A backfill runs a workflow once for each fire time of a cron expression from
+`start` to `end`, oldest first, with its own limit on active runs
+(CLOACINA-T-1020). `cloacinactl backfill` drives the same endpoints. See
+[Load History with a Backfill](../../how-to/service/load-history-with-a-backfill/).
+
+| Endpoint | Role | Purpose |
+|---|---|---|
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/backfills` | `write` | Create a backfill. Returns `200` with the backfill. |
+| `GET /v1/tenants/{tenant_id}/workflows/{name}/backfills` | `read` | The backfills of the workflow, newest first, each with its progress (`{tenant_id, items, total}` envelope; `limit` 1 to 1000, default 100; `offset`). |
+| `GET /v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}` | `read` | One backfill with its failed intervals. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel` | `write` | Stop the backfill: no new interval gets a run, active runs end on their own. Returns the backfill. Cancelling a cancelled or completed backfill changes nothing. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry` | `write` | Create a new backfill from the intervals that are failed in backfill `{id}` at the time of the call. Returns the new backfill. |
+
+**Create request:**
+
+```json
+{
+  "cron": "0 * * * *",
+  "timezone": "UTC",
+  "start": "2026-01-01T00:00:00Z",
+  "end": "2026-08-18T23:00:00Z",
+  "max_active_runs": 8,
+  "params": { "region": "eu" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `start` | string | yes | Start of the range, RFC 3339. |
+| `end` | string | yes | End of the range, RFC 3339. The backfill takes each fire time `F` with `start <= F <= end`. For one interval, `start` and `end` are its fire time. |
+| `cron` | string | no | The expression that gives the intervals. Omitted: the expression and timezone of the cron schedule of the workflow, when it has exactly one. |
+| `timezone` | string | no | IANA timezone of `cron`. Default `UTC` when `cron` is given. |
+| `max_active_runs` | integer | no | The most runs of the backfill active at once, 1 or more. Default 1. |
+| `params` | object | no | Parameter values for each run, checked against the declared params of the workflow. |
+
+**Retry request:** `{}` or `{"max_active_runs": 4}`. Without the field the
+new backfill takes the limit of backfill `{id}`.
+
+**Backfill (response of create, cancel and retry; item of the list):**
+
+```json
+{
+  "id": "2f1c0a52-6a0e-4a5b-9d0e-3f3f1f6b7c11",
+  "workflow_name": "build_hourly_table",
+  "cron_expression": "0 * * * *",
+  "timezone": "UTC",
+  "start": "2026-01-01T00:00:00+00:00",
+  "end": "2026-08-18T23:00:00+00:00",
+  "max_active_runs": 8,
+  "params": { "region": "eu" },
+  "status": "running",
+  "progress": {
+    "total": 5520,
+    "completed": 1190,
+    "failed": 2,
+    "running": 8,
+    "remaining": 4320,
+    "last_interval_end": "2026-02-19T23:00:00+00:00",
+    "next_interval_end": "2026-02-20T00:00:00+00:00"
+  },
+  "created_at": "2026-11-26T18:00:00+00:00"
+}
+```
+
+| Field | Description |
+|---|---|
+| `status` | `running`, `completed` (each interval got a run and each run ended), `cancelled` or `paused`. |
+| `progress.total` | Intervals in the backfill. |
+| `progress.completed` | Intervals whose run ended `Completed`. |
+| `progress.failed` | Intervals whose run ended `Failed` or `Cancelled`, or could not be started. |
+| `progress.running` | Intervals whose run has not ended. |
+| `progress.remaining` | Intervals with no run yet. |
+| `progress.last_interval_end` | The end of the last interval that got a run. Absent before the first. |
+| `progress.next_interval_end` | The end of the next interval to get a run. Absent when none remains. |
+| `retry_of` | On a retry: the id of the backfill whose failed intervals it runs. |
+
+`completed` and `failed` are counted from the run history; runs deleted by the
+run history retention job are not counted.
+
+**Inspect response:**
+
+```json
+{
+  "backfill": { "id": "2f1c0a52-6a0e-4a5b-9d0e-3f3f1f6b7c11", "status": "running", "progress": { "total": 5520 } },
+  "failed_intervals": [
+    {
+      "interval_start": "2026-01-03T08:00:00+00:00",
+      "interval_end": "2026-01-03T09:00:00+00:00",
+      "execution_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "status": "Failed"
+    }
+  ],
+  "failed_intervals_truncated": false
+}
+```
+
+`backfill` is the full backfill object. `failed_intervals` is oldest first and
+holds at most 1000 entries; `failed_intervals_truncated` is `true` when the
+backfill has more. `status` is `Failed`, `Cancelled`, or `NotStarted` (no run
+could be started, and `execution_id` is absent).
+
+**Errors** (envelope per [API Error Envelope](../api-error-envelope/)):
+
+| Status | `code` | Cause |
+|---|---|---|
+| `400` | `invalid_backfill` | `start` or `end` is not an RFC 3339 timestamp; `end` is before `start`; the range holds no interval or more than 100,000; `max_active_runs` is 0; `cron` is omitted and the workflow does not have exactly one cron schedule. |
+| `400` | `invalid_cron` | The cron expression or the timezone is not valid. |
+| `400` | `backfill_params_invalid` | `params` is not an object or does not match the declared params of the workflow. |
+| `400` | `invalid_request` | `{id}` is not a UUID. |
+| `404` | `backfill_not_found` | No backfill `{id}` for this workflow in this tenant. |
+| `409` | `backfill_has_no_failed_interval` | Retry of a backfill with no failed interval. |
+
 ## Executions
 
 ### POST /v1/tenants/{tenant_id}/workflows/{name}/execute
@@ -1031,6 +1145,7 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 | Status | `code` | Cause |
 |---|---|---|
 | `400` | `workflow_input_invalid` | The submitted `context` failed validation against the workflow's `declared_params`. Undeclared workflows accept free-form context and never raise this. |
+| `400` | `invalid_interval` | The `context` sets `interval_start` or `interval_end` and they are not two RFC 3339 timestamps with `interval_end` after `interval_start`. A context with neither key is not checked. |
 | `400` | (other) | Generic execution failure (`{"error": "<detail>"}`). |
 | `409` | `workflow_paused` | The workflow is paused; resume it before executing. |
 

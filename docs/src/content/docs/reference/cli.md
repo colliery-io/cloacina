@@ -640,6 +640,24 @@ verb for that surface today.
 | `trigger list [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/triggers?limit=…&offset=…` | Combined cron + custom-poll trigger schedules. Default limit: 100, max 1000 (CLOACI-T-0596 / API-10). |
 | `trigger inspect <NAME>` | `GET /v1/tenants/<tenant>/triggers/<name>` | Single trigger metadata + recent executions. |
 
+## `backfill`
+
+A backfill runs a workflow once for each fire time of a cron expression from a
+start to an end, oldest first. See
+[Load History with a Backfill](../../how-to/service/load-history-with-a-backfill/).
+
+| Command | HTTP Endpoint | Notes |
+|---|---|---|
+| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. Prints the backfill with its id. |
+| `backfill create <WORKFLOW> --interval <TIME> […]` | same | One interval: `--interval` is its fire time. The same as `--start` and `--end` with that value. |
+| `backfill list <WORKFLOW> [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills?limit=…&offset=…` | Newest first, each with its progress. Default limit: 100, max 1000. |
+| `backfill inspect <WORKFLOW> <ID>` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills/<id>` | Status, progress (`total`, `completed`, `failed`, `running`, `remaining`, position) and the failed intervals. |
+| `backfill cancel <WORKFLOW> <ID>` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills/<id>/cancel` | No new interval gets a run. Active runs end on their own. |
+| `backfill retry <WORKFLOW> <ID> [--max-active-runs <N>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills/<id>/retry` | Creates a new backfill from the failed intervals of `<ID>`. Without `--max-active-runs` it takes the limit of `<ID>`. Fails with `409` when `<ID>` has no failed interval. |
+
+`create`, `cancel` and `retry` need a key with the `write` role; `list` and
+`inspect` need `read`.
+
 ## `secret`
 
 Tenant-scoped encrypted [secrets](../../explanation/service/secrets/).

@@ -20,6 +20,7 @@ pub mod agent;
 pub mod audit;
 pub mod auth;
 pub mod authz;
+pub mod backfills;
 pub mod compiler;
 pub mod delivery_ws;
 pub mod error;
