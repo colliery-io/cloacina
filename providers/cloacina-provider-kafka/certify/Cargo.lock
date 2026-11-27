@@ -497,6 +497,7 @@ dependencies = [
  "hex",
  "hpke",
  "inventory",
+ "libc",
  "libloading",
  "libsqlite3-sys",
  "metrics",
