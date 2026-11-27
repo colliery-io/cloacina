@@ -235,6 +235,16 @@ fleet:
   # start. The server's own format is `server.logFormat`.
   agentLogFormat: text
 
+  # Where an execution agent runs a computation-graph firing
+  # (CLOACINA_FLEET_GRAPH_FIRINGS, CLOACINA-T-1125). Applies with every
+  # actuator, hand-started agents too.
+  #   inline - in the agent process (the default): no worker start per
+  #            firing, and no memory limit, kill or cancel
+  #   worker - in a worker process, with the limits, time limit and cancel
+  #            of a task; each firing pays a process start and a package load
+  # Any other value stops the server at start.
+  graphFirings: inline
+
   # ServiceAccount the server runs as when the actuator is enabled. The chart
   # creates it (and the RBAC below) only when actuator=kubernetes.
   serviceAccount:

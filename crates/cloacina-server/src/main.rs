@@ -188,6 +188,18 @@ struct Cli {
     )]
     fleet_task_timeout_max_s: u64,
 
+    /// Where an execution agent runs a computation-graph firing: `inline`
+    /// (in the agent process: no worker start per firing, and no memory
+    /// limit, kill or cancel) or `worker` (a worker process with the limits,
+    /// time limit and cancel of a task). Default `inline`. CLOACINA-T-1125.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_GRAPH_FIRINGS",
+        value_enum,
+        default_value_t = cloacina_server::fleet_graph_executor::GraphFiringExecution::Inline
+    )]
+    fleet_graph_firings: cloacina_server::fleet_graph_executor::GraphFiringExecution,
+
     /// How long (seconds) a fleet task waits, per attempt, while agents cannot
     /// fetch its package artifact. The time counts from the first refused
     /// fetch of the attempt; the task is dispatched again after a delay (2 s,
@@ -433,6 +445,7 @@ async fn main() -> Result<()> {
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
         fleet_task_time_limits,
+        cli.fleet_graph_firings,
         std::time::Duration::from_secs(cli.fleet_artifact_fetch_wait_s),
         cloacina::executor::ContextSizeLimits {
             warn_bytes: cli.context_warn_bytes,
@@ -501,5 +514,30 @@ mod tests {
         let cli =
             Cli::try_parse_from(["cloacina-server", "--max-unpacked-bytes", "1073741824"]).unwrap();
         assert_eq!(cli.max_unpacked_bytes, 1_073_741_824);
+    }
+
+    // CLOACINA-T-1125: graph firings run inline on the agent unless set to
+    // `worker`; any other value stops the server at start.
+    #[test]
+    fn fleet_graph_firings_default_to_inline_and_take_worker() {
+        use cloacina_server::fleet_graph_executor::GraphFiringExecution;
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.fleet_graph_firings, GraphFiringExecution::Inline);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--fleet-graph-firings", "worker"]).unwrap();
+        assert_eq!(cli.fleet_graph_firings, GraphFiringExecution::Worker);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--fleet-graph-firings", "inline"]).unwrap();
+        assert_eq!(cli.fleet_graph_firings, GraphFiringExecution::Inline);
+    }
+
+    #[test]
+    fn a_bad_fleet_graph_firings_value_is_refused_at_start() {
+        let err = Cli::try_parse_from(["cloacina-server", "--fleet-graph-firings", "workers"])
+            .err()
+            .expect("refused");
+        let text = err.to_string();
+        assert!(text.contains("--fleet-graph-firings"), "{text}");
+        assert!(text.contains("inline") && text.contains("worker"), "{text}");
     }
 }

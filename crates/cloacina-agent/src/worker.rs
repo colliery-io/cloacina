@@ -38,13 +38,19 @@
 //! has no API key: the agent does every request to the server.
 //!
 //! A task marked `inline` does not come here: it runs in the agent process.
+//!
+//! A computation-graph firing whose packet is not marked `inline` (the
+//! server's `--fleet-graph-firings worker`) runs the same way
+//! (CLOACINA-T-1125): its job
+//! is a [`GraphJob`], it has the memory share of a task with no request and
+//! the packet's time limit, and a cancel names its firing id.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use cloacina::fleet::{AgentOutcome, WorkPacket};
+use cloacina::fleet::{AgentOutcome, GraphWorkPacket, WorkPacket};
 use cloacina::task_logs::LogFormat;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -118,6 +124,107 @@ pub(crate) struct WorkerJob {
     pub test_action: Option<tests::TestAction>,
 }
 
+/// The job of one graph firing (CLOACINA-T-1125). A firing carries no
+/// secrets: the server sends none for a graph.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct GraphJob {
+    /// The graph packet: the reactor's input cache, as source name → JSON.
+    pub packet: GraphWorkPacket,
+    pub package: PreparedPackage,
+    /// Where a Python package is unpacked, as for a task.
+    pub work_dir: PathBuf,
+    /// `text` or `json`: the format of the agent's log lines.
+    pub log_format: String,
+    pub max_unpacked_bytes: u64,
+    /// Tests only: what the job does in place of a packaged graph.
+    #[cfg(test)]
+    #[serde(default)]
+    pub test_action: Option<tests::TestAction>,
+}
+
+/// What a worker gets on stdin: one task, or one graph firing.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "job", rename_all = "snake_case")]
+pub(crate) enum WorkerInput {
+    Task(WorkerJob),
+    Graph(GraphJob),
+}
+
+/// What the agent needs to hold a worker to its limits.
+struct JobInfo {
+    /// The id a cancel names: the dispatch id of a task, the firing id of a
+    /// firing.
+    stop_id: Option<String>,
+    timeout_seconds: u32,
+    /// The memory request. A firing has none.
+    memory_request: Option<u64>,
+    /// The task or graph name, for the log.
+    name: String,
+    /// "task" or "graph firing", for the error texts.
+    noun: &'static str,
+}
+
+impl WorkerInput {
+    fn info(&self) -> JobInfo {
+        match self {
+            WorkerInput::Task(job) => JobInfo {
+                stop_id: job.packet.dispatch_id.clone(),
+                timeout_seconds: job.packet.timeout_seconds,
+                memory_request: job.packet.memory_bytes,
+                name: job.packet.task_name.clone(),
+                noun: "task",
+            },
+            WorkerInput::Graph(job) => JobInfo {
+                stop_id: Some(job.packet.firing_id.clone()),
+                timeout_seconds: job.packet.timeout_seconds,
+                memory_request: None,
+                name: job.packet.graph_name.clone(),
+                noun: "graph firing",
+            },
+        }
+    }
+
+    /// Give the job its own directory and the agent's settings.
+    fn set_run(&mut self, work_dir: PathBuf, log_format: String, max_unpacked_bytes: u64) {
+        let (dir, format, max) = match self {
+            WorkerInput::Task(job) => (
+                &mut job.work_dir,
+                &mut job.log_format,
+                &mut job.max_unpacked_bytes,
+            ),
+            WorkerInput::Graph(job) => (
+                &mut job.work_dir,
+                &mut job.log_format,
+                &mut job.max_unpacked_bytes,
+            ),
+        };
+        *dir = work_dir;
+        *format = log_format;
+        *max = max_unpacked_bytes;
+    }
+
+    fn work_dir(&self) -> &std::path::Path {
+        match self {
+            WorkerInput::Task(job) => &job.work_dir,
+            WorkerInput::Graph(job) => &job.work_dir,
+        }
+    }
+
+    fn max_unpacked_bytes(&self) -> u64 {
+        match self {
+            WorkerInput::Task(job) => job.max_unpacked_bytes,
+            WorkerInput::Graph(job) => job.max_unpacked_bytes,
+        }
+    }
+
+    fn log_format(&self) -> &str {
+        match self {
+            WorkerInput::Task(job) => &job.log_format,
+            WorkerInput::Graph(job) => &job.log_format,
+        }
+    }
+}
+
 /// What a worker writes on its result pipe, one JSON object per line.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -173,9 +280,10 @@ impl WorkerSettings {
         }
     }
 
-    /// The memory limit of a task: its request, or its share of the agent.
-    pub(crate) fn memory_limit_of(&self, packet: &WorkPacket) -> Option<u64> {
-        packet.memory_bytes.or(self.default_memory_limit)
+    /// The memory limit of a job: its request, or its share of the agent. A
+    /// graph firing has no request and gets the share (CLOACINA-T-1125).
+    pub(crate) fn memory_limit_for(&self, request: Option<u64>) -> Option<u64> {
+        request.or(self.default_memory_limit)
     }
 }
 
@@ -283,7 +391,28 @@ pub(crate) async fn run_here_or_in_worker(job: WorkerJob, settings: &WorkerSetti
     }
     #[cfg(unix)]
     {
-        run_in_worker(job, settings).await
+        run_in_worker(WorkerInput::Task(job), settings).await
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = settings;
+        unreachable!("worker processes need a Unix system")
+    }
+}
+
+/// Run a graph firing (CLOACINA-T-1125): in this process when the packet is
+/// marked `inline`, else in a worker process, with the limits of a task.
+pub(crate) async fn run_graph_here_or_in_worker(
+    job: GraphJob,
+    settings: &WorkerSettings,
+) -> PacketEnd {
+    if job.packet.inline || !cfg!(unix) {
+        let limit = Duration::from_secs(u64::from(job.packet.timeout_seconds.max(1)));
+        return PacketEnd::Report(crate::run_graph_job(job, Some(limit), || {}).await);
+    }
+    #[cfg(unix)]
+    {
+        run_in_worker(WorkerInput::Graph(job), settings).await
     }
     #[cfg(not(unix))]
     {
@@ -345,46 +474,52 @@ mod spawn {
     /// Start a worker for the job, hold it to its limits, and wait for its
     /// exit. Returns only when the worker process has exited and its process
     /// group was killed: the caller frees the task's slot after that.
-    pub(crate) async fn run_in_worker(mut job: WorkerJob, settings: &WorkerSettings) -> PacketEnd {
-        let packet = job.packet.clone();
-        let dispatch_id = packet.dispatch_id.clone();
-        let mut cancel = match dispatch_id.as_deref() {
+    pub(crate) async fn run_in_worker(
+        mut input: WorkerInput,
+        settings: &WorkerSettings,
+    ) -> PacketEnd {
+        let info = input.info();
+        let mut cancel = match info.stop_id.as_deref() {
             Some(id) => match dispatch_registry().begin(id) {
                 Some(rx) => Some(rx),
                 None => return PacketEnd::Cancelled,
             },
             None => None,
         };
-        let end = supervise(&mut job, &packet, settings, &mut cancel).await;
-        if let Some(id) = dispatch_id.as_deref() {
+        let end = supervise(&mut input, &info, settings, &mut cancel).await;
+        if let Some(id) = info.stop_id.as_deref() {
             dispatch_registry().end(id);
         }
-        let _ = tokio::fs::remove_dir_all(&job.work_dir).await;
+        let _ = tokio::fs::remove_dir_all(input.work_dir()).await;
         end
     }
 
     async fn supervise(
-        job: &mut WorkerJob,
-        packet: &WorkPacket,
+        input: &mut WorkerInput,
+        info: &JobInfo,
         settings: &WorkerSettings,
         cancel: &mut Option<oneshot::Receiver<()>>,
     ) -> PacketEnd {
-        let memory_limit = settings.memory_limit_of(packet);
-        let time_limit = Duration::from_secs(u64::from(packet.timeout_seconds.max(1)));
+        let noun = info.noun;
+        let memory_limit = settings.memory_limit_for(info.memory_request);
+        let time_limit = Duration::from_secs(u64::from(info.timeout_seconds.max(1)));
 
         // A directory of its own: the Python package is unpacked there, and
         // the worker's TMPDIR is in it. Removed when the worker has exited.
-        job.work_dir = settings.work_root.join(uuid_like());
-        let tmp_dir = job.work_dir.join("tmp");
+        let work_dir = settings.work_root.join(uuid_like());
+        let tmp_dir = work_dir.join("tmp");
         if let Err(e) = tokio::fs::create_dir_all(&tmp_dir).await {
             return failure(
                 FailureClassification::Transient,
-                format!("create the worker directory {:?}: {e}", job.work_dir),
+                format!("create the worker directory {work_dir:?}: {e}"),
             );
         }
-        job.log_format = settings.log_format.to_string();
-        job.max_unpacked_bytes = settings.max_unpacked_bytes;
-        let mut line = match serde_json::to_vec(&*job) {
+        input.set_run(
+            work_dir,
+            settings.log_format.to_string(),
+            settings.max_unpacked_bytes,
+        );
+        let mut line = match serde_json::to_vec(&*input) {
             Ok(line) => line,
             Err(e) => {
                 return failure(
@@ -407,7 +542,7 @@ mod spawn {
         let result_fd = result_write.as_raw_fd();
         let rlimits = worker_rlimits(
             memory_limit,
-            packet.timeout_seconds,
+            info.timeout_seconds,
             settings.address_space_factor,
         )
         .capped_at_own_limits();
@@ -451,7 +586,7 @@ mod spawn {
             Err(e) => {
                 return failure(
                     FailureClassification::Transient,
-                    format!("start the task's worker process: {e}"),
+                    format!("start the {noun}'s worker process: {e}"),
                 );
             }
         };
@@ -514,9 +649,10 @@ mod spawn {
                     if outcome.is_none() {
                         info!(
                             pid,
-                            task = %packet.task_name,
+                            job = %info.name,
+                            kind = noun,
                             reason = ?reason,
-                            "stopping the task's worker"
+                            "stopping the worker"
                         );
                         stop = Some(reason);
                     }
@@ -526,9 +662,10 @@ mod spawn {
                     if outcome.is_none() {
                         info!(
                             pid,
-                            task = %packet.task_name,
-                            limit_s = packet.timeout_seconds,
-                            "the task is past its time limit; stopping its worker"
+                            job = %info.name,
+                            kind = noun,
+                            limit_s = info.timeout_seconds,
+                            "past its time limit; stopping the worker"
                         );
                     }
                     stop = Some(StopReason::TimeLimit);
@@ -541,8 +678,9 @@ mod spawn {
                     if cancelled.is_ok() {
                         info!(
                             pid,
-                            task = %packet.task_name,
-                            dispatch_id = ?packet.dispatch_id,
+                            job = %info.name,
+                            kind = noun,
+                            dispatch_id = ?info.stop_id,
                             "the server cancelled the dispatch; stopping its worker"
                         );
                         stop = Some(StopReason::Cancelled);
@@ -581,7 +719,7 @@ mod spawn {
             Some(StopReason::OverLimit { used, limit }) => failure(
                 FailureClassification::TaskError,
                 format!(
-                    "task exceeded its memory limit of {}: it used {}, and the agent stopped it",
+                    "{noun} exceeded its memory limit of {}: it used {}, and the agent stopped it",
                     format_bytes(limit),
                     format_bytes(used)
                 ),
@@ -593,7 +731,7 @@ mod spawn {
             }) => failure(
                 FailureClassification::Transient,
                 format!(
-                    "the agent ran out of memory ({} of {} in use): it stopped this task, its \
+                    "the agent ran out of memory ({} of {} in use): it stopped this {noun}, its \
                      largest, which used {}",
                     format_bytes(agent_used),
                     format_bytes(agent_total),
@@ -602,15 +740,15 @@ mod spawn {
             ),
             Some(StopReason::TimeLimit) if started => failure(
                 FailureClassification::Timeout,
-                format!("task exceeded timeout of {}s", packet.timeout_seconds),
+                format!("{noun} exceeded timeout of {}s", info.timeout_seconds),
             ),
             Some(StopReason::TimeLimit) => failure(
                 FailureClassification::Timeout,
                 format!(
-                    "task did not start within {}s (its time limit of {}s and {}s to load the \
+                    "{noun} did not start within {}s (its time limit of {}s and {}s to load the \
                      package)",
                     (time_limit + LOAD_ALLOWANCE).as_secs(),
-                    packet.timeout_seconds,
+                    info.timeout_seconds,
                     LOAD_ALLOWANCE.as_secs()
                 ),
             ),
@@ -620,7 +758,7 @@ mod spawn {
                     Err(e) => {
                         return failure(
                             FailureClassification::Transient,
-                            format!("wait for the task's worker process: {e}"),
+                            format!("wait for the {noun}'s worker process: {e}"),
                         );
                     }
                 };
@@ -630,16 +768,18 @@ mod spawn {
                 );
                 warn!(
                     pid,
-                    task = %packet.task_name,
+                    job = %info.name,
+                    kind = noun,
                     status = %status,
                     oom_killed,
-                    "the task's worker ended with no result"
+                    "the worker ended with no result"
                 );
                 if status.signal() == Some(libc::SIGKILL) && oom_killed {
                     return failure(
                         FailureClassification::Transient,
-                        "the agent ran out of memory: the kernel killed the task's worker"
-                            .to_string(),
+                        format!(
+                            "the agent ran out of memory: the kernel killed the {noun}'s worker"
+                        ),
                     );
                 }
                 let why = match status.signal() {
@@ -652,7 +792,7 @@ mod spawn {
                 };
                 failure(
                     FailureClassification::TaskError,
-                    format!("the task's worker process ended with no result: {why}"),
+                    format!("the {noun}'s worker process ended with no result: {why}"),
                 )
             }
         }
@@ -746,7 +886,7 @@ pub(crate) fn worker_main() -> ! {
     if std::io::stdin().lock().read_line(&mut line).is_err() || line.trim().is_empty() {
         fail("no job on stdin")
     }
-    let job: WorkerJob = match serde_json::from_str(&line) {
+    let job: WorkerInput = match serde_json::from_str(&line) {
         Ok(job) => job,
         Err(e) => fail(&format!("the job on stdin does not parse: {e}")),
     };
@@ -782,7 +922,7 @@ pub(crate) fn worker_main() -> ! {
     });
 
     let _ = cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
-        job.max_unpacked_bytes,
+        job.max_unpacked_bytes(),
     );
     let write_event = |event: &WorkerEvent| {
         if let Ok(mut text) = serde_json::to_string(event) {
@@ -803,7 +943,7 @@ pub(crate) fn worker_main() -> ! {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-        let _ = match job.log_format.parse().unwrap_or(LogFormat::Text) {
+        let _ = match job.log_format().parse().unwrap_or(LogFormat::Text) {
             LogFormat::Text => tracing_subscriber::fmt().with_env_filter(filter).try_init(),
             LogFormat::Json => tracing_subscriber::fmt()
                 .json()
@@ -811,7 +951,11 @@ pub(crate) fn worker_main() -> ! {
                 .try_init(),
         };
         cloacina_python::install();
-        crate::run_job(job, None, || write_event(&WorkerEvent::Started)).await
+        let started = || write_event(&WorkerEvent::Started);
+        match job {
+            WorkerInput::Task(job) => crate::run_job(job, None, started).await,
+            WorkerInput::Graph(job) => crate::run_graph_job(job, None, started).await,
+        }
     });
     write_event(&WorkerEvent::Done { outcome });
     drop(result);
@@ -978,6 +1122,108 @@ pub(crate) mod tests {
             max_unpacked_bytes: 1 << 20,
             test_action: Some(action),
         }
+    }
+
+    /// A graph firing that does `action` in place of a packaged graph.
+    pub(crate) fn graph_job(name: &str, action: Option<TestAction>) -> GraphJob {
+        GraphJob {
+            packet: GraphWorkPacket {
+                protocol_version: AGENT_PROTOCOL_VERSION,
+                firing_id: format!("firing-{name}"),
+                graph_name: format!("{name}_rx"),
+                cache: HashMap::new(),
+                artifact: ArtifactRef {
+                    digest: "none".into(),
+                    fetch_url: "/none".into(),
+                    build_target_triple: cloacina::fleet::host_target_triple(),
+                },
+                timeout_seconds: 60,
+                tenant_id: None,
+                language: Some("rust".into()),
+                wrapped_secrets: Vec::new(),
+                secret_key_id: None,
+                inline: false,
+            },
+            package: PreparedPackage {
+                digest: "none".into(),
+                library: None,
+                source_archive: None,
+                vendored_set: None,
+                providers: Providers::None,
+            },
+            work_dir: PathBuf::new(),
+            log_format: "text".into(),
+            max_unpacked_bytes:
+                cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES,
+            test_action: action,
+        }
+    }
+
+    /// Pack a Python graph package: a passthrough accumulator `<name>_src`,
+    /// a reactor `<name>_rx`, and a graph whose one node writes its process
+    /// id to the file named by the `pid_file` field of its input.
+    pub(crate) fn python_graph_package(dir: &std::path::Path, name: &str) -> PreparedPackage {
+        let source = dir.join(format!("{name}-src"));
+        let module = source.join("workflow").join(name);
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            source.join("package.toml"),
+            format!(
+                "[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\n\
+                 interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+                 extension = \"cloacina\"\n\n[metadata]\ngraph_name = \"{name}_graph\"\n\
+                 language = \"python\"\ndescription = \"worker test\"\n\
+                 entry_module = \"{name}.graph\"\nreaction_mode = \"when_any\"\n\
+                 input_strategy = \"latest\"\n",
+                pkg = name.replace('_', "-"),
+            ),
+        )
+        .unwrap();
+        std::fs::write(module.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            module.join("graph.py"),
+            format!(
+                "import os\nimport cloaca\n\n\n@cloaca.passthrough_accumulator\n\
+                 def {name}_src(event):\n    return event\n\n\n\
+                 @cloaca.reactor(name=\"{name}_rx\", accumulators=[\"{name}_src\"], mode=\"when_any\")\n\
+                 class _Reactor:\n    pass\n\n\n\
+                 with cloaca.ComputationGraphBuilder(\n    \"{name}_graph\",\n    reactor=_Reactor,\n\
+                 \x20   graph={{\"record\": {{\"inputs\": [\"{name}_src\"]}}}},\n) as builder:\n\n\
+                 \x20   @cloaca.node\n    def record({name}_src):\n\
+                 \x20       with open({name}_src[\"pid_file\"], \"w\") as f:\n\
+                 \x20           f.write(str(os.getpid()))\n\
+                 \x20       return {{\"pid\": os.getpid()}}\n"
+            ),
+        )
+        .unwrap();
+        let archive = dir.join(format!("{name}.cloacina"));
+        fidius_core::package::pack_package(&source, Some(&archive)).unwrap();
+        PreparedPackage {
+            digest: format!("{name}-{}", std::process::id()),
+            library: None,
+            source_archive: Some(archive),
+            vendored_set: None,
+            providers: Providers::None,
+        }
+    }
+
+    /// A firing of the Python graph package `graph` (the `name` given to
+    /// [`python_graph_package`]) that writes its pid to `pid_file`.
+    pub(crate) fn python_graph_job(
+        job_name: &str,
+        graph: &str,
+        package: &PreparedPackage,
+        pid_file: &std::path::Path,
+    ) -> GraphJob {
+        let mut one = graph_job(job_name, None);
+        one.package = package.clone();
+        one.packet.language = Some("python".into());
+        one.packet.graph_name = format!("{graph}_rx");
+        one.packet.cache.insert(
+            format!("{graph}_src"),
+            serde_json::json!({ "pid_file": pid_file }).to_string(),
+        );
+        one
     }
 
     fn success(end: PacketEnd) -> serde_json::Value {
@@ -1368,6 +1614,238 @@ pub(crate) mod tests {
         drop(rx);
     }
 
+    // ── Graph firings (CLOACINA-T-1125) ───────────────────────────────────
+
+    /// A firing has no memory request: it is held to the share of the agent.
+    /// The one over it fails alone; a firing beside it completes.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn a_graph_firing_over_its_memory_limit_fails_alone() {
+        let mut settings = test_settings("graph-memory", fast_watchdog(AgentMemory::Unknown));
+        settings.default_memory_limit = Some(200 << 20);
+        let greedy = graph_job(
+            "graph_greedy",
+            Some(TestAction::Allocate {
+                bytes: 600 << 20,
+                hold_ms: 20_000,
+            }),
+        );
+        let modest = graph_job(
+            "graph_modest",
+            Some(TestAction::Allocate {
+                bytes: 8 << 20,
+                hold_ms: 1_500,
+            }),
+        );
+        let started = std::time::Instant::now();
+        let (greedy_end, modest_end) = tokio::join!(
+            run_graph_here_or_in_worker(greedy, &settings),
+            run_graph_here_or_in_worker(modest, &settings)
+        );
+        let (class, message) = failure(greedy_end);
+        assert_eq!(class, FailureClassification::TaskError);
+        assert!(
+            message.contains("graph firing exceeded its memory limit of 200Mi"),
+            "{message}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(15),
+            "stopped, not run out"
+        );
+        let modest = success(modest_end);
+        assert_ne!(
+            modest["pid"].as_u64().unwrap(),
+            u64::from(std::process::id()),
+            "the neighbour ran in a worker process"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_graph_firing_past_its_time_limit_is_killed_before_its_slot_is_free() {
+        let settings = test_settings("graph-time", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let pid_file = settings.work_root.join("child.pid");
+        let mut slow = graph_job(
+            "graph_slow",
+            Some(TestAction::StartChild {
+                pid_file: pid_file.clone(),
+                ms: 60_000,
+            }),
+        );
+        slow.packet.timeout_seconds = 1;
+        let started = std::time::Instant::now();
+        let run = tokio::spawn(async move {
+            let end = run_graph_here_or_in_worker(slow, &settings).await;
+            (end, settings)
+        });
+        let grandchild = read_pid(&pid_file).await;
+        let (end, _settings) = run.await.unwrap();
+        let (class, message) = failure(end);
+        assert_eq!(class, FailureClassification::Timeout);
+        assert_eq!(message, "graph firing exceeded timeout of 1s");
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "killed, not waited out"
+        );
+        let gone = (0..200).any(|_| {
+            let alive = is_alive(grandchild);
+            if alive {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            !alive
+        });
+        assert!(gone, "the firing's child {grandchild} outlived the kill");
+    }
+
+    /// A cancel names the firing id; the worker is stopped and nothing is
+    /// reported. A firing cancelled before it arrives is not started.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cancel_stops_a_graph_firing_and_nothing_is_reported() {
+        let settings = test_settings("graph-cancel", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let pid_file = settings.work_root.join("child.pid");
+        let long = graph_job(
+            "graph_cancel",
+            Some(TestAction::StartChild {
+                pid_file: pid_file.clone(),
+                ms: 60_000,
+            }),
+        );
+        let started = std::time::Instant::now();
+        let run = tokio::spawn(async move { run_graph_here_or_in_worker(long, &settings).await });
+        let grandchild = read_pid(&pid_file).await;
+        assert!(
+            dispatch_registry().cancel("firing-graph_cancel"),
+            "a worker was told to stop"
+        );
+        let end = run.await.unwrap();
+        assert!(matches!(end, PacketEnd::Cancelled), "{end:?}");
+        assert!(started.elapsed() < Duration::from_secs(20));
+        let gone = (0..200).any(|_| {
+            let alive = is_alive(grandchild);
+            if alive {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            !alive
+        });
+        assert!(gone, "the firing's child {grandchild} outlived the cancel");
+
+        let settings = test_settings("graph-early-cancel", fast_watchdog(AgentMemory::Unknown));
+        dispatch_registry().cancel("firing-graph_early");
+        let late = graph_job("graph_early", Some(TestAction::Report { secret: None }));
+        let end = run_graph_here_or_in_worker(late, &settings).await;
+        assert!(matches!(end, PacketEnd::Cancelled), "{end:?}");
+    }
+
+    /// A real Python graph package: the worker imports it and runs the
+    /// firing in a process of its own. The same firing marked inline runs
+    /// in this process. The outcome is the one the agent reported before.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_python_graph_firing_runs_in_a_worker_and_inline_in_the_agent() {
+        let settings = test_settings("py-graph", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let package = python_graph_package(&settings.work_root, "t1125_pid");
+        let here = std::process::id();
+
+        let worker_pid = settings.work_root.join("worker.pid");
+        let end = run_graph_here_or_in_worker(
+            python_graph_job("py_graph_worker", "t1125_pid", &package, &worker_pid),
+            &settings,
+        )
+        .await;
+        assert_eq!(success(end), serde_json::json!({ "outputs": [] }));
+        let pid: u32 = std::fs::read_to_string(&worker_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_ne!(pid, here, "a worker process ran the firing");
+
+        cloacina_python::install();
+        let inline_pid = settings.work_root.join("inline.pid");
+        let mut inline = python_graph_job("py_graph_inline", "t1125_pid", &package, &inline_pid);
+        inline.packet.inline = true;
+        inline.work_dir = settings.work_root.join("t1125-inline");
+        let end = run_graph_here_or_in_worker(inline, &settings).await;
+        assert_eq!(success(end), serde_json::json!({ "outputs": [] }));
+        let pid: u32 = std::fs::read_to_string(&inline_pid)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(pid, here, "the agent process ran the inline firing");
+    }
+
+    /// A Rust graph firing in a worker gives the outputs it gives in the
+    /// agent process, and the time of each. Run by hand with a built graph
+    /// library: `CLOACINA_AGENT_TEST_GRAPH_LIB=<path> cargo test -p
+    /// cloacina-agent -- --ignored --nocapture rust_graph_firing`. The
+    /// library is a graph package whose reactor `CLOACINA_AGENT_TEST_GRAPH_RX`
+    /// names, fired with the cache in `CLOACINA_AGENT_TEST_GRAPH_CACHE` (JSON
+    /// object, source name → event JSON).
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "needs a built graph library, run by hand"]
+    async fn rust_graph_firing_in_a_worker_and_in_the_agent() {
+        let library = PathBuf::from(
+            std::env::var_os("CLOACINA_AGENT_TEST_GRAPH_LIB")
+                .expect("CLOACINA_AGENT_TEST_GRAPH_LIB"),
+        );
+        let reactor = std::env::var("CLOACINA_AGENT_TEST_GRAPH_RX").unwrap_or_default();
+        let cache: HashMap<String, serde_json::Value> = serde_json::from_str(
+            &std::env::var("CLOACINA_AGENT_TEST_GRAPH_CACHE").unwrap_or_else(|_| "{}".into()),
+        )
+        .unwrap();
+        let settings = test_settings("rust-graph", fast_watchdog(AgentMemory::Unknown));
+        let firing = |name: &str, inline: bool| {
+            let mut one = graph_job(name, None);
+            one.package.digest = format!("rust-graph-{}", std::process::id());
+            one.package.library = Some(library.clone());
+            one.packet.graph_name = reactor.clone();
+            one.packet.cache = cache
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string()))
+                .collect();
+            one.packet.inline = inline;
+            one
+        };
+        let rounds = 20;
+        let mut times = [Vec::new(), Vec::new()];
+        let mut outputs = [None, None];
+        for (slot, inline) in [(0, false), (1, true)] {
+            for n in 0..rounds {
+                let at = std::time::Instant::now();
+                let end = run_graph_here_or_in_worker(
+                    firing(&format!("rg-{slot}-{n}"), inline),
+                    &settings,
+                )
+                .await;
+                times[slot].push(at.elapsed());
+                outputs[slot] = Some(success(end));
+            }
+            times[slot].sort();
+        }
+        assert_eq!(
+            outputs[0], outputs[1],
+            "the same outputs in a worker and inline"
+        );
+        println!(
+            "rust graph firing outputs: {}",
+            outputs[0].as_ref().unwrap()
+        );
+        for (slot, label) in [(0, "in a worker"), (1, "in the agent process")] {
+            println!(
+                "rust graph firing {label} over {rounds} runs: min {:?}, median {:?}, max {:?}",
+                times[slot][0],
+                times[slot][rounds / 2],
+                times[slot][rounds - 1]
+            );
+        }
+    }
+
     // ── A worker that dies fails its own task only ────────────────────────
 
     #[cfg(unix)]
@@ -1436,8 +1914,11 @@ pub(crate) mod tests {
         drop(result_write);
 
         let mut stdin = child.stdin.take().unwrap();
-        let mut line =
-            serde_json::to_vec(&job("orphan", TestAction::Block { ms: 60_000 })).unwrap();
+        let mut line = serde_json::to_vec(&WorkerInput::Task(job(
+            "orphan",
+            TestAction::Block { ms: 60_000 },
+        )))
+        .unwrap();
         line.push(b'\n');
         stdin.write_all(&line).unwrap();
         stdin.flush().unwrap();
@@ -1482,11 +1963,14 @@ pub(crate) mod tests {
     fn a_task_request_is_its_limit_and_no_request_gets_the_share() {
         let mut settings = WorkerSettings::unlimited(PathBuf::from("/nonexistent"));
         let mut asked = job("limit", TestAction::Crash).packet;
-        assert_eq!(settings.memory_limit_of(&asked), None);
+        assert_eq!(settings.memory_limit_for(asked.memory_bytes), None);
         settings.default_memory_limit = default_memory_share(Some(3 << 30), 4);
-        assert_eq!(settings.memory_limit_of(&asked), Some(768 << 20));
+        assert_eq!(
+            settings.memory_limit_for(asked.memory_bytes),
+            Some(768 << 20)
+        );
         asked.memory_bytes = Some(2 << 30);
-        assert_eq!(settings.memory_limit_of(&asked), Some(2 << 30));
+        assert_eq!(settings.memory_limit_for(asked.memory_bytes), Some(2 << 30));
         assert_eq!(default_memory_share(None, 4), None);
         assert_eq!(default_memory_share(Some(1 << 30), 0), Some(1 << 30));
     }

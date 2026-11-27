@@ -79,6 +79,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. A graph firing sent to an agent gets this limit too. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
+| `CLOACINA_FLEET_GRAPH_FIRINGS` | `--fleet-graph-firings` | `inline` | Where an agent runs a computation-graph firing: `inline` (in the agent process) or `worker` (a worker process with the limits, time limit and cancel of a task). Any other value stops the server at start. |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `--fleet-artifact-fetch-wait-s` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The time counts from the first refused fetch of the attempt. The task is dispatched again after a delay of 2 s that grows to 30 s, and uses no retry attempt. After the limit the attempt fails with an error that names the artifact fetch, and the task's retry policy decides what follows. `0`: the first failed fetch fails the attempt. |
 | `CLOACINA_CONTEXT_WARN_BYTES` | `--context-warn-bytes` | `1048576` (1 MiB) | Size in bytes above which a task context (the one a task returns, or the one built for a task) is logged as a warning with the task, the size and the largest keys, and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. |
 | `CLOACINA_CONTEXT_MAX_BYTES` | `--context-max-bytes` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. The context is not saved. One setting for the whole server. `0` turns the limit off. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
@@ -113,6 +114,7 @@ The Helm chart `cloacina-server` sets these variables from its values:
 | `CLOACINA_CONTEXT_MAX_BYTES` | `context.maxBytes` | `16777216` |
 | `CLOACINA_MAX_PACKAGE_BYTES` | `packages.maxPackageBytes` | `104857600` |
 | `CLOACINA_MAX_UNPACKED_BYTES` | `packages.maxUnpackedBytes`; also set on the chart's compiler | `524288000` |
+| `CLOACINA_FLEET_GRAPH_FIRINGS` | `fleet.graphFirings` | `inline` |
 | `CLOACINA_ALERT_WEBHOOK_URL` | `alertWebhook.url`, or `alertWebhook.urlSecretRef` (an existing Secret) | not set |
 | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `alertWebhook.events` | `[failed]` |
 | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `alertWebhook.timeoutSeconds` | `10` |
@@ -542,6 +544,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | Server | Longest time limit a fleet task can get (default `86400`) |
+| `CLOACINA_FLEET_GRAPH_FIRINGS` | Server | Where agents run graph firings: `inline` or `worker` (default `inline`) |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | Server | How long a fleet task waits, per attempt, while agents cannot fetch its package artifact (default `300`) |
 | `CLOACINA_CONTEXT_WARN_BYTES` | Server | Size above which a task context is logged and counted (default `1048576`; `0` = off) |
 | `CLOACINA_CONTEXT_MAX_BYTES` | Server | Largest size of a task context; a larger one fails its task (default `16777216`; `0` = off) |

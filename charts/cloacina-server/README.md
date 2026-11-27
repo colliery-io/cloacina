@@ -71,6 +71,7 @@ The chart fails fast if you don't configure exactly one of:
 | `fleetTaskTimeLimits.artifactFetchWaitSeconds` | `300` | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact; `0` = the first failed fetch fails the attempt (`CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S`) |
 | `packages.maxPackageBytes` | `104857600` | The largest package archive, in bytes, that an upload accepts (`CLOACINA_MAX_PACKAGE_BYTES`) |
 | `packages.maxUnpackedBytes` | `524288000` | The largest size, in bytes, that a package archive may unpack to; set on the server and on the chart's compiler (`CLOACINA_MAX_UNPACKED_BYTES`) |
+| `fleet.graphFirings` | `inline` | Where an agent runs a graph firing: `inline` in the agent process, or `worker` in a worker process with the limits, time limit and cancel of a task; any other value stops the server (`CLOACINA_FLEET_GRAPH_FIRINGS`) |
 | `alertWebhook.url` | `""` | URL that gets a JSON `POST` when a run ends; empty = off (`CLOACINA_ALERT_WEBHOOK_URL`) |
 | `alertWebhook.urlSecretRef.name` / `.key` | `""` / `url` | Existing Secret that holds the URL; used in place of `alertWebhook.url` |
 | `alertWebhook.events` | `[failed]` | Run outcomes that send an alert: `failed`, `completed`, `cancelled`, `all` (`CLOACINA_ALERT_WEBHOOK_EVENTS`) |

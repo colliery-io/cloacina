@@ -425,6 +425,8 @@ pub async fn run(
     // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
     // A task with a limit of its own gets that limit, capped at the maximum.
     fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
+    // CLOACINA-T-1125: where an agent runs a graph firing (inline by default).
+    fleet_graph_firings: crate::fleet_graph_executor::GraphFiringExecution,
     // CLOACINA-T-1064: how long a fleet task waits, per attempt, while agents
     // cannot fetch its package artifact. Zero: no wait.
     fleet_artifact_fetch_wait: std::time::Duration,
@@ -1543,7 +1545,10 @@ pub async fn run(
                 )
                 // CLOACINA-T-1039: a graph firing gets the server's default
                 // fleet time limit, like a task that sets none.
-                .with_task_time_limits(fleet_task_time_limits);
+                .with_task_time_limits(fleet_task_time_limits)
+                // CLOACINA-T-1125: inline in the agent process, or a worker.
+                .with_firing_execution(fleet_graph_firings);
+                info!(graph_firings = ?fleet_graph_firings, "where agents run graph firings");
                 state
                     .graph_scheduler
                     .set_graph_executor(Arc::new(graph_fleet))

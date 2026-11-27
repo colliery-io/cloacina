@@ -290,7 +290,7 @@ lines and the link from a task to your log stack. See
 
 ### Fleet agent liveness (`cloacina-server`)
 
-These flags tune the [execution-agent fleet](../../explanation/service/execution-agent-fleet/) and the task context. They live on the `cloacina-server` binary (and via the env vars below). `cloacinactl server start` takes each of them, and the key of the same name in snake case of `[server]` in `config.toml` (for example `agent_liveness_misses = 4`, `fleet_artifact_fetch_wait_s = 120`).
+These flags tune the [execution-agent fleet](../../explanation/service/execution-agent-fleet/) and the task context. They live on the `cloacina-server` binary (and via the env vars below). `cloacinactl server start` takes each of them, and the key of the same name in snake case of `[server]` in `config.toml` (for example `agent_liveness_misses = 4`, `fleet_artifact_fetch_wait_s = 120`, `fleet_graph_firings = "worker"`).
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
@@ -298,6 +298,7 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
 | `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own, and of a graph firing sent to an agent. CLOACINA-T-1014. |
 | `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
+| `--fleet-graph-firings <inline\|worker>` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` in the agent process, `worker` in a worker process with the limits, time limit and cancel of a task. Any other value stops the server at start. CLOACINA-T-1125. |
 | `--fleet-artifact-fetch-wait-s <N>` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The task is dispatched again after a delay (2 s, growing to 30 s) and uses no retry attempt. After the limit the attempt fails. `0`: the first failed fetch fails the attempt. CLOACINA-T-1064. |
 | `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
 | `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |

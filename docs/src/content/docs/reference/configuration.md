@@ -39,6 +39,7 @@ command-line flags (most also accept an environment variable). The
 | `--agent-liveness-misses` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Missed heartbeats before an agent is considered dead (dead-after = interval × misses). |
 | `--fleet-task-timeout-s` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
 | `--fleet-task-timeout-max-s` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get; a task that asks for more gets this value. |
+| `--fleet-graph-firings` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` or `worker`. |
 | `--fleet-artifact-fetch-wait-s` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact; after that the attempt fails. `0`: the first failed fetch fails the attempt. |
 | `--context-warn-bytes` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` (1 MiB) | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` = no warning. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
 | `--context-max-bytes` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails and is not retried. One setting for the whole server, not per tenant. `0` = no limit. |

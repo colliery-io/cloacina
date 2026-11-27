@@ -386,7 +386,10 @@ what happens when an attempt fails.
   to an agent carries `--fleet-task-timeout-s`, and the server waits for its
   result for that limit plus 30 seconds, then reports the firing as failed. A
   graph has no time limit of its own, and the maximum does not apply to it.
-  The agent does not stop a firing at the limit.
+  By default an agent runs a firing inline and does not stop it at the limit.
+  With `--fleet-graph-firings worker` the agent kills the firing's worker at
+  the limit, as it does a task's, and the server sends a cancel when its wait
+  ends.
 - **The retry policy is the task's own.** `retry_attempts`, `retry_condition`
   and the backoff settings of the task apply on the fleet as they do in
   process. `retry_attempts = 0` or `retry_condition = "never"` gives one
@@ -665,8 +668,6 @@ to clean up. A slot is free when the worker process has exited.
 - **A process that leaves.** A process the task starts in a new session
   leaves the worker's process group. It is still counted for the memory limit
   while its parents live, and it is not killed with the worker.
-- **Graph firings.** A computation graph firing runs in the agent process,
-  with no worker, no memory limit and no kill.
 - **Systems other than Linux.** macOS has the memory watchdog, the time limit
   and the cancel; it has no `setrlimit` limits and no out-of-memory score.
 
@@ -688,6 +689,45 @@ debug build): a worker with no package starts, answers and exits in about
 13 ms; a Python task with one small module and no dependencies takes about
 100 ms from the start of the worker to its result. A Python worker also
 unpacks the package for each task.
+
+**Graph firings.** The server setting `--fleet-graph-firings`
+(`CLOACINA_FLEET_GRAPH_FIRINGS`, chart value `fleet.graphFirings`) says where
+an agent runs a computation-graph firing:
+
+- **`inline` (the default).** The agent runs the firing in its own process, as
+  an inline task: the package is loaded one time and kept. A firing has no
+  memory limit and is not killed; a crash in it takes the agent down.
+- **`worker`.** The agent runs each firing in a worker process, with the rows
+  of the table above. The agent fetches the package; the worker loads it (a
+  Rust graph: its library; a Python graph: the import, with the package's
+  providers), runs the graph on the reactor's input snapshot, and hands back
+  the outputs. Any other value stops the server at start.
+
+Why inline is the default: a firing in a worker pays the start of a worker and
+the load of its package each time, and a reactor waits for each firing before
+the next. Measured on a development machine (Apple silicon, a debug build, the
+test binary as the worker), a firing of a small Rust routing graph took about
+210 ms in a worker, most of it the load of the library, and about 0.2 ms
+inline once the library was loaded. The agent that runs a firing belongs to
+the firing's tenant, so an inline firing shares a process with that tenant's
+own work only.
+
+Either way, accumulators, the input cache and the reactor's state stay on the
+server, and a firing carries no secrets. Its time limit is the server's
+default (`--fleet-task-timeout-s`). With `worker`:
+
+- its memory limit is the share of a task with no request: a graph has no
+  memory request;
+- a cancel names the firing, and the agent kills that worker;
+- the errors name a firing: `graph firing exceeded its memory limit of
+  <limit>`, `graph firing exceeded timeout of <n>s`. The reactor gets the
+  error as a failed firing and does not run the firing again in-process.
+
+The setting rides in the graph packet as `inline`. An agent from before this
+field runs every firing in its own process and acks a cancel and does nothing
+with it. A server from before it sends no `inline`, so the agent runs each
+firing in a worker; it sends no cancel for a firing, and the agent still kills
+the firing's worker at its time limit.
 
 ### Which waiting task gets the room that frees
 

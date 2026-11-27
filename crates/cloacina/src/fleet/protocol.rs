@@ -384,6 +384,12 @@ pub struct GraphWorkPacket {
     /// `firing_id` as the execution id.
     #[serde(default)]
     pub secret_key_id: Option<String>,
+    /// CLOACINA-T-1125 — run the firing in the agent process, with no worker
+    /// process, no memory limit and no kill. `false` (and a server from
+    /// before the field) ⇒ the agent runs the firing in a worker process.
+    /// The server sets it from `--fleet-graph-firings` (default `inline`).
+    #[serde(default)]
+    pub inline: bool,
 }
 
 /// Reference to a workflow artifact (cdylib) the agent must fetch + load.
@@ -695,6 +701,21 @@ mod tests {
         assert_eq!(back.reason, "");
         assert_ne!(CANCEL_PACKET_KIND, WORK_PACKET_KIND);
         assert_ne!(CANCEL_PACKET_KIND, GRAPH_PACKET_KIND);
+    }
+
+    /// CLOACINA-T-1125: a graph packet from a server before `inline` runs
+    /// in a worker; the field rides the wire when set.
+    #[test]
+    fn a_graph_packet_with_no_inline_field_is_not_inline() {
+        let older = r#"{"protocol_version":1,"firing_id":"f1","graph_name":"g","cache":{},
+            "artifact":{"digest":"d","fetch_url":"/v1/agent/artifact/d","build_target_triple":"t"},
+            "timeout_seconds":60,"tenant_id":null}"#;
+        let mut p: GraphWorkPacket = serde_json::from_str(older).unwrap();
+        assert!(!p.inline);
+        p.inline = true;
+        let back: GraphWorkPacket =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert!(back.inline);
     }
 
     #[test]
