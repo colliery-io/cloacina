@@ -4077,7 +4077,7 @@
           }
         ],
         "requestBody": {
-          "description": "The first file field is taken as the .cloacina package",
+          "description": "The `file` field is the .cloacina package. The optional `signature` field is its detached signature; a server that requires signed packages refuses an upload without it",
           "content": {
             "multipart/form-data": {
               "schema": {
@@ -4099,7 +4099,7 @@
             }
           },
           "400": {
-            "description": "Invalid or empty package",
+            "description": "Invalid or empty package, or a `signature` field that is not a detached signature (`malformed_signature`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4119,7 +4119,7 @@
             }
           },
           "403": {
-            "description": "Tenant/role denied or signature verification failed",
+            "description": "Tenant/role denied, or the signature check refused the upload: `signature_required`, `package_tampered`, `untrusted_signer`, `signer_revoked`, `invalid_signature`",
             "content": {
               "application/json": {
                 "schema": {
@@ -8215,7 +8215,7 @@
       },
       "PackageUploadForm": {
         "type": "object",
-        "description": "Multipart form for workflow package upload. Spec-only type: the handler\naccepts the first file field regardless of name; `file` is the\nconventional field name.",
+        "description": "Multipart form for workflow package upload. Spec-only type: the handler\nreads the fields `file` and `signature` by name.",
         "required": [
           "file"
         ],
@@ -8225,6 +8225,10 @@
             "format": "binary",
             "description": "The `.cloacina` package archive.",
             "contentMediaType": "application/octet-stream"
+          },
+          "signature": {
+            "type": "string",
+            "description": "The detached signature of the archive: the JSON text of the `.sig`\nfile that `cloacinactl package pack --sign` writes (`version`,\n`algorithm`, `package_hash`, `key_fingerprint`, `signature`,\n`signed_at`). Ed25519 over the SHA-256 of the archive. Needed when the\nserver requires signed packages; checked whenever it is sent.\nLeft out of an upload with no signature: the field has no null value."
           }
         }
       },

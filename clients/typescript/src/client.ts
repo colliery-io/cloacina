@@ -484,10 +484,17 @@ export class CloacinaClient {
   /**
    * Upload a `.cloacina` package (multipart). `pkg` may be a Blob/File or
    * raw bytes.
+   *
+   * `signature` is the detached signature of the package: the JSON text of
+   * the `.sig` file that `cloacinactl package pack --sign` writes (Ed25519
+   * over the SHA-256 of the package). It is sent as the `signature` field. A
+   * server that requires signed packages refuses an upload without it
+   * (`signature_required`).
    */
   async uploadWorkflow(
     pkg: Blob | Uint8Array,
     tenant?: string,
+    signature?: string,
   ): Promise<schemas["WorkflowUploadedResponse"]> {
     const blob =
       pkg instanceof Blob
@@ -497,6 +504,9 @@ export class CloacinaClient {
           });
     const form = new FormData();
     form.set("file", blob, "package.cloacina");
+    if (signature !== undefined) {
+      form.set("signature", signature);
+    }
     return unwrap(
       await this.api.POST("/v1/tenants/{tenant_id}/workflows", {
         params: { path: { tenant_id: this.#tenant(tenant) } },
