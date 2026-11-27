@@ -189,6 +189,13 @@ While a server sends tasks to the fleet (`--default-executor fleet`), its
 stale-claim sweep leaves rows with a recorded dispatch to the fleet executor.
 A server that does not use the fleet sweeps them as any stale claim.
 
+The executor records the runner of its claim with the dispatch, and a
+takeover moves it with the claim. A replica takes over only a dispatch
+recorded under the claim it finds stale. A row whose claim another runner
+took without recording a dispatch, or a row with no runner recorded, names a
+dispatch that is not the live one of its claim: the stale-claim sweep makes it
+`Ready` as any stale claim.
+
 Each takeover is counted in `cloacina_fleet_dispatches_taken_over_total`, by
 `outcome`.
 
@@ -202,8 +209,12 @@ Limits:
 - During the roll that first brings this, the replicas of the older version
   record no dispatch, and their stale-claim sweep makes a stale fleet task
   `Ready` after 60 s as before. A task dispatched by a new replica can be swept
-  by an old replica before a new one takes it over. From the next roll on,
-  every replica takes over.
+  by an old replica before a new one takes it over. An old replica that then
+  sends the task again leaves the new replica's record on the row; the record
+  is not under its claim, so no new replica waits for that older dispatch
+  when the old replica stops: the sweep makes the task `Ready` and it is sent
+  again. In that roll a fleet task can run twice, as before. From the next
+  roll on, every replica takes over.
 - A graph firing has no task row and no claim: a replica that stops ends its
   firings, as before.
 
