@@ -590,11 +590,12 @@ pub fn unpack_provider_archive(
     let archive = archive.as_ref();
     let dest = dest.as_ref();
 
-    let pkg_dir = fidius_core::package::unpack_package(archive, dest).map_err(|e| {
-        LoaderError::Validation {
-            reason: format!("unpack provider package '{}': {e}", archive.display()),
-        }
-    })?;
+    let pkg_dir =
+        cloacina_workflow_plugin::unpack_limit::unpack_package(archive, dest).map_err(|e| {
+            LoaderError::Validation {
+                reason: format!("unpack provider package '{}': {e}", archive.display()),
+            }
+        })?;
 
     if !verify_keys.is_empty() {
         fidius_host::package::verify_package(&pkg_dir, verify_keys).map_err(|e| {

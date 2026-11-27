@@ -299,9 +299,26 @@ size of the upload and the limit. Each platform adds its own copy of the
 dependencies; `--arch` vendors for one architecture.
 
 An archive is also limited in what it unpacks to: 500 MiB, 10,000 files and
-folders, and 10 times its own size. These limits are fixed. `package validate`
-and `package pack` refuse a package source over the first two, and the server
-refuses an archive over any of them.
+folders, and 10 times its own size. The first limit is a setting:
+`--max-unpacked-bytes` or `CLOACINA_MAX_UNPACKED_BYTES`, in bytes. The other
+two are fixed. `package validate` and `package pack` refuse a package source
+over the first two, and the server refuses an archive over any of them.
+
+Every process that unpacks the archive reads the setting, so a package over
+500 MiB needs the same value in each of them:
+
+| Process | How to set it |
+|---|---|
+| `cloacina-server` | `--max-unpacked-bytes` or `CLOACINA_MAX_UNPACKED_BYTES` (with `--max-package-bytes` when the archive is over 100 MiB) |
+| `cloacina-compiler` | `--max-unpacked-bytes` or `CLOACINA_MAX_UNPACKED_BYTES` |
+| `cloacina-agent` | `--max-unpacked-bytes` or `CLOACINA_MAX_UNPACKED_BYTES`. An agent that the server's fleet actuator starts gets the server's value. |
+| `cloacinactl package validate`, `pack`, `publish` | `--max-unpacked-bytes` or `CLOACINA_MAX_UNPACKED_BYTES` |
+| `cloacinactl daemon`, `cloacinactl server start`, an embedded engine | `CLOACINA_MAX_UNPACKED_BYTES` |
+
+For example, a package with pyarrow, duckdb and pyiceberg vendored for both
+architectures is 549 MiB unpacked in a 157 MiB archive: it needs
+`CLOACINA_MAX_UNPACKED_BYTES=629145600` (600 MiB) everywhere and
+`CLOACINA_MAX_PACKAGE_BYTES=209715200` (200 MiB) on the server.
 
 ### A `vendor/` folder filled by hand
 

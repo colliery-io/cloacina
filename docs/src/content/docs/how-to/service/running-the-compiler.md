@@ -186,6 +186,7 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 | `--build-rlimit-mem` | `CLOACINA_COMPILER_BUILD_RLIMIT_MEM` | `4G` |
 | `--build-rlimit-files` | `CLOACINA_COMPILER_BUILD_RLIMIT_FILES` | 1024 |
 | `--build-rlimit-procs` | `CLOACINA_COMPILER_BUILD_RLIMIT_PROCS` | 256 |
+| `--max-unpacked-bytes` | `CLOACINA_MAX_UNPACKED_BYTES` | 524288000 (500 MiB) |
 | `--cargo-target-dir` | — | unset (per-build `target/`) |
 | `--tenant-schema` | `CLOACINA_TENANT_SCHEMA` | unset (public schema) |
 | `--build-target` | `CLOACINA_BUILD_TARGET` | unset (native host build) |

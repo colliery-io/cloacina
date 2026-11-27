@@ -82,11 +82,10 @@ pub fn detect_package_kind(archive_data: &[u8]) -> Result<PackageKind, LoaderErr
     })?;
 
     let source_dir =
-        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
-            LoaderError::MetadataExtraction {
+        cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+            .map_err(|e| LoaderError::MetadataExtraction {
                 reason: format!("Failed to unpack source archive: {e}"),
-            }
-        })?;
+            })?;
 
     let manifest =
         fidius_core::package::load_manifest::<cloacina_workflow_plugin::CloacinaMetadata>(
@@ -142,12 +141,11 @@ pub fn extract_python_package(
     })?;
 
     let source_dir =
-        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
-            LoaderError::FileSystem {
+        cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+            .map_err(|e| LoaderError::FileSystem {
                 path: archive_path.display().to_string(),
                 error: format!("Failed to unpack source archive: {e}"),
-            }
-        })?;
+            })?;
 
     // Read package.toml
     let manifest =
