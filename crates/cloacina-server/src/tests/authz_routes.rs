@@ -49,16 +49,43 @@ fn call(method: &str, uri: &str, token: &str) -> axum::http::Request<Body> {
         .unwrap()
 }
 
-async fn status_of(state: &AppState, method: &str, uri: &str, token: &str) -> StatusCode {
-    send_request(build_router(state.clone()), call(method, uri, token))
-        .await
-        .0
+async fn answer_of(
+    state: &AppState,
+    method: &str,
+    uri: &str,
+    token: &str,
+) -> (StatusCode, serde_json::Value) {
+    send_request(build_router(state.clone()), call(method, uri, token)).await
 }
 
+async fn status_of(state: &AppState, method: &str, uri: &str, token: &str) -> StatusCode {
+    answer_of(state, method, uri, token).await.0
+}
+
+/// The codes of a refusal by the authorization check (`deny_response`). A
+/// handler has its own 403s with other codes: a reactor or an accumulator
+/// with no policy answers `reactor_op_denied` or `accumulator_access_denied`.
+const CHECK_REFUSALS: [&str; 3] = [
+    "insufficient_permissions",
+    "admin_required",
+    "tenant_access_denied",
+];
+
 /// True when the authorization check let the request through: the handler
-/// may still refuse the empty body or not find the name.
-fn passed(status: StatusCode) -> bool {
-    status != StatusCode::FORBIDDEN && status != StatusCode::UNAUTHORIZED
+/// may still refuse the empty body, not find the name, or refuse by the
+/// policy of the endpoint.
+fn passed(answer: &(StatusCode, serde_json::Value)) -> bool {
+    let (status, body) = answer;
+    match *status {
+        StatusCode::UNAUTHORIZED => false,
+        StatusCode::FORBIDDEN => !CHECK_REFUSALS.contains(&body["code"].as_str().unwrap_or("")),
+        _ => true,
+    }
+}
+
+/// True when the authorization check refused the request for its role.
+fn refused_for_role(answer: &(StatusCode, serde_json::Value)) -> bool {
+    answer.0 == StatusCode::FORBIDDEN && answer.1["code"] == "insufficient_permissions"
 }
 
 async fn audit_rows_of(state: &AppState, admin: &str, actor: &str) -> Vec<serde_json::Value> {
@@ -89,8 +116,8 @@ async fn test_an_agent_key_reaches_the_agent_routes_and_nothing_else() {
         ("POST", "/v1/agent/result"),
         ("POST", "/v1/auth/ws-ticket"),
     ] {
-        let status = status_of(&state, method, uri, &agent).await;
-        assert!(passed(status), "{method} {uri}: {status}");
+        let answer = answer_of(&state, method, uri, &agent).await;
+        assert!(passed(&answer), "{method} {uri}: {answer:?}");
     }
 
     // Everything else: 403.
@@ -163,21 +190,21 @@ async fn test_read_cannot_fire_inject_or_push_and_write_can() {
         // The accumulator socket: every frame is an inject.
         ("GET", "/v1/ws/accumulator/no-such-accumulator"),
     ] {
-        assert_eq!(
-            status_of(&state, method, uri, &reader).await,
-            StatusCode::FORBIDDEN,
-            "read: {method} {uri}"
+        let answer = answer_of(&state, method, uri, &reader).await;
+        assert!(
+            refused_for_role(&answer),
+            "read: {method} {uri}: {answer:?}"
         );
-        let status = status_of(&state, method, uri, &writer).await;
-        assert!(passed(status), "write: {method} {uri}: {status}");
+        let answer = answer_of(&state, method, uri, &writer).await;
+        assert!(passed(&answer), "write: {method} {uri}: {answer:?}");
     }
     // A reader still reads, and may connect to a reactor to read its state.
     assert_eq!(
         status_of(&state, "GET", "/v1/health/graphs", &reader).await,
         StatusCode::OK
     );
-    let status = status_of(&state, "GET", "/v1/ws/reactor/no-such-reactor", &reader).await;
-    assert!(passed(status), "{status}");
+    let answer = answer_of(&state, "GET", "/v1/ws/reactor/no-such-reactor", &reader).await;
+    assert!(passed(&answer), "{answer:?}");
 
     // The refusals are in the audit record.
     let rows = audit_rows_of(&state, &admin, &reader_name).await;

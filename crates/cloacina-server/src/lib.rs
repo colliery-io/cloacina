@@ -6074,8 +6074,8 @@ mod tests {
         (status, body)
     }
 
-    /// Two tenants and the public schema, each with one package, and a key of
-    /// each tenant.
+    /// Two tenants and the public schema, each with one package, and an `agent`
+    /// key of each tenant and of `public`.
     struct FetchTenants {
         state: AppState,
         admin_token: String,
@@ -6083,6 +6083,7 @@ mod tests {
         schema_b: String,
         key_a: String,
         key_b: String,
+        key_public: String,
         pkg_a: SeededFetchPackage,
         pkg_b: SeededFetchPackage,
         pkg_public: SeededFetchPackage,
@@ -6122,8 +6123,11 @@ mod tests {
         let pkg_b = seed_fetch_package(&db_b, "b").await;
         let pkg_public = seed_fetch_package(&state.database, "public").await;
 
-        let key_a = create_tenant_api_key(&state, &schema_a, "read").await;
-        let key_b = create_tenant_api_key(&state, &schema_b, "read").await;
+        // The fetch routes ask `agent.act`: only a key of role `agent` holds
+        // it (CLOACINA-T-1055).
+        let key_a = create_tenant_api_key(&state, &schema_a, "agent").await;
+        let key_b = create_tenant_api_key(&state, &schema_b, "agent").await;
+        let key_public = create_tenant_api_key(&state, "public", "agent").await;
 
         FetchTenants {
             state,
@@ -6132,6 +6136,7 @@ mod tests {
             schema_b,
             key_a,
             key_b,
+            key_public,
             pkg_a,
             pkg_b,
             pkg_public,
@@ -6201,7 +6206,8 @@ mod tests {
     /// CLOACINA-T-1016: a key of a named tenant gets its own package on all
     /// three routes. Before the fix the source and providers routes read the
     /// admin schema, so a named tenant's Python package could not be fetched.
-    /// The platform admin key still reads the public schema.
+    /// An agent key of the `public` tenant reads the public schema. The
+    /// platform admin key is not an agent (CLOACINA-T-1055): 403.
     #[tokio::test]
     #[serial]
     async fn agent_fetch_routes_serve_the_callers_own_tenant() {
@@ -6211,7 +6217,7 @@ mod tests {
         for (who, key, pkg) in [
             ("tenant A", &t.key_a, &t.pkg_a),
             ("tenant B", &t.key_b, &t.pkg_b),
-            ("platform admin", &t.admin_token, &t.pkg_public),
+            ("public", &t.key_public, &t.pkg_public),
         ] {
             let (status, body) =
                 agent_get(&t.state, key, &format!("/v1/agent/artifact/{}", pkg.digest)).await;
@@ -6242,15 +6248,29 @@ mod tests {
             );
         }
 
-        // The platform admin key reads the admin schema only: a tenant's
-        // digest is not there.
+        // A key of the `public` tenant reads the admin schema only: a
+        // tenant's digest is not there.
         let (status, _) = agent_get(
             &t.state,
-            &t.admin_token,
+            &t.key_public,
             &format!("/v1/agent/source/{}", t.pkg_a.digest),
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // The platform admin flag does not grant `agent.act`, and neither
+        // does a tenant's `read` key: no fetch, on any of the three routes.
+        let reader = create_tenant_api_key(&t.state, &t.schema_a, "read").await;
+        for route in AGENT_FETCH_ROUTES {
+            for (who, key, digest) in [
+                ("platform admin", &t.admin_token, &t.pkg_public.digest),
+                ("read key of tenant A", &reader, &t.pkg_a.digest),
+            ] {
+                let (status, _) =
+                    agent_get(&t.state, key, &format!("/v1/agent/{}/{}", route, digest)).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{}: {}", who, route);
+            }
+        }
 
         teardown_fetch_tenants(t).await;
     }
