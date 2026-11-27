@@ -236,7 +236,7 @@ set that a loader would refuse fails the build, with its size in the error.
 | `--python-platform <ARCH-OS>` (repeatable, or a comma-separated list) | `CLOACINA_COMPILER_PYTHON_PLATFORMS` | `aarch64-linux`, `x86_64-linux` | The platforms to vendor for: the platforms of the servers and agents that load Python packages. One of `aarch64-linux`, `x86_64-linux`, `aarch64-macos`, `x86_64-macos`, `x86_64-windows`. A package the compiler vendored loads on these platforms only. |
 | `--python-version <MAJOR.MINOR>` | `CLOACINA_COMPILER_PYTHON_VERSION` | `3.11` | The Python the wheels are for: the Python of the servers and agents (3.11 in the official images). A package whose `requires_python` excludes it fails to build. |
 | `--python-index-url <URL>` | `CLOACINA_COMPILER_PYTHON_INDEX_URL` | PyPI | The package index. The compiler gives it to `uv` in the environment (`UV_DEFAULT_INDEX`), not on the command line. For a URL with a password, set the variable and not the flag. |
-| `--python-wheel-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset | A folder of wheel files (`uv --find-links`). Wheels in it are used before a download. |
+| `--python-wheel-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset | A folder of wheel files (`uv --find-links`): one more place to find wheels, next to the index. The index is still read. With `--python-offline` it is the only source. |
 | `--python-uv-cache-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR` | `uv`'s own, under the home folder | The cache folder of `uv`. The compiler's user must be able to write to it. |
 | `--python-offline` | `CLOACINA_COMPILER_PYTHON_OFFLINE` | off | No network for Python builds (`uv --offline`). With a wheel folder, only the folder is read (`--no-index`). With no wheel folder, the `uv` cache must hold every wheel. The compiler does not start with `--python-offline` and neither a wheel folder nor a cache folder. |
 | `--uv <PATH>` | `CLOACINA_UV` | `uv` on `PATH` | The `uv` program. |
@@ -344,8 +344,9 @@ RUN for platform in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do \
 
 The compiler's user must be able to write to the cache folder.
 
-A wheel folder without `--python-offline` is a first source: the compiler
-uses the wheels in it and downloads the rest from the index.
+A wheel folder without `--python-offline` adds to the index: `uv` still reads
+the index for every distribution, and finds in the folder the wheels the index
+does not have (a private wheel, for example).
 
 ## Flag reference
 

@@ -309,7 +309,7 @@ published with a `requirements.lock` and no `vendor/` folder. Its settings
 | `--python-platform <ARCH-OS>` | `CLOACINA_COMPILER_PYTHON_PLATFORMS` | `aarch64-linux`, `x86_64-linux` | A platform to vendor for. Repeatable, or a comma-separated list. |
 | `--python-version <MAJOR.MINOR>` | `CLOACINA_COMPILER_PYTHON_VERSION` | `3.11` | The Python the wheels are for. |
 | `--python-index-url <URL>` | `CLOACINA_COMPILER_PYTHON_INDEX_URL` | PyPI | The package index. |
-| `--python-wheel-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset | A folder of wheel files, used before a download. |
+| `--python-wheel-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_WHEEL_DIR` | unset | A folder of wheel files: one more place to find wheels, next to the index. With `--python-offline`, the only source. |
 | `--python-uv-cache-dir <DIR>` | `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR` | `uv`'s own | The cache folder of `uv`. |
 | `--python-offline` | `CLOACINA_COMPILER_PYTHON_OFFLINE` | off | No network: every wheel comes from the wheel folder, or else from the `uv` cache. |
 | `--uv <PATH>` | `CLOACINA_UV` | `uv` on `PATH` | The `uv` program. |

@@ -228,8 +228,9 @@ struct Cli {
     python_index_url: Option<String>,
 
     /// Python packages: a folder of wheel files, for example one baked into
-    /// the compiler image. Wheels in it are used before a download. With
-    /// `--python-offline` it is the only source. CLOACINA-T-1073.
+    /// the compiler image. It is one more place to find wheels, next to the
+    /// index; the index is still read. With `--python-offline` it is the
+    /// only source. CLOACINA-T-1073.
     #[arg(long, env = "CLOACINA_COMPILER_PYTHON_WHEEL_DIR", value_name = "DIR")]
     python_wheel_dir: Option<PathBuf>,
 

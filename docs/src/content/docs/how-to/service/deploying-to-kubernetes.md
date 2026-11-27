@@ -212,7 +212,7 @@ for `aarch64-linux` and `x86_64-linux` and Python 3.11.
 | `compiler.python.platforms` | `[]` | The platforms to vendor for (`--python-platform`). Empty: `aarch64-linux` and `x86_64-linux` |
 | `compiler.python.version` | `""` | The Python the wheels are for (`--python-version`). Empty: `3.11` |
 | `compiler.python.indexUrl` | `""` | The package index (`CLOACINA_COMPILER_PYTHON_INDEX_URL`). Empty: PyPI. For a URL with a password, set the variable from a Secret through `compiler.extraEnv` |
-| `compiler.python.wheelDir` | `""` | A folder of wheel files in the compiler image (`--python-wheel-dir`) |
+| `compiler.python.wheelDir` | `""` | A folder of wheel files in the compiler image (`--python-wheel-dir`): one more source next to the index, or the only source with `offline` |
 | `compiler.python.offline` | `false` | No network for Python builds (`--python-offline`). Needs `wheelDir`, or a `uv` cache in the image |
 | `compiler.python.uvCacheDir` | `/tmp/uv-cache` | The cache folder of `uv` (`--python-uv-cache-dir`), on the pod's `/tmp` volume |
 
