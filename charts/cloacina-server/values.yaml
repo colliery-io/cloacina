@@ -253,8 +253,9 @@ retention:
   # CLOACINA_RUN_HISTORY_RETENTION_DAYS.
   runHistoryDays: 0
   # Seconds to keep a delivery_outbox row after it was acked. 0 keeps the rows
-  # for ever. CLOACINA_OUTBOX_ACKED_RETENTION_S.
-  outboxAckedSeconds: 3600
+  # for ever: set a period to turn the deletes on.
+  # CLOACINA_OUTBOX_ACKED_RETENTION_S.
+  outboxAckedSeconds: 0
   # Seconds between passes of the job. CLOACINA_RETENTION_INTERVAL_S.
   intervalSeconds: 300
 

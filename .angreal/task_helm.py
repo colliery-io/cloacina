@@ -210,7 +210,7 @@ def helm_lint():
         present=[
             _env("CLOACINA_DATABASE_WAIT_TIMEOUT_S", "60"),
             _env("CLOACINA_RUN_HISTORY_RETENTION_DAYS", "0"),
-            _env("CLOACINA_OUTBOX_ACKED_RETENTION_S", "3600"),
+            _env("CLOACINA_OUTBOX_ACKED_RETENTION_S", "0"),
             _env("CLOACINA_RETENTION_INTERVAL_S", "300"),
             _env("CLOACINA_FLEET_TASK_TIMEOUT_S", "300"),
             _env("CLOACINA_FLEET_TASK_TIMEOUT_MAX_S", "86400"),
