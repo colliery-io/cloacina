@@ -107,20 +107,43 @@ impossible on every path — the store keys every lookup by the tenant's `org_id
 and the same secret name in two tenants is two independent, isolated secrets.
 
 This is the same boundary the rest of Cloacina uses: the tenant *is* the
-isolation unit, and object-level authorization within a tenant is a deliberate
-non-goal — to isolate two workloads, give them separate tenants. Managing a
+isolation unit — to isolate two workloads, give them separate tenants. Inside
+a tenant, a task reads only the secrets its package declares (below). Managing a
 tenant's secrets (create / rotate / list / delete) is tenant-**admin**
 self-service; even a secret's field *names* are treated as sensitive, so reads
 are admin-gated.
 
-A per-package `secrets` allow-list also exists as **defense-in-depth**: on the
-embedded and constructor paths, an untrusted packaged workflow or WASM
-constructor is handed a fail-closed resolver restricted to the secret names it
-was granted, denying an ungranted name before any decrypt. This is a cheap extra
-gate where the grant is available — it is **not** a hard per-package security
-guarantee. The fleet path is tenant-scoped only. Treat "which secret a package
-may resolve" as belt-and-suspenders inside the tenant boundary, never as the
-boundary itself.
+## Inside a tenant: a task reads the secrets its package declares
+
+On `cloacina-server`, a task reads only the secrets its package declares. The
+compiler stores the declared names in the package's metadata document. The
+grant of a task is, for each declared name, the stored secret the run binds to
+it with a `$secret` reference, or the name itself when the run binds none.
+The bindings come from the run's first context, as the caller wrote it: a
+task cannot change them for a later task by writing the reserved key into its
+output.
+
+- **On the fleet**, the server sends an agent only the secrets of the grant.
+  A dispatch whose context names a secret outside the grant is refused before
+  anything is resolved. On the agent, a name the work packet does not carry is
+  refused.
+- **In the server process** (single trust), the server's resolver answers each
+  task only the names of its grant. Tenant code in the server process shares
+  the process and the server KEK, so this gate does not hold against code that
+  reads the process memory; on agents it does.
+- **A refusal** is `secret not granted: <name>: package <package> does not
+  declare it` (`PermissionError` in Python). The server writes an audit row,
+  action `secret.refused`, with the tenant, the secret name, the package, its
+  version, the task and the run. A refusal on an agent is in the task's error
+  and the agent's log.
+- **A package with no declaration** reads no secret: one with no metadata
+  document, and one built before `secrets(...)` that declares none.
+
+Embedded use and `cloacinactl daemon` keep the trusted resolver: the host owns
+the KEK and the code, and a task reads any secret of its tenant.
+
+A WASM constructor is handed a resolver restricted to the secret names its
+constructor grant lists, denying an ungranted name before any decrypt.
 
 ## Reads are metadata-only
 

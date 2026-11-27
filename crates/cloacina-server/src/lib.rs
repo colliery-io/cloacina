@@ -376,6 +376,9 @@ fn runner_config_for_tenant_cache(
     // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
     builder = builder.priority_aging_interval(priority_aging_interval_from_env());
     builder = builder.package_load_mode(package_load_mode);
+    // CLOACINA-T-1081: a tenant's in-process task reads only the secrets its
+    // package declares.
+    builder = builder.secret_grants(cloacina::security::SecretGrantMode::Declared);
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     builder = builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -969,6 +972,9 @@ pub async fn run(
     }
     runner_builder = runner_builder.default_executor(default_executor.clone());
     runner_builder = runner_builder.package_load_mode(package_load_mode);
+    // CLOACINA-T-1081: an in-process task reads only the secrets its package
+    // declares.
+    runner_builder = runner_builder.secret_grants(cloacina::security::SecretGrantMode::Declared);
     let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;
@@ -1014,6 +1020,10 @@ pub async fn run(
     // Registered before the first runner is made, which takes it then.
     cloacina::registry::register_task_placement_check(Arc::new(
         placement_check::PoolPlacementCheck::new(admin_database.clone()),
+    ));
+    // CLOACINA-T-1081: each refused request for a secret writes an audit row.
+    cloacina::security::register_secret_refusal_recorder(Arc::new(
+        secrets::AuditSecretRefusalRecorder::new(admin_database.clone()),
     ));
     let public_secret_resolver = secrets::runner_secret_resolver("public", &admin_database);
     let runner = DefaultRunner::with_database_secrets(
@@ -3350,18 +3360,32 @@ mod tests {
             state.tenant_databases.clone(),
         );
 
-        // The factory yields a resolver that resolves the granted-tenant secret.
+        // The factory yields a resolver that resolves a granted secret
+        // (CLOACINA-T-1081: only the names of the task's grant).
+        let granted: std::collections::BTreeSet<String> =
+            [name.clone(), "does_not_exist".to_string()].into();
         let resolver = factory
-            .resolver_for("public", "any_pkg")
+            .resolver_for("public", "any_pkg", &granted)
             .await
             .expect("factory yields a resolver when the KEK is configured");
         let resolved = resolver.resolve(&name).await.expect("resolve");
         assert_eq!(resolved.get("password").unwrap(), "fleet-e2e-secret");
 
-        // An absent name is NotFound (never a silent empty).
+        // An absent granted name is NotFound (never a silent empty).
         assert!(matches!(
             resolver.resolve("does_not_exist").await.unwrap_err(),
             cloacina::SecretResolverError::NotFound(_)
+        ));
+
+        // A stored secret outside the grant is refused before any decrypt.
+        let narrow: std::collections::BTreeSet<String> = ["other".to_string()].into();
+        let resolver = factory
+            .resolver_for("public", "any_pkg", &narrow)
+            .await
+            .expect("factory yields a resolver when the KEK is configured");
+        assert!(matches!(
+            resolver.resolve(&name).await.unwrap_err(),
+            cloacina::SecretResolverError::NotGranted(_)
         ));
 
         // Fail closed: with the KEK unset the factory yields NO resolver, so a
@@ -3369,7 +3393,10 @@ mod tests {
         // FIXME: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var(KEK_ENV_VAR) };
         assert!(
-            factory.resolver_for("public", "any_pkg").await.is_none(),
+            factory
+                .resolver_for("public", "any_pkg", &granted)
+                .await
+                .is_none(),
             "factory must fail closed (None) when CLOACINA_SECRET_KEK is unset"
         );
 

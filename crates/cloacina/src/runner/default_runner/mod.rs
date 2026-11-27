@@ -193,7 +193,9 @@ impl DefaultRunner {
         )
         // CLOACI-T-0858: thread the secret side channel so task contexts can
         // resolve secrets on the in-process execution path.
-        .with_secret_resolver(secret_resolver);
+        .with_secret_resolver(secret_resolver)
+        // CLOACINA-T-1081: the server reads only declared secrets.
+        .with_secret_grants(config.secret_grants());
 
         // Configure dispatcher for push-based task execution. Every task is sent
         // to the one configured executor key (CLOACI-T-0640).

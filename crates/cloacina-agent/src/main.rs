@@ -2705,12 +2705,16 @@ pub(crate) async fn run_job(
         ..
     } = job;
     let packet = &packet;
-    let secrets = (!secrets.is_empty()).then(|| InMemorySecretResolver::new(secrets).into_arc());
+    // CLOACINA-T-1081: the packet carries only the secrets the task's package
+    // declares; any other name the task asks for is refused.
+    let secrets = InMemorySecretResolver::new(secrets)
+        .refusing_unsent()
+        .into_arc();
 
     #[cfg(test)]
     if let Some(action) = test_action {
         started();
-        return worker::tests::run_test_action(action, secrets).await;
+        return worker::tests::run_test_action(action, Some(secrets)).await;
     }
 
     // 3. Resolve (or build) the per-package runtime, cached by digest.
@@ -2783,10 +2787,9 @@ pub(crate) async fn run_job(
     // 5b. The task's secrets, which the agent unwrapped: an in-memory resolver
     //     attached to the Context, so the task body reads them via
     //     `ctx.secret(name)`. The plain values live only in this resolver,
-    //     only for the run.
-    if let Some(resolver) = secrets {
-        context.set_secret_resolver(resolver);
-    }
+    //     only for the run. CLOACINA-T-1081: a name the packet does not carry
+    //     is refused.
+    context.set_secret_resolver(secrets);
 
     // 6. Execute inside the task's span (CLOACINA-T-1024): a log line written
     //    while the task runs carries the tenant, workflow, run, task, attempt

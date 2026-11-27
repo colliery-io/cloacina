@@ -258,6 +258,25 @@ server process. After an upgrade with the old values:
 - `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv` stops the server
   at start without `server.singleTrust=true`.
 
+### Upgrade note: a task reads only the secrets its package declares
+
+Before this release a task could read every secret of its tenant
+(CLOACINA-T-1081). After the upgrade:
+
+- A task reads, for each secret name its package declares (`secrets(...)` in
+  `#[workflow]`, `@cloaca.workflow_secrets(...)`), the stored secret the run
+  binds to it. Any other name answers `secret not granted`, on agents and in
+  the server process, with or without single trust.
+- A package that reads a secret it does not declare stops working until a new
+  version declares it. A package built before `secrets(...)` declares none
+  and reads no secret.
+- A package with no metadata document reads no secret. The compiler describes
+  older packages after the upgrade.
+- Each refusal by the server writes an audit row with the action
+  `secret.refused`, the secret name and the package: list them with
+  `GET /v1/tenants/{tenant}/audit?action=secret.refused` to find the
+  packages to change.
+
 ## Uninstall
 
 ```sh

@@ -1202,6 +1202,10 @@ pub struct DispatchPackage {
     /// Always `None` for a Rust package: its platforms are its per-target
     /// artifacts.
     pub python_platforms: Option<Vec<String>>,
+    /// CLOACINA-T-1081: the names of the secrets this version declares, from
+    /// its stored metadata document. `None` when the row has no document (not
+    /// described yet, or the describe failed), or the document does not read.
+    pub declared_secrets: Option<Vec<String>>,
 }
 
 impl DispatchPackage {
@@ -1215,14 +1219,38 @@ impl DispatchPackage {
         } else {
             python_platforms_of_metadata(&row.metadata)
         };
+        let declared_secrets = row
+            .metadata_document
+            .as_deref()
+            .and_then(declared_secrets_of_document);
         Self {
             package_id: row.id.0,
             version: row.version,
             content_hash: row.content_hash,
             language: if has_cdylib { "rust" } else { "python" }.to_string(),
             python_platforms,
+            declared_secrets,
         }
     }
+}
+
+/// CLOACINA-T-1081: the `declared_secrets` of a stored metadata document.
+/// `None` when the text is not a JSON object. A document with no
+/// `declared_secrets` key declares none.
+pub fn declared_secrets_of_document(document_json: &str) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_str(document_json).ok()?;
+    let object = value.as_object()?;
+    Some(
+        object
+            .get("declared_secrets")
+            .and_then(|v| v.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    )
 }
 
 /// CLOACINA-T-1048: the `python_platforms` of a stored `metadata` JSON.
@@ -1832,6 +1860,48 @@ mod tests {
 
         // A row that is gone is not an error.
         wp.set_python_platforms(Uuid::new_v4(), None).await.unwrap();
+    }
+
+    /// CLOACINA-T-1081: dispatch reads the declared secrets of the version
+    /// from its stored metadata document; no document reads as `None`.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_declared_secrets_reach_dispatch() {
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let id = store_built(&dal, "declares", "1.0.0", "digest-d", vec![1]).await;
+        assert_eq!(
+            wp.get_active_dispatch("declares", None)
+                .await
+                .unwrap()
+                .unwrap()
+                .declared_secrets,
+            None
+        );
+
+        let pid = UniversalUuid(id);
+        let document = serde_json::json!({
+            "format_version": 1,
+            "declared_secrets": ["warehouse", "api"],
+        })
+        .to_string();
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::metadata_document.eq(Some(document)))
+                .execute(conn)
+        })
+        .unwrap();
+        assert_eq!(
+            wp.get_active_dispatch("declares", None)
+                .await
+                .unwrap()
+                .unwrap()
+                .declared_secrets,
+            Some(vec!["warehouse".to_string(), "api".to_string()])
+        );
+
+        assert_eq!(declared_secrets_of_document("{}"), Some(Vec::new()));
+        assert_eq!(declared_secrets_of_document("not json"), None);
     }
 
     /// An execution runs all its tasks on the version its first task was
