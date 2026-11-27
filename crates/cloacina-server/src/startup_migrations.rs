@@ -119,6 +119,12 @@ pub async fn migrate_at_start(
         .map_err(StartMigrationError::Public)?;
 
     let admin = DatabaseAdmin::new(database.clone());
+    // `public`'s build role and its grants (CLOACINA-T-1063). A tenant
+    // schema gets its own with each migration run below.
+    admin
+        .ensure_build_role("public")
+        .await
+        .map_err(|e| StartMigrationError::Public(format!("build role of public: {e}")))?;
     let listed;
     let tenants: &[String] = match tenants {
         TenantSchemas::Named(names) => names,

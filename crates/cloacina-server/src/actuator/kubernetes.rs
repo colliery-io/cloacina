@@ -489,12 +489,14 @@ impl KubernetesActuator {
         mut self,
         ops: Arc<dyn super::compiler::CompilerKubeOps>,
         settings: super::compiler::CompilerSettings,
+        credentials: Arc<dyn super::compiler::BuildCredentials>,
     ) -> Self {
         self.compilers = Some(super::compiler::KubeCompilers::new(
             ops,
             settings,
             self.config.network_policy_enabled,
             self.config.dns_namespace.clone(),
+            credentials,
         ));
         self
     }
@@ -512,6 +514,9 @@ impl KubernetesActuator {
         compilers: Option<super::compiler::CompilerSettings>,
     ) -> Result<Self, ActuatorError> {
         let ops = Arc::new(KubeApiOps::in_cluster()?);
+        let credentials = Arc::new(super::compiler::AdminBuildCredentials::new(
+            database.clone(),
+        ));
         let actuator = Self {
             ops: ops.clone(),
             minter: Arc::new(DalKeyMinter::new(database.clone())),
@@ -520,7 +525,7 @@ impl KubernetesActuator {
             compilers: None,
         };
         Ok(match compilers {
-            Some(settings) => actuator.with_compilers(ops, settings),
+            Some(settings) => actuator.with_compilers(ops, settings, credentials),
             None => actuator,
         })
     }
