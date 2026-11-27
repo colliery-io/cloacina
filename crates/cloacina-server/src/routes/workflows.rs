@@ -48,13 +48,13 @@ use crate::routes::error::ApiError;
     request_body(
         content = crate::openapi::PackageUploadForm,
         content_type = "multipart/form-data",
-        description = "The first file field is taken as the .cloacina package"
+        description = "The `file` field is the .cloacina package. The optional `signature` field is its detached signature; a server that requires signed packages refuses an upload without it"
     ),
     responses(
         (status = 201, description = "Package registered", body = WorkflowUploadedResponse),
-        (status = 400, description = "Invalid or empty package", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "Invalid or empty package, or a `signature` field that is not a detached signature (`malformed_signature`)", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
-        (status = 403, description = "Tenant/role denied or signature verification failed", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant/role denied, or the signature check refused the upload: `signature_required`, `package_tampered`, `untrusted_signer`, `signer_revoked`, `invalid_signature`", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
@@ -79,14 +79,20 @@ pub async fn upload_workflow(
         return package_too_large(Some(size), limit).into_response();
     }
 
-    // Extract file from multipart
-    let package_data = match extract_file_field(&mut multipart).await {
-        Ok(data) => data,
-        Err(FileFieldError::TooLarge) => {
+    // Extract the file and the signature from multipart
+    let UploadFields {
+        file: package_data,
+        signature: signature_field,
+    } = match extract_upload_fields(&mut multipart).await {
+        Ok(fields) => fields,
+        Err(UploadFieldError::TooLarge) => {
             return package_too_large(declared, limit).into_response();
         }
-        Err(FileFieldError::Invalid(msg)) => {
+        Err(UploadFieldError::Invalid(msg)) => {
             return ApiError::bad_request("invalid_request", msg).into_response();
+        }
+        Err(UploadFieldError::MalformedSignature(msg)) => {
+            return ApiError::bad_request("malformed_signature", msg).into_response();
         }
     };
     if package_data.len() as u64 > limit {
@@ -97,80 +103,110 @@ pub async fn upload_workflow(
         return ApiError::bad_request("invalid_request", "empty package file").into_response();
     }
 
-    // Signature verification at upload time (T-0557; CLOACINA-A-0018).
+    // Signature verification at upload time (T-0557; CLOACINA-A-0018;
+    // CLOACINA-T-1062).
     //
-    // With `require_signatures` on, the signer of the upload must be a live
+    // The signature comes with the archive, as the `signature` field: a
+    // detached signature (Ed25519 over the SHA-256 of the archive). It is
+    // checked against the bytes of this request. The signer must be a live
     // trusted key of the tenant in the path, or of the server-wide org if one
-    // is set (`--verification-org-id`). The tenant's org is asked first. The
-    // signature is looked up by package hash in `package_signatures`
-    // (`SignatureSource::Database`).
-    if state.security_config.require_signatures {
-        let tenant_org = cloacina::security::tenant_org_id(&tenant_id);
-        let mut orgs = vec![tenant_org];
-        if let Some(server_org) = state.security_config.verification_org_id
-            && server_org != tenant_org
-        {
-            orgs.push(server_org);
+    // is set (`--verification-org-id`). The tenant's org is asked first.
+    //
+    // With `require_signatures` on, an upload with no signature is refused.
+    // With it off, an upload with no signature passes, and a signature that
+    // is sent is checked all the same: a bad one is refused.
+    let tenant_org = cloacina::security::tenant_org_id(&tenant_id);
+    // CLOACI-I-0103 / T-0568: route both success and failure through the
+    // structured audit log so deployments with a centralised log pipeline
+    // get a single, parseable record per upload. The human-readable
+    // info!/warn! lines stay because they carry message-level context
+    // operators tail in real time.
+    let audit_path = format!("upload:tenant={}", tenant_id);
+    let verified_signature = match signature_field {
+        None if state.security_config.require_signatures => {
+            let msg = "this server requires signed packages and the upload has no \
+                       'signature' field; sign the package and send its signature";
+            warn!("Package upload refused: no signature (tenant '{tenant_id}')");
+            audit::log_package_load_failure(tenant_org, &audit_path, msg, "signature_required");
+            return ApiError::forbidden("signature_required", msg).into_response();
         }
-        let dal = cloacina::dal::DAL::new(state.database.clone());
-        let package_signer = cloacina::security::DbPackageSigner::new(dal.clone());
-        let key_manager = cloacina::security::DbKeyManager::new(dal);
-        // CLOACI-I-0103 / T-0568: route both success and failure through the
-        // structured audit log so deployments with a centralised log pipeline
-        // get a single, parseable record per upload. The human-readable
-        // info!/warn! lines stay because they carry message-level context
-        // operators tail in real time.
-        let audit_path = format!("upload:tenant={}", tenant_id);
-        match cloacina::security::verify_package_bytes_for_orgs(
-            &package_data,
-            &orgs,
-            cloacina::security::SignatureSource::Database,
-            &package_signer,
-            &key_manager,
-        )
-        .await
-        {
-            // `trusted_by` is the org whose key list held the signer.
-            Ok((result, trusted_by)) => {
-                info!(
-                    "Package signature verified: hash={} signer={} org={}",
-                    result.package_hash, result.signer_fingerprint, trusted_by
-                );
-                audit::log_package_load_success(
-                    trusted_by,
-                    &audit_path,
-                    &result.package_hash,
-                    Some(&result.signer_fingerprint),
-                    /* signature_verified */ true,
-                );
+        None => None,
+        Some(signature) => {
+            let mut orgs = vec![tenant_org];
+            if let Some(server_org) = state.security_config.verification_org_id
+                && server_org != tenant_org
+            {
+                orgs.push(server_org);
             }
-            Err(e) => {
-                warn!("Package signature verification failed: {}", e);
-                let (code, msg) = match &e {
-                    cloacina::security::VerificationError::TamperedPackage { .. } => (
-                        "package_tampered",
-                        "package contents do not match the signed hash".to_string(),
-                    ),
-                    cloacina::security::VerificationError::UntrustedSigner { fingerprint } => (
-                        "untrusted_signer",
-                        format!("package signed by untrusted key: {}", fingerprint),
-                    ),
-                    cloacina::security::VerificationError::InvalidSignature => (
-                        "invalid_signature",
-                        "cryptographic signature verification failed".to_string(),
-                    ),
-                    cloacina::security::VerificationError::SignatureNotFound { .. } => (
-                        "signature_not_found",
-                        "no signature row found for this package; sign before uploading"
-                            .to_string(),
-                    ),
-                    _ => ("signature_verification_error", format!("{}", e)),
-                };
-                audit::log_package_load_failure(tenant_org, &audit_path, &e.to_string(), code);
-                return ApiError::forbidden(code, msg).into_response();
+            let key_manager = cloacina::security::DbKeyManager::new(cloacina::dal::DAL::new(
+                state.database.clone(),
+            ));
+            match cloacina::security::verify_detached_signature_for_orgs(
+                &package_data,
+                &signature,
+                &orgs,
+                &key_manager,
+            )
+            .await
+            {
+                // `trusted_by` is the org whose key list held the signer.
+                Ok((result, trusted_by)) => {
+                    info!(
+                        "Package signature verified: hash={} signer={} org={}",
+                        result.package_hash, result.signer_fingerprint, trusted_by
+                    );
+                    audit::log_package_load_success(
+                        trusted_by,
+                        &audit_path,
+                        &result.package_hash,
+                        Some(&result.signer_fingerprint),
+                        /* signature_verified */ true,
+                    );
+                    Some((signature, result, trusted_by))
+                }
+                Err(e) => {
+                    warn!("Package signature verification failed: {}", e);
+                    use cloacina::security::VerificationError;
+                    let (status, code, msg) = match &e {
+                        VerificationError::MalformedSignature { reason } => (
+                            StatusCode::BAD_REQUEST,
+                            "malformed_signature",
+                            format!("the 'signature' field is not a signature: {reason}"),
+                        ),
+                        VerificationError::TamperedPackage { .. } => (
+                            StatusCode::FORBIDDEN,
+                            "package_tampered",
+                            "package contents do not match the signed hash".to_string(),
+                        ),
+                        // The same answer for a key nobody trusts and a key
+                        // that only another tenant trusts.
+                        VerificationError::UntrustedSigner { fingerprint } => (
+                            StatusCode::FORBIDDEN,
+                            "untrusted_signer",
+                            format!("package signed by untrusted key: {}", fingerprint),
+                        ),
+                        VerificationError::RevokedSigner { fingerprint } => (
+                            StatusCode::FORBIDDEN,
+                            "signer_revoked",
+                            format!("package signed by a revoked key: {}", fingerprint),
+                        ),
+                        VerificationError::InvalidSignature => (
+                            StatusCode::FORBIDDEN,
+                            "invalid_signature",
+                            "cryptographic signature verification failed".to_string(),
+                        ),
+                        _ => (
+                            StatusCode::FORBIDDEN,
+                            "signature_verification_error",
+                            format!("{}", e),
+                        ),
+                    };
+                    audit::log_package_load_failure(tenant_org, &audit_path, &e.to_string(), code);
+                    return ApiError::new(status, code, msg).into_response();
+                }
             }
         }
-    }
+    };
 
     // Register via WorkflowRegistry
     let tenant_db: cloacina::database::Database = match state
@@ -183,6 +219,26 @@ pub async fn upload_workflow(
             return ApiError::internal_logged("tenant database error", &e).into_response();
         }
     };
+
+    // CLOACINA-T-1062: the signature row goes where the package goes, the
+    // tenant's schema, with the org whose keys accepted the signer. The
+    // tenant's reconciler reads it there at load. It is stored before the
+    // package, so a package is never in the registry without its row.
+    let mut signature_detail = None;
+    if let Some((signature, result, trusted_by)) = verified_signature {
+        let row = match signature.to_signature_info() {
+            Ok(row) => row,
+            Err(e) => {
+                return ApiError::bad_request("malformed_signature", e.to_string()).into_response();
+            }
+        };
+        let signer =
+            cloacina::security::DbPackageSigner::new(cloacina::dal::DAL::new(tenant_db.clone()));
+        if let Err(e) = signer.store_signature_for_org(trusted_by, &row).await {
+            return ApiError::internal_logged("store package signature failed", &e).into_response();
+        }
+        signature_detail = Some((result.signer_fingerprint, trusted_by));
+    }
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
     let mut registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
@@ -198,16 +254,20 @@ pub async fn upload_workflow(
     );
     match registry.register_workflow_package(package_data).await {
         Ok(package_id) => {
+            let mut detail =
+                audit_record::upload_detail(&registry, package_id, content_hash, size_bytes).await;
+            // CLOACINA-T-1062: who signed the package, and whose keys said yes.
+            if let Some((fingerprint, trusted_by)) = &signature_detail {
+                detail["signer_fingerprint"] = fingerprint.as_str().into();
+                detail["signer_trusted_by_org"] = trusted_by.to_string().into();
+            }
             audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(
                     audit_record::actions::PACKAGE_UPLOAD,
                     package_id.to_string(),
                 )
-                .detail(
-                    audit_record::upload_detail(&registry, package_id, content_hash, size_bytes)
-                        .await,
-                ),
+                .detail(detail),
             );
             info!(
                 "Uploaded workflow package for tenant '{}': {}",
@@ -954,39 +1014,97 @@ fn package_too_large(size: Option<u64>, limit: u64) -> ApiError {
     )
 }
 
-/// Why the file of an upload could not be read.
-enum FileFieldError {
+/// The largest `signature` field the upload reads. A detached signature is
+/// a few hundred bytes of JSON.
+const MAX_SIGNATURE_FIELD_BYTES: usize = 16 * 1024;
+
+/// What an upload carries: the archive, and its signature if one was sent.
+struct UploadFields {
+    file: Vec<u8>,
+    signature: Option<cloacina::security::DetachedSignature>,
+}
+
+/// Why the fields of an upload could not be read.
+enum UploadFieldError {
     /// The body is larger than the server's limit.
     TooLarge,
     /// The request is not a multipart upload with a `file` field.
     Invalid(String),
+    /// The `signature` field is not a detached signature.
+    MalformedSignature(String),
 }
 
-/// Extract the first file field from a multipart request.
-async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, FileFieldError> {
+/// Read the `file` field and the `signature` field of a multipart upload
+/// (CLOACINA-T-1062). The first field of each name counts; the two can come
+/// in either order; other fields are skipped.
+async fn extract_upload_fields(
+    multipart: &mut Multipart,
+) -> Result<UploadFields, UploadFieldError> {
+    let mut file: Option<Vec<u8>> = None;
+    let mut signature: Option<cloacina::security::DetachedSignature> = None;
     loop {
         let field = match multipart.next_field().await {
             Ok(Some(field)) => field,
             Ok(None) => break,
             Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-                return Err(FileFieldError::TooLarge);
+                return Err(UploadFieldError::TooLarge);
             }
             Err(_) => break,
         };
-        if field.name() == Some("file") {
-            return match field.bytes().await {
-                Ok(data) => Ok(data.to_vec()),
-                Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-                    Err(FileFieldError::TooLarge)
+        match field.name() {
+            Some("file") if file.is_none() => {
+                file = Some(match field.bytes().await {
+                    Ok(data) => data.to_vec(),
+                    Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+                        return Err(UploadFieldError::TooLarge);
+                    }
+                    Err(e) => {
+                        return Err(UploadFieldError::Invalid(format!(
+                            "failed to read file: {}",
+                            e
+                        )));
+                    }
+                });
+            }
+            Some("signature") if signature.is_none() => {
+                let bytes = match field.bytes().await {
+                    Ok(data) => data,
+                    Err(e) if e.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+                        return Err(UploadFieldError::TooLarge);
+                    }
+                    Err(e) => {
+                        return Err(UploadFieldError::MalformedSignature(format!(
+                            "failed to read the 'signature' field: {e}"
+                        )));
+                    }
+                };
+                if bytes.len() > MAX_SIGNATURE_FIELD_BYTES {
+                    return Err(UploadFieldError::MalformedSignature(format!(
+                        "the 'signature' field is {} bytes; the limit is {}",
+                        bytes.len(),
+                        MAX_SIGNATURE_FIELD_BYTES
+                    )));
                 }
-                Err(e) => Err(FileFieldError::Invalid(format!(
-                    "failed to read file: {}",
-                    e
-                ))),
-            };
+                let text = std::str::from_utf8(&bytes).map_err(|_| {
+                    UploadFieldError::MalformedSignature(
+                        "the 'signature' field is not UTF-8 text".to_string(),
+                    )
+                })?;
+                signature = Some(
+                    cloacina::security::DetachedSignature::from_json(text).map_err(|e| {
+                        UploadFieldError::MalformedSignature(format!(
+                            "the 'signature' field is not a detached signature: {e}"
+                        ))
+                    })?,
+                );
+            }
+            _ => {}
         }
     }
-    Err(FileFieldError::Invalid(
-        "no 'file' field in multipart request".to_string(),
-    ))
+    match file {
+        Some(file) => Ok(UploadFields { file, signature }),
+        None => Err(UploadFieldError::Invalid(
+            "no 'file' field in multipart request".to_string(),
+        )),
+    }
 }

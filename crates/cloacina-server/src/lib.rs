@@ -319,6 +319,10 @@ fn runner_config_for_tenant_cache(
     default_executor: &str,
     require_signatures: bool,
     verification_org_id: Option<uuid::Uuid>,
+    // CLOACINA-T-1062: the admin database, where the trusted keys are. A
+    // tenant's reconciler reads signature rows from the tenant's schema and
+    // the keys that sign them from here.
+    signature_trust_database: Option<Database>,
     context_limits: cloacina::executor::ContextSizeLimits,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
@@ -335,10 +339,12 @@ fn runner_config_for_tenant_cache(
     // a dispatcher exists at all, which `register_executor` requires).
     builder = builder.default_executor(default_executor);
     // CLOACINA-T-1037: the same signature requirement as the admin runner, so
-    // a tenant's reconciler makes the same signature-existence check on load.
+    // a tenant's reconciler makes the same signature check on load.
+    // CLOACINA-T-1062: with the database of the trusted keys.
     builder = builder
         .require_signatures(require_signatures)
-        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
+        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from))
+        .signature_trust_database(signature_trust_database);
     builder
         .build()
         .expect("default tenant runner config builds cleanly")
@@ -866,10 +872,11 @@ pub async fn run(
     if let Some(interval) = reconcile_interval {
         runner_builder = runner_builder.registry_reconcile_interval(interval);
     }
-    // CLOACI-T-0571: forward the verification config into the runner so the
-    // reconciler's defense-in-depth signature-existence check fires even
+    // CLOACI-T-0571, CLOACINA-T-1062: forward the verification config into
+    // the runner so the reconciler's signature check at load fires even
     // when packages reach `workflow_packages` via paths other than the
-    // upload route.
+    // upload route. This runner serves `public`: its packages, signature
+    // rows and the trusted keys are in one database.
     runner_builder = runner_builder
         .require_signatures(require_signatures)
         .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
@@ -1189,6 +1196,8 @@ pub async fn run(
                 &default_executor,
                 require_signatures,
                 verification_org_id,
+                // CLOACINA-T-1062: the trusted keys are in the admin schema.
+                Some(runner.database().clone()),
                 context_limits,
             ),
         )
@@ -3013,6 +3022,9 @@ mod tests {
     mod backfill_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
+    /// A signed upload end to end, and the signature check at load
+    /// (CLOACINA-T-1062).
+    mod package_signing;
     mod tenant_runner_start;
     /// Router tests of the trusted keys of package signing (CLOACINA-T-1061).
     mod trusted_key_routes;
@@ -3119,7 +3131,14 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
+                runner_config_for_tenant_cache(
+                    None,
+                    "default",
+                    false,
+                    None,
+                    None,
+                    Default::default(),
+                ),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -6292,7 +6311,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
+            runner_config_for_tenant_cache(None, "default", false, None, None, Default::default()),
         ));
 
         let schema_a = format!(
@@ -7055,6 +7074,12 @@ mod tests {
 
     /// Build a multipart request body with a file field.
     fn multipart_file_body(data: &[u8]) -> (String, Vec<u8>) {
+        multipart_upload_body(data, None)
+    }
+
+    /// Build a multipart request body with a file field and, when given, the
+    /// `signature` field of a signed upload (CLOACINA-T-1062).
+    fn multipart_upload_body(data: &[u8], signature: Option<&str>) -> (String, Vec<u8>) {
         let boundary = "----TestBoundary9876543210";
         let mut body = Vec::new();
         write!(
@@ -7063,6 +7088,13 @@ mod tests {
         )
         .unwrap();
         body.extend_from_slice(data);
+        if let Some(signature) = signature {
+            write!(
+                body,
+                "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"signature\"\r\n\r\n{signature}"
+            )
+            .unwrap();
+        }
         write!(body, "\r\n--{boundary}--\r\n").unwrap();
         (boundary.to_string(), body)
     }
@@ -7475,7 +7507,8 @@ mod tests {
     //
     // These exercise the full upload-route verification gate end-to-end:
     // a signed payload must pass the gate; an unsigned payload must be
-    // rejected with `signature_not_found`. They depend on TEST_DB_URL
+    // rejected with `signature_required`. The signature is the `signature`
+    // field of the upload (CLOACINA-T-1062). They depend on TEST_DB_URL
     // being reachable (same constraint as the rest of this test module)
     // and use random per-test org_ids to stay isolated.
 
@@ -7510,8 +7543,8 @@ mod tests {
         );
         let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("");
         assert_eq!(
-            code, "signature_not_found",
-            "expected signature_not_found code; got: {} body: {:?}",
+            code, "signature_required",
+            "expected signature_required code; got: {} body: {:?}",
             code, body
         );
     }
@@ -7543,12 +7576,9 @@ mod tests {
             .await
             .expect("trust_public_key");
 
-        // Sign the bytes and store the `package_signatures` row before upload.
-        // Make the payload unique per test run so prior runs' signatures don't
-        // collide on package_hash (the test DB persists across runs and
-        // `find_signature(hash)` returns one row — picking up a stale row from
-        // a previous run yields `untrusted_signer` because the old key
-        // fingerprint isn't trusted for *this* run's random org_id).
+        // Sign the bytes with the org's key. The payload is unique per test
+        // run. The signature goes to the server as the `signature` field of
+        // the upload (CLOACINA-T-1062); no row is stored before the upload.
         let pkg_bytes = format!(
             "signed contract-test payload {}",
             cloacina::UniversalUuid::new_v4()
@@ -7559,20 +7589,23 @@ mod tests {
         tf.as_file()
             .write_all(pkg_bytes)
             .expect("write tempfile bytes");
-        signer
+        let signature = signer
             .sign_package_with_db_key(
                 tf.path(),
                 org_id,
                 key_info.id,
                 &master_key,
-                /* store_signature= */ true,
+                /* store_signature= */ false,
             )
             .await
             .expect("sign_package_with_db_key");
+        let signature = cloacina::security::DetachedSignature::from_signature_info(&signature)
+            .to_json()
+            .expect("signature json");
 
         // Upload the same bytes through the HTTP handler.
         let app = build_router(state);
-        let (boundary, body) = multipart_file_body(pkg_bytes);
+        let (boundary, body) = multipart_upload_body(pkg_bytes, Some(&signature));
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/tenants/public/workflows")
@@ -7587,29 +7620,11 @@ mod tests {
         let (status, body) = send_request(app, req).await;
 
         // Contract: a valid signature must pass the verification gate.
-        // The bytes aren't a real .cloacina archive so the request will fail
-        // at the registration step downstream — that's fine; we're asserting
-        // verification specifically. If the response is 403, it must NOT be
-        // from a verification-related code.
-        if status == StatusCode::FORBIDDEN {
-            let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("");
-            let verification_codes = [
-                "signature_not_found",
-                "package_tampered",
-                "untrusted_signer",
-                "invalid_signature",
-                "signature_verification_unconfigured",
-                "signature_verification_error",
-            ];
-            assert!(
-                !verification_codes.contains(&code),
-                "expected verification to pass; got 403 with verification code: {} body: {:?}",
-                code,
-                body
-            );
-        }
-        // If status is anything other than 403, the verification gate already
-        // accepted it (failure further downstream is out of scope here).
+        // The bytes aren't a real .cloacina archive, so the registration
+        // step after the gate refuses them with 400 `upload_failed`: that
+        // answer is past the gate.
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body:?}");
+        assert_eq!(body["code"], "upload_failed", "body: {body:?}");
     }
 
     // ── Signature config of the tenant runners ────────────────────────────
@@ -7619,15 +7634,36 @@ mod tests {
     #[test]
     fn tenant_runner_config_carries_the_signature_requirement() {
         let org = uuid::Uuid::new_v4();
-        let on =
-            runner_config_for_tenant_cache(None, "default", true, Some(org), Default::default());
+        let on = runner_config_for_tenant_cache(
+            None,
+            "default",
+            true,
+            Some(org),
+            None,
+            Default::default(),
+        );
         assert!(on.require_signatures());
         assert_eq!(
             on.verification_org_id(),
             Some(cloacina::UniversalUuid::from(org))
         );
+        // CLOACINA-T-1062: the reconciler of a tenant's runner asks the
+        // tenant's org first, then the server org.
+        let mut for_tenant = on.clone();
+        for_tenant.set_tenant_id("acme");
+        let reconciler = for_tenant.reconciler_config();
+        assert!(reconciler.require_signatures);
+        assert_eq!(
+            reconciler.signature_org_ids(),
+            vec![
+                cloacina::security::tenant_org_id("acme"),
+                cloacina::UniversalUuid::from(org)
+            ]
+        );
+        assert!(reconciler.signature_trust_database.is_none());
 
-        let off = runner_config_for_tenant_cache(None, "default", false, None, Default::default());
+        let off =
+            runner_config_for_tenant_cache(None, "default", false, None, None, Default::default());
         assert!(!off.require_signatures());
         assert_eq!(off.verification_org_id(), None);
     }

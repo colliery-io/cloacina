@@ -324,7 +324,7 @@ async fn tenants_above_the_limit_keep_their_runners_and_schedules() {
     let mut state = test_state().await;
     state.tenant_runners = Arc::new(TenantRunnerCache::new(
         std::num::NonZeroUsize::new(1).expect("limit 1"),
-        runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
+        runner_config_for_tenant_cache(None, "default", false, None, None, Default::default()),
     ));
     let first = make_tenant(&state, "limit_a").await;
     let second = make_tenant(&state, "limit_b").await;
