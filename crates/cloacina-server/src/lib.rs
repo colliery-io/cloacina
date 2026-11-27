@@ -2391,6 +2391,10 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
             axum::routing::get(crate::routes::agent::fetch_source),
         )
         .route(
+            "/agent/python-vendor/{digest}",
+            axum::routing::get(crate::routes::agent::fetch_python_vendor),
+        )
+        .route(
             "/agent/providers/{digest}",
             axum::routing::get(crate::routes::agent::fetch_providers),
         )

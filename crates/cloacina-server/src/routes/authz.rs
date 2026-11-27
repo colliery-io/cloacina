@@ -575,6 +575,11 @@ pub fn build_authz_table() -> AuthzTable {
     );
     add(
         Method::GET,
+        "/agent/python-vendor/{digest}",
+        Access::any(Level::Read),
+    );
+    add(
+        Method::GET,
         "/health/accumulators",
         Access::any(Level::Read),
     );
@@ -1022,7 +1027,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            76,
+            77,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

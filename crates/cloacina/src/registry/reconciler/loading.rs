@@ -540,6 +540,17 @@ impl RegistryReconciler {
             // bundle none stage nothing (`None`).
             let provider_root = self.stage_bundled_providers(&metadata).await?;
 
+            // CLOACINA-T-1073: the dependencies the compiler vendored for
+            // this platform, when the registry holds a set for it.
+            let vendored_set = self
+                .registry
+                .get_python_vendor(
+                    &metadata.package_name,
+                    &metadata.version,
+                    &cloacina_workflow_plugin::python_env::host_platform(),
+                )
+                .await?;
+
             let loaded = {
                 let archive_data = loaded_workflow.package_data.clone();
                 let runtime = runtime.clone();
@@ -561,6 +572,7 @@ impl RegistryReconciler {
                     runtime
                         .load_workflow_package(
                             &archive_data,
+                            vendored_set.as_deref(),
                             &staging,
                             &tenant_id,
                             &cloacina_runtime,
@@ -713,6 +725,15 @@ impl RegistryReconciler {
                     // Stage its own bundle and scope the import to it, exactly
                     // like the Python workflow branch above.
                     let cg_provider_root = self.stage_bundled_providers(&metadata).await?;
+                    // CLOACINA-T-1073: as the workflow branch above.
+                    let cg_vendored_set = self
+                        .registry
+                        .get_python_vendor(
+                            &metadata.package_name,
+                            &metadata.version,
+                            &cloacina_workflow_plugin::python_env::host_platform(),
+                        )
+                        .await?;
                     let maybe_decl = {
                         let archive_data = loaded_workflow.package_data.clone();
                         let gn_inner = gn.clone();
@@ -732,6 +753,7 @@ impl RegistryReconciler {
                             runtime
                                 .load_cg_package(
                                     &archive_data,
+                                    cg_vendored_set.as_deref(),
                                     &staging,
                                     &tenant_inner,
                                     &gn_inner,

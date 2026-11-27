@@ -136,6 +136,64 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
+    /// CLOACINA-T-1073: store what a compiler vendored for a Python package
+    /// version. `sets` holds one archive per platform; they replace the sets
+    /// of the version. `python_platforms` is where the package can run,
+    /// written to the row's metadata for dispatch.
+    pub async fn store_python_vendor(
+        &self,
+        package_id: Uuid,
+        package_name: &str,
+        version: &str,
+        sets: Vec<(String, Vec<u8>)>,
+        python_platforms: Option<Vec<String>>,
+    ) -> Result<(), RegistryError> {
+        use sha2::{Digest, Sha256};
+        let dal = crate::dal::DAL::new(self.database.clone());
+        let rows = sets
+            .into_iter()
+            .map(|(platform, archive)| {
+                let mut hasher = Sha256::new();
+                hasher.update(&archive);
+                (platform, hex::encode(hasher.finalize()), archive)
+            })
+            .collect();
+        dal.workflow_packages()
+            .replace_python_vendor_artifacts(package_name, version, rows)
+            .await?;
+        dal.workflow_packages()
+            .set_python_platforms(package_id, python_platforms)
+            .await
+    }
+
+    /// CLOACINA-T-1073: remove the vendored sets of a Python package version.
+    /// For a build that vendors nothing (the package ships `vendor/`, or has no
+    /// dependencies): a set of an earlier upload of the same version must not
+    /// reach a loader. The row's metadata is not changed.
+    pub async fn clear_python_vendor(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<(), RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .replace_python_vendor_artifacts(package_name, version, Vec::new())
+            .await
+    }
+
+    /// CLOACINA-T-1073: the platforms a compiler stored a vendored set for, for
+    /// a Python package version.
+    pub async fn python_vendor_platforms(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Vec<String>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .python_vendor_platforms(package_name, version)
+            .await
+    }
+
     /// Get the total number of registered tasks across all packages.
     pub fn total_registered_tasks(&self) -> usize {
         self.loaded_packages.values().map(|tasks| tasks.len()).sum()
@@ -741,6 +799,20 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         let dal = crate::dal::DAL::new(self.database.clone());
         dal.workflow_packages()
             .get_artifact_data_for_target(package_name, version, target_triple)
+            .await
+    }
+
+    /// CLOACINA-T-1073: the vendored set a compiler stored for a Python
+    /// package version and `platform`.
+    async fn get_python_vendor(
+        &self,
+        package_name: &str,
+        version: &str,
+        platform: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let dal = crate::dal::DAL::new(self.database.clone());
+        dal.workflow_packages()
+            .get_python_vendor_artifact(package_name, version, platform)
             .await
     }
 

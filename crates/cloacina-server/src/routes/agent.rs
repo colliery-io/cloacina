@@ -455,6 +455,61 @@ pub async fn fetch_source(
     Ok(resp)
 }
 
+/// `GET /v1/agent/python-vendor/{digest}?platform=<arch>-<os>` — the
+/// dependencies the compiler vendored for the Python package whose active
+/// build has `content_hash == digest`, for the agent's platform
+/// (CLOACINA-T-1073). The body is the archive the agent's loader unpacks into
+/// `vendor/<platform>/`.
+///
+/// 204: the package has no vendored set for this platform (it ships its own
+/// `vendor/` folder, has no dependencies, or the compiler did not vendor for
+/// this platform). 404: no such package for the caller's tenant. Reads the
+/// caller's tenant, as `fetch_artifact` does.
+pub async fn fetch_python_vendor(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(digest): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Response, ApiError> {
+    let Some(platform) = params.get("platform").filter(|p| !p.is_empty()) else {
+        return Err(ApiError::bad_request(
+            "platform_required",
+            "give the agent's platform: ?platform=<arch>-<os>",
+        ));
+    };
+
+    let dal = cloacina::dal::DAL::new(caller_package_db(&state, &auth).await?);
+    let Some((package_name, version)) = dal
+        .workflow_packages()
+        .get_package_name_version_by_content_hash(&digest)
+        .await
+        .map_err(|e| ApiError::internal_logged("python vendor lookup failed", &e))?
+    else {
+        return Err(ApiError::not_found(
+            "package_not_found",
+            format!("no successfully-built package with digest {}", digest),
+        ));
+    };
+
+    let bytes = dal
+        .workflow_packages()
+        .get_python_vendor_artifact(&package_name, &version, platform)
+        .await
+        .map_err(|e| ApiError::internal_logged("python vendor lookup failed", &e))?;
+
+    let resp = match bytes {
+        Some(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(Body::from(bytes)),
+        None => Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(Body::empty()),
+    }
+    .map_err(|e| ApiError::internal_logged("build python vendor response", &e))?;
+    Ok(resp)
+}
+
 /// One bundled constructor provider in a [`AgentProvidersResponse`]
 /// (CLOACI-T-0838). `data` is the packed provider archive, base64-encoded.
 #[derive(serde::Serialize)]

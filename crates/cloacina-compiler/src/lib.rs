@@ -23,8 +23,11 @@ mod doc_parse;
 mod health;
 mod loopp;
 mod param_parse;
+mod python;
 
+pub use cloacina_workflow_plugin::python_vendor::WheelSource;
 pub use config::{BuildRlimits, CompilerConfig};
+pub use python::PythonVendorConfig;
 
 use std::sync::Arc;
 

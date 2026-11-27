@@ -1034,6 +1034,15 @@ async fn execute_python_graph(
                     message: format!("create python staging dir {:?}: {}", staging, e),
                 };
             }
+            let vendored_set = match fetch_vendored_set(http, server, api_key, &digest).await {
+                Ok(v) => v,
+                Err(e) => {
+                    return cloacina::fleet::AgentOutcome::Refused {
+                        reason: RefusalReason::ArtifactFetchFailed,
+                        message: format!("python vendored dependencies fetch failed: {}", e),
+                    };
+                }
+            };
             let Some(py) = cloacina::python_runtime::python_runtime() else {
                 return cloacina::fleet::AgentOutcome::Refused {
                     reason: RefusalReason::RuntimeLoadFailed,
@@ -1048,8 +1057,14 @@ async fn execute_python_graph(
             // effects (graph executors land in the process-global registry).
             let runtime_for_load = Arc::new(cloacina::Runtime::empty());
             let result = tokio::task::spawn_blocking(move || {
-                py.load_workflow_package(&archive, &staging, &tenant, &runtime_for_load)
-                    .map(|_| ())
+                py.load_workflow_package(
+                    &archive,
+                    vendored_set.as_deref(),
+                    &staging,
+                    &tenant,
+                    &runtime_for_load,
+                )
+                .map(|_| ())
             })
             .await;
             match result {
@@ -1566,6 +1581,30 @@ async fn fetch_source_archive(
     Ok(resp.bytes().await?.to_vec())
 }
 
+/// Fetch the dependencies the compiler vendored for a Python package and this
+/// agent's platform, from `GET /v1/agent/python-vendor/{digest}`
+/// (CLOACINA-T-1073). `Ok(None)`: the server holds no set for this platform
+/// (204), or it is a server from before the route (404). The loader then
+/// refuses a package that pins dependencies and ships none.
+async fn fetch_vendored_set(
+    http: &reqwest::Client,
+    server: &str,
+    api_key: &str,
+    digest: &str,
+) -> Result<Option<Vec<u8>>> {
+    let platform = cloacina::cloacina_workflow_plugin::python_env::host_platform();
+    // A platform is `<arch>-<os>`: letters, digits, `_` and `-`.
+    let url = format!(
+        "{}/v1/agent/python-vendor/{}?platform={}",
+        server, digest, platform
+    );
+    let resp = http.get(&url).bearer_auth(api_key).send().await?;
+    match resp.status() {
+        reqwest::StatusCode::NO_CONTENT | reqwest::StatusCode::NOT_FOUND => Ok(None),
+        _ => Ok(Some(resp.error_for_status()?.bytes().await?.to_vec())),
+    }
+}
+
 /// Load a Rust cdylib package into `runtime`: fetch + cache the artifact by
 /// digest, then register its tasks via the fidius-backed `TaskRegistrar`.
 async fn load_rust_cdylib(
@@ -1836,6 +1875,15 @@ async fn load_python_package(
             message: e,
         })?;
 
+    // CLOACINA-T-1073: the dependencies the compiler vendored for this
+    // platform, when the server holds a set.
+    let vendored_set = fetch_vendored_set(http, server, api_key, digest)
+        .await
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: format!("python vendored dependencies fetch failed: {}", e),
+        })?;
+
     let staging = cache_dir.join(format!("pysrc-{}", digest));
     std::fs::create_dir_all(&staging).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
         reason: RefusalReason::RuntimeLoadFailed,
@@ -1862,8 +1910,14 @@ async fn load_python_package(
     // worker. We discard the LoadedPythonWorkflow (it may hold non-Send PyObjects)
     // and only care that the tasks registered into `runtime`.
     let result = tokio::task::spawn_blocking(move || {
-        py.load_workflow_package(&archive, &staging, &tenant, &runtime_for_load)
-            .map(|_| ())
+        py.load_workflow_package(
+            &archive,
+            vendored_set.as_deref(),
+            &staging,
+            &tenant,
+            &runtime_for_load,
+        )
+        .map(|_| ())
     })
     .await;
 

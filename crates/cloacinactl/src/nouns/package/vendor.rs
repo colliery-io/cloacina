@@ -14,17 +14,20 @@
  *  limitations under the License.
  */
 
-//! Vendoring of a Python package's dependencies (CLOACINA-T-1048).
+//! The dependencies of a Python package: the lock file, and the optional
+//! prebuilt `vendor/` folder (CLOACINA-T-1048, CLOACINA-T-1073).
 //!
 //! `cloacinactl package build` on a Python package reads
-//! `[project].dependencies` of the package's `pyproject.toml`, pins them with
-//! `uv pip compile` into `requirements.lock`, and installs the wheels of each
-//! target platform into `vendor/<platform>/` with `uv pip install --target`.
-//! It records the Python version and the platforms in `[metadata.vendored]`
-//! of `package.toml`.
+//! `[project].dependencies` of the package's `pyproject.toml` and pins them
+//! with `uv pip compile` into `requirements.lock`, with hashes. That is all
+//! it does by default: the compiler installs what the lock names when the
+//! package is published, for each platform of its settings.
 //!
-//! It runs on the publisher's machine. The server and the compiler download
-//! no dependency.
+//! With `--vendor` the build also installs the wheels of each target platform
+//! into `vendor/<platform>/` with `uv pip install --target`, and records the
+//! Python version and the platforms in `[metadata.vendored]` of
+//! `package.toml`. A package that ships `vendor/` is used as it is: the
+//! compiler downloads nothing for it.
 //!
 //! `uv pip install --target` is used, and not a download of wheel files that
 //! are then unpacked: `uv` has no `pip download` command. The install takes
@@ -39,6 +42,7 @@ use clap::{Args, ValueEnum};
 use cloacina_workflow_plugin::python_env::{
     self, DEFAULT_PLATFORMS, DEFAULT_PYTHON_VERSION, LOCK_FILE, Vendored,
 };
+use cloacina_workflow_plugin::python_vendor;
 
 use super::manifest;
 use crate::shared::error::CliError;
@@ -56,39 +60,48 @@ pub enum Arch {
     Both,
 }
 
-/// The vendoring flags of `package build` and `package publish`. They apply
+/// The dependency flags of `package build` and `package publish`. They apply
 /// to Python packages only.
 #[derive(Debug, Clone, Args)]
 pub struct VendorArgs {
-    /// Python packages: the Python version the dependencies are vendored for.
+    /// Python packages: also install the dependencies into
+    /// `vendor/<platform>/`, so the package ships them. Without it the build
+    /// writes `requirements.lock` only, and the compiler vendors the
+    /// dependencies when the package is published.
+    #[arg(long, conflicts_with = "no_lock")]
+    pub vendor: bool,
+    /// Python packages: the Python version the dependencies are locked (and
+    /// with `--vendor`, vendored) for.
     #[arg(long, value_name = "MAJOR.MINOR", default_value = DEFAULT_PYTHON_VERSION)]
     pub python_version: String,
-    /// Python packages: the CPU architecture of the Linux agents to vendor for.
+    /// Python packages, with `--vendor`: the CPU architecture of the Linux
+    /// agents to vendor for.
     #[arg(long, value_enum, default_value_t = Arch::Both, conflicts_with = "platform")]
     pub arch: Arch,
-    /// Python packages: a platform to vendor for, as `<arch>-<os>`
-    /// (for example aarch64-macos). Repeat it for more than one. It replaces
-    /// the platforms that `--arch` gives.
-    #[arg(long = "platform", value_name = "ARCH-OS")]
+    /// Python packages, with `--vendor`: a platform to vendor for, as
+    /// `<arch>-<os>` (for example aarch64-macos). Repeat it for more than
+    /// one. It replaces the platforms that `--arch` gives.
+    #[arg(long = "platform", value_name = "ARCH-OS", requires = "vendor")]
     pub platform: Vec<String>,
-    /// Python packages: install from the `requirements.lock` in the package
-    /// as it is. Without it the build resolves the versions again.
+    /// Python packages: use the `requirements.lock` in the package as it is.
+    /// Without it the build resolves the versions again.
     #[arg(long)]
     pub locked: bool,
-    /// Python packages: do not touch `vendor/`. For a package whose `vendor/`
-    /// is filled by hand.
+    /// Python packages: read no `pyproject.toml`, write no lock file and do
+    /// not touch `vendor/`. For a package whose `vendor/` is filled by hand.
     #[arg(long)]
-    pub no_vendor: bool,
+    pub no_lock: bool,
 }
 
 impl Default for VendorArgs {
     fn default() -> Self {
         Self {
+            vendor: false,
             python_version: DEFAULT_PYTHON_VERSION.to_string(),
             arch: Arch::Both,
             platform: Vec::new(),
             locked: false,
-            no_vendor: false,
+            no_lock: false,
         }
     }
 }
@@ -126,13 +139,16 @@ impl VendorArgs {
     }
 }
 
-/// What a run of the vendoring did.
+/// What a run of the build's dependency step did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VendorOutcome {
-    /// `--no-vendor`: nothing was read or written.
+    /// `--no-lock`: nothing was read or written.
     Skipped,
     /// The package declares no dependencies.
     NothingToVendor,
+    /// `requirements.lock` holds this many pinned distributions, and
+    /// `vendor/` was not filled: the compiler vendors them.
+    Locked(usize),
     /// `vendor/` was filled, and this record was written to `package.toml`.
     Vendored(Vendored),
 }
@@ -156,43 +172,36 @@ pub fn read_dependencies(dir: &Path) -> Result<Option<Vec<String>>, CliError> {
     }
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| CliError::UserError(format!("read {}: {e}", path.display())))?;
-    let doc: toml::Value = toml::from_str(&raw)
-        .map_err(|e| CliError::UserError(format!("invalid {}: {e}", path.display())))?;
-    let deps = match doc.get("project").and_then(|p| p.get("dependencies")) {
-        None => return Ok(Some(Vec::new())),
-        Some(d) => d,
-    };
-    let list = deps.as_array().ok_or_else(|| {
-        CliError::UserError(format!(
-            "{}: [project].dependencies must be a list of requirement strings",
-            path.display()
-        ))
-    })?;
-    let mut out = Vec::new();
-    for item in list {
-        let s = item.as_str().ok_or_else(|| {
-            CliError::UserError(format!(
-                "{}: [project].dependencies must be a list of requirement strings",
-                path.display()
-            ))
-        })?;
-        if !s.trim().is_empty() {
-            out.push(s.trim().to_string());
-        }
-    }
-    Ok(Some(out))
+    python_vendor::pyproject_dependencies(&raw)
+        .map(Some)
+        .map_err(|e| CliError::UserError(format!("{}: {e}", path.display())))
 }
 
-/// Vendor the dependencies of the Python package in `dir`. See the module
-/// documentation.
+/// What `package validate` and `package pack` check of a Python package's
+/// dependencies before an upload: what the compiler would refuse
+/// (CLOACINA-T-1073). A package that ships `vendor/` passes as it is.
+/// Dependencies with no lock file, a lock file that does not pin one of them,
+/// and a lock file that holds more than pins with hashes are errors.
+pub fn check_dependencies_ship(dir: &Path, name: &str) -> Result<(), CliError> {
+    python_vendor::vendor_plan(name, dir)
+        .map(|_| ())
+        .map_err(CliError::UserError)
+}
+
+/// Lock the dependencies of the Python package in `dir`, and with `--vendor`
+/// vendor them. See the module documentation.
 pub fn run(dir: &Path, args: &VendorArgs) -> Result<VendorOutcome, CliError> {
     run_with_uv(dir, args, &uv_program())
 }
 
 /// [`run`] with the `uv` program given (the tests give a script).
 pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOutcome, CliError> {
-    if args.no_vendor {
-        println!("--no-vendor: vendor/ of {} is left as it is", dir.display());
+    if args.no_lock {
+        println!(
+            "--no-lock: {} and vendor/ of {} are left as they are",
+            LOCK_FILE,
+            dir.display()
+        );
         return Ok(VendorOutcome::Skipped);
     }
 
@@ -215,7 +224,7 @@ pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOut
             } else {
                 "no [project].dependencies in pyproject.toml"
             };
-            println!("{}: {why}. Nothing to vendor.", dir.display());
+            println!("{}: {why}. Nothing to lock.", dir.display());
             if let Some(prev) = &previous {
                 // The dependencies were removed: remove what an earlier build wrote.
                 for p in &prev.platforms {
@@ -232,16 +241,19 @@ pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOut
             python_env::requires_python_allows(spec, &python).map_err(CliError::UserError)?;
         if !allowed {
             return Err(CliError::UserError(format!(
-                "package.toml requires Python {spec} (requires_python), and the build vendors \
-                 for Python {python}. Give `--python-version`, or change requires_python."
+                "package.toml requires Python {spec} (requires_python), and the build locks \
+                 dependencies for Python {python}. Give `--python-version`, or change \
+                 requires_python."
             )));
         }
     }
 
-    refuse_hand_filled_vendor(dir, previous.as_ref())?;
-    let uv_version = check_uv(uv)?;
+    if args.vendor {
+        refuse_hand_filled_vendor(dir, previous.as_ref())?;
+    }
 
     let lock = dir.join(LOCK_FILE);
+    let lock_before = std::fs::read_to_string(&lock).ok();
     if args.locked {
         if !lock.exists() {
             return Err(CliError::UserError(format!(
@@ -251,6 +263,7 @@ pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOut
         }
         println!("using {LOCK_FILE} as it is (--locked)");
     } else {
+        let uv_version = check_uv(uv)?;
         println!(
             "resolving {} dependenc{} for Python {python} ({uv_version})",
             deps.len(),
@@ -283,40 +296,37 @@ pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOut
         }
     }
 
+    if !args.vendor {
+        return lock_only(dir, &deps, lock_before.as_deref(), previous.as_ref());
+    }
+    if args.locked {
+        check_uv(uv)?;
+    }
+
     let vendor = dir.join("vendor");
     std::fs::create_dir_all(&vendor)
         .map_err(|e| CliError::UserError(format!("create {}: {e}", vendor.display())))?;
 
     let mut native = false;
     for platform in &platforms {
-        let uv_platform = python_env::uv_platform(platform).expect("checked in platforms()");
         let staging = vendor.join(format!(".{platform}.tmp"));
         remove_dir(&staging)?;
         println!("vendoring for {platform} into vendor/{platform}/");
+        let install = python_vendor::uv_install_args(LOCK_FILE, &staging, platform, &python)
+            .expect("checked in platforms()");
         let out = Command::new(uv)
             .current_dir(dir)
-            .args(["pip", "install", "--requirement", LOCK_FILE, "--target"])
-            .arg(&staging)
-            .args([
-                "--python-platform",
-                uv_platform,
-                "--python-version",
-                &python,
-                "--only-binary",
-                ":all:",
-                "--require-hashes",
-                "--no-deps",
-                "--link-mode",
-                "copy",
-                "--quiet",
-            ])
+            .args(install)
             .output()
             .map_err(|e| CliError::UserError(format!("failed to run uv: {e}")))?;
         if !out.status.success() {
             remove_dir(&staging)?;
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            return Err(CliError::UserError(install_error(
-                &stderr, platform, &python,
+            return Err(CliError::UserError(python_vendor::uv_install_error(
+                &stderr,
+                platform,
+                &python,
+                "the package index of this machine's uv settings",
             )));
         }
         if !staging.is_dir() {
@@ -326,12 +336,10 @@ pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOut
         }
         // Console scripts are not importable code, and `.lock` is uv's own
         // lock on the target folder.
-        remove_dir(&staging.join("bin"))?;
-        let _ = std::fs::remove_file(staging.join(".lock"));
+        python_vendor::clean_target_dir(&staging);
 
         let dists = python_env::scan_dists(&staging);
-        let native_here = dists.iter().any(|d| d.is_native())
-            || !python_env::native_files(&staging, 1).is_empty();
+        let native_here = python_vendor::target_dir_is_native(&staging);
         native |= native_here;
 
         let target = vendor.join(platform);
@@ -381,6 +389,68 @@ pub fn run_with_uv(dir: &Path, args: &VendorArgs, uv: &Path) -> Result<VendorOut
     Ok(VendorOutcome::Vendored(record))
 }
 
+/// The end of a build without `--vendor`: the lock file is written, and
+/// `vendor/` is not filled.
+///
+/// - The lock must be one the compiler accepts: pins with hashes only, and a
+///   pin for each dependency of `pyproject.toml`.
+/// - Folders that an earlier `--vendor` build wrote are kept when the lock
+///   did not change: they hold what it names, and the package ships them. When
+///   the lock changed they hold other versions, and the build stops.
+fn lock_only(
+    dir: &Path,
+    deps: &[String],
+    lock_before: Option<&str>,
+    previous: Option<&Vendored>,
+) -> Result<VendorOutcome, CliError> {
+    let lock = dir.join(LOCK_FILE);
+    let text = std::fs::read_to_string(&lock)
+        .map_err(|e| CliError::UserError(format!("read {}: {e}", lock.display())))?;
+
+    if let Some(prev) = previous {
+        if lock_before != Some(text.as_str()) {
+            return Err(CliError::UserError(format!(
+                "{LOCK_FILE} changed, and vendor/ holds the dependencies of the lock before \
+                 it (for {}). Run the build with --vendor to fill vendor/ again, or remove \
+                 vendor/ and the [metadata.vendored] table of package.toml to let the compiler \
+                 vendor the dependencies.",
+                prev.platforms.join(", ")
+            )));
+        }
+        println!(
+            "{LOCK_FILE} did not change: vendor/ (for {}) is kept, and the package ships it",
+            prev.platforms.join(", ")
+        );
+        return Ok(VendorOutcome::Vendored(prev.clone()));
+    }
+
+    if dir.join("vendor").is_dir() {
+        println!("vendor/ is not written by this command: the package ships it as it is");
+    }
+
+    let pins = python_vendor::check_lock_file(&text).map_err(|e| {
+        CliError::UserError(format!(
+            "{e}\nThe compiler vendors only from such a lock file. A dependency it cannot \
+             name this way (a URL, a path) ships in the package: run the build with --vendor."
+        ))
+    })?;
+    let missing = python_vendor::dependencies_not_locked(deps, &pins);
+    if !missing.is_empty() {
+        return Err(CliError::UserError(format!(
+            "{LOCK_FILE} does not pin {}, which pyproject.toml declares. Run the build \
+             without --locked.",
+            missing.join(", ")
+        )));
+    }
+    println!(
+        "wrote {LOCK_FILE}: {} pinned distribution{}. vendor/ is not filled: the compiler \
+         vendors them when the package is published. To ship them in the package, pass --vendor.",
+        pins.len(),
+        if pins.len() == 1 { "" } else { "s" }
+    );
+    Ok(VendorOutcome::Locked(pins.len()))
+}
+
 /// `uv --version`, or an error that says how to get `uv`.
 fn check_uv(uv: &Path) -> Result<String, CliError> {
     match Command::new(uv).arg("--version").output() {
@@ -393,11 +463,11 @@ fn check_uv(uv: &Path) -> Result<String, CliError> {
             String::from_utf8_lossy(&out.stderr).trim_end()
         ))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(CliError::UserError(format!(
-            "`{}` was not found. `package build` vendors the dependencies of a Python package \
+            "`{}` was not found. `package build` locks the dependencies of a Python package \
              with uv. Install it (https://docs.astral.sh/uv/):\n    \
              curl -LsSf https://astral.sh/uv/install.sh | sh\n\
              then run the command again. Set CLOACINA_UV to the path of uv when it is not on \
-             PATH. To leave vendor/ as it is, pass --no-vendor.",
+             PATH. To write no lock file and leave vendor/ as it is, pass --no-lock.",
             uv.display()
         ))),
         Err(e) => Err(CliError::UserError(format!(
@@ -405,69 +475,6 @@ fn check_uv(uv: &Path) -> Result<String, CliError> {
             uv.display()
         ))),
     }
-}
-
-/// The error for a failed `uv pip install`. Names each dependency that has no
-/// wheel for the target.
-fn install_error(stderr: &str, platform: &str, python: &str) -> String {
-    let names = dependencies_without_wheel(stderr);
-    let detail = stderr.trim_end();
-    if names.is_empty() {
-        return format!("vendoring for {platform} (Python {python}) failed:\n{detail}");
-    }
-    let list = names
-        .iter()
-        .map(|n| format!("`{n}`"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "{list} {} no wheel for {platform} with Python {python}. A package holds built wheels \
-         only: the build does not compile a source distribution. Pin a version that has a \
-         wheel for this target, or remove the dependency.\n{detail}",
-        if names.len() == 1 { "has" } else { "have" }
-    )
-}
-
-/// The dependencies that `uv` says have no usable wheel, from its error text.
-fn dependencies_without_wheel(stderr: &str) -> Vec<String> {
-    let flat = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut names: Vec<String> = Vec::new();
-    let mut push = |name: &str| {
-        let name = name
-            .trim_matches(|c: char| c == '`' || c == ',' || c == '.')
-            .split(['=', '<', '>', '!', '~', '['])
-            .next()
-            .unwrap_or("")
-            .to_string();
-        if !name.is_empty() && !names.contains(&name) {
-            names.push(name);
-        }
-    };
-    // "Because docopt==0.6.2 has no usable wheels and …"
-    // "… and pyfoo==1.0 has no wheels with a matching platform tag (…) …"
-    let words: Vec<&str> = flat.split(' ').collect();
-    for (i, w) in words.iter().enumerate() {
-        if *w == "has"
-            && i > 0
-            && words.get(i + 1) == Some(&"no")
-            && matches!(words.get(i + 2), Some(&"usable") | Some(&"wheels"))
-        {
-            push(words[i - 1]);
-        }
-    }
-    // "hint: Wheels are required for `docopt` because building from source is disabled"
-    let marker = "Wheels are required for `";
-    let mut rest = flat.as_str();
-    while let Some(at) = rest.find(marker) {
-        let tail = &rest[at + marker.len()..];
-        if let Some(end) = tail.find('`') {
-            push(&tail[..end]);
-            rest = &tail[end..];
-        } else {
-            break;
-        }
-    }
-    names
 }
 
 /// Refuse to write into a `vendor/` folder that holds files this command did
@@ -485,10 +492,10 @@ fn refuse_hand_filled_vendor(dir: &Path, previous: Option<&Vendored>) -> Result<
             || name.starts_with('.');
         if !ours {
             return Err(CliError::UserError(format!(
-                "{} holds `{name}`, which this command did not write. `package build` fills \
-                 vendor/<platform>/ from pyproject.toml. Remove the files of vendor/ and \
-                 declare the dependencies in pyproject.toml, or pass --no-vendor to keep \
-                 vendor/ as it is.",
+                "{} holds `{name}`, which this command did not write. `package build --vendor` \
+                 fills vendor/<platform>/ from pyproject.toml. Remove the files of vendor/ and \
+                 declare the dependencies in pyproject.toml, or run the build without --vendor \
+                 to keep vendor/ as it is.",
                 vendor.display()
             )));
         }
@@ -641,7 +648,7 @@ mod tests {
 echo "$@" >> "{log}"
 if [ "$1" = "--version" ]; then echo "uv 0.0.0-fake"; exit 0; fi
 if [ "$2" = "compile" ]; then
-  printf 'six==1.17.0 \\\n    --hash=sha256:00\n' > requirements.lock
+  printf 'six==1.17.0 \\\n    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274\n' > requirements.lock
   exit 0
 fi
 if [ "$2" = "install" ]; then
@@ -810,11 +817,19 @@ exit 2
         assert!(three.contains("# c"), "{three}");
     }
 
+    /// `--vendor` with the default targets.
+    fn vendor_args() -> VendorArgs {
+        VendorArgs {
+            vendor: true,
+            ..VendorArgs::default()
+        }
+    }
+
     #[test]
-    fn no_vendor_flag_reads_nothing() {
+    fn no_lock_flag_reads_nothing() {
         let tmp = TempDir::new().unwrap();
         let args = VendorArgs {
-            no_vendor: true,
+            no_lock: true,
             ..VendorArgs::default()
         };
         // No package.toml and no uv: the flag returns first.
@@ -858,7 +873,7 @@ exit 2
         let text = format!("{err:?}");
         assert!(text.contains("was not found"), "{text}");
         assert!(text.contains("astral.sh/uv/install.sh"), "{text}");
-        assert!(text.contains("--no-vendor"), "{text}");
+        assert!(text.contains("--no-lock"), "{text}");
     }
 
     #[cfg(unix)]
@@ -869,7 +884,7 @@ exit 2
         write_package(&pkg, Some("dependencies = [\"six\"]"), "");
         let uv = fake_uv(tmp.path(), false, false);
 
-        let out = run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        let out = run_with_uv(&pkg, &vendor_args(), &uv).unwrap();
         let record = match out {
             VendorOutcome::Vendored(r) => r,
             other => panic!("unexpected outcome {other:?}"),
@@ -910,13 +925,13 @@ exit 2
         write_package(&pkg, Some("dependencies = [\"six\"]"), "");
         let uv = fake_uv(tmp.path(), true, false);
 
-        run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        run_with_uv(&pkg, &vendor_args(), &uv).unwrap();
         assert!(pkg.join("vendor/aarch64-linux").is_dir());
 
         let args = VendorArgs {
             arch: Arch::X86_64,
             python_version: "3.12".to_string(),
-            ..VendorArgs::default()
+            ..vendor_args()
         };
         let out = run_with_uv(&pkg, &args, &uv).unwrap();
         let record = match out {
@@ -941,7 +956,7 @@ exit 2
         let uv = fake_uv(tmp.path(), false, false);
         let args = VendorArgs {
             locked: true,
-            ..VendorArgs::default()
+            ..vendor_args()
         };
 
         let err = format!("{:?}", run_with_uv(&pkg, &args, &uv).unwrap_err());
@@ -964,10 +979,7 @@ exit 2
         let pkg = tmp.path().join("demo");
         write_package(&pkg, Some("dependencies = [\"docopt==0.6.2\"]"), "");
         let uv = fake_uv(tmp.path(), false, true);
-        let err = format!(
-            "{:?}",
-            run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap_err()
-        );
+        let err = format!("{:?}", run_with_uv(&pkg, &vendor_args(), &uv).unwrap_err());
         assert!(
             err.contains("`docopt` has no wheel for aarch64-linux"),
             "{err}"
@@ -979,19 +991,6 @@ exit 2
         assert!(manifest::read_metadata(&pkg).unwrap().vendored.is_none());
     }
 
-    #[test]
-    fn names_of_dependencies_without_a_wheel_are_read_from_the_uv_text() {
-        let text = "  × No solution found when resolving dependencies:\n  ╰─▶ Because \
-                    docopt==0.6.2 has no usable wheels and you require\n      docopt==0.6.2, we \
-                    can conclude that your requirements are unsatisfiable.\n\n      hint: Wheels \
-                    are required for `docopt` because building from source is\n      disabled";
-        assert_eq!(dependencies_without_wheel(text), vec!["docopt"]);
-        let text = "Because pyfoo==1.0 has no wheels with a matching platform tag (e.g., \
-                    `manylinux_2_28_aarch64`) and bar==2 has no usable wheels";
-        assert_eq!(dependencies_without_wheel(text), vec!["pyfoo", "bar"]);
-        assert!(dependencies_without_wheel("network error").is_empty());
-    }
-
     #[cfg(unix)]
     #[test]
     fn hand_filled_vendor_is_not_overwritten() {
@@ -1000,12 +999,9 @@ exit 2
         write_package(&pkg, Some("dependencies = [\"six\"]"), "");
         fs::create_dir_all(pkg.join("vendor/requests")).unwrap();
         let uv = fake_uv(tmp.path(), false, false);
-        let err = format!(
-            "{:?}",
-            run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap_err()
-        );
+        let err = format!("{:?}", run_with_uv(&pkg, &vendor_args(), &uv).unwrap_err());
         assert!(err.contains("`requests`"), "{err}");
-        assert!(err.contains("--no-vendor"), "{err}");
+        assert!(err.contains("without --vendor"), "{err}");
         assert!(pkg.join("vendor/requests").is_dir());
     }
 
@@ -1036,16 +1032,133 @@ exit 2
         let pkg = tmp.path().join("demo");
         write_package(&pkg, Some("dependencies = [\"six\"]"), "");
         let uv = fake_uv(tmp.path(), false, false);
-        run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        run_with_uv(&pkg, &vendor_args(), &uv).unwrap();
 
         fs::write(
             pkg.join("pyproject.toml"),
             "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
         )
         .unwrap();
-        let out = run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        let out = run_with_uv(&pkg, &vendor_args(), &uv).unwrap();
         assert_eq!(out, VendorOutcome::NothingToVendor);
         assert!(!pkg.join("vendor/x86_64-linux").exists());
         assert!(manifest::read_metadata(&pkg).unwrap().vendored.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_build_writes_the_lock_and_does_not_fill_vendor() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_package(&pkg, Some("dependencies = [\"six\"]"), "");
+        let uv = fake_uv(tmp.path(), false, false);
+
+        let out = run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        assert_eq!(out, VendorOutcome::Locked(1));
+        assert!(pkg.join("requirements.lock").exists());
+        assert!(!pkg.join("vendor").exists());
+        assert!(manifest::read_metadata(&pkg).unwrap().vendored.is_none());
+
+        // uv resolved, and installed nothing.
+        let log = fs::read_to_string(tmp.path().join("uv.log")).unwrap();
+        assert!(log.contains("pip compile pyproject.toml --universal --python-version 3.11"));
+        assert!(log.contains("--generate-hashes"), "{log}");
+        assert!(!log.contains("pip install"), "{log}");
+
+        // What the build wrote is what the compiler accepts.
+        check_dependencies_ship(&pkg, "demo").unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_build_keeps_a_prebuilt_vendor_while_the_lock_is_the_same() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_package(&pkg, Some("dependencies = [\"six\"]"), "");
+        let uv = fake_uv(tmp.path(), false, false);
+        let built = run_with_uv(&pkg, &vendor_args(), &uv).unwrap();
+
+        // `publish` after `build --vendor`: same lock, vendor/ stays.
+        let again = run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        assert_eq!(again, built);
+        assert!(pkg.join("vendor/x86_64-linux/six.py").exists());
+        assert!(manifest::read_metadata(&pkg).unwrap().vendored.is_some());
+
+        // The lock changes under it: the folders hold other versions.
+        fs::write(
+            pkg.join("requirements.lock"),
+            "six==1.16.0 --hash=sha256:00\n",
+        )
+        .unwrap();
+        let err = format!(
+            "{:?}",
+            run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap_err()
+        );
+        assert!(err.contains("requirements.lock changed"), "{err}");
+        assert!(err.contains("--vendor"), "{err}");
+        assert!(pkg.join("vendor/x86_64-linux/six.py").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_build_leaves_a_hand_filled_vendor_alone() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_package(&pkg, Some("dependencies = [\"six\"]"), "");
+        fs::create_dir_all(pkg.join("vendor/requests")).unwrap();
+        let uv = fake_uv(tmp.path(), false, false);
+        let out = run_with_uv(&pkg, &VendorArgs::default(), &uv).unwrap();
+        assert_eq!(out, VendorOutcome::Locked(1));
+        assert!(pkg.join("vendor/requests").is_dir());
+        check_dependencies_ship(&pkg, "demo").unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_build_refuses_a_lock_the_compiler_would_refuse() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_package(&pkg, Some("dependencies = [\"six\"]"), "");
+        let uv = fake_uv(tmp.path(), false, false);
+        let args = VendorArgs {
+            locked: true,
+            ..VendorArgs::default()
+        };
+        fs::write(
+            pkg.join("requirements.lock"),
+            "six @ https://example.invalid/six-1.17.0-py3-none-any.whl\n",
+        )
+        .unwrap();
+        let err = format!("{:?}", run_with_uv(&pkg, &args, &uv).unwrap_err());
+        assert!(err.contains("line 1"), "{err}");
+        assert!(err.contains("--vendor"), "{err}");
+
+        // A lock that leaves out a declared dependency.
+        fs::write(
+            pkg.join("requirements.lock"),
+            "idna==3.10 --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274\n",
+        )
+        .unwrap();
+        let err = format!("{:?}", run_with_uv(&pkg, &args, &uv).unwrap_err());
+        assert!(err.contains("does not pin six"), "{err}");
+    }
+
+    #[test]
+    fn dependencies_with_no_lock_and_no_vendor_do_not_ship() {
+        let tmp = TempDir::new().unwrap();
+        let pkg = tmp.path().join("demo");
+        write_package(&pkg, Some("dependencies = [\"six\"]"), "");
+        let err = format!("{:?}", check_dependencies_ship(&pkg, "demo").unwrap_err());
+        assert!(err.contains("package `demo`"), "{err}");
+        assert!(err.contains("has no requirements.lock"), "{err}");
+
+        // A vendor/ folder ships them.
+        fs::create_dir_all(pkg.join("vendor")).unwrap();
+        check_dependencies_ship(&pkg, "demo").unwrap();
+
+        // No dependencies: nothing to ship.
+        let bare = tmp.path().join("bare");
+        write_package(&bare, None, "");
+        check_dependencies_ship(&bare, "demo").unwrap();
     }
 }

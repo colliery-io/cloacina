@@ -197,6 +197,23 @@ pub trait WorkflowRegistry: Send + Sync {
         Ok(None)
     }
 
+    /// CLOACINA-T-1073: the archive of the dependencies a compiler vendored
+    /// for a Python package version and `platform` (`{arch}-{os}`), or `None`
+    /// when there is none: the package ships its own `vendor/` folder, has no
+    /// dependencies, or the compiler did not vendor for this platform. The
+    /// loader unpacks it into `vendor/<platform>/` of the staged package.
+    ///
+    /// Default impl returns `Ok(None)` (filesystem, in-memory, mocks).
+    async fn get_python_vendor(
+        &self,
+        package_name: &str,
+        version: &str,
+        platform: &str,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        let _ = (package_name, version, platform);
+        Ok(None)
+    }
+
     /// Persist a workflow's task list (local ids + dependency edges) into the
     /// stored package metadata.
     ///

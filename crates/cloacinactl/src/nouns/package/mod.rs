@@ -81,8 +81,9 @@ enum PackageVerb {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Build the package source directory. Rust: cargo build. Python: vendor
-    /// the dependencies of pyproject.toml into vendor/<platform>/.
+    /// Build the package source directory. Rust: cargo build. Python: lock
+    /// the dependencies of pyproject.toml into requirements.lock, and with
+    /// --vendor install them into vendor/<platform>/.
     Build {
         dir: PathBuf,
         /// Rust packages: build in release profile (default is debug).

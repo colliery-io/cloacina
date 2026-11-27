@@ -55,6 +55,9 @@ pub fn pack_to(dir: &Path, out: Option<&Path>) -> Result<PathBuf, CliError> {
             // CLOACINA-T-1048: the Python version and the vendored platforms.
             let name = manifest::read_manifest(dir)?.package.name;
             manifest::validate_python_env(dir, &name, &meta, None)?;
+            // CLOACINA-T-1073: dependencies ship as a lock file for the
+            // compiler, or in vendor/.
+            super::vendor::check_dependencies_ship(dir, &name)?;
         }
         PackageLanguage::Rust => manifest::validate_rust_layout(dir)?,
     }

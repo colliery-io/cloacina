@@ -22,9 +22,10 @@ use super::vendor::VendorArgs;
 use crate::shared::error::CliError;
 
 pub fn run(dir: &Path, release: bool, vendor: &VendorArgs) -> Result<(), CliError> {
-    // A Python package has nothing to compile. Its build step vendors the
-    // dependencies that pyproject.toml declares into vendor/<platform>/
-    // (CLOACINA-T-1048). `publish` calls this, so a publish vendors too.
+    // A Python package has nothing to compile. Its build step locks the
+    // dependencies that pyproject.toml declares into requirements.lock, and
+    // with --vendor installs them into vendor/<platform>/ (CLOACINA-T-1048,
+    // CLOACINA-T-1073). `publish` calls this, so a publish locks too.
     if manifest::read_language(dir)? == PackageLanguage::Python {
         super::vendor::run(dir, vendor)?;
         println!(
