@@ -254,7 +254,7 @@ fn endpoint_of(connection_url: &str) -> Option<String> {
 ///
 /// Split out from [`Database::tenant_connection_string`] so the string
 /// behavior is unit-testable without standing up a connection pool.
-fn inject_credentials(endpoint: &str, username: &str, password: &str) -> Option<String> {
+pub fn inject_credentials(endpoint: &str, username: &str, password: &str) -> Option<String> {
     let mut url = url::Url::parse(endpoint).ok()?;
     url.set_username(username).ok()?;
     // `set_password(Some(""))` would serialize a bare `:` — normalize an empty
