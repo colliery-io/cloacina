@@ -179,6 +179,13 @@ Dead-agent detection and in-flight reclaim are governed by two server flags
 | `--fleet-task-timeout-s` / `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
 | `--fleet-task-timeout-max-s` / `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit a task can get. A task that asks for more gets this value. |
 | `--fleet-artifact-fetch-wait-s` / `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long a task waits, per attempt, while agents cannot fetch its package artifact. After that the attempt fails. `0`: the first failed fetch fails the attempt. |
+| `--fleet-poll-timeout-s` / `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit of one poll of a poll trigger on an agent. The server waits this plus 10 s for the answer. |
+
+A tenant with a poll trigger needs a running agent: each poll runs on an agent
+of the tenant ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+With an actuator the server keeps one agent for such a tenant; with agents you
+run yourself, keep one running. An agent of a release before poll packets is
+never sent a poll.
 
 Effective dead-after = interval × misses. For faster failover (at the cost of
 more heartbeat traffic), e.g. ~10s detection:

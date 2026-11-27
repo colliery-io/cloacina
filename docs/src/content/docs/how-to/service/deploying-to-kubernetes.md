@@ -72,12 +72,15 @@ the install says where the agents come from:
 | `server.singleTrust=true` | none needed | every tenant's packages are loaded and their tasks run in the server process |
 
 With `fleet.actuator=kubernetes` or `fleet.externalAgents=true` a task waits
-until an agent of its tenant can take it. A package that uses a poll trigger,
-a stream accumulator on a native provider, a Python polling or stream
-accumulator, or a polling accumulator in a Rust package does not load: its
-`build_status` is `failed` and `build_error` names what it uses. Python
-reactors and graphs with other accumulators load, and their firings run on
-agents. A native provider that only a constructor-node task uses loads: the
+until an agent of its tenant can take it. A poll trigger's polls run on an
+agent of its tenant too: with `fleet.actuator=kubernetes` a tenant with a poll
+trigger keeps one agent; with `fleet.externalAgents=true` keep one agent of
+each such tenant running ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+A package that uses a stream accumulator on a native provider, a Python
+polling or stream accumulator, or a polling accumulator in a Rust package does
+not load: its `build_status` is `failed` and `build_error` names what it uses.
+Python reactors and graphs with other accumulators load, and their firings run
+on agents. A native provider that only a constructor-node task uses loads: the
 task runs on an agent.
 
 `server.singleTrust=true` is for a server whose every tenant is trusted as
@@ -110,6 +113,9 @@ Before this setting a chart install ran every task in the server process
   and any Python reactor, graph or accumulator refuse it. Upgrade the compiler
   first, so its pass describes the packages again before the server loads
   them.
+- A package with a poll trigger loads and polls on the tenant's agents. One
+  that a server of the release before refused for its poll trigger stays
+  refused: publish a new version of it.
 - With `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv`, the server
   does not start without `server.singleTrust=true`.
 

@@ -806,6 +806,7 @@ name = "cloacina-agent"
 version = "0.12.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.23.1",
  "bincode",
  "clap",

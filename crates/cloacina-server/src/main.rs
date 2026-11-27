@@ -224,6 +224,17 @@ struct Cli {
     )]
     fleet_artifact_fetch_wait_s: u64,
 
+    /// Time limit (seconds) of one poll of a poll trigger on an agent. The
+    /// agent stops the poll after this long; the server waits this plus 10 s
+    /// for the answer, then records the poll as missed and fires nothing.
+    /// Default 30. CLOACINA-T-1077.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_POLL_TIMEOUT_S",
+        default_value_t = cloacina_server::fleet_poll_dispatcher::DEFAULT_POLL_TIMEOUT_SECONDS
+    )]
+    fleet_poll_timeout_s: u64,
+
     /// Size in bytes above which the context a task returns, or the context
     /// built for a task, is logged as a warning and counted in
     /// `cloacina_context_size_warnings_total`. 0 turns the warning off.
@@ -438,6 +449,9 @@ async fn main() -> Result<()> {
             cli.fleet_task_timeout_max_s,
         )
         .map_err(|e| anyhow::anyhow!(e))?;
+    // CLOACINA-T-1077: the time limit of one poll on an agent.
+    cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(cli.fleet_poll_timeout_s)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // CLOACINA-T-1075: where tenant code runs. A mode that would run tenant
     // tasks in this process without single trust stops the start.
@@ -587,5 +601,15 @@ mod tests {
         let text = err.to_string();
         assert!(text.contains("--fleet-graph-firings"), "{text}");
         assert!(text.contains("inline") && text.contains("worker"), "{text}");
+    }
+
+    /// CLOACINA-T-1077: the time limit of a poll on an agent.
+    #[test]
+    fn the_poll_time_limit_defaults_to_30_seconds_and_refuses_0() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.fleet_poll_timeout_s, 30);
+        let cli = Cli::try_parse_from(["cloacina-server", "--fleet-poll-timeout-s", "5"]).unwrap();
+        assert_eq!(cli.fleet_poll_timeout_s, 5);
+        assert!(cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(0).is_err());
     }
 }

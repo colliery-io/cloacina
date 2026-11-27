@@ -68,3 +68,5 @@ libc = "0.2"
 [dev-dependencies]
 # Packs a Python source package for the worker-process tests (CLOACINA-T-1028).
 fidius-core = { workspace = true }
+# A stand-in trigger in the poll tests (CLOACINA-T-1077).
+async-trait.workspace = true

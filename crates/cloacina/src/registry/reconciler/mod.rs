@@ -122,7 +122,8 @@ pub enum PackageLoadMode {
     /// Register the package from the metadata document its compiler stored
     /// (CLOACINA-T-1074). No library is opened and no module is imported:
     /// the tasks are entries with no code, which an executor that sends work
-    /// to agents runs there. A package with no document does not load; a
+    /// to agents runs there. A poll trigger is polled on an agent
+    /// (CLOACINA-T-1077). A package with no document does not load; a
     /// package that needs its code in this process (see
     /// [`crate::registry::in_process`]) is refused with the reason.
     MetadataOnly,
@@ -376,6 +377,11 @@ pub struct RegistryReconciler {
     /// ([`crate::registry::task_placement_check`]) when the reconciler is
     /// made; the server registers one at start.
     pub(super) placement_check: Option<Arc<dyn crate::registry::TaskPlacementCheck>>,
+
+    /// CLOACINA-T-1077: where a poll trigger of a package loaded from its
+    /// metadata document sends its polls. Shared with the runner, which sets
+    /// the dispatcher after it is made.
+    pub(super) poll_dispatcher: crate::trigger::PollDispatcherSlot,
 }
 
 impl RegistryReconciler {
@@ -406,7 +412,15 @@ impl RegistryReconciler {
             cron_registrar: None,
             recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
             placement_check: crate::registry::task_placement_check(),
+            poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
         })
+    }
+
+    /// Share the runner's poll dispatcher slot (CLOACINA-T-1077), so a
+    /// dispatcher set on the runner later reaches the poll triggers this
+    /// reconciler registers.
+    pub fn set_poll_dispatcher_slot(&mut self, slot: crate::trigger::PollDispatcherSlot) {
+        self.poll_dispatcher = slot;
     }
 
     /// Set the check of a package's task placements at load

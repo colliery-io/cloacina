@@ -153,4 +153,12 @@ pub trait Trigger: Send + Sync + fmt::Debug {
     fn workflow_name(&self) -> &str {
         ""
     }
+
+    /// How long the scheduler waits for one `poll()` of this trigger. Default
+    /// `None`: the scheduler's own poll time limit. A trigger whose poll runs
+    /// on an agent of the fleet sets the time the server waits for the
+    /// agent's answer (CLOACINA-T-1077).
+    fn poll_wait(&self) -> Option<Duration> {
+        None
+    }
 }

@@ -31,7 +31,7 @@ use std::sync::Arc;
 /// `step_load_custom_triggers` when registering FFI trigger adapters
 /// from packaged cdylibs (the cdylib serializes the duration as a
 /// string in `TriggerPackageMetadata`).
-fn parse_humantime_duration(s: &str) -> Option<std::time::Duration> {
+pub(super) fn parse_humantime_duration(s: &str) -> Option<std::time::Duration> {
     let trimmed = s.trim();
     if let Some(num) = trimmed.strip_suffix("ms") {
         num.trim()

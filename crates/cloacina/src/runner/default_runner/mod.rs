@@ -79,6 +79,10 @@ pub struct DefaultRunner {
     /// mutating schedules so the scheduler re-arms its sleep immediately
     /// instead of waiting for the backstop.
     pub(super) cron_change: Arc<tokio::sync::Notify>,
+    /// Where the poll triggers of packages loaded from their metadata
+    /// document send their polls (CLOACINA-T-1077). Empty until the server
+    /// sets a dispatcher; shared with the reconciler.
+    pub(super) poll_dispatcher: crate::trigger::PollDispatcherSlot,
 }
 
 impl DefaultRunner {
@@ -213,6 +217,7 @@ impl DefaultRunner {
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
             cron_change: Arc::new(tokio::sync::Notify::new()),
+            poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
         };
 
         // Start the background services immediately
@@ -303,6 +308,17 @@ impl DefaultRunner {
         *slot.write().await = Some(scheduler);
     }
 
+    /// Set where the poll triggers of packages loaded from their metadata
+    /// document send their polls (CLOACINA-T-1077). The server sets one that
+    /// sends each poll to an agent of the runner's tenant. Can be called
+    /// after the services started: the triggers read the slot at each poll.
+    pub fn set_poll_dispatcher(&self, dispatcher: Arc<dyn crate::trigger::PollDispatcher>) {
+        *self
+            .poll_dispatcher
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dispatcher);
+    }
+
     /// Gracefully shuts down the executor and its background services.
     pub async fn shutdown(&self) -> Result<(), WorkflowExecutionError> {
         self.service_manager.write().await.shutdown_all().await?;
@@ -323,6 +339,7 @@ impl Clone for DefaultRunner {
             // Share the SAME Notify across clones so a cron-change signal from
             // any runner handle reaches the one scheduler loop (CLOACI-T-0743).
             cron_change: self.cron_change.clone(),
+            poll_dispatcher: self.poll_dispatcher.clone(),
         }
     }
 }

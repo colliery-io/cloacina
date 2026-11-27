@@ -2883,6 +2883,13 @@ export interface components {
                  *     The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
                  */
                 last_poll_at?: string | null;
+                /**
+                 * @description Why the last poll of this trigger gave no answer: no agent of the
+                 *     tenant could take it, no answer came in time, the agent refused it, or
+                 *     the trigger returned an error. Nothing fired for that poll. `None`
+                 *     after a poll that answered fire or skip (CLOACINA-T-1077).
+                 */
+                last_poll_error?: string | null;
                 /** @description RFC 3339 timestamp. */
                 last_run_at?: string | null;
                 /** @description RFC 3339 timestamp. */
@@ -3069,6 +3076,13 @@ export interface components {
             enabled: boolean;
             /** @description Schedule UUID. */
             id: string;
+            /**
+             * @description Why the last poll of this trigger gave no answer: no agent of the
+             *     tenant could take it, no answer came in time, the agent refused it, or
+             *     the trigger returned an error. Nothing fired for that poll. `None`
+             *     after a poll that answered fire or skip (CLOACINA-T-1077).
+             */
+            last_poll_error?: string | null;
             /** @description Whether the schedule is paused (CLOACI-T-0749). */
             paused?: boolean;
             /** @description RFC 3339 timestamp of when it was paused, if paused. */
@@ -3099,6 +3113,13 @@ export interface components {
              *     The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
              */
             last_poll_at?: string | null;
+            /**
+             * @description Why the last poll of this trigger gave no answer: no agent of the
+             *     tenant could take it, no answer came in time, the agent refused it, or
+             *     the trigger returned an error. Nothing fired for that poll. `None`
+             *     after a poll that answered fire or skip (CLOACINA-T-1077).
+             */
+            last_poll_error?: string | null;
             /** @description RFC 3339 timestamp. */
             last_run_at?: string | null;
             /** @description RFC 3339 timestamp. */
