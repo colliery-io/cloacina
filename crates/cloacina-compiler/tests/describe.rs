@@ -454,7 +454,12 @@ fn python_document_equals_the_in_process_read() {
 #[test]
 #[serial]
 fn python_graph_document_equals_the_in_process_read() {
-    let fixture = "demo-py-graph";
+    for fixture in ["demo-py-graph", "demo-py-state"] {
+        python_graph_document_equals_the_in_process_read_of(fixture);
+    }
+}
+
+fn python_graph_document_equals_the_in_process_read_of(fixture: &str) {
     let archive = fixture_archive(fixture);
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("package.cloacina");
@@ -494,19 +499,47 @@ fn python_graph_document_equals_the_in_process_read() {
         &manifest.metadata.accumulators,
     );
 
+    let (graph_name, reactor_name, accumulator, kind) = match fixture {
+        "demo-py-graph" => (
+            "demo_py_graph",
+            "demo_py_graph_rx",
+            "py_alpha",
+            "passthrough",
+        ),
+        _ => ("demo_py_state", "demo_py_state_rx", "py_window", "state"),
+    };
+    assert_eq!(doc.format_version, PACKAGE_DESCRIPTION_VERSION);
     assert_eq!(by_name(&doc.reactors), by_name(&view.reactors));
     assert_eq!(by_name(&doc.triggers), by_name(&view.triggers));
     assert_eq!(doc.reactors.len(), 1);
-    assert_eq!(doc.reactors[0].name, "demo_py_graph_rx");
+    assert_eq!(doc.reactors[0].name, reactor_name);
     assert_eq!(doc.reactors[0].reaction_mode, "when_any");
-    assert_eq!(doc.reactors[0].accumulators[0].name, "py_alpha");
+    assert_eq!(doc.reactors[0].accumulators[0].name, accumulator);
+    assert_eq!(doc.reactors[0].accumulators[0].accumulator_type, kind);
 
     let graph = doc.graph.as_ref().expect("the graph");
     assert_eq!(graph.graph_name, declaration.name);
-    assert_eq!(graph.graph_name, "demo_py_graph");
+    assert_eq!(graph.graph_name, graph_name);
     assert_eq!(graph.trigger_reactor, declaration.reactor_name);
-    assert_eq!(graph.trigger_reactor.as_deref(), Some("demo_py_graph_rx"));
-    assert_eq!(graph.input_strategy, "latest");
+    assert_eq!(graph.trigger_reactor.as_deref(), Some(reactor_name));
+    // CLOACINA-T-1078: the strategy the declaration runs with, and each
+    // accumulator with the kind and config the in-process load spawns for
+    // the graph's reactor.
+    let strategy = match declaration.reactor.strategy {
+        cloacina::computation_graph::reactor::InputStrategy::Sequential => "sequential",
+        cloacina::computation_graph::reactor::InputStrategy::Latest => "latest",
+    };
+    assert_eq!(graph.input_strategy, strategy);
+    assert_eq!(
+        json(&graph.accumulators),
+        json(&view.reactors[0].accumulators),
+        "{fixture}: the graph's accumulators are its reactor's"
+    );
+    assert_eq!(graph.accumulators[0].accumulator_type, kind);
+    // Nothing of these packages runs in process, and none bundles a provider.
+    assert!(doc.in_process.is_empty(), "{:?}", doc.in_process);
+    assert!(doc.providers.is_empty());
+    assert!(doc.constructors.is_empty());
     let declared: Vec<&str> = declaration
         .accumulators
         .iter()
@@ -1285,6 +1318,253 @@ static T1074_MARK: extern "C" fn() = {{
             marks(&mark).contains(&std::process::id()),
             "the in-process load imports the package here"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1078: Python reactors and graphs from the document
+    // -----------------------------------------------------------------------
+
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+
+    /// `reconciler` with a graph scheduler of its own.
+    fn reconciler_with_graphs(
+        registry: Arc<Registry>,
+        mode: PackageLoadMode,
+    ) -> (
+        RegistryReconciler,
+        Arc<Runtime>,
+        Arc<ComputationGraphScheduler>,
+    ) {
+        let (reconciler, runtime) = reconciler(registry, mode, Arc::default());
+        let scheduler = Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new()));
+        (
+            reconciler.with_graph_scheduler(scheduler.clone()),
+            runtime,
+            scheduler,
+        )
+    }
+
+    /// The Python code that appends the importing process's id to `mark`.
+    fn import_mark(mark: &Path) -> String {
+        format!(
+            "\n\nimport os as _t1078_os\nwith open({:?}, \"a\") as _t1078_f:\n    \
+             _t1078_f.write(f\"{{_t1078_os.getpid()}}\\n\")\n",
+            mark.display().to_string()
+        )
+    }
+
+    async fn stored_document(registry: &Registry, id: uuid::Uuid) -> PackageDescription {
+        registry
+            .get_package_description(id)
+            .await
+            .unwrap()
+            .expect("the row")
+            .document
+            .expect("a document")
+    }
+
+    /// A Python graph package loads on a metadata-only server and the
+    /// server's process never imports its module: the mark holds only the
+    /// describe child's id. The reactor and the graph are in the scheduler,
+    /// and the graph has no code here.
+    #[tokio::test]
+    #[serial]
+    async fn metadata_only_load_never_imports_the_python_graph_package() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("imported-by.txt");
+        let stage = stage_fixture_with(
+            "demo-py-graph",
+            "workflow/demo_py_graph/graph.py",
+            &import_mark(&mark),
+        );
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+        let described_by = marks(&mark);
+        assert!(!described_by.is_empty(), "the describe child imported it");
+        assert!(!described_by.contains(&std::process::id()));
+
+        let document = stored_document(&registry, id).await;
+        assert_eq!(document.format_version, PACKAGE_DESCRIPTION_VERSION);
+        assert!(document.in_process.is_empty(), "{:?}", document.in_process);
+        let graph = document.graph.as_ref().expect("the graph");
+        assert_eq!(graph.accumulators[0].name, "py_alpha");
+        assert_eq!(graph.accumulators[0].accumulator_type, "passthrough");
+
+        let registry = Arc::new(registry);
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+
+        let (metadata_only, runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process imported the tenant's package"
+        );
+        let graphs = scheduler.list_graphs().await;
+        let loaded = graphs
+            .iter()
+            .find(|g| g.name == "demo_py_graph")
+            .expect("the graph, from the document");
+        assert_eq!(loaded.accumulators, vec!["py_alpha"]);
+        let registration = runtime
+            .get_computation_graph("demo_py_graph")
+            .expect("the graph in the runtime");
+        let fired =
+            (registration.graph_fn)(cloacina::cloacina_computation_graph::InputCache::new()).await;
+        assert!(
+            format!("{fired:?}").contains("runs only on the tenant's agents"),
+            "{fired:?}"
+        );
+        scheduler.shutdown_all().await;
+        // No in-process load here: an import in this process would leave the
+        // module in `sys.modules`, and the read of the same fixture by
+        // `python_graph_document_equals_the_in_process_read` would then
+        // register nothing. The describe child's mark above shows the import
+        // writes the mark; `metadata_only_load_never_imports_the_python_package`
+        // shows the in-process load makes it here.
+    }
+
+    /// A Python polling accumulator is recorded in the document by the
+    /// compiler, and the server refuses the package at load, with the kind
+    /// and the name, where a failed build is read.
+    #[tokio::test]
+    #[serial]
+    async fn a_python_polling_accumulator_is_recorded_and_refused() {
+        let home = tempfile::TempDir::new().unwrap();
+        let stage = stage_fixture_with(
+            "demo-py-graph",
+            "package.toml",
+            "\n[[metadata.accumulators]]\nname = \"py_alpha\"\naccumulator_type = \"polling\"\n\n\
+             [metadata.accumulators.config]\ninterval = \"2s\"\n",
+        );
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+
+        let document = stored_document(&registry, id).await;
+        assert_eq!(
+            document.in_process,
+            vec![cloacina::registry::in_process::InProcessReason {
+                kind: cloacina::registry::in_process::PYTHON_POLLING_ACCUMULATOR.to_string(),
+                names: vec!["py_alpha".to_string()],
+            }]
+        );
+
+        let registry = Arc::new(registry);
+        let (metadata_only, _runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert!(result.packages_loaded.is_empty());
+        assert_eq!(result.packages_failed.len(), 1);
+        let reason = &result.packages_failed[0].1;
+        assert!(
+            reason.contains("Python polling accumulator(s) 'py_alpha'"),
+            "{reason}"
+        );
+        assert!(scheduler.list_graphs().await.is_empty());
+        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
+        assert_eq!(inspected.build_status, "failed");
+    }
+
+    /// A row with a document of format 1 keeps the refusal of format 1: a
+    /// Python graph package is refused, and the compiler's pass leaves the
+    /// refused row as it is. A format 1 row the pass reaches before a load
+    /// gets a document of format 2 in place, and then loads.
+    #[tokio::test]
+    #[serial]
+    async fn a_format_1_document_keeps_its_refusal_and_the_pass_describes_it_again() {
+        let home = tempfile::TempDir::new().unwrap();
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let as_format_1 = |mut document: PackageDescription| {
+            document.format_version = 1;
+            document.in_process.clear();
+            document.providers.clear();
+            document
+        };
+
+        let refused =
+            build_and_record(&mut registry, fixture_archive("demo-py-graph"), &config).await;
+        let document = as_format_1(stored_document(&registry, refused).await);
+        assert!(
+            registry
+                .store_package_description(refused, &document)
+                .await
+                .unwrap()
+        );
+
+        let registry = Arc::new(registry);
+        let (metadata_only, _runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert!(result.packages_loaded.is_empty());
+        assert!(
+            result.packages_failed[0].1.contains("Python reactive code"),
+            "{:?}",
+            result.packages_failed
+        );
+        assert_eq!(describe_pass(&registry, &config).await, 0);
+        let stored = registry
+            .get_package_description(refused)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.version, Some(1));
+        let inspected = registry
+            .inspect_package_by_id(refused)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inspected.build_status, "failed");
+        scheduler.shutdown_all().await;
+        drop(metadata_only);
+
+        let mut registry = Arc::try_unwrap(registry).ok().expect("one owner");
+        let described =
+            build_and_record(&mut registry, fixture_archive("demo-py-state"), &config).await;
+        let document = as_format_1(stored_document(&registry, described).await);
+        assert!(
+            registry
+                .store_package_description(described, &document)
+                .await
+                .unwrap()
+        );
+        assert_eq!(describe_pass(&registry, &config).await, 1);
+        let again = stored_document(&registry, described).await;
+        assert_eq!(again.format_version, PACKAGE_DESCRIPTION_VERSION);
+        assert_eq!(
+            again.graph.as_ref().unwrap().accumulators[0].accumulator_type,
+            "state"
+        );
+
+        let registry = Arc::new(registry);
+        let (metadata_only, _runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![described],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            scheduler
+                .list_graphs()
+                .await
+                .iter()
+                .any(|g| g.name == "demo_py_state")
+        );
+        scheduler.shutdown_all().await;
     }
 
     /// A built package with no document (a build of a compiler before the
