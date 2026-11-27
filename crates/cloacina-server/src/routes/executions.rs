@@ -561,9 +561,27 @@ pub async fn get_execution_tasks(
         .await
     {
         Ok(tasks) => {
+            // CLOACINA-T-1047: the size of the context each task returned.
+            // The task rows are served without sizes if this read fails.
+            let context_sizes = match dal
+                .task_execution_metadata()
+                .context_sizes_for_workflow(universal_id)
+                .await
+            {
+                Ok(sizes) => sizes,
+                Err(e) => {
+                    tracing::warn!(
+                        execution_id = %exec_id,
+                        error = %e,
+                        "could not read task context sizes"
+                    );
+                    Default::default()
+                }
+            };
             let items: Vec<TaskExecutionDetail> = tasks
                 .into_iter()
                 .map(|t| TaskExecutionDetail {
+                    context_size_bytes: context_sizes.get(&t.id).copied(),
                     id: t.id.0.to_string(),
                     task_name: t.task_name,
                     status: t.status,

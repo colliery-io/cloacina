@@ -87,6 +87,7 @@ async fn make_run(dal: &DAL) -> Run {
             workflow_execution_id: execution,
             task_name: "t1".to_string(),
             context_id: Some(task_context),
+            context_size_bytes: None,
         })
         .await
         .unwrap();

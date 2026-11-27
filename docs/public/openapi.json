@@ -8482,6 +8482,14 @@
             ],
             "description": "RFC 3339 timestamp; `null` while still running."
           },
+          "context_size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Serialized size in bytes of the context the task returned; `null`\nwhen the task has saved no context."
+          },
           "created_at": {
             "type": "string",
             "description": "Row-created timestamp (RFC 3339) — always present; a fallback \"start\"\nwhen `started_at` is null (some runner configs don't stamp it)."

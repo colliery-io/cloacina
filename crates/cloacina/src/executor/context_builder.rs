@@ -36,6 +36,7 @@ use cloacina_workflow::secret::SecretResolver;
 use crate::context::Context;
 use crate::dal::DAL;
 use crate::error::ExecutorError;
+use crate::executor::context_size::{ContextKind, ContextSizeLimits, check_context_size};
 use crate::executor::types::ClaimedTask;
 use crate::task::TaskNamespace;
 
@@ -50,6 +51,9 @@ pub struct TaskContextBuilder {
     /// never-serialized handle on `Context`, so it cannot leak into the durable
     /// context. `None` on paths that don't configure secrets.
     secret_resolver: Option<Arc<dyn SecretResolver>>,
+    /// CLOACINA-T-1047: the warning and the hard limit on the size of the
+    /// input context this builder gives a task.
+    context_limits: ContextSizeLimits,
 }
 
 impl TaskContextBuilder {
@@ -57,7 +61,33 @@ impl TaskContextBuilder {
         Self {
             dal,
             secret_resolver: None,
+            context_limits: ContextSizeLimits::default(),
         }
+    }
+
+    /// The same builder with these limits on the size of an input context
+    /// (CLOACINA-T-1047). A new builder has the default limits.
+    pub fn with_context_limits(mut self, context_limits: ContextSizeLimits) -> Self {
+        self.context_limits = context_limits;
+        self
+    }
+
+    /// Measure the input context of `claimed_task` and apply the limits. Over
+    /// the hard limit this is [`ExecutorError::ContextTooLarge`]: the task
+    /// must fail before it runs or is put in a work packet.
+    fn check_input_size(
+        &self,
+        claimed_task: &ClaimedTask,
+        context: &Context<serde_json::Value>,
+    ) -> Result<(), ExecutorError> {
+        check_context_size(
+            &self.context_limits,
+            self.dal.tenant_label(),
+            &claimed_task.task_name,
+            ContextKind::Input,
+            context.data(),
+        )
+        .map(|_| ())
     }
 
     /// Attach the secret resolver every built context should carry (T-0858).
@@ -73,6 +103,9 @@ impl TaskContextBuilder {
     ///   and smart-merge (latest-wins for primitives, recursive for objects,
     ///   dedup-concat for arrays). A dependency context that fails to parse is
     ///   a hard `ContextLoadFailed` (COR-11) — never a silent partial context.
+    ///
+    /// The built context is measured, and one over the hard size limit is
+    /// [`ExecutorError::ContextTooLarge`] (CLOACINA-T-1047).
     pub async fn build(
         &self,
         claimed_task: &ClaimedTask,
@@ -120,6 +153,7 @@ impl TaskContextBuilder {
                     }
                 }
             }
+            self.check_input_size(claimed_task, &context)?;
             return Ok(context);
         }
 
@@ -199,6 +233,7 @@ impl TaskContextBuilder {
             context.data().len(),
             context.data().keys().collect::<Vec<_>>()
         );
+        self.check_input_size(claimed_task, &context)?;
         Ok(context)
     }
 
@@ -269,5 +304,164 @@ mod tests {
             merged,
             serde_json::json!({"a": 1, "b": 2, "nested": {"x": 1, "y": 2}})
         );
+    }
+}
+
+#[cfg(all(test, feature = "sqlite"))]
+mod input_size_tests {
+    //! The builder measures the input context it gives a task and refuses
+    //! one over the hard limit (CLOACINA-T-1047). On SQLite in memory.
+
+    use super::*;
+    use crate::database::Database;
+    use crate::database::universal_types::UniversalUuid;
+    use crate::models::task_execution::NewTaskExecution;
+    use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
+    use crate::models::workflow_execution::NewWorkflowExecution;
+
+    async fn dal() -> DAL {
+        let url = format!(
+            "file:input_size_test_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations().await.expect("migrations");
+        DAL::new(db)
+    }
+
+    fn context_with(key: &str, len: usize) -> Context<serde_json::Value> {
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert(key, serde_json::json!("x".repeat(len))).unwrap();
+        ctx
+    }
+
+    async fn workflow(dal: &DAL, initial: Option<&Context<serde_json::Value>>) -> UniversalUuid {
+        let context_id = match initial {
+            Some(ctx) => dal.context().create(ctx).await.unwrap(),
+            None => None,
+        };
+        dal.workflow_execution()
+            .create(NewWorkflowExecution {
+                workflow_name: "orders".into(),
+                workflow_version: "1.0".into(),
+                status: "Running".into(),
+                context_id,
+            })
+            .await
+            .unwrap()
+            .id
+    }
+
+    async fn task(dal: &DAL, workflow_id: UniversalUuid, name: &str) -> ClaimedTask {
+        let id = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                workflow_execution_id: workflow_id,
+                task_name: name.into(),
+                status: "Running".into(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap()
+            .id;
+        ClaimedTask {
+            task_execution_id: id,
+            workflow_execution_id: workflow_id,
+            task_name: name.to_string(),
+            attempt: 1,
+        }
+    }
+
+    /// A completed dependency: a task row and its saved context.
+    async fn dependency(
+        dal: &DAL,
+        workflow_id: UniversalUuid,
+        ns: &TaskNamespace,
+        ctx: &Context<serde_json::Value>,
+    ) {
+        let claimed = task(dal, workflow_id, &ns.to_string()).await;
+        let context_id = dal.context().create(ctx).await.unwrap();
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: claimed.task_execution_id,
+                workflow_execution_id: workflow_id,
+                task_name: ns.to_string(),
+                context_id,
+                context_size_bytes: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    const LIMITS: ContextSizeLimits = ContextSizeLimits {
+        warn_bytes: 0,
+        max_bytes: 1_000,
+    };
+
+    #[tokio::test]
+    async fn a_first_context_over_the_limit_is_refused() {
+        let dal = dal().await;
+        let initial = context_with("rows", 2_000);
+        let size = initial.to_json().unwrap().len();
+        let workflow_id = workflow(&dal, Some(&initial)).await;
+        let claimed = task(&dal, workflow_id, "public::embedded::orders::load").await;
+
+        let err = TaskContextBuilder::new(dal)
+            .with_context_limits(LIMITS)
+            .build(&claimed, &[])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "Context too large: the input context of task 'public::embedded::orders::load' \
+                 is {size} bytes, over the limit of 1000 bytes. Largest keys: rows (2002 \
+                 bytes). Write large data to storage in the task and pass a reference in the \
+                 context."
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn two_dependency_contexts_under_the_limit_that_merge_over_it_are_refused() {
+        let dal = dal().await;
+        let workflow_id = workflow(&dal, None).await;
+        let extract = TaskNamespace::new("public", "embedded", "orders", "extract");
+        let enrich = TaskNamespace::new("public", "embedded", "orders", "enrich");
+        dependency(&dal, workflow_id, &extract, &context_with("a", 600)).await;
+        dependency(&dal, workflow_id, &enrich, &context_with("b", 700)).await;
+        let claimed = task(&dal, workflow_id, "public::embedded::orders::load").await;
+
+        let err = TaskContextBuilder::new(dal.clone())
+            .with_context_limits(LIMITS)
+            .build(&claimed, &[extract.clone(), enrich.clone()])
+            .await
+            .unwrap_err();
+        match err {
+            ExecutorError::ContextTooLarge {
+                kind,
+                size_bytes,
+                limit_bytes,
+                largest_keys,
+                ..
+            } => {
+                assert_eq!(kind, "input");
+                assert_eq!(limit_bytes, 1_000);
+                assert!(size_bytes > 1_300, "size was {size_bytes}");
+                assert_eq!(largest_keys, "b (702 bytes), a (602 bytes)");
+            }
+            other => panic!("not ContextTooLarge: {other}"),
+        }
+
+        // The same merge is accepted when the limit is off.
+        let built = TaskContextBuilder::new(dal)
+            .with_context_limits(ContextSizeLimits::OFF)
+            .build(&claimed, &[extract, enrich])
+            .await
+            .unwrap();
+        assert_eq!(built.data().len(), 2);
     }
 }

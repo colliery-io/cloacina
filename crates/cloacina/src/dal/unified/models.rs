@@ -157,6 +157,7 @@ pub struct UnifiedTaskExecutionMetadata {
     pub context_id: Option<UniversalUuid>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub context_size_bytes: Option<i64>,
 }
 
 #[derive(Debug, Insertable)]
@@ -169,6 +170,7 @@ pub struct NewUnifiedTaskExecutionMetadata {
     pub context_id: Option<UniversalUuid>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub context_size_bytes: Option<i64>,
 }
 
 // ============================================================================
@@ -981,6 +983,7 @@ impl From<UnifiedTaskExecutionMetadata> for TaskExecutionMetadata {
             workflow_execution_id: u.workflow_execution_id,
             task_name: u.task_name,
             context_id: u.context_id,
+            context_size_bytes: u.context_size_bytes,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

@@ -186,6 +186,29 @@ struct Cli {
     )]
     fleet_artifact_fetch_wait_s: u64,
 
+    /// Size in bytes above which the context a task returns, or the context
+    /// built for a task, is logged as a warning and counted in
+    /// `cloacina_context_size_warnings_total`. 0 turns the warning off.
+    /// Default 1048576 (1 MiB). CLOACINA-T-1047.
+    #[arg(
+        long,
+        env = "CLOACINA_CONTEXT_WARN_BYTES",
+        default_value_t = cloacina::executor::context_size::DEFAULT_CONTEXT_WARN_BYTES
+    )]
+    context_warn_bytes: u64,
+
+    /// Largest size in bytes of a task context. A task whose result context
+    /// or input context is larger fails with the size, the limit and the
+    /// largest keys in the error, and is not retried. One setting for the
+    /// whole server. 0 turns the limit off. Default 16777216 (16 MiB).
+    /// CLOACINA-T-1047.
+    #[arg(
+        long,
+        env = "CLOACINA_CONTEXT_MAX_BYTES",
+        default_value_t = cloacina::executor::context_size::DEFAULT_CONTEXT_MAX_BYTES
+    )]
+    context_max_bytes: u64,
+
     /// CORS allowed origins, comma-separated (e.g.
     /// `https://ops.example.com,https://ui.example.com`, or `*` for any).
     /// CORS is DISABLED unless this is set — browser consumers require an
@@ -353,6 +376,10 @@ async fn main() -> Result<()> {
         cli.agent_liveness_misses,
         fleet_task_time_limits,
         std::time::Duration::from_secs(cli.fleet_artifact_fetch_wait_s),
+        cloacina::executor::ContextSizeLimits {
+            warn_bytes: cli.context_warn_bytes,
+            max_bytes: cli.context_max_bytes,
+        },
         cloacina_server::CorsConfig {
             allowed_origins: cli.cors_allowed_origins,
             allowed_methods: cli.cors_allowed_methods,

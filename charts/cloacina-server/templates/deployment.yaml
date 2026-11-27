@@ -191,6 +191,12 @@ spec:
                   key: {{ .Values.alertWebhook.secretRef.key }}
             {{- end }}
             {{- end }}
+            # CLOACINA-T-1047: the warning and the hard limit on the size of a
+            # task context. int64 keeps a large value out of float notation.
+            - name: CLOACINA_CONTEXT_WARN_BYTES
+              value: {{ .Values.context.warnBytes | int64 | quote }}
+            - name: CLOACINA_CONTEXT_MAX_BYTES
+              value: {{ .Values.context.maxBytes | int64 | quote }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

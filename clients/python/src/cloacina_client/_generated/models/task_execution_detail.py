@@ -25,6 +25,8 @@ class TaskExecutionDetail:
         task_name (str): Task identifier within the workflow.
         updated_at (str): Row-updated timestamp (RFC 3339) — always present; a fallback "end".
         completed_at (None | str | Unset): RFC 3339 timestamp; `null` while still running.
+        context_size_bytes (int | None | Unset): Serialized size in bytes of the context the task returned; `null`
+            when the task has saved no context.
         error_details (None | str | Unset): Structured error details, when present.
         last_error (None | str | Unset): Last error message for the most recent failed attempt, when present.
         started_at (None | str | Unset): RFC 3339 timestamp; `null` until the task starts.
@@ -39,6 +41,7 @@ class TaskExecutionDetail:
     task_name: str
     updated_at: str
     completed_at: None | str | Unset = UNSET
+    context_size_bytes: int | None | Unset = UNSET
     error_details: None | str | Unset = UNSET
     last_error: None | str | Unset = UNSET
     started_at: None | str | Unset = UNSET
@@ -65,6 +68,12 @@ class TaskExecutionDetail:
             completed_at = UNSET
         else:
             completed_at = self.completed_at
+
+        context_size_bytes: int | None | Unset
+        if isinstance(self.context_size_bytes, Unset):
+            context_size_bytes = UNSET
+        else:
+            context_size_bytes = self.context_size_bytes
 
         error_details: None | str | Unset
         if isinstance(self.error_details, Unset):
@@ -105,6 +114,8 @@ class TaskExecutionDetail:
         )
         if completed_at is not UNSET:
             field_dict["completed_at"] = completed_at
+        if context_size_bytes is not UNSET:
+            field_dict["context_size_bytes"] = context_size_bytes
         if error_details is not UNSET:
             field_dict["error_details"] = error_details
         if last_error is not UNSET:
@@ -141,6 +152,17 @@ class TaskExecutionDetail:
             return cast(None | str | Unset, data)
 
         completed_at = _parse_completed_at(d.pop("completed_at", UNSET))
+
+        def _parse_context_size_bytes(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        context_size_bytes = _parse_context_size_bytes(
+            d.pop("context_size_bytes", UNSET)
+        )
 
         def _parse_error_details(data: object) -> None | str | Unset:
             if data is None:
@@ -187,6 +209,7 @@ class TaskExecutionDetail:
             task_name=task_name,
             updated_at=updated_at,
             completed_at=completed_at,
+            context_size_bytes=context_size_bytes,
             error_details=error_details,
             last_error=last_error,
             started_at=started_at,

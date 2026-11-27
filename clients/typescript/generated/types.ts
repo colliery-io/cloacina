@@ -2704,6 +2704,12 @@ export interface components {
             /** @description RFC 3339 timestamp; `null` while still running. */
             completed_at?: string | null;
             /**
+             * Format: int64
+             * @description Serialized size in bytes of the context the task returned; `null`
+             *     when the task has saved no context.
+             */
+            context_size_bytes?: number | null;
+            /**
              * @description Row-created timestamp (RFC 3339) — always present; a fallback "start"
              *     when `started_at` is null (some runner configs don't stamp it).
              */

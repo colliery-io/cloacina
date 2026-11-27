@@ -171,6 +171,9 @@ pub struct ExecutorConfig {
     pub enable_claiming: bool,
     /// Heartbeat interval for claimed tasks (only used when claiming is enabled).
     pub heartbeat_interval: std::time::Duration,
+    /// The warning and the hard limit on the size of a task context
+    /// (CLOACINA-T-1047).
+    pub context_limits: super::context_size::ContextSizeLimits,
 }
 
 impl Default for ExecutorConfig {
@@ -181,12 +184,14 @@ impl Default for ExecutorConfig {
     /// * task_timeout: 5 minutes
     /// * enable_claiming: false (opt-in)
     /// * heartbeat_interval: 10 seconds
+    /// * context_limits: a warning at 1 MiB, a hard limit at 16 MiB
     fn default() -> Self {
         Self {
             max_concurrent_tasks: 4,
             task_timeout: std::time::Duration::from_secs(300), // 5 minutes
             enable_claiming: true,
             heartbeat_interval: std::time::Duration::from_secs(10),
+            context_limits: super::context_size::ContextSizeLimits::default(),
         }
     }
 }
@@ -289,6 +294,7 @@ mod tests {
             task_timeout: std::time::Duration::from_secs(60),
             enable_claiming: false,
             heartbeat_interval: std::time::Duration::from_secs(5),
+            ..ExecutorConfig::default()
         };
         assert_eq!(config.max_concurrent_tasks, 16);
         assert_eq!(config.task_timeout, std::time::Duration::from_secs(60));
@@ -303,6 +309,7 @@ mod tests {
             task_timeout: std::time::Duration::from_secs(120),
             enable_claiming: true,
             heartbeat_interval: std::time::Duration::from_secs(15),
+            ..ExecutorConfig::default()
         };
         let cloned = config.clone();
         assert_eq!(cloned.max_concurrent_tasks, config.max_concurrent_tasks);

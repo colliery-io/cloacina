@@ -112,6 +112,10 @@ pub struct DefaultRunnerConfig {
     /// routes on. `"public"` for the admin/global runner; a per-tenant runner
     /// sets it to its tenant so the tenant's tasks reach the tenant's agents.
     tenant_id: String,
+    /// The warning and the hard limit on the serialized size of a task
+    /// context (CLOACINA-T-1047). Default: a warning at 1 MiB, a hard limit
+    /// at 16 MiB. 0 turns a limit off.
+    context_limits: crate::executor::ContextSizeLimits,
 }
 
 impl DefaultRunnerConfig {
@@ -287,6 +291,24 @@ impl DefaultRunnerConfig {
     pub fn default_executor(&self) -> &str {
         &self.default_executor
     }
+
+    /// The warning and the hard limit on the serialized size of a task
+    /// context (CLOACINA-T-1047).
+    pub fn context_limits(&self) -> crate::executor::ContextSizeLimits {
+        self.context_limits
+    }
+
+    /// A task context larger than this many bytes is logged and counted.
+    /// 0 = no warning.
+    pub fn context_warn_bytes(&self) -> u64 {
+        self.context_limits.warn_bytes
+    }
+
+    /// A task context larger than this many bytes fails its task, with no
+    /// retry. 0 = no limit.
+    pub fn context_max_bytes(&self) -> u64 {
+        self.context_limits.max_bytes
+    }
 }
 
 /// Builder for [`DefaultRunnerConfig`].
@@ -340,6 +362,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 runner_name: None,
                 default_executor: "default".to_string(),
                 tenant_id: "public".to_string(),
+                context_limits: crate::executor::ContextSizeLimits::default(),
             },
         }
     }
@@ -539,6 +562,23 @@ impl DefaultRunnerConfigBuilder {
     /// effect when claiming + recovery are enabled. (CLOACI-T-0667)
     pub fn stale_claim_sweep_interval(mut self, value: Duration) -> Self {
         self.config.stale_claim_sweep_interval = value;
+        self
+    }
+
+    /// Sets the size in bytes above which a task context is logged and
+    /// counted in `cloacina_context_size_warnings_total` (default 1048576,
+    /// 1 MiB). 0 turns the warning off. (CLOACINA-T-1047)
+    pub fn context_warn_bytes(mut self, value: u64) -> Self {
+        self.config.context_limits.warn_bytes = value;
+        self
+    }
+
+    /// Sets the largest size in bytes of a task context (default 16777216,
+    /// 16 MiB). A task whose result or input context is larger fails with
+    /// `ExecutorError::ContextTooLarge` and is not retried. 0 turns the limit
+    /// off. (CLOACINA-T-1047)
+    pub fn context_max_bytes(mut self, value: u64) -> Self {
+        self.config.context_limits.max_bytes = value;
         self
     }
 
@@ -796,6 +836,7 @@ impl DefaultRunnerBuilder {
             task_timeout: self.config.task_timeout(),
             enable_claiming: self.config.enable_claiming(),
             heartbeat_interval: self.config.heartbeat_interval(),
+            context_limits: self.config.context_limits(),
         };
 
         // Create executor with the scoped runtime — skip with_global_registry() since
@@ -875,6 +916,29 @@ mod tests {
         assert!(config.registry_storage_path().is_none());
         assert!(config.runner_id().is_none());
         assert!(config.runner_name().is_none());
+    }
+
+    #[test]
+    fn test_context_size_limits_default_and_setters() {
+        // CLOACINA-T-1047: a warning at 1 MiB and a hard limit at 16 MiB.
+        let def = DefaultRunnerConfig::default();
+        assert_eq!(def.context_warn_bytes(), 1_048_576);
+        assert_eq!(def.context_max_bytes(), 16_777_216);
+
+        let config = DefaultRunnerConfig::builder()
+            .context_warn_bytes(0)
+            .context_max_bytes(4096)
+            .build()
+            .unwrap();
+        assert_eq!(config.context_warn_bytes(), 0);
+        assert_eq!(config.context_max_bytes(), 4096);
+        assert_eq!(
+            config.context_limits(),
+            crate::executor::ContextSizeLimits {
+                warn_bytes: 0,
+                max_bytes: 4096,
+            }
+        );
     }
 
     #[test]

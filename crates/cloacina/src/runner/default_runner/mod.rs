@@ -181,6 +181,7 @@ impl DefaultRunner {
             task_timeout: config.task_timeout(),
             enable_claiming: config.enable_claiming(),
             heartbeat_interval: config.heartbeat_interval(),
+            context_limits: config.context_limits(),
         };
 
         let executor = ThreadTaskExecutor::with_runtime_and_registry(
