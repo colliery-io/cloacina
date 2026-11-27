@@ -1,5 +1,5 @@
 -- CLOACINA-T-1100: the error of each failed attempt of a task. See the
--- sibling postgres migration 069.
+-- sibling postgres migration 070.
 CREATE TABLE task_attempt_errors (
     id BLOB PRIMARY KEY NOT NULL,
     task_execution_id BLOB NOT NULL REFERENCES task_executions(id),
