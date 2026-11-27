@@ -329,24 +329,7 @@ pub async fn report_result(
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
     // since the fleet only dispatches to agents with a runnable arch. Log it at
     // debug so the backstop stays quiet; real results (success/failure) stay at info.
-    if matches!(req.outcome, AgentOutcome::Refused { .. }) {
-        debug!(
-            agent_id = %req.agent_id,
-            task_id = %req.task_execution_id,
-            attempt = req.attempt,
-            outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
-            "agent reported result (refused — fail-closed guard)"
-        );
-    } else {
-        info!(
-            agent_id = %req.agent_id,
-            task_id = %req.task_execution_id,
-            attempt = req.attempt,
-            duration_ms = req.duration_ms,
-            outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
-            "agent reported result"
-        );
-    }
+    log_reported_result(&req);
 
     // The task_execution_id arrives from the wire as a string; the
     // coordinator's key is a `UniversalUuid` to match what the FleetExecutor
@@ -742,6 +725,55 @@ pub async fn list_agents(
     Json(cloacina_api_types::common::ListResponse::new(agents)).into_response()
 }
 
+/// The log lines of a reported result (CLOACINA-T-1072).
+///
+/// Info (debug for a refusal) names the report: the agent, the task, the
+/// attempt, the kind of outcome and the size of its payload. The context of a
+/// success and the message of a failure or a refusal are task data: they are
+/// in the trace line only, which an operator must turn on.
+fn log_reported_result(req: &AgentResultRequest) {
+    let (kind, payload_bytes) = match &req.outcome {
+        AgentOutcome::Success { context } => (
+            "success".to_string(),
+            serde_json::to_string(context).map(|s| s.len()).unwrap_or(0),
+        ),
+        AgentOutcome::Failure {
+            message,
+            classification,
+        } => (format!("failure({classification:?})"), message.len()),
+        AgentOutcome::Refused { reason, message } => {
+            (format!("refused({reason:?})"), message.len())
+        }
+    };
+    if matches!(req.outcome, AgentOutcome::Refused { .. }) {
+        debug!(
+            agent_id = %req.agent_id,
+            task_id = %req.task_execution_id,
+            attempt = req.attempt,
+            outcome = %kind,
+            payload_bytes,
+            "agent reported result (refused — fail-closed guard)"
+        );
+    } else {
+        info!(
+            agent_id = %req.agent_id,
+            task_id = %req.task_execution_id,
+            attempt = req.attempt,
+            duration_ms = req.duration_ms,
+            outcome = %kind,
+            payload_bytes,
+            "agent reported result"
+        );
+    }
+    tracing::trace!(
+        agent_id = %req.agent_id,
+        task_id = %req.task_execution_id,
+        attempt = req.attempt,
+        outcome = %serde_json::to_string(&req.outcome).unwrap_or_else(|_| "<unserializable>".into()),
+        "agent reported result: the full outcome (task data)"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,5 +791,144 @@ mod tests {
     fn require_protocol_version_accepts_current() {
         assert!(require_protocol_version(AGENT_PROTOCOL_VERSION).is_ok());
         assert!(require_protocol_version(AGENT_PROTOCOL_VERSION + 1).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1072: the log of a reported result holds no task data below
+    // trace.
+    // -----------------------------------------------------------------------
+
+    use std::sync::{Arc, Mutex};
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone)]
+    struct StringWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for StringWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for StringWriter {
+        type Writer = StringWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// What `log_reported_result` writes for `req` with the log at `level`.
+    fn logged(level: tracing::Level, req: &AgentResultRequest) -> String {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(StringWriter(buffer.clone()))
+            .with_ansi(false)
+            .with_max_level(level)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || log_reported_result(req));
+        let bytes = buffer.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    fn report(outcome: AgentOutcome) -> AgentResultRequest {
+        AgentResultRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: "agent-t1072".into(),
+            task_execution_id: "7f0c1a52-0000-4000-8000-000000001072".into(),
+            attempt: 2,
+            dispatch_id: None,
+            duration_ms: 41,
+            outcome,
+        }
+    }
+
+    fn success() -> AgentResultRequest {
+        report(AgentOutcome::Success {
+            context: serde_json::json!({ "customer_note": "value-from-the-task-context" }),
+        })
+    }
+
+    fn failure() -> AgentResultRequest {
+        report(AgentOutcome::Failure {
+            message: "row for robin has text-from-the-task-error".into(),
+            classification: cloacina::fleet::FailureClassification::TaskError,
+        })
+    }
+
+    fn refusal() -> AgentResultRequest {
+        report(AgentOutcome::Refused {
+            reason: cloacina::fleet::RefusalReason::ArtifactFetchFailed,
+            message: "text-from-the-refusal".into(),
+        })
+    }
+
+    #[test]
+    fn the_info_log_of_a_success_names_the_report_and_holds_no_context() {
+        let out = logged(tracing::Level::INFO, &success());
+        assert!(out.contains("agent reported result"), "{out}");
+        assert!(out.contains("agent-t1072"), "{out}");
+        assert!(
+            out.contains("7f0c1a52-0000-4000-8000-000000001072"),
+            "{out}"
+        );
+        assert!(out.contains("attempt=2"), "{out}");
+        assert!(out.contains("duration_ms=41"), "{out}");
+        assert!(out.contains("outcome=success"), "{out}");
+        // The JSON of the context is 47 bytes.
+        assert!(out.contains("payload_bytes=47"), "{out}");
+        assert!(
+            !out.contains("value-from-the-task-context"),
+            "the info log holds a value of the task context: {out}"
+        );
+        assert!(
+            !out.contains("customer_note"),
+            "the info log holds a key of the task context: {out}"
+        );
+    }
+
+    #[test]
+    fn the_info_log_of_a_failure_names_the_kind_and_holds_no_message() {
+        let out = logged(tracing::Level::INFO, &failure());
+        assert!(out.contains("agent reported result"), "{out}");
+        assert!(out.contains("outcome=failure(TaskError)"), "{out}");
+        assert!(
+            !out.contains("text-from-the-task-error"),
+            "the info log holds the error message of the task: {out}"
+        );
+    }
+
+    /// `--verbose` is debug: it shows a refusal, and still no task data.
+    #[test]
+    fn the_debug_log_holds_no_task_data() {
+        for req in [success(), failure(), refusal()] {
+            let out = logged(tracing::Level::DEBUG, &req);
+            assert!(out.contains("agent reported result"), "{out}");
+            for data in [
+                "value-from-the-task-context",
+                "text-from-the-task-error",
+                "text-from-the-refusal",
+            ] {
+                assert!(!out.contains(data), "the debug log holds {data}: {out}");
+            }
+        }
+        let out = logged(tracing::Level::DEBUG, &refusal());
+        assert!(
+            out.contains("outcome=refused(ArtifactFetchFailed)"),
+            "{out}"
+        );
+        // A refusal is not in the info log.
+        assert_eq!(logged(tracing::Level::INFO, &refusal()), "");
+    }
+
+    /// Trace is the one level with the full outcome.
+    #[test]
+    fn the_trace_log_holds_the_full_outcome() {
+        assert!(logged(tracing::Level::TRACE, &success()).contains("value-from-the-task-context"));
+        assert!(logged(tracing::Level::TRACE, &failure()).contains("text-from-the-task-error"));
+        assert!(logged(tracing::Level::TRACE, &refusal()).contains("text-from-the-refusal"));
     }
 }
