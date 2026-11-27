@@ -33,8 +33,9 @@ pub use key_encryption::{
     KeyEncryptionError, decrypt_bytes, decrypt_private_key, encrypt_bytes, encrypt_private_key,
 };
 pub use signing::{
-    GeneratedKeypair, SigningError, compute_key_fingerprint, generate_signing_keypair,
-    sign_package, verify_signature,
+    GeneratedKeypair, SigningError, compute_key_fingerprint, decode_private_key_pem,
+    encode_private_key_pem, generate_signing_keypair, public_key_of, sign_package,
+    verify_signature,
 };
 
 /// Values written by builds before the crypto crate upgrade (CLOACINA-T-0963),

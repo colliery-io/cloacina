@@ -25,6 +25,28 @@ use crate::models::workflow_packages::StorageType;
 use crate::registry::error::{RegistryError, StorageError};
 use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
 
+/// A package whose stored signature passed the load check
+/// ([`WorkflowRegistry::verify_package_signature`]).
+#[derive(Debug, Clone)]
+pub struct LoadSignature {
+    /// SHA-256 hex of the package bytes.
+    pub package_hash: String,
+    /// Fingerprint of the key that signed the package.
+    pub signer_fingerprint: String,
+    /// The organization whose trusted keys hold the signer's key.
+    pub trusted_by: crate::UniversalUuid,
+}
+
+/// Why a package did not pass the load check.
+#[derive(Debug, Clone)]
+pub struct LoadSignatureRefusal {
+    /// A fixed code for the audit log: `missing_signature`,
+    /// `untrusted_signer`, `revoked_signer`, `invalid_signature`.
+    pub code: &'static str,
+    /// The reason, for the log and the load error.
+    pub reason: String,
+}
+
 /// Main trait for workflow registry operations.
 ///
 /// The `WorkflowRegistry` trait defines the core operations for managing
@@ -159,10 +181,10 @@ pub trait WorkflowRegistry: Send + Sync {
     ) -> Result<(), RegistryError>;
 
     /// Check whether a `package_signatures` row exists for the given
-    /// SHA-256 hash. Used by the reconciler's defense-in-depth
-    /// signature-existence check (CLOACI-T-0571) when
-    /// `--require-signatures` is on. Implementations that don't have a
-    /// signature backing store return `Ok(false)`.
+    /// SHA-256 hash (CLOACI-T-0571). It says nothing about who signed: the
+    /// reconciler's check at load is
+    /// [`Self::verify_package_signature`]. Implementations that don't have
+    /// a signature backing store return `Ok(false)`.
     ///
     /// # Arguments
     ///
@@ -172,6 +194,35 @@ pub trait WorkflowRegistry: Send + Sync {
         // unified DB schema override this to query `package_signatures`.
         let _ = package_hash;
         Ok(false)
+    }
+
+    /// Verify the stored signature of a package for a load (CLOACINA-T-1062).
+    /// The reconciler calls it when `require_signatures` is on.
+    ///
+    /// The package passes when a `package_signatures` row for its bytes was
+    /// stored for one of `org_ids`, the signer's key is a live trusted key
+    /// of one of them (asked in order), and the signature verifies.
+    /// `trust_database` is where the trusted keys are; `None` means the
+    /// registry's own database. `Ok(Err(reason))` is a package that does not
+    /// pass; `Err` is a check that could not run. Implementations with no
+    /// signature store refuse every package.
+    ///
+    /// # Arguments
+    ///
+    /// * `package_data` — the bytes of the package source archive.
+    /// * `org_ids` — the organizations whose trusted keys count, in order.
+    /// * `trust_database` — the database that holds the trusted keys.
+    async fn verify_package_signature(
+        &self,
+        package_data: &[u8],
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<Result<LoadSignature, LoadSignatureRefusal>, RegistryError> {
+        let _ = (package_data, org_ids, trust_database);
+        Ok(Err(LoadSignatureRefusal {
+            code: "missing_signature",
+            reason: "this registry stores no signatures".to_string(),
+        }))
     }
 
     /// CLOACI-T-0905 (multi-arch): the compiled cdylib for `(package, version)`

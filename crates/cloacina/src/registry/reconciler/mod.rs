@@ -66,17 +66,41 @@ pub struct ReconcilerConfig {
     /// Default tenant ID to use for package loading
     pub default_tenant_id: String,
 
-    /// Defense-in-depth: when true, the reconciler refuses to load any
-    /// `workflow_packages` row that has no companion `package_signatures`
-    /// row (CLOACI-T-0571). The upload route is the strong gate
-    /// (CLOACI-I-0103); this catches direct DB inserts that bypass it.
+    /// When true, the reconciler verifies the stored signature of each
+    /// package before it loads it (CLOACI-T-0571, CLOACINA-T-1062): a
+    /// `package_signatures` row stored for the tenant's org or the server
+    /// org, a live trusted key of one of them, and a signature that
+    /// verifies. A package that does not pass is not loaded. The upload
+    /// route makes the same check; this one also covers a package that did
+    /// not come through it, and a signer revoked since the upload.
     pub require_signatures: bool,
 
-    /// Trusted org UUID used as the `org_id` field on the audit-log
-    /// entry when a signature-existence check fails. None when
-    /// `require_signatures` is false. Mirrors
-    /// `cloacina-server`'s `--verification-org-id` CLI flag.
+    /// The server-wide organization (CLOACINA-A-0018). At load the signer
+    /// is looked up in the org of `default_tenant_id` first
+    /// ([`crate::security::tenant_org_id`]), then in this one if it is set.
+    /// Mirrors `cloacina-server`'s `--verification-org-id` CLI flag.
     pub verification_org_id: Option<crate::UniversalUuid>,
+
+    /// The database that holds the trusted keys, when it is not the
+    /// registry's own (CLOACINA-T-1062). A tenant's runner reads packages
+    /// and signature rows from the tenant's schema; the trusted keys are in
+    /// the admin schema. `None` reads them from the registry's database.
+    pub signature_trust_database: Option<crate::Database>,
+}
+
+impl ReconcilerConfig {
+    /// The organizations whose trusted keys count at load, in the order
+    /// they are asked: the org of the tenant, then the server org if set.
+    pub fn signature_org_ids(&self) -> Vec<crate::UniversalUuid> {
+        let tenant_org = crate::security::tenant_org_id(&self.default_tenant_id);
+        let mut orgs = vec![tenant_org];
+        if let Some(server_org) = self.verification_org_id
+            && server_org != tenant_org
+        {
+            orgs.push(server_org);
+        }
+        orgs
+    }
 }
 
 impl Default for ReconcilerConfig {
@@ -89,6 +113,7 @@ impl Default for ReconcilerConfig {
             default_tenant_id: "public".to_string(),
             require_signatures: false,
             verification_org_id: None,
+            signature_trust_database: None,
         }
     }
 }
@@ -823,7 +848,27 @@ mod tests {
             default_tenant_id: "tenant-42".to_string(),
             require_signatures: false,
             verification_org_id: None,
+            signature_trust_database: None,
         };
+
+        // CLOACINA-T-1062: the tenant's org is asked first, then the server
+        // org if one is set; the same org is not asked twice.
+        let tenant_org = crate::security::tenant_org_id("tenant-42");
+        assert_eq!(config.signature_org_ids(), vec![tenant_org]);
+        let server_org = crate::UniversalUuid::new_v4();
+        let with_server_org = ReconcilerConfig {
+            verification_org_id: Some(server_org),
+            ..config.clone()
+        };
+        assert_eq!(
+            with_server_org.signature_org_ids(),
+            vec![tenant_org, server_org]
+        );
+        let same_org = ReconcilerConfig {
+            verification_org_id: Some(tenant_org),
+            ..config.clone()
+        };
+        assert_eq!(same_org.signature_org_ids(), vec![tenant_org]);
 
         assert_eq!(config.reconcile_interval, Duration::from_secs(60));
         assert!(!config.enable_startup_reconciliation);
