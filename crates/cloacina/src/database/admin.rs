@@ -301,9 +301,15 @@ mod postgres_impl {
             })
         }
 
-        /// Remove a tenant (user + schema)
+        /// Remove a tenant (schema + user)
         ///
         /// WARNING: This will permanently delete all data in the tenant's schema.
+        ///
+        /// The schema and the user go in one transaction, so a failure leaves
+        /// both as they were and the error reaches the caller
+        /// (CLOACINA-T-1068). Each statement is `IF EXISTS`: a second call
+        /// after a failure finishes the removal, and a call for a tenant that
+        /// is gone answers `Ok`.
         pub async fn remove_tenant(
             &self,
             schema_name: &str,
@@ -321,40 +327,26 @@ mod postgres_impl {
             let schema_name = schema_name.to_string();
             let username = username.to_string();
 
-            let _ = conn
+            let txn_result = conn
                 .interact(move |conn| {
                     conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
-                        // 1. Revoke permissions
-                        let sqls = vec![
-                            format!(
-                                "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} FROM {}",
-                                schema_name, username
-                            ),
-                            format!(
-                                "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}",
-                                schema_name, username
-                            ),
-                            format!("REVOKE ALL ON SCHEMA {} FROM {}", schema_name, username),
-                        ];
-
-                        for sql in sqls {
-                            // Use unwrap_or to continue even if revoke fails (user might already be gone)
-                            let _ = diesel::sql_query(&sql).execute(conn);
-                        }
+                        // 1. Drop schema (with CASCADE to remove all objects).
+                        // The schema goes first: its grants and the default
+                        // privileges that `create_tenant` gave the user go
+                        // with it. While they are there, Postgres refuses to
+                        // drop the user.
+                        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name);
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to drop schema '{}': {}", schema_name, e),
+                            }
+                        })?;
 
                         // 2. Drop user
                         let sql = format!("DROP USER IF EXISTS {}", username);
                         diesel::sql_query(&sql).execute(conn).map_err(|e| {
                             AdminError::SqlExecution {
                                 message: format!("Failed to drop user '{}': {}", username, e),
-                            }
-                        })?;
-
-                        // 3. Drop schema (with CASCADE to remove all objects)
-                        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name);
-                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                            AdminError::SqlExecution {
-                                message: format!("Failed to drop schema '{}': {}", schema_name, e),
                             }
                         })?;
 
@@ -365,8 +357,10 @@ mod postgres_impl {
                 .map_err(|e| AdminError::SqlExecution {
                     message: format!("Transaction failed: {}", e),
                 })?;
-
-            Ok(())
+            // The result of the transaction is the result of the removal.
+            // The previous shape bound it to `_`, so a drop that Postgres
+            // refused still answered `Ok`.
+            txn_result
         }
 
         /// Build the tenant's ready-to-use connection string.

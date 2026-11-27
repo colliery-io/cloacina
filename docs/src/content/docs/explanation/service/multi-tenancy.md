@@ -45,9 +45,11 @@ Earlier server releases had known "isolation gaps"; current releases have closed
   1. Revoke every still-active API key for the tenant (close the auth surface).
   2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`, awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`, default 30s). Past the timeout the runner is **hard-evicted** — tasks that ignore cooperative cancellation error on their next DB write once step 4 lands.
   3. Evict the tenant's `Database` from `TenantDatabaseCache` (releases the connection pool).
-  4. Drop the schema + user via `DatabaseAdmin::remove_tenant`.
+  4. Drop the schema + user via `DatabaseAdmin::remove_tenant`: the schema first, then the user, in one transaction.
 
   Each step emits a structured audit event with duration. Per-step failures bail out; earlier steps stay committed and are idempotent, so a retry resumes from the failure point.
+
+  The route answers `200` with `"status": "removed"` only when step 4 dropped the schema and the user. If Postgres refuses the drop (for example, the tenant's user owns an object in another schema), the route answers `500`, the schema and the user stay as they were, and the same `DELETE` finishes the removal once the cause is gone. A `DELETE` for a tenant that does not exist answers `200`.
 
 The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in earlier releases is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
 

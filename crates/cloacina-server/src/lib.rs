@@ -3020,6 +3020,9 @@ mod tests {
     /// Server start migrates each tenant schema (CLOACINA-T-1056).
     mod tenant_migrations;
 
+    /// Tenant delete reports a failed drop (CLOACINA-T-1068).
+    mod tenant_removal;
+
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.
