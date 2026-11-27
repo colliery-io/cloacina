@@ -45,7 +45,8 @@ use cloacina::executor::types::ClaimedTask;
 use cloacina::executor::{TaskContextBuilder, TaskResultHandler};
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentOutcome, AgentResultRequest, ArtifactRef,
-    FailureClassification, WORK_PACKET_KIND, WorkPacket, WrappedSecret, host_target_triple,
+    CANCEL_PACKET_KIND, CancelPacket, FailureClassification, WORK_PACKET_KIND, WorkPacket,
+    WrappedSecret, host_target_triple,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::retry::RetryPolicy;
@@ -173,6 +174,29 @@ fn agent_failure_error(
         message: format!("agent failure ({:?}): {}", classification, message),
         task_id: task_name.to_string(),
         timestamp: chrono::Utc::now(),
+    })
+}
+
+/// The outbox row of a cancel message (CLOACINA-T-1028): a push of kind
+/// [`CANCEL_PACKET_KIND`] to `recipient`, with a [`CancelPacket`] as payload.
+fn cancel_row(
+    recipient: String,
+    tenant_id: Option<String>,
+    task_execution_id: &str,
+    dispatch_id: &str,
+    reason: &str,
+) -> Result<NewDeliveryOutbox, serde_json::Error> {
+    let payload = serde_json::to_vec(&CancelPacket {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        task_execution_id: task_execution_id.to_string(),
+        dispatch_id: dispatch_id.to_string(),
+        reason: reason.to_string(),
+    })?;
+    Ok(NewDeliveryOutbox {
+        recipient,
+        kind: CANCEL_PACKET_KIND.to_string(),
+        tenant_id,
+        payload,
     })
 }
 
@@ -417,6 +441,68 @@ impl FleetExecutor {
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
         self
+    }
+
+    /// Tell the agent to stop the work of a dispatch the server gave up on
+    /// (CLOACINA-T-1028, amends CLOACINA-A-0017 rule 5).
+    ///
+    /// The message goes to the agent that has the packet now: the packet's
+    /// outbox row says which, and a dead agent's rows move to a live one. A
+    /// packet that is acked needs no cancel: its work ended. Best effort: a
+    /// failure here is logged, and the attempt then ends at its time limit,
+    /// by the agent's own kill.
+    async fn cancel_dispatch(
+        &self,
+        task_execution_id: UniversalUuid,
+        packet_row_id: Option<i64>,
+        agent_id: &str,
+        tenant_id: Option<String>,
+        dispatch_id: &str,
+        reason: &str,
+    ) {
+        let mut recipient = format!("{AGENT_RECIPIENT_PREFIX}{agent_id}");
+        if let Some(id) = packet_row_id {
+            match self.outbox_dal.delivery_outbox().get(id).await {
+                Ok(Some(row)) if row.acked_at.is_some() => return,
+                Ok(Some(row)) => recipient = row.recipient,
+                Ok(None) => return,
+                Err(e) => debug!(
+                    task_id = %task_execution_id,
+                    error = %e,
+                    "fleet: could not read the packet's outbox row; the cancel goes to the \
+                     agent the packet was sent to"
+                ),
+            }
+        }
+        let row = match cancel_row(
+            recipient,
+            tenant_id,
+            &task_execution_id.0.to_string(),
+            dispatch_id,
+            reason,
+        ) {
+            Ok(row) => row,
+            Err(e) => {
+                warn!(task_id = %task_execution_id, error = %e, "fleet: serialize CancelPacket");
+                return;
+            }
+        };
+        match self.outbox_dal.delivery_outbox().enqueue(row).await {
+            Ok(_) => {
+                metrics::counter!("cloacina_fleet_cancels_sent_total").increment(1);
+                self.delivery_wake.wake();
+                info!(
+                    task_id = %task_execution_id,
+                    dispatch_id,
+                    "fleet: cancel sent for the dispatch the server gave up on"
+                );
+            }
+            Err(e) => warn!(
+                task_id = %task_execution_id,
+                error = %e,
+                "fleet: could not enqueue the cancel; the attempt ends at its time limit"
+            ),
+        }
     }
 
     /// Put the task back in the queue for a later dispatch try, with no use of
@@ -1154,7 +1240,7 @@ impl TaskExecutor for FleetExecutor {
                 cloacina::security::ownership::DispatchTarget {
                     tenant_id: tenant_id.clone(),
                     agent_id: agent_id.clone(),
-                    dispatch_id: Some(dispatch_id),
+                    dispatch_id: Some(dispatch_id.clone()),
                 },
             );
 
@@ -1166,13 +1252,15 @@ impl TaskExecutor for FleetExecutor {
                 tenant_id: tenant_id.clone(),
                 payload: payload_bytes,
             };
-            match self.outbox_dal.delivery_outbox().enqueue(row).await {
+            let packet_row_id = match self.outbox_dal.delivery_outbox().enqueue(row).await {
                 // The outbox row is the record of where the packet goes. If
                 // the agent is evicted the row is re-targeted, and the wait
                 // reads it to accept the report of the new agent.
-                Ok(row) => self
-                    .coordinator
-                    .packet_enqueued(event.task_execution_id, row.id),
+                Ok(row) => {
+                    self.coordinator
+                        .packet_enqueued(event.task_execution_id, row.id);
+                    row.id
+                }
                 Err(e) => {
                     self.coordinator.cancel(event.task_execution_id);
                     warn!(
@@ -1191,7 +1279,7 @@ impl TaskExecutor for FleetExecutor {
                         )
                         .await);
                 }
-            }
+            };
             self.delivery_wake.wake();
 
             // Stamp started_at now that the packet is committed to a specific
@@ -1272,6 +1360,18 @@ impl TaskExecutor for FleetExecutor {
                         elapsed_s = ?result_wait.as_secs(),
                         "fleet: agent result wait exceeded server-side timeout"
                     );
+                    // CLOACINA-T-1028: the server gives up on this dispatch.
+                    // Ask the agent that has the packet to stop its work, so
+                    // the attempt does not run on beside a retry.
+                    self.cancel_dispatch(
+                        event.task_execution_id,
+                        Some(packet_row_id),
+                        &agent_id,
+                        tenant_id.clone(),
+                        &dispatch_id,
+                        "the server's wait for the result ended",
+                    )
+                    .await;
                     return Ok(self
                         .result_handler
                         .handle_outcome(
@@ -1527,6 +1627,31 @@ mod tests {
     use super::*;
 
     // ── CLOACINA-T-1014: time limits ─────────────────────────────────────────
+
+    /// CLOACINA-T-1028: the cancel of a dispatch is a push of its own kind to
+    /// the agent, and names the dispatch.
+    #[test]
+    fn a_cancel_is_a_push_of_its_own_kind_that_names_the_dispatch() {
+        let row = cancel_row(
+            "agent:agent-a".to_string(),
+            Some("acme".to_string()),
+            "00000000-0000-0000-0000-000000001028",
+            "dispatch-1",
+            "the server's wait for the result ended",
+        )
+        .unwrap();
+        assert_eq!(row.recipient, "agent:agent-a");
+        assert_eq!(row.kind, "agent_cancel");
+        assert_ne!(row.kind, WORK_PACKET_KIND);
+        assert_eq!(row.tenant_id.as_deref(), Some("acme"));
+        let packet: CancelPacket = serde_json::from_slice(&row.payload).unwrap();
+        assert_eq!(packet.dispatch_id, "dispatch-1");
+        assert_eq!(
+            packet.task_execution_id,
+            "00000000-0000-0000-0000-000000001028"
+        );
+        assert_eq!(packet.protocol_version, AGENT_PROTOCOL_VERSION);
+    }
 
     #[test]
     fn a_task_with_a_ten_minute_limit_gets_ten_minutes_in_the_packet_and_the_wait() {
