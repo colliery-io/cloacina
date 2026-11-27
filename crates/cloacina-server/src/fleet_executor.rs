@@ -1654,6 +1654,11 @@ impl FleetExecutor {
     /// The outbox row is read before the stored reports: an agent stores its
     /// report before it acks, so an acked row with no stored report has no
     /// report to come. Returns what was done, per task.
+    ///
+    /// Only a dispatch recorded under the claim it finds stale is taken over
+    /// (CLOACINA-T-1136). A runner of the previous release claims and sends a
+    /// task without writing the dispatch columns, so its row can name an
+    /// older dispatch; the stale claim sweeper recovers that row.
     pub async fn take_over_stale_dispatches(self: &Arc<Self>) -> Vec<(UniversalUuid, Takeover)> {
         let stale = match self
             .dal
@@ -3552,6 +3557,77 @@ mod tests {
                     .unwrap();
                 let after = until_status(&b.dal, &event, "Completed").await;
                 assert_eq!(after.status, "Completed");
+            }
+
+            /// A runner of the previous release takes the claim of the row
+            /// and sends the task as its own dispatch, then stops too. Its
+            /// code does not know the dispatch columns: it leaves them as
+            /// they are, and its heartbeat goes stale (CLOACINA-T-1136).
+            async fn claimed_by_a_previous_release_runner(dal: &DAL, event: &TaskReadyEvent) {
+                use cloacina::database::schema::unified::task_executions;
+                use diesel::prelude::*;
+
+                let task_id = event.task_execution_id;
+                let runner = UniversalUuid::new_v4();
+                let at = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(120));
+                let claimed: Result<usize, diesel::result::Error> =
+                    cloacina::interact_on_backend!(dal, |conn| {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set((
+                                task_executions::claimed_by.eq(Some(runner)),
+                                task_executions::heartbeat_at.eq(Some(at)),
+                            ))
+                            .execute(conn)
+                    });
+                assert_eq!(claimed.unwrap(), 1);
+            }
+
+            /// The row names replica A's dispatch, but its claim is a
+            /// previous-release runner's, whose dispatch the row does not
+            /// name. No replica waits for A's dispatch in its place: the
+            /// sweeper sends the task again, once, and the report of that
+            /// dispatch resolves it (CLOACINA-T-1136).
+            #[tokio::test]
+            async fn a_dispatch_recorded_under_another_claim_is_not_taken_over() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+                let (first_row, first) = dispatched_then_replica_stops(&a, &event).await;
+                claimed_by_a_previous_release_runner(&a.dal, &event).await;
+                assert_eq!(
+                    row(&a.dal, &event).await.fleet_dispatch_id,
+                    first.dispatch_id
+                );
+
+                // What every replica runs.
+                sweep(&b.dal).await;
+                assert_eq!(
+                    b.executor.take_over_stale_dispatches().await,
+                    vec![],
+                    "a replica took over the wait of a dispatch that is not its claim's"
+                );
+                let swept = row(&b.dal, &event).await;
+                assert_eq!(swept.status, "Ready");
+                assert_eq!(swept.recovery_attempts, 1);
+                assert_eq!(swept.fleet_dispatch_id, None);
+                scheduler_tick(&b, &event).await;
+
+                let sent: Vec<_> = packets(&b, &event)
+                    .await
+                    .into_iter()
+                    .filter(|(id, _)| *id != first_row)
+                    .collect();
+                assert_eq!(sent.len(), 1, "sent again once");
+                let (_, again) = &sent[0];
+                assert_eq!(
+                    b.coordinator
+                        .accept(&b.dal, event.task_execution_id, report(again, done()))
+                        .await,
+                    Ok(crate::fleet_coordinator::Accepted::Local)
+                );
+                let after = until_status(&b.dal, &event, "Completed").await;
+                assert_eq!(after.status, "Completed");
+                assert!(b.executor.take_over_stale_dispatches().await.is_empty());
             }
 
             #[tokio::test]
