@@ -330,6 +330,13 @@ pub struct AgentDeployment {
     /// The agent's max concurrency (`CLOACINA_AGENT_MAX_CONCURRENCY`). `None`
     /// leaves the variable out: the agent uses its own default.
     pub max_concurrency: Option<u32>,
+    /// The agent's total CPU and memory (`CLOACINA_AGENT_CPU`,
+    /// `CLOACINA_AGENT_MEMORY`), which it reports at registration
+    /// (CLOACINA-T-1027): the pool's own limit, or its request when it sets no
+    /// limit ([`super::settings::pool_agent_totals`]). `None` leaves the
+    /// variable out: the agent reports no total and is packed by its slots.
+    pub cpu_total: Option<String>,
+    pub memory_total: Option<String>,
     /// ServiceAccount the pods run as. `None` leaves `serviceAccountName` out:
     /// the pods run as the namespace's `default` ServiceAccount.
     pub service_account_name: Option<String>,
@@ -572,6 +579,8 @@ impl KubernetesActuator {
             tenant_id: tenant_id.to_string(),
             pool: pool.to_string(),
             max_concurrency: settings.max_concurrency,
+            cpu_total: super::settings::pool_agent_totals(settings).0,
+            memory_total: super::settings::pool_agent_totals(settings).1,
             service_account_name: settings.service_account_name.clone(),
             pod_labels: settings.pod_labels.clone(),
             pod_annotations: settings.pod_annotations.clone(),
@@ -926,6 +935,14 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
                 "name": "CLOACINA_AGENT_MAX_CONCURRENCY",
                 "value": n.to_string(),
             }));
+        }
+        // CLOACINA-T-1027: the totals the agent reports. Plain values, the
+        // pool's own quantities: the agent reads the Kubernetes forms.
+        if let Some(cpu) = &spec.cpu_total {
+            env.push(serde_json::json!({ "name": "CLOACINA_AGENT_CPU", "value": cpu }));
+        }
+        if let Some(memory) = &spec.memory_total {
+            env.push(serde_json::json!({ "name": "CLOACINA_AGENT_MEMORY", "value": memory }));
         }
     }
     manifest
@@ -1590,6 +1607,8 @@ mod tests {
             tenant_id: "acme".to_string(),
             pool: DEFAULT_AGENT_POOL.to_string(),
             max_concurrency: None,
+            cpu_total: None,
+            memory_total: None,
             service_account_name: None,
             pod_labels: BTreeMap::new(),
             pod_annotations: BTreeMap::new(),
@@ -1749,6 +1768,8 @@ mod tests {
             tenant_id: "acme".to_string(),
             pool: DEFAULT_AGENT_POOL.to_string(),
             max_concurrency: None,
+            cpu_total: None,
+            memory_total: None,
             service_account_name: None,
             pod_labels: BTreeMap::new(),
             pod_annotations: BTreeMap::new(),
@@ -1904,6 +1925,27 @@ mod tests {
         assert_eq!(
             env_value(&m, "CLOACINA_AGENT_MAX_CONCURRENCY"),
             Some(&serde_json::json!("1"))
+        );
+    }
+
+    // CLOACINA-T-1027: a managed agent reports its pod's size as its totals.
+    #[test]
+    fn manifest_sets_the_agent_totals_env_only_when_the_pool_sets_a_size() {
+        let m = agent_deployment_manifest(&default_spec());
+        assert!(env_value(&m, "CLOACINA_AGENT_CPU").is_none());
+        assert!(env_value(&m, "CLOACINA_AGENT_MEMORY").is_none());
+
+        let mut spec = default_spec();
+        spec.cpu_total = Some("4".to_string());
+        spec.memory_total = Some("32Gi".to_string());
+        let m = agent_deployment_manifest(&spec);
+        assert_eq!(
+            env_value(&m, "CLOACINA_AGENT_CPU"),
+            Some(&serde_json::json!("4"))
+        );
+        assert_eq!(
+            env_value(&m, "CLOACINA_AGENT_MEMORY"),
+            Some(&serde_json::json!("32Gi"))
         );
     }
 

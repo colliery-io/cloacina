@@ -1356,6 +1356,42 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(())
     }
 
+    /// Record that a built package is refused at load (CLOACINA-T-1027): its
+    /// task names an agent pool the tenant does not have, or requests more
+    /// than one agent of its pool can hold. The row goes from `success` to
+    /// `failed` with the reason in `build_error`, which is what the package
+    /// routes and `cloacinactl package inspect` show for a failed build.
+    ///
+    /// Only a `success` row is changed: a build in work is not touched.
+    /// Returns `true` when the row was changed.
+    pub async fn refuse_package(
+        &self,
+        package_id: Uuid,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let reason = reason.to_string();
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("success")),
+            )
+            .set((
+                workflow_packages::build_status.eq("failed"),
+                workflow_packages::build_error.eq(Some(reason)),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
     /// Flip a previously-built package back to `pending` so the compiler
     /// rebuilds it from its retained source (CLOACI-T-0835 — the post-upgrade
     /// recompile signal). Used by the reconciler when a load fails with a

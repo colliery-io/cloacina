@@ -44,6 +44,7 @@ pub mod identity;
 pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
+pub mod placement_check;
 pub mod retention;
 pub mod routes;
 pub mod secrets;
@@ -579,7 +580,8 @@ pub async fn run(
     );
     metrics::describe_gauge!(
         "cloacina_waiting_tasks",
-        "Tasks that wait for capacity, by tenant: status Ready and past \
+        "Tasks that wait for capacity, by tenant and agent pool (a task with \
+         no pool is in `default`): status Ready and past \
          their `waiting_since`. Read from the database every 5 seconds. A \
          task that is put off because no agent had a free slot is counted \
          the whole time. A task in a retry backoff is not counted until the \
@@ -588,7 +590,7 @@ pub async fn run(
     metrics::describe_gauge!(
         "cloacina_oldest_waiting_task_age_seconds",
         "Seconds since the oldest waiting task began to wait \
-         (`waiting_since`), by tenant; 0 when no task waits. Read with \
+         (`waiting_since`), by tenant and agent pool; 0 when no task waits. Read with \
          `cloacina_waiting_tasks`."
     );
     metrics::describe_gauge!(
@@ -912,6 +914,13 @@ pub async fn run(
             tracing::error!("{e}");
             anyhow::anyhow!(e)
         })?;
+    // CLOACINA-T-1027: each runner's reconciler asks this check when it loads
+    // a package: a task that names an agent pool the tenant does not have, or
+    // requests more than one agent of its pool can hold, refuses the package.
+    // Registered before the first runner is made, which takes it then.
+    cloacina::registry::register_task_placement_check(Arc::new(
+        placement_check::PoolPlacementCheck::new(admin_database.clone()),
+    ));
     let public_secret_resolver = secrets::runner_secret_resolver("public", &admin_database);
     let runner = DefaultRunner::with_database_secrets(
         admin_database,
@@ -3769,6 +3778,10 @@ mod tests {
                     target_triple: "aarch64-apple-darwin".to_string(),
                     capabilities: vec![],
                     max_concurrency: 4,
+                    // CLOACINA-T-1027: the agent's totals are on the roster
+                    // row, so every replica packs against the same size.
+                    cpu_millis: Some(4000),
+                    memory_bytes: Some(32 << 30),
                 },
                 cloacina::security::ServerKeyPool::new(),
                 &owner_key,
@@ -3784,6 +3797,8 @@ mod tests {
             .find(|a| a.agent_id == agent_id)
             .expect("agent registered via replica A must be live on replica B");
         assert_eq!(seen.tenant_id.as_deref(), Some(tenant.as_str()));
+        assert_eq!(seen.cpu_millis, Some(4000));
+        assert_eq!(seen.memory_bytes, Some(32 << 30));
         assert_eq!(
             registry_b.agent_owner(&agent_id).await.expect("lookup"),
             Some(cloacina::security::ownership::AgentOwner {
@@ -3798,7 +3813,8 @@ mod tests {
             &live_b,
             &Some(tenant.clone()),
             &None,
-            cloacina_api_types::DEFAULT_AGENT_POOL,
+            &crate::agent_registry::TaskDemand::pool(cloacina_api_types::DEFAULT_AGENT_POOL),
+            &crate::agent_registry::FleetLoad::new(),
         )
         .expect("selection must see the other replica's agent");
         assert_eq!(chosen.agent_id, agent_id);

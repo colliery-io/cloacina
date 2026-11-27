@@ -1879,8 +1879,12 @@ Remove a tenant's exception (revert to the platform default).
 A tenant's managed agents are grouped in pools; see
 [Agent pools](../../explanation/service/execution-agent-fleet/#agent-pools).
 Every tenant has the pool `default`. The limits and fleet routes of this
-section are for `default`. Until a task can name a pool, all work runs on
-`default`: another pool can be created and sized but receives no work.
+section are for `default`. A task that names a pool runs only on that pool's
+agents, and a task with no pool runs on `default`
+([How a task is placed](../../explanation/service/execution-agent-fleet/#how-a-task-is-placed)).
+A pool's `cpu_limit` and `memory_limit` (its requests when it sets no limit)
+are the size of one of its agents: the total the agent reports, and the most a
+task of the pool can request.
 
 #### GET /v1/tenants/{tenant_id}/pools
 

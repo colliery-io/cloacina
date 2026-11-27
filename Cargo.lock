@@ -913,6 +913,7 @@ dependencies = [
 name = "cloacina-macros"
 version = "0.12.0"
 dependencies = [
+ "cloacina-api-types",
  "once_cell",
  "proc-macro2",
  "quote",

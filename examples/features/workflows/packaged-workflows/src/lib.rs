@@ -225,7 +225,9 @@ pub mod analytics_workflow {
         dependencies = ["transform_data"],
         retry_attempts = 2,
         retry_backoff = "fixed",
-        timeout_seconds = 600
+        timeout_seconds = 600,
+        cpu = "500m",
+        memory = "256Mi"
     )]
     pub async fn generate_reports(
         context: &mut Context<serde_json::Value>,

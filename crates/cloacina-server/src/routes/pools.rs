@@ -23,9 +23,10 @@
 //! pool other than `default`.
 //!
 //! Every tenant has the pool `default`. It is the pool the autoscaler scales
-//! (its max is the tenant's agent limit, `/v1/tenants/{tenant_id}/limits`) and,
-//! until a task can name a pool, the only pool that receives work. Another
-//! pool can be created and sized; it runs a fixed number of agents.
+//! (its max is the tenant's agent limit, `/v1/tenants/{tenant_id}/limits`) and
+//! the pool of every task that names none. Another pool can be created and
+//! sized; it runs a fixed number of agents, and gets the tasks that name it
+//! (CLOACINA-T-1027).
 //!
 //! AuthZ (enforced by the authz table):
 //! - `PUT` / `DELETE` → **god-only** (`platform + admin`), as the agent limit.

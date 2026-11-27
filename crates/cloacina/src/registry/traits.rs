@@ -254,6 +254,26 @@ pub trait WorkflowRegistry: Send + Sync {
         let _ = package_id;
         Ok(false)
     }
+
+    /// CLOACINA-T-1027: record that a built package is refused at load, with
+    /// the reason, where the publisher reads a failed build: build status
+    /// `failed` and `build_error`.
+    ///
+    /// Used for a package whose task names an agent pool the tenant does not
+    /// have, or requests more than one agent of its pool can hold. A refused
+    /// package is not offered for loading again. The publisher fixes the task
+    /// or the pool and publishes again.
+    ///
+    /// Returns `true` when the row was changed. Default impl: not supported
+    /// (`false`), for registries with no build status.
+    async fn refuse_package(
+        &self,
+        package_id: WorkflowPackageId,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        let _ = (package_id, reason);
+        Ok(false)
+    }
 }
 
 /// Trait for binary storage backends.

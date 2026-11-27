@@ -34,10 +34,8 @@ use crate::database::universal_types::{
 };
 use diesel::prelude::*;
 
-// ============================================================================
-// Context Models
-// ============================================================================
-
+// =====================================================================// Context Models
+// =====================================================================
 /// Unified context model that works with both PostgreSQL and SQLite.
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = contexts)]
@@ -58,10 +56,8 @@ pub struct NewUnifiedDbContext {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Workflow Execution Models
-// ============================================================================
-
+// =====================================================================// Workflow Execution Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = workflow_executions)]
 pub struct UnifiedWorkflowExecution {
@@ -97,10 +93,8 @@ pub struct NewUnifiedWorkflowExecution {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Task Execution Models
-// ============================================================================
-
+// =====================================================================// Task Execution Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = task_executions)]
 pub struct UnifiedTaskExecution {
@@ -124,6 +118,10 @@ pub struct UnifiedTaskExecution {
     pub heartbeat_at: Option<UniversalTimestamp>,
     pub waiting_since: Option<UniversalTimestamp>,
     pub artifact_fetch_wait_since: Option<UniversalTimestamp>,
+    pub pool: Option<String>,
+    pub cpu_request_millis: Option<i64>,
+    pub memory_request_bytes: Option<i64>,
+    pub fleet_agent_id: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -139,14 +137,17 @@ pub struct NewUnifiedTaskExecution {
     pub max_attempts: i32,
     pub trigger_rules: String,
     pub task_configuration: String,
+    /// CLOACINA-T-1027: the task's agent pool (`None` = `default`) and its
+    /// requests (`None` = none), from `Task::placement()`.
+    pub pool: Option<String>,
+    pub cpu_request_millis: Option<i64>,
+    pub memory_request_bytes: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Task Execution Metadata Models
-// ============================================================================
-
+// =====================================================================// Task Execution Metadata Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = task_execution_metadata)]
 pub struct UnifiedTaskExecutionMetadata {
@@ -173,10 +174,8 @@ pub struct NewUnifiedTaskExecutionMetadata {
     pub context_size_bytes: Option<i64>,
 }
 
-// ============================================================================
-// Recovery Event Models
-// ============================================================================
-
+// =====================================================================// Recovery Event Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = recovery_events)]
 pub struct UnifiedRecoveryEvent {
@@ -203,10 +202,8 @@ pub struct NewUnifiedRecoveryEvent {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Execution Event Models
-// ============================================================================
-
+// =====================================================================// Execution Event Models
+// =====================================================================
 /// Unified execution event model for audit trail of state transitions.
 /// Append-only: events are never updated after creation.
 #[derive(Debug, Clone, Queryable, Selectable)]
@@ -251,10 +248,8 @@ pub struct NewUnifiedExecutionEvent {
     pub tenant_id: Option<String>,
 }
 
-// ============================================================================
-// Unified Delivery Outbox Models (substrate — S-0012 / A-0006)
-// ============================================================================
-
+// =====================================================================// Unified Delivery Outbox Models (substrate — S-0012 / A-0006)
+// =====================================================================
 /// Unified delivery-outbox row: durable, ack-tracked, recipient-addressed
 /// push delivery for the interservice communication substrate.
 #[derive(Debug, Clone, Queryable, Selectable)]
@@ -284,10 +279,8 @@ pub struct NewUnifiedDeliveryOutbox {
     pub created_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Fleet Result Inbox Models (CLOACINA-T-1015)
-// ============================================================================
-
+// =====================================================================// Fleet Result Inbox Models (CLOACINA-T-1015)
+// =====================================================================
 /// An agent report kept for the server replica that waits for it.
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = fleet_result_inbox)]
@@ -309,10 +302,8 @@ pub struct NewUnifiedFleetResultInbox {
     pub created_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Unified WS Ticket Models (CLOACI-T-0916)
-// ============================================================================
-
+// =====================================================================// Unified WS Ticket Models (CLOACI-T-0916)
+// =====================================================================
 /// Single-use WebSocket auth ticket row. DB-backed so a ticket minted on one
 /// server replica redeems on any other (no session affinity required).
 #[derive(Debug, Clone, Queryable, Selectable)]
@@ -343,10 +334,8 @@ pub struct NewUnifiedWsTicket {
     pub redeemed_at: Option<UniversalTimestamp>,
 }
 
-// ============================================================================
-// Unified Login-Throttle Models (CLOACI-T-0923)
-// ============================================================================
-
+// =====================================================================// Unified Login-Throttle Models (CLOACI-T-0923)
+// =====================================================================
 /// One failed-login counter. `throttle_key` is opaque and carries its own scope
 /// prefix (`u:<tenant-or-_>/<username>` or `ip:<source>`) so the two scopes
 /// share a table without colliding.
@@ -373,10 +362,8 @@ pub struct NewUnifiedLoginThrottle {
     pub locked_until: Option<UniversalTimestamp>,
 }
 
-// ============================================================================
-// Unified Fleet Agent Models (CLOACI-T-0916)
-// ============================================================================
-
+// =====================================================================// Unified Fleet Agent Models (CLOACI-T-0916)
+// =====================================================================
 /// Execution-agent fleet roster row: register/heartbeat state persisted so
 /// selection, capacity views and dead-agent reclaim are multi-replica correct.
 /// `capabilities` is a JSON string array.
@@ -393,6 +380,10 @@ pub struct UnifiedFleetAgent {
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
     pub owner_key_id: Option<UniversalUuid>,
+    /// CLOACINA-T-1027: the agent's total CPU (millicores) and memory
+    /// (bytes), as it reported them. `None` = it reported none.
+    pub cpu_millis: Option<i64>,
+    pub memory_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Insertable, AsChangeset)]
@@ -409,6 +400,10 @@ pub struct NewUnifiedFleetAgent {
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
     pub owner_key_id: Option<UniversalUuid>,
+    /// CLOACINA-T-1027: the agent's total CPU (millicores) and memory
+    /// (bytes), as it reported them. `None` = it reported none.
+    pub cpu_millis: Option<i64>,
+    pub memory_bytes: Option<i64>,
 }
 
 /// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;
@@ -433,10 +428,8 @@ pub struct NewUnifiedAgentPool {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Unified Audit Event Models (CLOACINA-T-1024)
-// ============================================================================
-
+// =====================================================================// Unified Audit Event Models (CLOACINA-T-1024)
+// =====================================================================
 /// One audit row: who did what, when, in which tenant. `detail` is a JSON
 /// object as text.
 #[derive(Debug, Clone, Queryable, Selectable)]
@@ -470,10 +463,8 @@ pub struct NewUnifiedAuditEvent {
     pub detail: String,
 }
 
-// ============================================================================
-// Unified Schedule Models
-// ============================================================================
-
+// =====================================================================// Unified Schedule Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = schedules)]
 pub struct UnifiedSchedule {
@@ -535,10 +526,8 @@ pub struct NewUnifiedSchedule {
     pub max_active_runs: Option<i32>,
 }
 
-// ============================================================================
-// Unified Schedule Execution Models
-// ============================================================================
-
+// =====================================================================// Unified Schedule Execution Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = schedule_executions)]
 pub struct UnifiedScheduleExecution {
@@ -574,10 +563,8 @@ pub struct NewUnifiedScheduleExecution {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Workflow Registry Models
-// ============================================================================
-
+// =====================================================================// Workflow Registry Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = workflow_registry)]
 pub struct UnifiedWorkflowRegistryEntry {
@@ -594,10 +581,8 @@ pub struct NewUnifiedWorkflowRegistryEntry {
     pub data: UniversalBinary,
 }
 
-// ============================================================================
-// Workflow Packages Models
-// ============================================================================
-
+// =====================================================================// Workflow Packages Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = workflow_packages)]
 pub struct UnifiedWorkflowPackage {
@@ -648,10 +633,8 @@ pub struct NewUnifiedWorkflowPackage {
     pub compiled_at: Option<UniversalTimestamp>,
 }
 
-// ============================================================================
-// Per-target artifacts (CLOACI-T-0780, multi-arch)
-// ============================================================================
-
+// =====================================================================// Per-target artifacts (CLOACI-T-0780, multi-arch)
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = package_artifacts)]
 pub struct PackageArtifact {
@@ -678,10 +661,8 @@ pub struct NewPackageArtifact {
     pub created_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Execution version pins (CLOACINA-T-1018)
-// ============================================================================
-
+// =====================================================================// Execution version pins (CLOACINA-T-1018)
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable, Insertable)]
 #[diesel(table_name = workflow_execution_package_pins)]
 pub struct WorkflowExecutionPackagePin {
@@ -692,10 +673,8 @@ pub struct WorkflowExecutionPackagePin {
     pub created_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Bundled constructor providers (CLOACI-T-0836, hermetic packaged workflows)
-// ============================================================================
-
+// =====================================================================// Bundled constructor providers (CLOACI-T-0836, hermetic packaged workflows)
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = package_providers)]
 pub struct PackageProvider {
@@ -731,10 +710,8 @@ pub struct NewPackageProvider {
     pub runtime: String,
 }
 
-// ============================================================================
-// Signing Key Models
-// ============================================================================
-
+// =====================================================================// Signing Key Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = signing_keys)]
 pub struct UnifiedSigningKey {
@@ -760,10 +737,8 @@ pub struct NewUnifiedSigningKey {
     pub created_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Secrets Models (CLOACI-I-0133 / T-0857)
-// ============================================================================
-
+// =====================================================================// Secrets Models (CLOACI-I-0133 / T-0857)
+// =====================================================================
 /// Per-tenant data key (DEK) wrapped by the server KEK (envelope encryption, D-7).
 ///
 /// `wrapped_dek` is the 32-byte DEK encrypted under the server KEK via
@@ -817,10 +792,8 @@ pub struct NewSecret {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Trusted Key Models
-// ============================================================================
-
+// =====================================================================// Trusted Key Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = trusted_keys)]
 pub struct UnifiedTrustedKey {
@@ -844,10 +817,8 @@ pub struct NewUnifiedTrustedKey {
     pub trusted_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Key Trust ACL Models
-// ============================================================================
-
+// =====================================================================// Key Trust ACL Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = key_trust_acls)]
 pub struct UnifiedKeyTrustAcl {
@@ -867,10 +838,8 @@ pub struct NewUnifiedKeyTrustAcl {
     pub granted_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Package Signature Models
-// ============================================================================
-
+// =====================================================================// Package Signature Models
+// =====================================================================
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = package_signatures)]
 pub struct UnifiedPackageSignature {
@@ -893,10 +862,8 @@ pub struct NewUnifiedPackageSignature {
     pub org_id: Option<UniversalUuid>,
 }
 
-// ============================================================================
-// Conversion to Domain Models
-// ============================================================================
-// Since unified models use Universal* types directly, conversion to domain
+// =====================================================================// Conversion to Domain Models
+// =====================================================================// Since unified models use Universal* types directly, conversion to domain
 // models is straightforward - mostly just field-by-field mapping.
 
 use crate::models::context::DbContext;
@@ -969,6 +936,10 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             heartbeat_at: u.heartbeat_at,
             waiting_since: u.waiting_since,
             artifact_fetch_wait_since: u.artifact_fetch_wait_since,
+            pool: u.pool,
+            cpu_request_millis: u.cpu_request_millis,
+            memory_request_bytes: u.memory_request_bytes,
+            fleet_agent_id: u.fleet_agent_id,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
@@ -1162,10 +1133,8 @@ impl From<UnifiedScheduleExecution> for ScheduleExecution {
     }
 }
 
-// ============================================================================
-// Computation Graph State Models
-// ============================================================================
-
+// =====================================================================// Computation Graph State Models
+// =====================================================================
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(table_name = accumulator_checkpoints)]
 pub struct UnifiedAccumulatorCheckpoint {
@@ -1260,10 +1229,8 @@ pub struct NewUnifiedStateAccumulatorBuffer {
     pub updated_at: UniversalTimestamp,
 }
 
-// ============================================================================
-// Reactor Owner Address Models (CLOACI-T-0851 / A-0012 Amendment 3)
-// ============================================================================
-
+// =====================================================================// Reactor Owner Address Models (CLOACI-T-0851 / A-0012 Amendment 3)
+// =====================================================================
 /// Where to reach the replica that owns a reactor. A ROUTING HINT ONLY — the
 /// advisory lock in `computation_graph::reactor_lock_key` is the sole authority
 /// on ownership; a stale row here may cost a wasted redirect, never a wrong

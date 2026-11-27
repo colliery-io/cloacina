@@ -485,3 +485,93 @@ async fn test_guarded_completion_needs_the_claim() {
         assert_eq!(task.status, "Completed", "[{}]", backend);
     }
 }
+
+/// CLOACINA-T-1027: the fleet's placement of a task is on its row, on both
+/// backends. A placed task is in flight while its claim is held; the waiting
+/// figures are grouped by pool.
+#[tokio::test]
+async fn test_fleet_placement_and_waiting_by_pool() {
+    for (backend, fixture) in get_all_fixtures().await {
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
+        let database = guard.get_database();
+        let dal = DAL::new(database.clone());
+
+        let (_exec_id, task_id) = create_running_task(&dal).await;
+        dal.task_execution()
+            .mark_ready(task_id)
+            .await
+            .expect("mark_ready");
+
+        // A Ready task with no pool waits in the pool `default`.
+        let by_pool = dal
+            .task_execution()
+            .waiting_task_stats_by_pool()
+            .await
+            .expect("waiting_task_stats_by_pool");
+        assert_eq!(by_pool.len(), 1, "[{}] {by_pool:?}", backend);
+        assert_eq!(by_pool[0].pool, "default", "[{}]", backend);
+        assert_eq!(by_pool[0].waiting.count, 1, "[{}]", backend);
+
+        // Not claimed: nobody can place it.
+        let runner = UniversalUuid::new_v4();
+        let gi: u64 = 1 << 30;
+        let placed = dal
+            .task_execution()
+            .place_on_fleet_agent(task_id, runner, "big-1", Some(1000), Some(24 * gi))
+            .await
+            .expect("place_on_fleet_agent with no claim");
+        assert!(!placed, "[{}] only the claim holder places a task", backend);
+
+        dal.task_execution()
+            .claim_for_runner(task_id, runner)
+            .await
+            .expect("claim_for_runner");
+        let placed = dal
+            .task_execution()
+            .place_on_fleet_agent(task_id, runner, "big-1", Some(1000), Some(24 * gi))
+            .await
+            .expect("place_on_fleet_agent");
+        assert!(placed, "[{}] the claim holder places the task", backend);
+
+        let in_flight = dal
+            .task_execution()
+            .fleet_placements()
+            .await
+            .expect("fleet_placements");
+        assert_eq!(in_flight.len(), 1, "[{}] {in_flight:?}", backend);
+        assert_eq!(in_flight[0].agent_id, "big-1", "[{}]", backend);
+        assert_eq!(in_flight[0].cpu_request_millis, Some(1000), "[{}]", backend);
+        assert_eq!(
+            in_flight[0].memory_request_bytes,
+            Some(24 * gi),
+            "[{}]",
+            backend
+        );
+        let row = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(
+            row.fleet_agent_id.as_deref(),
+            Some("big-1"),
+            "[{}]",
+            backend
+        );
+
+        // The end of the dispatch releases the claim: the task is on no agent.
+        dal.task_execution()
+            .release_runner_claim(task_id)
+            .await
+            .expect("release_runner_claim");
+        assert!(
+            dal.task_execution()
+                .fleet_placements()
+                .await
+                .unwrap()
+                .is_empty(),
+            "[{}] a released task is not in flight",
+            backend
+        );
+        let row = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(row.fleet_agent_id, None, "[{}]", backend);
+    }
+}

@@ -170,6 +170,9 @@ pub async fn register_agent(
                 target_triple: req.target_triple.clone(),
                 capabilities: req.capabilities.clone(),
                 max_concurrency: req.max_concurrency,
+                // CLOACINA-T-1027: the agent's totals, when it reports them.
+                cpu_millis: req.cpu_millis,
+                memory_bytes: req.memory_bytes,
             },
             ServerKeyPool::from_entries(pool_entries),
             &principal_of(&auth),

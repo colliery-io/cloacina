@@ -45,6 +45,7 @@ pub mod instances;
 pub mod keys;
 pub mod operations;
 pub mod reactor;
+pub mod resources;
 pub mod secrets;
 pub mod tenants;
 pub mod triggers;
@@ -83,6 +84,10 @@ pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 pub use reactor::{
     FireMode, FireReactorRequest, FireReactorResponse, InjectAccumulatorRequest,
     InjectAccumulatorResponse, ReactorCommand, ReactorResponse,
+};
+pub use resources::{
+    MAX_POOL_NAME_LEN, Quantity, TaskPlacement, parse_cpu_millis, parse_memory_bytes,
+    validate_pool_name,
 };
 pub use secrets::{
     CreateSecretRequest, RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse,

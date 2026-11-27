@@ -65,6 +65,7 @@
 
 pub mod error;
 pub mod loader;
+pub mod placement_check;
 pub mod reconciler;
 pub mod storage;
 pub mod traits;
@@ -74,6 +75,9 @@ pub mod workflow_registry;
 // Re-export commonly used types
 pub use error::{LoaderError, RegistryError, StorageError};
 pub use loader::{PackageLoader, TaskRegistrar};
+pub use placement_check::{
+    PlacedTask, TaskPlacementCheck, register_task_placement_check, task_placement_check,
+};
 pub use reconciler::{
     CronWorkflowRegistrar, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
     ReconcilerStatus, RegistryReconciler,

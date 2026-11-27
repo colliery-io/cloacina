@@ -318,6 +318,13 @@ pub struct RegistryReconciler {
     /// itself is the stale side), we do not ping-pong the row back to
     /// `pending` forever.
     recompile_requested: std::sync::Mutex<std::collections::HashSet<WorkflowPackageId>>,
+
+    /// CLOACINA-T-1027: the check of a package's task placements (agent pool,
+    /// CPU and memory requests) at load. `None` loads every package. Taken
+    /// from the process-wide registration
+    /// ([`crate::registry::task_placement_check`]) when the reconciler is
+    /// made; the server registers one at start.
+    pub(super) placement_check: Option<Arc<dyn crate::registry::TaskPlacementCheck>>,
 }
 
 impl RegistryReconciler {
@@ -347,7 +354,18 @@ impl RegistryReconciler {
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
             cron_registrar: None,
             recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
+            placement_check: crate::registry::task_placement_check(),
         })
+    }
+
+    /// Set the check of a package's task placements at load
+    /// (CLOACINA-T-1027), in place of the process-wide registration.
+    pub fn with_placement_check(
+        mut self,
+        check: Arc<dyn crate::registry::TaskPlacementCheck>,
+    ) -> Self {
+        self.placement_check = Some(check);
+        self
     }
 
     /// The tenant scope this reconciler loads and unloads under

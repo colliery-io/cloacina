@@ -1,0 +1,15 @@
+# Agent pools fixture for the fleet pools e2e. One task with no pool and one
+# task of the pool `large` that requests 24Gi. Each records its start and end,
+# with the label of the agent it ran on, in a marker file.
+# See .angreal/test/e2e/fleet_pools.py.
+[package]
+name = "fleet-pools-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "fleet_pools_workflow"
+language = "rust"
+description = "fleet agent pools e2e fixture"

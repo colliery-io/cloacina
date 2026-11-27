@@ -54,7 +54,9 @@ use cloacina::task::TaskNamespace;
 use cloacina::{Context, SecretResolver};
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::{AgentRegistry, select_fleet_agent};
+use crate::agent_registry::{
+    AgentRegistry, TaskDemand, fleet_load, over_committed, select_fleet_agent,
+};
 use crate::fleet_coordinator::FleetCoordinator;
 
 /// How long the server waits for the agent's report past the task's time
@@ -723,6 +725,14 @@ impl TaskExecutor for FleetExecutor {
             let time_limit = self
                 .time_limits
                 .limit_for(loaded_task.as_ref().and_then(|task| task.timeout()));
+            // CLOACINA-T-1027: the task's agent pool and its CPU and memory
+            // requests, from the same loaded task. A task that declares none
+            // is work for the pool `default` with no request.
+            let placement = loaded_task
+                .as_ref()
+                .map(|task| task.placement())
+                .unwrap_or_default();
+            let demand = TaskDemand::of(&placement);
             if let Some(asked) = time_limit.capped_from {
                 warn!(
                     task = %event.task_name,
@@ -838,24 +848,120 @@ impl TaskExecutor for FleetExecutor {
                         .await);
                 }
             };
-            let Some(agent) = select_fleet_agent(
-                &snapshot,
-                &task_tenant,
-                &runnable_triples,
-                cloacina_api_types::DEFAULT_AGENT_POOL,
-            ) else {
+            // CLOACINA-T-1027: what is in flight on each agent is the sum over
+            // the task rows placed on it, read from the database, so every
+            // replica packs against the same figure. This task's own row is
+            // left out: it is not on an agent yet.
+            //
+            // One placement at a time in this process (the guard), so the
+            // tasks the scheduler dispatches together do not all pick the
+            // same room.
+            let placing = self.agent_registry.placement_guard().await;
+            let in_flight = match self.dal.task_execution().fleet_placements().await {
+                Ok(placements) => placements,
+                Err(e) => {
+                    warn!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        "fleet: could not read the tasks in flight; the task waits"
+                    );
+                    return Ok(self
+                        .defer_for_capacity(&event, "the tasks in flight could not be read")
+                        .await);
+                }
+            };
+            let others: Vec<_> = in_flight
+                .into_iter()
+                .filter(|p| p.task_id != event.task_execution_id)
+                .collect();
+            let load = fleet_load(&snapshot, &others);
+            let Some(agent) =
+                select_fleet_agent(&snapshot, &task_tenant, &runnable_triples, &demand, &load)
+            else {
                 // CLOACINA-T-1012: a wait for capacity, not a failure. The task
                 // stays Ready and keeps its attempt count.
                 debug!(
                     task_id = %event.task_execution_id,
                     tenant = ?task_tenant,
-                    "fleet: no live agent with capacity + a runnable arch in the task's tenant"
+                    pool = demand.pool,
+                    cpu_millis = ?demand.cpu_millis,
+                    memory_bytes = ?demand.memory_bytes,
+                    "fleet: no live agent of the task's tenant and pool has a free slot, \
+                     a runnable arch and room for the task's requests"
                 );
                 return Ok(self
-                    .defer_for_capacity(&event, "no agent of the tenant has a free slot")
+                    .defer_for_capacity(&event, "no agent of the pool has room for the task")
                     .await);
             };
             let agent_id = agent.agent_id.clone();
+
+            // CLOACINA-T-1027, the race rule: write the placement on the task
+            // row, then read the agent's load again. If more is now placed on
+            // the agent than it can hold, another replica placed a task on the
+            // same room at the same moment: take this placement back and wait.
+            // The replica that wrote second always sees the first. If both
+            // wrote before either read, both withdraw and try again.
+            match self
+                .dal
+                .task_execution()
+                .place_on_fleet_agent(
+                    event.task_execution_id,
+                    self.instance_id,
+                    &agent_id,
+                    demand.cpu_millis,
+                    demand.memory_bytes,
+                )
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        "fleet: the claim moved before the placement; not dispatching"
+                    );
+                    return Ok(ExecutionResult::skipped(event.task_execution_id));
+                }
+                Err(e) => {
+                    warn!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        "fleet: could not write the placement; the task waits"
+                    );
+                    return Ok(self
+                        .defer_for_capacity(&event, "the placement could not be written")
+                        .await);
+                }
+            }
+            let lost_the_race = match self.dal.task_execution().fleet_placements().await {
+                Ok(now_placed) => fleet_load(&snapshot, &now_placed)
+                    .get(&agent_id)
+                    .is_some_and(|agent_load| over_committed(agent, agent_load)),
+                // The load cannot be read: do not send a task that may not fit.
+                Err(_) => true,
+            };
+            if lost_the_race {
+                if let Err(e) = self
+                    .dal
+                    .task_execution()
+                    .clear_fleet_placement(event.task_execution_id)
+                    .await
+                {
+                    warn!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        "fleet: could not take the placement back; it ends with the claim"
+                    );
+                }
+                debug!(
+                    task_id = %event.task_execution_id,
+                    agent_id = %agent_id,
+                    "fleet: another dispatch took the room on the agent; the task waits"
+                );
+                return Ok(self
+                    .defer_for_capacity(&event, "another dispatch took the room on the agent")
+                    .await);
+            }
+            drop(placing);
             let tenant_id = agent.tenant_id.clone();
             // CLOACI-T-0780: the selected agent's target triple — dispatch hands it
             // the cdylib built for THIS arch when one exists (else the primary).
@@ -1013,6 +1119,13 @@ impl TaskExecutor for FleetExecutor {
                 wrapped_secrets,
                 secret_key_id,
                 dispatch_id: Some(dispatch_id.clone()),
+                // CLOACINA-T-1027: the pool and the requests the task was
+                // placed by, and its inline mark. The agent does not limit
+                // the task by them.
+                pool: placement.pool.clone(),
+                cpu_millis: demand.cpu_millis,
+                memory_bytes: demand.memory_bytes,
+                inline: placement.inline,
             };
             let payload_bytes = match serde_json::to_vec(&packet) {
                 Ok(b) => b,

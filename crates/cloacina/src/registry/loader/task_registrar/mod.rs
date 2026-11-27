@@ -194,17 +194,23 @@ impl TaskRegistrar {
             // limit. Without them every packaged task got the trait defaults.
             let retry_policy = dynamic_task::parse_retry_policy(&task.retry_policy_json, task_id);
             let timeout = task.timeout_seconds.map(std::time::Duration::from_secs);
+            // CLOACINA-T-1027: the packaged task's pool, requests and inline
+            // mark, so the planner and the fleet read them off the loaded task.
+            let placement = task.placement.clone();
 
             let constructor = Box::new(move || {
-                Arc::new(DynamicLibraryTask::new(
-                    plugin.clone(),
-                    task_name.clone(),
-                    deps.clone(),
-                    trigger_rules.clone(),
-                    requires_handle,
-                    retry_policy.clone(),
-                    timeout,
-                )) as Arc<dyn Task>
+                Arc::new(
+                    DynamicLibraryTask::new(
+                        plugin.clone(),
+                        task_name.clone(),
+                        deps.clone(),
+                        trigger_rules.clone(),
+                        requires_handle,
+                        retry_policy.clone(),
+                        timeout,
+                    )
+                    .with_placement(placement.clone()),
+                ) as Arc<dyn Task>
             });
 
             runtime.register_task(namespace.clone(), constructor);

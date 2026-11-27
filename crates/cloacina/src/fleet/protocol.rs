@@ -119,6 +119,16 @@ pub struct AgentRegisterRequest {
     /// signals low ([`AgentHeartbeatResponse::replenish_keys`]) or proactively.
     #[serde(default)]
     pub ephemeral_key_pool: Vec<EphemeralKeyEntry>,
+
+    /// CLOACINA-T-1027 — the agent's total CPU in millicores (`--cpu` /
+    /// `CLOACINA_AGENT_CPU`). `None` ⇒ the agent reports none, and the server
+    /// packs it by its slot count only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_millis: Option<u64>,
+    /// CLOACINA-T-1027 — the agent's total memory in bytes (`--memory` /
+    /// `CLOACINA_AGENT_MEMORY`). `None` as above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
 }
 
 /// CLOACI-T-0861 / D-5 — one entry in an agent's one-time ephemeral key pool.
@@ -265,6 +275,23 @@ pub struct WorkPacket {
     /// server from before this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch_id: Option<String>,
+    /// CLOACINA-T-1027 — the agent pool the task was placed in. `None` ⇒ the
+    /// pool `default`, or a server from before pools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<String>,
+    /// CLOACINA-T-1027 — the task's CPU request in millicores. `None` ⇒ the
+    /// task declares none. The server used it to place the task; the agent
+    /// does not limit the task by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_millis: Option<u64>,
+    /// CLOACINA-T-1027 — the task's memory request in bytes. `None` ⇒ the
+    /// task declares none. Used for placement; not a limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+    /// CLOACINA-T-1027 — the task is marked `inline = true`. Carried for
+    /// CLOACINA-T-1028; the agent does not act on it.
+    #[serde(default)]
+    pub inline: bool,
 }
 
 /// One at-rest secret resolved by the server and HPKE-wrapped to a single
@@ -478,9 +505,18 @@ mod tests {
             wrapped_secrets: Vec::new(),
             secret_key_id: None,
             dispatch_id: None,
+            pool: Some("large".into()),
+            cpu_millis: Some(4000),
+            memory_bytes: Some(32 << 30),
+            inline: true,
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();
+        // CLOACINA-T-1027: the pool, the requests and the inline mark.
+        assert_eq!(back.pool.as_deref(), Some("large"));
+        assert_eq!(back.cpu_millis, Some(4000));
+        assert_eq!(back.memory_bytes, Some(32 << 30));
+        assert!(back.inline);
         assert_eq!(back.task_execution_id, "t1");
         assert_eq!(back.artifact.build_target_triple, "aarch64-apple-darwin");
         assert_eq!(back.context, serde_json::json!({"k": 42}));
@@ -508,15 +544,23 @@ mod tests {
             capabilities: vec![],
             ephemeral_public_key: None,
             ephemeral_key_pool: pool.clone(),
+            cpu_millis: Some(4000),
+            memory_bytes: Some(32 << 30),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: AgentRegisterRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.ephemeral_key_pool, pool);
+        // CLOACINA-T-1027: the agent's totals.
+        assert_eq!(back.cpu_millis, Some(4000));
+        assert_eq!(back.memory_bytes, Some(32 << 30));
 
         // Pre-pool payload: no `ephemeral_key_pool` field → empty pool.
         let legacy = r#"{"protocol_version":1,"max_concurrency":4,"target_triple":"x"}"#;
         let back: AgentRegisterRequest = serde_json::from_str(legacy).unwrap();
         assert!(back.ephemeral_key_pool.is_empty());
+        // CLOACINA-T-1027: an agent from before the totals reports none.
+        assert_eq!(back.cpu_millis, None);
+        assert_eq!(back.memory_bytes, None);
     }
 
     #[test]
@@ -539,7 +583,24 @@ mod tests {
             wrapped_secrets: Vec::new(),
             secret_key_id: Some("key-42".into()),
             dispatch_id: None,
+            pool: None,
+            cpu_millis: None,
+            memory_bytes: None,
+            inline: false,
         };
+        // CLOACINA-T-1027: a task that declares nothing adds nothing to the
+        // packet but `inline`, and a packet from an older server (none of the
+        // fields) reads as "default pool, no request, not inline".
+        let value = serde_json::to_value(&p).unwrap();
+        assert!(value.get("pool").is_none());
+        assert!(value.get("cpu_millis").is_none());
+        assert!(value.get("memory_bytes").is_none());
+        let mut older = value.clone();
+        older.as_object_mut().unwrap().remove("inline");
+        let from_older: WorkPacket = serde_json::from_value(older).unwrap();
+        assert_eq!(from_older.pool, None);
+        assert_eq!(from_older.memory_bytes, None);
+        assert!(!from_older.inline);
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();
         assert_eq!(back.secret_key_id.as_deref(), Some("key-42"));

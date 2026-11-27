@@ -41,6 +41,9 @@ pub struct OwnedTaskMetadata {
     /// The task's own time limit in seconds (CLOACINA-T-1014). `None` = the
     /// executor's limit applies.
     pub timeout_seconds: Option<u64>,
+    /// The task's agent pool, CPU and memory requests and inline mark
+    /// (CLOACINA-T-1027). The default declares nothing.
+    pub placement: cloacina_workflow::TaskPlacement,
 }
 
 /// Owned collection of task metadata — safe to use after library is unloaded.

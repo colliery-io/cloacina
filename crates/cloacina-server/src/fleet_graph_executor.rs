@@ -47,7 +47,7 @@ use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use tracing::{debug, info, warn};
 
-use crate::agent_registry::{AgentRegistry, select_fleet_agent};
+use crate::agent_registry::{AgentRegistry, FleetLoad, TaskDemand, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
 use crate::fleet_executor::{FleetTaskTimeLimits, TaskTimeLimit};
@@ -218,7 +218,11 @@ impl FleetGraphExecutor {
             &snapshot,
             &fire.tenant_id,
             &runnable_triples,
-            cloacina_api_types::DEFAULT_AGENT_POOL,
+            // CLOACINA-T-1027: a graph firing names no pool and has no
+            // request. It goes to the pool `default` and is packed by the
+            // agent's free slots; it is not in the load of placed tasks.
+            &TaskDemand::pool(cloacina_api_types::DEFAULT_AGENT_POOL),
+            &FleetLoad::new(),
         )
         .ok_or_else(|| {
             format!(
