@@ -199,9 +199,8 @@ pub struct KubernetesConfig {
     /// (`CLOACINA_FLEET_NETWORK_POLICY`, default ON). REQ-007 defense-in-depth.
     pub network_policy_enabled: bool,
     /// Server endpoint the NetworkPolicy egress allows. `None` when the chart did
-    /// not plumb it — the actuator then SKIPS the policy (fail-OPEN for the
-    /// policy specifically, so a missing knob never locks agents out of the
-    /// server; the server-side ABAC remains the real boundary).
+    /// not plumb it: with `network_policy_enabled` the server then does not
+    /// start (`preflight`, CLOACINA-T-1069).
     pub server_endpoint: Option<ServerEndpoint>,
     /// Namespace the cluster DNS service runs in
     /// (`CLOACINA_FLEET_DNS_NAMESPACE`, default `kube-system`).
@@ -464,7 +463,15 @@ pub trait KubeOps: Send + Sync {
         name: &str,
         key: &str,
     ) -> Result<bool, ActuatorError>;
+    /// Whether the server's identity may do `verb` on NetworkPolicies
+    /// (`networking.k8s.io`) in every namespace: a SelfSubjectAccessReview
+    /// (CLOACINA-T-1069). Reads and writes no object.
+    async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError>;
 }
+
+/// The verbs the actuator uses on NetworkPolicies: server-side apply
+/// (`create`, `patch`) and the removal of a pool's policy (`delete`).
+pub const NETWORK_POLICY_VERBS: [&str; 3] = ["create", "patch", "delete"];
 
 /// Kubernetes fleet actuator. Generic over its API substrate ([`KubeOps`]) and
 /// key mint ([`KeyMinter`]) for testability; production wiring uses
@@ -556,6 +563,43 @@ impl KubernetesActuator {
     /// plumbed the server endpoint.
     fn network_policy_active(&self) -> bool {
         self.config.network_policy_enabled && self.config.server_endpoint.is_some()
+    }
+
+    /// The start check of the agent NetworkPolicies (CLOACINA-T-1069). With
+    /// `CLOACINA_FLEET_NETWORK_POLICY` on, the server must be able to write
+    /// them: the server endpoint variables are set, and its identity may
+    /// create, patch and delete NetworkPolicies. Else the server does not
+    /// start, and the error names what is missing.
+    async fn check_network_policy_access(&self) -> Result<(), ActuatorError> {
+        if !self.config.network_policy_enabled {
+            return Ok(());
+        }
+        if self.config.server_endpoint.is_none() {
+            return Err(ActuatorError::Substrate(
+                "CLOACINA_FLEET_NETWORK_POLICY is on, but CLOACINA_SERVER_NAMESPACE and \
+                 CLOACINA_SERVER_POD_SELECTOR are not both set: the server cannot write the \
+                 agent NetworkPolicy of a tenant namespace. Set them (the cloacina-server \
+                 chart does), or set CLOACINA_FLEET_NETWORK_POLICY=false"
+                    .to_string(),
+            ));
+        }
+        let mut missing = Vec::new();
+        for verb in NETWORK_POLICY_VERBS {
+            if !self.ops.may_on_network_policies(verb).await? {
+                missing.push(verb);
+            }
+        }
+        if !missing.is_empty() {
+            return Err(ActuatorError::Substrate(format!(
+                "CLOACINA_FLEET_NETWORK_POLICY is on, but the server's ServiceAccount may not \
+                 {} networkpolicies (apiGroup networking.k8s.io) in the tenant namespaces. \
+                 Grant the verbs create, patch and delete on networkpolicies in a ClusterRole \
+                 bound to the server's ServiceAccount (the cloacina-server chart renders it \
+                 with fleet.actuator=kubernetes), or set CLOACINA_FLEET_NETWORK_POLICY=false",
+                missing.join(", ")
+            )));
+        }
+        Ok(())
     }
 
     /// Reconcile one pool of a tenant: its ServiceAccount, its NetworkPolicy,
@@ -653,6 +697,10 @@ impl KubernetesActuator {
 
 #[async_trait]
 impl FleetActuator for KubernetesActuator {
+    async fn preflight(&self) -> Result<(), ActuatorError> {
+        self.check_network_policy_access().await
+    }
+
     async fn reconcile(
         &self,
         tenant_id: &str,
@@ -669,9 +717,9 @@ impl FleetActuator for KubernetesActuator {
 
         // REQ-007 defense-in-depth (CLOACI-T-0819): lock the namespace down with a
         // default-deny NetworkPolicy that only lets agents reach DNS + the server.
-        // Skipped (fail-OPEN) when the chart did not plumb the server endpoint, so
-        // a missing knob never strands the fleet — the server-side ABAC (NFR-004)
-        // remains the real boundary.
+        // A server started with the policy on and no server endpoint does not
+        // get here: `preflight` stops its start (CLOACINA-T-1069). The warning
+        // below is for an actuator built without that check.
         if self.config.network_policy_enabled {
             match &self.config.server_endpoint {
                 Some(server) => {
@@ -1404,6 +1452,33 @@ impl KubeOps for KubeApiOps {
             .and_then(|m| m.annotations)
             .and_then(|a| a.get(KEY_ID_ANNOTATION).cloned()))
     }
+
+    async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError> {
+        use k8s_openapi::api::authorization::v1::SelfSubjectAccessReview;
+        let api: Api<SelfSubjectAccessReview> = Api::all(self.client.clone());
+        // No namespace: every namespace, as the ClusterRole of the chart grants.
+        let review: SelfSubjectAccessReview = serde_json::from_value(serde_json::json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SelfSubjectAccessReview",
+            "spec": {
+                "resourceAttributes": {
+                    "group": "networking.k8s.io",
+                    "resource": "networkpolicies",
+                    "verb": verb,
+                }
+            }
+        }))
+        .map_err(|e| ActuatorError::Substrate(format!("build access review: {e}")))?;
+        let answer = api
+            .create(&kube::api::PostParams::default(), &review)
+            .await
+            .map_err(|e| {
+                ActuatorError::Substrate(format!(
+                    "SelfSubjectAccessReview for {verb} on networkpolicies failed: {e}"
+                ))
+            })?;
+        Ok(answer.status.is_some_and(|s| s.allowed))
+    }
 }
 
 #[cfg(test)]
@@ -1452,6 +1527,8 @@ mod tests {
         secret_values: Mutex<BTreeMap<String, String>>,
         /// A Deployment name whose next delete fails, once.
         fail_delete_once: Mutex<Option<String>>,
+        /// NetworkPolicy verbs the access review denies (CLOACINA-T-1069).
+        denied_network_policy_verbs: Mutex<Vec<String>>,
     }
 
     impl MockOps {
@@ -1459,6 +1536,7 @@ mod tests {
             Self {
                 secret_values: Mutex::new(BTreeMap::new()),
                 fail_delete_once: Mutex::new(None),
+                denied_network_policy_verbs: Mutex::new(Vec::new()),
                 ready,
                 namespaces: Mutex::new(Vec::new()),
                 secrets: AtomicU32::new(0),
@@ -1610,6 +1688,14 @@ mod tests {
                 None => Ok(false),
             }
         }
+        async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError> {
+            Ok(!self
+                .denied_network_policy_verbs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|v| v == verb))
+        }
     }
 
     /// Mock minter: counts, hands back a deterministic key, and records the
@@ -1714,6 +1800,58 @@ mod tests {
         assert_eq!(nps[0].namespace, "cloacina-tenant-acme");
         assert_eq!(nps[0].server.namespace, "cloacina-system");
         assert_eq!(nps[0].dns_namespace, "kube-system");
+    }
+
+    /// CLOACINA-T-1069: with the agent policy on, the start check passes when
+    /// the server can write NetworkPolicies, and refuses when it cannot: no
+    /// server endpoint, or a verb the RBAC does not grant. The message names
+    /// what is missing. With the policy off nothing is checked.
+    #[tokio::test]
+    async fn preflight_refuses_the_start_when_the_agent_policy_cannot_be_written() {
+        let minter = Arc::new(MockMinter::default());
+
+        let ops = Arc::new(MockOps::with_ready(0));
+        KubernetesActuator::new(ops, minter.clone(), config())
+            .preflight()
+            .await
+            .expect("the server may write NetworkPolicies");
+
+        let mut cfg = config();
+        cfg.server_endpoint = None;
+        let ops = Arc::new(MockOps::with_ready(0));
+        let err = KubernetesActuator::new(ops, minter.clone(), cfg)
+            .preflight()
+            .await
+            .expect_err("no server endpoint stops the start")
+            .to_string();
+        assert!(err.contains("CLOACINA_SERVER_NAMESPACE"), "{err}");
+        assert!(err.contains("CLOACINA_SERVER_POD_SELECTOR"), "{err}");
+        assert!(err.contains("CLOACINA_FLEET_NETWORK_POLICY=false"), "{err}");
+
+        let ops = Arc::new(MockOps::with_ready(0));
+        *ops.denied_network_policy_verbs.lock().unwrap() =
+            vec!["create".to_string(), "delete".to_string()];
+        let err = KubernetesActuator::new(ops, minter.clone(), config())
+            .preflight()
+            .await
+            .expect_err("a verb the RBAC does not grant stops the start")
+            .to_string();
+        assert!(
+            err.contains("may not create, delete networkpolicies"),
+            "{err}"
+        );
+        assert!(err.contains("networking.k8s.io"), "{err}");
+        assert!(err.contains("ClusterRole"), "{err}");
+
+        let mut cfg = config();
+        cfg.network_policy_enabled = false;
+        cfg.server_endpoint = None;
+        let ops = Arc::new(MockOps::with_ready(0));
+        *ops.denied_network_policy_verbs.lock().unwrap() = vec!["create".to_string()];
+        KubernetesActuator::new(ops, minter, cfg)
+            .preflight()
+            .await
+            .expect("with the policy off nothing is checked");
     }
 
     #[tokio::test]

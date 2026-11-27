@@ -160,6 +160,13 @@ pub trait FleetActuator: Send + Sync {
         Ok(())
     }
 
+    /// Checks made once at server start, after the actuator is built
+    /// (CLOACINA-T-1069). An error stops the start. The default checks
+    /// nothing.
+    async fn preflight(&self) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+
     /// The cooldown of the per-tenant compilers. `None`: this actuator runs
     /// none, and the fleet loop reads no build queue.
     fn compiler_cooldown(&self) -> Option<std::time::Duration> {
