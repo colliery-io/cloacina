@@ -350,11 +350,11 @@ impl RegistryReconciler {
             unregister(&runtime);
             return Err(refused);
         }
-        if let Some(workflow_name) = workflow_name.as_deref() {
-            if let Err(e) = self.register_workflow_of_package(metadata, workflow_name) {
-                unregister(&runtime);
-                return Err(e);
-            }
+        if let Some(workflow_name) = workflow_name.as_deref()
+            && let Err(e) = self.register_workflow_of_package(metadata, workflow_name)
+        {
+            unregister(&runtime);
+            return Err(e);
         }
         if let Err(e) = self.validate_subscriptions_from_document(metadata, &document, &runtime) {
             if let Some(workflow_name) = workflow_name.as_deref() {
@@ -593,13 +593,16 @@ mod tests {
     use cloacina_workflow_plugin::{ReactorPackageMetadata, TriggerPackageMetadata};
     use std::sync::Mutex;
 
+    /// A task list as `persist_task_graph` takes it.
+    type TaskGraph = Vec<(String, Vec<String>)>;
+
     /// A registry that holds one stored document and records refusals and
     /// the task graph a load writes.
     #[derive(Default)]
     struct DocumentRegistry {
         stored: Mutex<Option<StoredDescription>>,
         refused: Mutex<Vec<(WorkflowPackageId, String)>>,
-        task_graphs: Mutex<Vec<(WorkflowPackageId, Vec<(String, Vec<String>)>)>>,
+        task_graphs: Mutex<Vec<(WorkflowPackageId, TaskGraph)>>,
     }
 
     #[async_trait]

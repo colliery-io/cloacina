@@ -274,10 +274,10 @@ pub fn native_provider_names(search_path: &Path) -> Result<Vec<String>, LoaderEr
         if !path.is_dir() {
             continue;
         }
-        if let Ok(provider) = read_provider_manifest(&path) {
-            if provider.runtime == ProviderRuntime::Native {
-                names.push(provider.name);
-            }
+        if let Ok(provider) = read_provider_manifest(&path)
+            && provider.runtime == ProviderRuntime::Native
+        {
+            names.push(provider.name);
         }
     }
     names.sort();

@@ -215,6 +215,7 @@ pub async fn run(
     bootstrap_key: Option<String>,
     require_signatures: bool,
     default_executor: Option<String>,
+    single_trust: bool,
     settings: ServerSettingArgs,
 ) -> Result<()> {
     #![allow(clippy::too_many_arguments)]
@@ -229,10 +230,9 @@ pub async fn run(
     let default_executor =
         config::resolve_default_executor(default_executor.as_deref(), &config_path);
     let server_section = CloacinaConfig::load(&config_path).server;
-    // CLOACINA-T-1075: `[server].single_trust = true` is forwarded as
-    // `--single-trust`. The env var `CLOACINA_SINGLE_TRUST` reaches the server
-    // as it is.
-    let single_trust = server_section.single_trust == Some(true);
+    // CLOACINA-T-1075: the flag (or `CLOACINA_SINGLE_TRUST`), or
+    // `[server].single_trust = true`, is forwarded as `--single-trust`.
+    let single_trust = single_trust || server_section.single_trust == Some(true);
 
     // CLOACINA-T-1039: the database wait, retention, fleet time limit and
     // alert webhook settings, resolved the same way.

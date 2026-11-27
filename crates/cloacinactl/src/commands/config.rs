@@ -130,7 +130,7 @@ pub struct WatchSection {
     pub directories: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerSection {
     /// Executor every task is dispatched to (CLOACI-T-0640). `"fleet"` sends
@@ -197,27 +197,6 @@ pub struct ServerSection {
     /// (`--task-log-url-template`, CLOACINA-T-1024).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_log_url_template: Option<String>,
-}
-
-impl Default for ServerSection {
-    fn default() -> Self {
-        Self {
-            default_executor: None,
-            single_trust: None,
-            database_wait_timeout_s: None,
-            run_history_retention_days: None,
-            outbox_acked_retention_s: None,
-            retention_interval_s: None,
-            fleet_task_timeout_s: None,
-            fleet_task_timeout_max_s: None,
-            alert_webhook_url: None,
-            alert_webhook_events: Vec::new(),
-            alert_webhook_timeout_s: None,
-            alert_webhook_max_attempts: None,
-            public_base_url: None,
-            task_log_url_template: None,
-        }
-    }
 }
 
 impl CloacinaConfig {
