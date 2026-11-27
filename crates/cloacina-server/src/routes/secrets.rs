@@ -21,7 +21,7 @@
 //! returns a plaintext or ciphertext value** — list/get return names +
 //! timestamps only. The at-rest encryption + per-tenant DEK live in
 //! [`cloacina::security::SecretStore`]; these handlers are the HTTP surface over
-//! it, keyed by the tenant's derived `org_id` ([`crate::secrets::tenant_org_id`]).
+//! it, keyed by the tenant's derived `org_id` ([`cloacina::security::tenant_org_id`]).
 //!
 //! All routes need `secrets.manage` in the tenant of the path, so the caller is
 //! already confined to `{tenant_id}` and holds admin before a handler runs.
@@ -133,7 +133,7 @@ pub async fn create_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store
         .create_secret(org_id, &body.name, &body.fields, &kek)
@@ -185,7 +185,7 @@ pub async fn rotate_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.rotate_secret(org_id, &name, &body.fields, &kek).await {
         Ok(meta) => {
@@ -226,7 +226,7 @@ pub async fn list_secrets(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.list_secrets_metadata(org_id).await {
         Ok(list) => {
@@ -267,7 +267,7 @@ pub async fn get_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.get_secret_metadata(org_id, &name).await {
         Ok(meta) => Json(to_metadata_response(meta)).into_response(),
@@ -305,7 +305,7 @@ pub async fn delete_secret(
         Ok(s) => s,
         Err(e) => return e.into_response(),
     };
-    let org_id = crate::secrets::tenant_org_id(&tenant_id);
+    let org_id = cloacina::security::tenant_org_id(&tenant_id);
 
     match store.delete_secret(org_id, &name).await {
         Ok(()) => {

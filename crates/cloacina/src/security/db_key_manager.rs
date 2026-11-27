@@ -79,7 +79,7 @@ impl DbKeyManager {
     }
 
     /// Decodes a PEM-encoded Ed25519 public key to raw bytes.
-    fn decode_public_key_pem(pem_str: &str) -> Result<Vec<u8>, KeyError> {
+    pub fn decode_public_key_pem(pem_str: &str) -> Result<Vec<u8>, KeyError> {
         let pem = pem::parse(pem_str).map_err(|e| KeyError::InvalidPem(e.to_string()))?;
 
         if pem.tag() != ED25519_PEM_TAG {
@@ -511,6 +511,27 @@ impl KeyManager for DbKeyManager {
 // trait method; single-call twins were inlined directly into their trait method
 // via `interact_on_backend!`.
 impl DbKeyManager {
+    /// The keys that `org_id` trusts directly, the revoked ones included,
+    /// oldest first. No key inherited through a trust ACL.
+    ///
+    /// [`KeyManager::list_trusted_keys`] gives the keys a verification
+    /// accepts (live, with inherited ones); this gives the rows an org
+    /// manages, so a revoked key stays visible.
+    pub async fn list_org_trusted_keys(
+        &self,
+        org_id: UniversalUuid,
+    ) -> Result<Vec<TrustedKeyInfo>, KeyError> {
+        let keys: Vec<UnifiedTrustedKey> = crate::interact_on_backend!(self.dal, |conn| {
+            trusted_keys::table
+                .filter(trusted_keys::org_id.eq(org_id))
+                .order(trusted_keys::trusted_at.asc())
+                .load(conn)
+        })
+        .map_err(|e| KeyError::Database(e.to_string()))?;
+
+        Ok(keys.into_iter().map(Self::to_trusted_key_info).collect())
+    }
+
     async fn list_direct_trusted_keys(
         &self,
         org_id: UniversalUuid,
@@ -983,6 +1004,45 @@ mod tests {
             .revoke_trusted_key(UniversalUuid::new_v4(), UniversalUuid::new_v4())
             .await;
         assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    /// CLOACINA-T-1061: the list an org manages holds its own keys only, and
+    /// keeps a revoked key, marked.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_org_trusted_keys_keeps_revoked_and_leaves_other_orgs_out() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let live = crate::crypto::generate_signing_keypair();
+        let gone = crate::crypto::generate_signing_keypair();
+        let foreign = crate::crypto::generate_signing_keypair();
+        let live_key = km
+            .trust_public_key(org, &live.public_key, Some("live"))
+            .await
+            .unwrap();
+        let gone_key = km
+            .trust_public_key(org, &gone.public_key, Some("gone"))
+            .await
+            .unwrap();
+        km.trust_public_key(other_org, &foreign.public_key, None)
+            .await
+            .unwrap();
+        // A trust ACL does not put the child's keys in the list.
+        km.grant_trust(org, other_org).await.unwrap();
+        km.revoke_trusted_key(org, gone_key.id).await.unwrap();
+
+        let keys = km.list_org_trusted_keys(org).await.unwrap();
+        assert_eq!(keys.len(), 2);
+        let by_id = |id| keys.iter().find(|k| k.id == id).expect("key in the list");
+        assert!(by_id(live_key.id).is_active());
+        assert!(!by_id(gone_key.id).is_active());
+
+        // The list a verification uses leaves the revoked key out.
+        let accepted = km.list_trusted_keys(org).await.unwrap();
+        assert!(accepted.iter().all(|k| k.id != gone_key.id));
     }
 
     /// CLOACINA-T-1037: an org cannot revoke a key that another org trusts.
