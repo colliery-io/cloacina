@@ -73,7 +73,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
 | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `--outbox-acked-retention-s` | `3600` | Seconds to keep a `delivery_outbox` row after its ack. `0` turns it off. |
 | `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
-| `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. |
+| `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. A graph firing sent to an agent gets this limit too. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `--fleet-artifact-fetch-wait-s` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The time counts from the first refused fetch of the attempt. The task is dispatched again after a delay of 2 s that grows to 30 s, and uses no retry attempt. After the limit the attempt fails with an error that names the artifact fetch, and the task's retry policy decides what follows. `0`: the first failed fetch fails the attempt. |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
@@ -82,11 +82,36 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 
 `CLOACINA_DEFAULT_EXECUTOR` / `--default-executor` is forwarded by the
 `cloacinactl server start` wrapper (preferably set via
-`[server].default_executor` in `config.toml`). The two
-`CLOACINA_AGENT_*` liveness flags are read by the `cloacina-server` binary
-directly (and via the env vars above); the wrapper does **not** forward them,
-so set them on `cloacina-server` itself or through the environment. The same
-holds for the three retention settings.
+`[server].default_executor` in `config.toml`). The wrapper also takes
+`CLOACINA_DATABASE_WAIT_TIMEOUT_S`, the
+three retention settings, the two fleet time limits, the alert webhook
+settings (but not the secret) and `CLOACINA_PUBLIC_BASE_URL`: as a flag of
+the same name, as the env var above, or as a key of `[server]` in
+`config.toml` (see [Configuration](../configuration/#server-section)).
+`CLOACINA_ALERT_WEBHOOK_SECRET` is an env var only; the server that the
+wrapper starts inherits it. The two `CLOACINA_AGENT_*` liveness flags are
+read by the `cloacina-server` binary directly (and via the env vars above);
+the wrapper does **not** forward them, so set them on `cloacina-server`
+itself or through the environment.
+
+The Helm chart `cloacina-server` sets these variables from its values:
+
+| Variable | Chart value | Chart default |
+|----------|-------------|---------------|
+| `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `server.databaseWaitTimeoutSeconds` | `60` |
+| `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `retention.runHistoryDays` | `0` |
+| `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `retention.outboxAckedSeconds` | `3600` |
+| `CLOACINA_RETENTION_INTERVAL_S` | `retention.intervalSeconds` | `300` |
+| `CLOACINA_FLEET_TASK_TIMEOUT_S` | `fleetTaskTimeLimits.defaultSeconds` | `300` |
+| `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `fleetTaskTimeLimits.maxSeconds` | `86400` |
+| `CLOACINA_ALERT_WEBHOOK_URL` | `alertWebhook.url`, or `alertWebhook.urlSecretRef` (an existing Secret) | not set |
+| `CLOACINA_ALERT_WEBHOOK_EVENTS` | `alertWebhook.events` | `[failed]` |
+| `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `alertWebhook.timeoutSeconds` | `10` |
+| `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `alertWebhook.maxAttempts` | `8` |
+| `CLOACINA_PUBLIC_BASE_URL` | `alertWebhook.publicBaseUrl` | not set |
+| `CLOACINA_ALERT_WEBHOOK_SECRET` | `alertWebhook.secretRef` (an existing Secret) | not set |
+
+The alert variables are rendered only when a URL is set.
 
 The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
 

@@ -62,7 +62,7 @@ use crate::fleet_coordinator::FleetCoordinator;
 /// after it took the packet and loaded the package, and its report needs a
 /// moment to arrive. Without the grace the server would give up on a task at
 /// the same moment the agent reports its timeout.
-const RESULT_WAIT_GRACE: Duration = Duration::from_secs(30);
+pub(crate) const RESULT_WAIT_GRACE: Duration = Duration::from_secs(30);
 
 /// The time limits of a fleet task (CLOACINA-T-1014).
 ///
@@ -112,7 +112,7 @@ impl FleetTaskTimeLimits {
 
     /// The limit one task gets: its own or the default, capped at the maximum,
     /// in whole seconds (a part of a second counts as one second).
-    fn limit_for(&self, own: Option<Duration>) -> TaskTimeLimit {
+    pub(crate) fn limit_for(&self, own: Option<Duration>) -> TaskTimeLimit {
         let asked = own.unwrap_or(self.default);
         let capped = asked > self.max;
         let limit = if capped { self.max } else { asked };
@@ -139,16 +139,16 @@ impl Default for FleetTaskTimeLimits {
 
 /// The time limit of one dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TaskTimeLimit {
+pub(crate) struct TaskTimeLimit {
     /// What the work packet carries and the agent enforces.
-    seconds: u32,
+    pub(crate) seconds: u32,
     /// The limit the task asked for, when it was above the maximum.
-    capped_from: Option<Duration>,
+    pub(crate) capped_from: Option<Duration>,
 }
 
 impl TaskTimeLimit {
     /// How long the server waits for the agent's report.
-    fn result_wait(&self) -> Duration {
+    pub(crate) fn result_wait(&self) -> Duration {
         Duration::from_secs(self.seconds as u64) + RESULT_WAIT_GRACE
     }
 }

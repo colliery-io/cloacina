@@ -40,6 +40,11 @@ enum CompilerVerb {
         #[arg(long, default_value = "127.0.0.1:9000")]
         bind: SocketAddr,
 
+        /// Address of a separate listener for `/metrics`. When set, `/metrics`
+        /// is served only there and `--bind` answers 404 for it.
+        #[arg(long, env = "CLOACINA_COMPILER_METRICS_BIND")]
+        metrics_bind: Option<SocketAddr>,
+
         #[arg(long, env = "DATABASE_URL")]
         database_url: Option<String>,
 
@@ -76,6 +81,7 @@ impl CompilerCmd {
         match self.verb {
             CompilerVerb::Start {
                 bind,
+                metrics_bind,
                 database_url,
                 poll_interval_ms,
                 heartbeat_interval_s,
@@ -85,6 +91,7 @@ impl CompilerCmd {
                 start::run(
                     globals,
                     bind,
+                    metrics_bind,
                     database_url,
                     poll_interval_ms,
                     heartbeat_interval_s,

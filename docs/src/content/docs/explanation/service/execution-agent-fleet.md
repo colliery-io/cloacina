@@ -316,6 +316,11 @@ what happens when an attempt fails.
   runs past it the agent reports a timeout and the attempt fails as a timeout,
   the same as on the in-process executor. The server waits for the report for
   the limit plus 30 seconds, then gives up on the dispatch.
+- **A graph firing gets the server default.** A computation-graph firing sent
+  to an agent carries `--fleet-task-timeout-s`, and the server waits for its
+  result for that limit plus 30 seconds, then reports the firing as failed. A
+  graph has no time limit of its own, and the maximum does not apply to it.
+  The agent does not stop a firing at the limit.
 - **The retry policy is the task's own.** `retry_attempts`, `retry_condition`
   and the backoff settings of the task apply on the fleet as they do in
   process. `retry_attempts = 0` or `retry_condition = "never"` gives one

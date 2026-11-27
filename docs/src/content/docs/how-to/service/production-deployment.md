@@ -185,6 +185,22 @@ row. The server can remove them with a background retention job, once you set a 
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `3600` | A `delivery_outbox` row is deleted this long after its ack. `0` = off. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
+Where to set them:
+
+- **Helm chart `cloacina-server`:** the values `retention.runHistoryDays`,
+  `retention.outboxAckedSeconds` and `retention.intervalSeconds`. The chart
+  defaults are the server's (`0`, `3600`, `300`), so an install keeps run
+  history for ever until you set `retention.runHistoryDays`.
+
+  ```sh
+  helm upgrade cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
+    --reuse-values --set retention.runHistoryDays=30
+  ```
+
+- **`cloacinactl server start`:** the same flags, the env vars, or the keys
+  `run_history_retention_days`, `outbox_acked_retention_s` and
+  `retention_interval_s` of `[server]` in `config.toml`.
+
 What to know:
 
 - **Only finished runs are deleted.** A run that is Pending, Running or Paused is never touched, however old. A context is deleted only when no remaining run or task references it.
