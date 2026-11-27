@@ -6844,6 +6844,15 @@
         "properties": {
           "context": {
             "description": "Optional JSON context to pass to the workflow."
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The workflow priority this run asks for: an integer from 0 (the\nhighest) to 10 (CLOACINA-T-1045). With none, the run gets the\npriority the workflow declares, or 5. A priority above what the\ncaller may set is not refused: the run gets the caller's limit, and\nthe answer says so in `priority` and `priority_notice`.",
+            "minimum": 0
           }
         }
       },
@@ -6860,6 +6869,24 @@
           "execution_id": {
             "type": "string",
             "description": "UUID of the scheduled execution."
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority of the run: the one asked for and the one\ngiven (CLOACINA-T-1045). `null` from a server before priorities."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the given priority is lower than the one asked for: one\nsentence that says what was asked, what was given and why."
           },
           "status": {
             "type": "string",
@@ -6884,6 +6911,17 @@
         "properties": {
           "execution_id": {
             "type": "string"
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority of the execution: asked and given\n(CLOACINA-T-1045). `null` for an execution from before priorities."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "type": "string"
@@ -6977,6 +7015,17 @@
           "id": {
             "type": "string",
             "description": "Execution UUID."
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority of the execution: asked and given\n(CLOACINA-T-1045). `null` for an execution from before priorities."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "started_at": {
             "type": "string",
@@ -8252,6 +8301,28 @@
           }
         }
       },
+      "PriorityGrant": {
+        "type": "object",
+        "description": "A priority that was asked for and the priority that was given.\n\n`given` is `asked` held to the limit of the principal that asked: the\nhighest priority that principal may set. A principal that asks for more\nthan it may set is not refused: it gets its limit, and the answer says so.",
+        "required": [
+          "asked",
+          "given"
+        ],
+        "properties": {
+          "asked": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The priority that was asked for.",
+            "minimum": 0
+          },
+          "given": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The priority the work runs at.",
+            "minimum": 0
+          }
+        }
+      },
       "ReactorFire": {
         "type": "object",
         "description": "One recorded reactor fire (CLOACI-T-0766) — a row in\n`GET /v1/health/reactors/{name}/fires`. Makes fires observable (outcome +\nduration), not just counted.",
@@ -8714,6 +8785,17 @@
                 "id": {
                   "type": "string",
                   "description": "Execution UUID."
+                },
+                "priority": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PriorityGrant",
+                      "description": "The workflow priority of the execution: asked and given\n(CLOACINA-T-1045). `null` for an execution from before priorities."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "started_at": {
                   "type": "string",

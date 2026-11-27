@@ -963,11 +963,26 @@ impl Client {
         name: &str,
         context: Value,
     ) -> Result<ExecuteResponse, ClientError> {
+        self.execute_workflow_with_priority(name, context, None)
+            .await
+    }
+
+    /// [`execute_workflow`](Self::execute_workflow) for a run that asks for
+    /// a workflow priority: 0 (the highest) to 10. A priority above what
+    /// the key may set is lowered, not refused: read `priority` and
+    /// `priority_notice` of the answer.
+    pub async fn execute_workflow_with_priority(
+        &self,
+        name: &str,
+        context: Value,
+        priority: Option<u8>,
+    ) -> Result<ExecuteResponse, ClientError> {
         let t = self.tenant_segment();
         self.post_json(
             &format!("/v1/tenants/{t}/workflows/{name}/execute"),
             &ExecuteRequest {
                 context: Some(context),
+                priority,
             },
         )
         .await

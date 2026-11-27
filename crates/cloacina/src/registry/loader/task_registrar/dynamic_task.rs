@@ -460,6 +460,8 @@ mod tests {
             cpu: Some("4".to_string()),
             memory: Some("32Gi".to_string()),
             inline: true,
+            priority: Some(2),
+            workflow_priority: Some(7),
         };
         let entry = TaskMetadataEntry {
             index: 0,
@@ -476,6 +478,8 @@ mod tests {
             cpu: declared.cpu.clone(),
             memory: declared.memory.clone(),
             inline: declared.inline,
+            priority: declared.priority,
+            workflow_priority: declared.workflow_priority,
         };
         let json = serde_json::to_string(&entry).unwrap();
         let back: TaskMetadataEntry = serde_json::from_str(&json).unwrap();

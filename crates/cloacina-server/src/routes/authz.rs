@@ -1017,7 +1017,11 @@ pub fn build_authz_table() -> AuthzTable {
     t.add(
         post.clone(),
         "/v1/tenants/{tenant_id}/workflows/{name}/execute",
-        Row::tenant(P::WorkflowsRun).audit(a::WORKFLOW_RUN, Some("name")),
+        // CLOACINA-T-1045: the run may ask for a priority; the handler holds
+        // it to the highest priority the principal may set.
+        Row::tenant(P::WorkflowsRun)
+            .audit(a::WORKFLOW_RUN, Some("name"))
+            .limit(LimitKind::MaxPriority),
     );
     // Backfills (CLOACINA-T-1020) start and stop runs of a workflow by hand.
     // The id of a new backfill is made by the handler, which notes it.

@@ -85,6 +85,8 @@ pub use secret::{SecretAccessError, SecretResolver, SecretResolverError};
 pub use task::{Task, TaskState};
 // CLOACINA-T-1027: what a task declares for its placement on a fleet.
 pub use cloacina_api_types::TaskPlacement;
+/// The priority scale and its rules (CLOACINA-T-1045).
+pub use cloacina_api_types::priority;
 pub use trigger::{Trigger, TriggerError, TriggerResult};
 
 // Re-export macros when the feature is enabled

@@ -62,6 +62,9 @@ impl<'a> TaskExecutionDAL<'a> {
                     memory_request_bytes: None,
                     created_at: now,
                     updated_at: now,
+                    // CLOACINA-T-1045: the column default, 5.
+                    workflow_priority: None,
+                    task_priority: None,
                 };
 
                 // A task created `Ready` waits for capacity from now

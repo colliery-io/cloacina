@@ -362,6 +362,26 @@ impl TaskExecutor for ThreadTaskExecutor {
     async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
         let start = Instant::now();
 
+        // CLOACINA-T-1045: take a concurrency slot first, without waiting,
+        // and hold it for the duration of the execution. With no free slot
+        // the task is not claimed: it stays Ready in the queue, and the next
+        // scheduler pass orders it again among all waiting tasks. A dispatch
+        // that waited here for a slot would hold its place ahead of more
+        // important work that became ready later.
+        let permit = match self.semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(tokio::sync::TryAcquireError::NoPermits) => {
+                event.admission.release();
+                return Err(DispatchError::NoCapacity(
+                    "no free slot in the in-process executor".into(),
+                ));
+            }
+            Err(tokio::sync::TryAcquireError::Closed) => {
+                event.admission.release();
+                return Err(DispatchError::ExecutorNotFound("semaphore closed".into()));
+            }
+        };
+
         // If claiming is enabled, try to claim the task before executing.
         // If another runner already claimed it, skip silently.
         if self.config.enable_claiming {
@@ -418,6 +438,10 @@ impl TaskExecutor for ThreadTaskExecutor {
                 }
             }
         }
+
+        // CLOACINA-T-1045: the slot is taken and the task is claimed. The
+        // next dispatch of the pass may decide about its own slot.
+        event.admission.release();
 
         // Surface the workflow execution as Running once a task of it is being
         // executed (parity with the fleet path; CLOACI-T-0639). Workflow
@@ -485,14 +509,6 @@ impl TaskExecutor for ThreadTaskExecutor {
         } else {
             None
         };
-
-        // Acquire a concurrency slot — held for the duration of execution.
-        let permit = self
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
 
         // Stamp started_at now that the slot is acquired and execution is about
         // to begin — so a task's duration reflects real work, not time spent

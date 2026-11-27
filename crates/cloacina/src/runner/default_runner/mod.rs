@@ -173,7 +173,8 @@ impl DefaultRunner {
             TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval())
                 .await
                 .map_err(|e| WorkflowExecutionError::Executor(e.into()))?
-                .with_runtime(runtime.clone());
+                .with_runtime(runtime.clone())
+                .with_priority_aging_interval(config.priority_aging_interval());
 
         // Create task executor
         let executor_config = ExecutorConfig {
@@ -221,6 +222,17 @@ impl DefaultRunner {
     /// Returns a reference to the database.
     pub fn database(&self) -> &Database {
         &self.database
+    }
+
+    /// Sets who limits the priority that a package declares
+    /// (CLOACINA-T-1045). A server sets it on each runner: the limit is that
+    /// of the package's publisher when a run starts. With none set, a
+    /// declared priority is given as declared.
+    pub fn set_priority_authority(
+        &self,
+        authority: Arc<dyn crate::execution_planner::PriorityAuthority>,
+    ) {
+        self.scheduler.set_priority_authority(authority);
     }
 
     /// Returns the DAL for database operations.

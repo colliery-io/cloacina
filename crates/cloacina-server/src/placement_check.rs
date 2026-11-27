@@ -173,7 +173,7 @@ mod tests {
                 pool: pool.map(str::to_string),
                 cpu: cpu.map(str::to_string),
                 memory: memory.map(str::to_string),
-                inline: false,
+                ..Default::default()
             },
         }
     }

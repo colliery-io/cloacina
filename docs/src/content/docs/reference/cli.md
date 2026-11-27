@@ -667,7 +667,7 @@ cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
 |---|---|---|
 | `workflow list [--package <FILTER>]` | `GET /v1/tenants/<tenant>/workflows` | Client-side `--package` substring filter on the package name. |
 | `workflow inspect <NAME>` | `GET /v1/tenants/<tenant>/workflows/<name>` | Full workflow metadata: tasks, dependencies, trigger rules, schedules. |
-| `workflow run <NAME> [--context <SOURCE>]` | `POST /v1/tenants/<tenant>/workflows/<name>/execute` | `--context` accepts a path to a JSON file or `-` for stdin. Defaults to `{}`. JSON is validated before submission. Prints the execution ID. |
+| `workflow run <NAME> [--context <SOURCE>] [--priority <0-10>]` | `POST /v1/tenants/<tenant>/workflows/<name>/execute` | `--context` accepts a path to a JSON file or `-` for stdin. Defaults to `{}`. JSON is validated before submission. `--priority` asks for a workflow [priority](../../explanation/priority/) for this run: 0 is the highest, 10 the lowest; with none the run gets what the workflow declares, or 5. A priority above what the key may set is lowered to the key's limit, and the command prints `warning: priority N was asked for and priority M was given …` on stderr. Prints the execution ID. |
 
 ## `execution`
 

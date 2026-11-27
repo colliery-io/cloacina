@@ -135,7 +135,7 @@ The WebSocket routes have rows like the REST routes. The upgrade request goes th
 
 **The middleware writes the audit row** of a state-changing route after the handler answers, under the action its row names. A handler adds the target and the facts of the action; it cannot leave the row out. A refusal on an audited route writes a row with the outcome `denied`. The rows marked "none:" below write no audit row, for the reason given.
 
-A principal also carries numeric limits. The one limit today is the highest priority it may set (0 is the highest): `write` may set 5 to 10, `admin` and the platform admin flag may set 0 to 10, `read` and `agent` may set none.
+A principal also carries numeric limits. The one limit today is the highest priority it may set (0 is the highest): `write` may set 5 to 10, `admin` and the platform admin flag may set 0 to 10, `read` and `agent` may set none. The run route (`POST .../workflows/{name}/execute`) holds the [priority](../../priority/) a run asks for to this limit: a run that asks for more is not refused, it runs at the limit, and the answer, the server log, the audit event and `cloacina_priority_held_total` say so. A priority that a package declares in its code is held to what `write` may set.
 
 Tenant-scoped keys' single permitted tenant is set at key creation and cannot be changed; cross-tenant access requires a separate key.
 

@@ -219,6 +219,17 @@ pub struct TaskPlacement {
     /// yet (CLOACINA-T-1028 will).
     #[serde(default)]
     pub inline: bool,
+    /// The task's own priority, 0 (the highest) to 10 (CLOACINA-T-1045).
+    /// `None` means the task takes the priority of its workflow. It orders
+    /// the task among the waiting tasks of its workflow priority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
+    /// The declared priority of the task's workflow (CLOACINA-T-1045). Set
+    /// only on a task loaded from a package, where each task carries its
+    /// workflow's priority across the plugin boundary. Elsewhere `None`: the
+    /// workflow itself holds its priority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_priority: Option<u8>,
 }
 
 impl TaskPlacement {
@@ -234,6 +245,10 @@ impl TaskPlacement {
         }
         if let Some(memory) = &self.memory {
             parse_memory_bytes(memory).map_err(|e| format!("memory: {e}"))?;
+        }
+        if let Some(priority) = self.priority {
+            crate::priority::validate_priority(i64::from(priority))
+                .map_err(|e| format!("priority: {e}"))?;
         }
         Ok(())
     }
@@ -307,6 +322,7 @@ mod tests {
             cpu: Some("4".into()),
             memory: Some("32Gi".into()),
             inline: true,
+            ..Default::default()
         };
         assert_eq!(placement.validate(), Ok(()));
         assert_eq!(placement.pool_name(), "large");

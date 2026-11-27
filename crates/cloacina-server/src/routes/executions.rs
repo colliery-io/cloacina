@@ -66,11 +66,22 @@ use crate::routes::error::ApiError;
 )]
 pub async fn execute_workflow(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(grant): Extension<crate::routes::authz::Grant>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<ExecuteRequest>,
 ) -> impl IntoResponse {
     let mut context = Context::new();
+
+    // CLOACINA-T-1045: a priority outside the scale is a bad request. One
+    // inside the scale is never refused: below, it is held to the highest
+    // priority this principal may set.
+    if let Some(asked) = body.priority
+        && let Err(message) = cloacina_api_types::validate_priority(i64::from(asked))
+    {
+        return ApiError::bad_request("invalid_priority", message).into_response();
+    }
+    let run_priority = run_priority_for(body.priority, grant.limits);
 
     // CLOACI-T-0757: capture the provided context object for declared-param
     // validation before it's merged/consumed below.
@@ -215,17 +226,45 @@ pub async fn execute_workflow(
         }
     };
 
-    match tenant_runner.execute_async(&name, context).await {
-        Ok(execution) => {
+    match tenant_runner
+        .execute_async_with_priority(&name, context, run_priority)
+        .await
+    {
+        Ok((execution, priority)) => {
             info!(
                 "Executed workflow '{}' for tenant '{}': {}",
                 name, tenant_id, execution.execution_id
             );
+            // CLOACINA-T-1045: a run that asked for more than its principal
+            // may set is lowered, and that is said loudly: here in the log
+            // and the audit record, and in the answer.
+            let priority_notice = if body.priority.is_some() {
+                priority.notice()
+            } else {
+                None
+            };
+            if let Some(notice) = &priority_notice {
+                warn!(
+                    tenant = %tenant_id,
+                    workflow = %name,
+                    key_id = %auth.key_id,
+                    key_name = %auth.name,
+                    priority_asked = priority.asked,
+                    priority_given = priority.given,
+                    "priority lowered: {notice}"
+                );
+            }
+            let mut detail = serde_json::json!({
+                "execution_id": execution.execution_id.to_string(),
+                "priority_asked": priority.asked,
+                "priority_given": priority.given,
+            });
+            if priority_notice.is_some() {
+                detail["priority_lowered"] = serde_json::Value::Bool(true);
+            }
             audit_record::note(
                 Some(&tenant_id),
-                AuditEvent::ok(audit_record::actions::WORKFLOW_RUN, name.as_str()).detail(
-                    serde_json::json!({ "execution_id": execution.execution_id.to_string() }),
-                ),
+                AuditEvent::ok(audit_record::actions::WORKFLOW_RUN, name.as_str()).detail(detail),
             );
             // CLOACI-T-0776: mark this as a manual operator run so the UI can
             // distinguish it from cron/trigger/reactor-driven runs. Best-effort —
@@ -258,6 +297,8 @@ pub async fn execute_workflow(
                     workflow_name: name,
                     tenant_id,
                     status: "scheduled".to_string(),
+                    priority: Some(priority),
+                    priority_notice,
                 }),
             )
                 .into_response()
@@ -270,6 +311,36 @@ pub async fn execute_workflow(
             ApiError::bad_request("execution_failed", format!("{}", e)).into_response()
         }
     }
+}
+
+/// The priority a run request asks for, with the limit of its principal
+/// (CLOACINA-T-1045). A request that names no priority asks for nothing: the
+/// workflow's declared priority applies. A principal whose role carries no
+/// limit may set no priority: the lowest is the highest it gets.
+pub(crate) fn run_priority_for(
+    asked: Option<u8>,
+    limits: crate::routes::authz::Limits,
+) -> cloacina::execution_planner::RunPriority {
+    match asked {
+        Some(asked) => cloacina::execution_planner::RunPriority::asked_by(
+            asked,
+            Some(
+                limits
+                    .get(crate::routes::authz::LimitKind::MaxPriority)
+                    .unwrap_or(cloacina_api_types::LOWEST_PRIORITY),
+            ),
+        ),
+        None => cloacina::execution_planner::RunPriority::default(),
+    }
+}
+
+/// The priority of a stored execution: asked and given (CLOACINA-T-1045).
+/// `None` for a row from before priorities, which has no asked value.
+fn priority_of(asked: Option<i32>, given: i32) -> Option<cloacina_api_types::PriorityGrant> {
+    asked.map(|asked| cloacina_api_types::PriorityGrant {
+        asked: cloacina_api_types::clamp_priority(asked),
+        given: cloacina_api_types::clamp_priority(given),
+    })
 }
 
 /// Default page size for `list_executions` when the client doesn't
@@ -352,6 +423,7 @@ pub async fn list_executions(
                     started_at: e.started_at.0.to_rfc3339(),
                     completed_at: e.completed_at.map(|t| t.0.to_rfc3339()),
                     trigger_origin: e.trigger_origin,
+                    priority: priority_of(e.priority_asked, e.priority),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
@@ -422,6 +494,7 @@ pub async fn get_execution(
                 tenant_id,
                 execution_id: exec_id,
                 status: execution.status.as_str().to_string(),
+                priority: priority_of(execution.priority_asked, execution.priority),
             })
             .into_response()
         }
@@ -727,6 +800,65 @@ mod input_validation_tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect()
+    }
+
+    // ----- CLOACINA-T-1045: the priority of a run request -----
+
+    use crate::routes::authz::Role;
+    use cloacina_api_types::PriorityGrant;
+
+    /// What a principal of `role` gets when its run asks for `asked`.
+    fn granted(role: Role, asked: u8) -> PriorityGrant {
+        let run = run_priority_for(Some(asked), role.default_limits());
+        match run.limit {
+            Some(limit) => PriorityGrant::held_to(run.asked.unwrap(), Some(limit)),
+            None => PriorityGrant::unlimited(run.asked.unwrap()),
+        }
+    }
+
+    #[test]
+    fn a_write_key_that_asks_for_more_than_5_gets_5_and_a_notice() {
+        let grant = granted(Role::Write, 2);
+        assert_eq!((grant.asked, grant.given), (2, 5));
+        let notice = grant.notice().expect("a notice");
+        assert!(notice.contains("priority 2 was asked"), "{notice}");
+        assert!(notice.contains("priority 5 was given"), "{notice}");
+        // Inside its limit it gets what it asks for, with no notice.
+        let grant = granted(Role::Write, 8);
+        assert_eq!((grant.asked, grant.given), (8, 8));
+        assert!(grant.notice().is_none());
+    }
+
+    #[test]
+    fn an_admin_key_gets_the_priority_it_asks_for() {
+        let grant = granted(Role::Admin, 0);
+        assert_eq!((grant.asked, grant.given), (0, 0));
+        assert!(grant.notice().is_none());
+    }
+
+    #[test]
+    fn a_role_with_no_priority_limit_gets_the_lowest_priority() {
+        for role in [Role::Read, Role::Agent] {
+            let grant = granted(role, 5);
+            assert_eq!(grant.given, 10, "{role:?}");
+            assert!(grant.notice().is_some());
+        }
+    }
+
+    #[test]
+    fn a_request_with_no_priority_asks_for_nothing() {
+        let run = run_priority_for(None, Role::Write.default_limits());
+        assert_eq!(run, cloacina::execution_planner::RunPriority::default());
+    }
+
+    #[test]
+    fn a_stored_execution_shows_asked_and_given() {
+        assert_eq!(
+            priority_of(Some(2), 5),
+            Some(PriorityGrant { asked: 2, given: 5 })
+        );
+        // A row from before priorities has no asked value.
+        assert_eq!(priority_of(None, 5), None);
     }
 
     #[test]

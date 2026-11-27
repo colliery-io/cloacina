@@ -140,6 +140,34 @@ impl WorkflowExecutor for DefaultRunner {
         ))
     }
 
+    /// Executes a workflow asynchronously at the priority the run asks for
+    /// (CLOACINA-T-1045). Returns the handle and the priority: asked and
+    /// given.
+    async fn execute_async_with_priority(
+        &self,
+        workflow_name: &str,
+        context: Context<serde_json::Value>,
+        priority: crate::execution_planner::RunPriority,
+    ) -> Result<(WorkflowExecution, cloacina_api_types::PriorityGrant), WorkflowExecutionError>
+    {
+        let (execution_id, grant) = retry_transient(5, Duration::from_millis(100), || {
+            self.scheduler.schedule_workflow_execution_with_priority(
+                workflow_name,
+                context.clone_data(),
+                priority,
+            )
+        })
+        .await
+        .map_err(|e| WorkflowExecutionError::ExecutionFailed {
+            message: format!("Failed to schedule workflow: {}", e),
+        })?;
+
+        Ok((
+            WorkflowExecution::new(execution_id, workflow_name.to_string(), self.clone()),
+            grant,
+        ))
+    }
+
     /// Executes a workflow with status callbacks
     ///
     /// # Arguments

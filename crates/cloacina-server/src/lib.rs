@@ -45,6 +45,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
 pub mod placement_check;
+pub mod priority_authority;
 pub mod retention;
 pub mod routes;
 pub mod secrets;
@@ -322,6 +323,34 @@ pub struct AppState {
 /// per-tenant runner in `TenantRunnerCache`. Mirrors the admin runner
 /// config (`registry_storage_backend` is the same; reconcile interval
 /// honors the operator override).
+/// The environment variable that sets the ageing interval of waiting work,
+/// in seconds (CLOACINA-T-1045).
+pub const PRIORITY_AGING_INTERVAL_ENV: &str = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS";
+
+/// The ageing interval of waiting work (CLOACINA-T-1045): the value of
+/// [`PRIORITY_AGING_INTERVAL_ENV`] in seconds, or two minutes. `0` switches
+/// ageing off. A value that is not a whole number of seconds is ignored with
+/// a warning.
+pub fn priority_aging_interval_from_env() -> std::time::Duration {
+    parse_priority_aging_interval(std::env::var(PRIORITY_AGING_INTERVAL_ENV).ok().as_deref())
+}
+
+pub(crate) fn parse_priority_aging_interval(raw: Option<&str>) -> std::time::Duration {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds) => std::time::Duration::from_secs(seconds),
+            Err(_) => {
+                warn!(
+                    "{PRIORITY_AGING_INTERVAL_ENV}='{value}' is not a whole number of seconds; \
+                     the default of 120 applies"
+                );
+                cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL
+            }
+        },
+    }
+}
+
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
     default_executor: &str,
@@ -335,6 +364,8 @@ fn runner_config_for_tenant_cache(
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
+    // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
+    builder = builder.priority_aging_interval(priority_aging_interval_from_env());
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     builder = builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -888,6 +919,8 @@ pub async fn run(
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
     runner_builder = runner_builder.registry_storage_backend("database");
+    // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
+    runner_builder = runner_builder.priority_aging_interval(priority_aging_interval_from_env());
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     runner_builder = runner_builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -969,6 +1002,11 @@ pub async fn run(
     )
     .await
     .context("Failed to connect to database")?;
+    // CLOACINA-T-1045: a priority that a package of the `public` tenant
+    // declares in its code is held to the limit of the role that may publish.
+    runner.set_priority_authority(Arc::new(priority_authority::PublisherLimit::for_tenant(
+        "public",
+    )));
 
     info!("Connected to Postgres, migrations applied");
 

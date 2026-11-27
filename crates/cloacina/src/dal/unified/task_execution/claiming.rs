@@ -578,6 +578,39 @@ impl<'a> TaskExecutionDAL<'a> {
 
         Ok(ready_tasks.into_iter().map(Into::into).collect())
     }
+
+    /// The waiting set (CLOACINA-T-1045): every `Ready`, unclaimed task that
+    /// is due, and every one that was put off for capacity (its `retry_at`
+    /// is in the future but it waits since before now). A retry in backoff
+    /// is not in the set: it waits from its due time.
+    ///
+    /// The rows come in the order of the stored priorities: workflow
+    /// priority, task priority, time waited. The scheduler loop applies
+    /// ageing and decides which of them to dispatch
+    /// (`execution_planner::priority::dispatch_order`).
+    pub async fn get_waiting_for_dispatch(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let waiting: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::status.eq("Ready"))
+                .filter(
+                    task_executions::retry_at
+                        .is_null()
+                        .or(task_executions::retry_at.le(now))
+                        .or(task_executions::waiting_since.le(now)),
+                )
+                .filter(task_executions::claimed_by.is_null())
+                .order((
+                    task_executions::workflow_priority.asc(),
+                    task_executions::task_priority.asc(),
+                    task_executions::waiting_since.asc(),
+                    task_executions::created_at.asc(),
+                ))
+                .load(conn)
+        })?;
+
+        Ok(waiting.into_iter().map(Into::into).collect())
+    }
 }
 
 #[cfg(all(test, feature = "sqlite"))]

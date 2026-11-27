@@ -195,6 +195,7 @@ These are read by the **Kubernetes actuator** and applied to every `cloacina-age
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_AGENT_CPU_REQUEST` | CPU request on each agent pod. | `250m` | `500m` | Server (k8s actuator) | No |
+| `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | The ageing interval of waiting work, in whole seconds. For each interval a task has waited, its [priority](../../explanation/priority/) in the order of waiting work improves by one, never past 0. `0` switches ageing off. | `120` | `300` | Server | No |
 | `CLOACINA_AGENT_MEMORY_REQUEST` | Memory request on each agent pod. | `256Mi` | `512Mi` | Server (k8s actuator) | No |
 | `CLOACINA_AGENT_CPU_LIMIT` | CPU limit on each agent pod. | `1` | `2` | Server (k8s actuator) | No |
 | `CLOACINA_AGENT_MEMORY_LIMIT` | Memory limit on each agent pod. The agent embeds a CPython interpreter (PyO3) and unpacks a `workflow/`+`vendor/` tree, so the default is generous to avoid OOM-killing Python workflows. | `1Gi` | `2Gi` | Server (k8s actuator) | No |

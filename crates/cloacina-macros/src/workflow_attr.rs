@@ -56,6 +56,9 @@ pub struct UnifiedWorkflowAttributes {
     /// reconciler binds each named trigger → this workflow at load time
     /// (replaces the manifest-side `[[triggers]]` table that T-E removes).
     pub triggers: Vec<String>,
+    /// CLOACINA-T-1045: `priority = N`, 0 (the highest) to 10. `None` is the
+    /// default priority, 5.
+    pub priority: Option<u8>,
     /// CLOACI-I-0128 / T-0756: declared workflow params from
     /// `#[workflow(params( name: Type [= default], … ))]`. Surfaced as
     /// `InputSlot`s (JSON-Schema typed) via the input-interface FFI entrypoint.
@@ -265,6 +268,7 @@ impl Parse for UnifiedWorkflowAttributes {
         let mut description = None;
         let mut author = None;
         let mut triggers: Vec<String> = Vec::new();
+        let mut priority: Option<u8> = None;
         let mut params: Vec<WorkflowParam> = Vec::new();
         let mut secrets: Vec<String> = Vec::new();
 
@@ -376,11 +380,27 @@ impl Parse for UnifiedWorkflowAttributes {
                         }
                     }
                 }
+                // CLOACINA-T-1045: 0 (the highest) to 10; a value outside
+                // the scale is a compile error at the attribute.
+                "priority" => {
+                    let lit: syn::LitInt = input.parse().map_err(|e| {
+                        syn::Error::new(
+                            e.span(),
+                            "priority must be an integer from 0 (the highest) to 10, \
+                             e.g. priority = 2",
+                        )
+                    })?;
+                    let value: i64 = lit.base10_parse()?;
+                    priority = Some(
+                        cloacina_api_types::validate_priority(value)
+                            .map_err(|e| syn::Error::new(lit.span(), format!("priority: {e}")))?,
+                    );
+                }
                 _ => {
                     return Err(syn::Error::new(
                         field_name.span(),
                         format!(
-                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers, params, secrets",
+                            "Unknown attribute: '{}'. Valid attributes: name, tenant, description, author, triggers, priority, params, secrets",
                             field_name
                         ),
                     ));
@@ -402,6 +422,7 @@ impl Parse for UnifiedWorkflowAttributes {
             description,
             author,
             triggers,
+            priority,
             params,
             secrets,
         })
@@ -650,6 +671,12 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
     let params_fn_embedded = make_params_fn(quote! { ::cloacina::input_interface });
     let params_fn_packaged = make_params_fn(quote! { ::cloacina_workflow::input_interface });
 
+    // CLOACINA-T-1045: the workflow's declared priority, `None` when not set.
+    let priority_option = match attrs.priority {
+        Some(value) => quote! { ::core::option::Option::Some(#value) },
+        None => quote! { ::core::option::Option::None },
+    };
+
     let workflow_descriptor_entry = quote! {
         #[cfg(not(feature = "packaged"))]
         ::cloacina::cloacina_workflow_plugin::inventory::submit! {
@@ -661,6 +688,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
                 graph_data_json: #graph_data_json,
                 triggers: || vec![#(#triggers_vec.to_string()),*],
                 params: #params_fn_embedded,
+                priority: #priority_option,
             }
         }
 
@@ -674,6 +702,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
                 graph_data_json: #graph_data_json,
                 triggers: || vec![#(#triggers_vec.to_string()),*],
                 params: #params_fn_packaged,
+                priority: #priority_option,
             }
         }
     };
@@ -689,6 +718,7 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &detected_tasks,
         &task_dependencies,
         &constructor_nodes,
+        attrs.priority,
     );
 
     // Generate packaged FFI exports (when `packaged` feature IS active)
@@ -807,8 +837,14 @@ fn generate_embedded_registration(
     detected_tasks: &HashMap<String, syn::Ident>,
     _task_dependencies: &HashMap<String, Vec<String>>,
     constructor_nodes: &[ConstructorNodeDecl],
+    priority: Option<u8>,
 ) -> TokenStream2 {
     let mod_path_prefix = quote! { #mod_name };
+    // CLOACINA-T-1045: the workflow's declared priority.
+    let priority_field = match priority {
+        Some(value) => quote! { workflow.set_priority(#value); },
+        None => quote! {},
+    };
 
     // CLOACI-T-0829: add each constructor!(…) node to the DAG. The node is the
     // dynamic analog of a #[task]: it carries the author-chosen id + namespaced
@@ -924,6 +960,7 @@ fn generate_embedded_registration(
             workflow.set_package(pkg_name);
             #description_field
             #author_field
+            #priority_field
 
             // Add tasks
             #(#task_addition_code)*
@@ -1469,5 +1506,34 @@ fn generate_packaged_registration(
         }
 
         cloacina_workflow_plugin::fidius_plugin_registry!();
+    }
+}
+
+#[cfg(test)]
+mod priority_tests {
+    use super::UnifiedWorkflowAttributes;
+
+    // CLOACINA-T-1045: `#[workflow(priority = N)]`, 0 (the highest) to 10.
+    #[test]
+    fn a_workflow_priority_is_parsed_and_one_outside_the_scale_is_refused() {
+        let attrs: UnifiedWorkflowAttributes =
+            syn::parse_str(r#"name = "orders", priority = 2"#).expect("attributes parse");
+        assert_eq!(attrs.priority, Some(2));
+        let attrs: UnifiedWorkflowAttributes =
+            syn::parse_str(r#"name = "orders""#).expect("attributes parse");
+        assert_eq!(attrs.priority, None, "no priority: the default applies");
+
+        for (text, needle) in [
+            (r#"name = "orders", priority = 11"#, "priority:"),
+            (
+                r#"name = "orders", priority = "high""#,
+                "priority must be an integer",
+            ),
+        ] {
+            let err = syn::parse_str::<UnifiedWorkflowAttributes>(text)
+                .err()
+                .unwrap_or_else(|| panic!("`{text}` should be refused"));
+            assert!(err.to_string().contains(needle), "`{text}`: {err}");
+        }
     }
 }

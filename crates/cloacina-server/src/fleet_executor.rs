@@ -1121,6 +1121,11 @@ impl TaskExecutor for FleetExecutor {
                     .await);
             }
             drop(placing);
+            // CLOACINA-T-1045: the task has its place on an agent. The next
+            // dispatch of the scheduler pass may now look for its own. (A
+            // dispatch that ends before this point releases its turn when it
+            // returns.)
+            event.admission.release();
             let tenant_id = agent.tenant_id.clone();
             // CLOACI-T-0780: the selected agent's target triple — dispatch hands it
             // the cdylib built for THIS arch when one exists (else the primary).

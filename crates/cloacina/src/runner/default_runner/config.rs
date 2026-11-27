@@ -67,6 +67,8 @@ pub enum ConfigError {
 #[non_exhaustive]
 pub struct DefaultRunnerConfig {
     max_concurrent_tasks: usize,
+    /// CLOACINA-T-1045: the ageing interval of waiting work.
+    priority_aging_interval: Duration,
     scheduler_poll_interval: Duration,
     task_timeout: Duration,
     workflow_timeout: Option<Duration>,
@@ -135,6 +137,14 @@ impl DefaultRunnerConfig {
     /// How often the scheduler checks for ready tasks.
     pub fn scheduler_poll_interval(&self) -> Duration {
         self.scheduler_poll_interval
+    }
+
+    /// The ageing interval of waiting work (CLOACINA-T-1045). For each
+    /// interval a task has waited, its priority in the order of waiting work
+    /// improves by one, never past 0. The default is two minutes; zero
+    /// switches ageing off.
+    pub fn priority_aging_interval(&self) -> Duration {
+        self.priority_aging_interval
     }
 
     /// Maximum time allowed for a single task to execute.
@@ -361,6 +371,7 @@ impl Default for DefaultRunnerConfigBuilder {
         Self {
             config: DefaultRunnerConfig {
                 max_concurrent_tasks: 4,
+                priority_aging_interval: cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL,
                 scheduler_poll_interval: Duration::from_millis(100),
                 task_timeout: Duration::from_secs(300),
                 workflow_timeout: Some(Duration::from_secs(3600)),
@@ -407,6 +418,13 @@ impl DefaultRunnerConfigBuilder {
     }
 
     /// Sets the scheduler poll interval.
+    /// Sets the ageing interval of waiting work (CLOACINA-T-1045). The
+    /// default is two minutes; zero switches ageing off.
+    pub fn priority_aging_interval(mut self, value: Duration) -> Self {
+        self.config.priority_aging_interval = value;
+        self
+    }
+
     pub fn scheduler_poll_interval(mut self, value: Duration) -> Self {
         self.config.scheduler_poll_interval = value;
         self
@@ -867,7 +885,8 @@ impl DefaultRunnerBuilder {
         )
         .await
         .map_err(|e| WorkflowExecutionError::Executor(e.into()))?
-        .with_runtime(runtime.clone());
+        .with_runtime(runtime.clone())
+        .with_priority_aging_interval(self.config.priority_aging_interval());
 
         // Create task executor
         let executor_config = ExecutorConfig {

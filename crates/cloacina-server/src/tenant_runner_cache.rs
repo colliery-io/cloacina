@@ -236,6 +236,11 @@ impl TenantRunnerCache {
         if let Some(registrar) = &self.fleet_registrar {
             registrar(&runner);
         }
+        // CLOACINA-T-1045: a priority that a package of this tenant declares
+        // in its code is held to the limit of the role that may publish.
+        runner.set_priority_authority(Arc::new(
+            crate::priority_authority::PublisherLimit::for_tenant(tenant_id),
+        ));
         let runner = Arc::new(runner);
 
         let held = {

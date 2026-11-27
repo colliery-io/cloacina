@@ -1498,6 +1498,11 @@ impl RegistryReconciler {
                         ),
                     }
                 })?;
+                // CLOACINA-T-1045: each task of a package carries the
+                // declared priority of its workflow.
+                if let Some(priority) = task.placement().workflow_priority {
+                    workflow.set_priority(priority);
+                }
                 workflow
                     .add_task(task)
                     .map_err(|e| RegistryError::RegistrationFailed {

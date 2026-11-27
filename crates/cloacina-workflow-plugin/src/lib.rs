@@ -230,6 +230,15 @@ macro_rules! package {
                             cpu: cloacina_workflow::Task::placement(&*task).cpu,
                             memory: cloacina_workflow::Task::placement(&*task).memory,
                             inline: cloacina_workflow::Task::placement(&*task).inline,
+                            // CLOACINA-T-1045: the task's own priority, and
+                            // the priority of its workflow.
+                            priority: cloacina_workflow::Task::placement(&*task).priority,
+                            workflow_priority: $crate::inventory::iter::<
+                                $crate::WorkflowDescriptorEntry,
+                            >
+                                .into_iter()
+                                .next()
+                                .and_then(|descriptor| descriptor.priority),
                         });
                     }
                     // Look up WorkflowDescriptorEntry for description / author /

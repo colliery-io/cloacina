@@ -1918,11 +1918,26 @@ export interface components {
         ExecuteRequest: {
             /** @description Optional JSON context to pass to the workflow. */
             context?: unknown;
+            /**
+             * Format: int32
+             * @description The workflow priority this run asks for: an integer from 0 (the
+             *     highest) to 10 (CLOACINA-T-1045). With none, the run gets the
+             *     priority the workflow declares, or 5. A priority above what the
+             *     caller may set is not refused: the run gets the caller's limit, and
+             *     the answer says so in `priority` and `priority_notice`.
+             */
+            priority?: number | null;
         };
         /** @description `202 Accepted` body for a scheduled workflow execution. */
         ExecuteResponse: {
             /** @description UUID of the scheduled execution. */
             execution_id: string;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when the given priority is lower than the one asked for: one
+             *     sentence that says what was asked, what was given and why.
+             */
+            priority_notice?: string | null;
             /** @description Always `"scheduled"` at accept time. */
             status: string;
             tenant_id: string;
@@ -1931,6 +1946,7 @@ export interface components {
         /** @description `GET /tenants/{tenant_id}/executions/{id}` response. */
         ExecutionDetail: {
             execution_id: string;
+            priority?: components["schemas"]["PriorityGrant"] | null;
             status: string;
             tenant_id: string;
         };
@@ -1965,6 +1981,7 @@ export interface components {
             completed_at?: string | null;
             /** @description Execution UUID. */
             id: string;
+            priority?: components["schemas"]["PriorityGrant"] | null;
             /** @description RFC 3339 timestamp. */
             started_at: string;
             status: string;
@@ -2590,6 +2607,25 @@ export interface components {
             signature?: string;
         };
         /**
+         * @description A priority that was asked for and the priority that was given.
+         *
+         *     `given` is `asked` held to the limit of the principal that asked: the
+         *     highest priority that principal may set. A principal that asks for more
+         *     than it may set is not refused: it gets its limit, and the answer says so.
+         */
+        PriorityGrant: {
+            /**
+             * Format: int32
+             * @description The priority that was asked for.
+             */
+            asked: number;
+            /**
+             * Format: int32
+             * @description The priority the work runs at.
+             */
+            given: number;
+        };
+        /**
          * @description One recorded reactor fire (CLOACI-T-0766) — a row in
          *     `GET /v1/health/reactors/{name}/fires`. Makes fires observable (outcome +
          *     duration), not just counted.
@@ -2813,6 +2849,7 @@ export interface components {
                 completed_at?: string | null;
                 /** @description Execution UUID. */
                 id: string;
+                priority?: components["schemas"]["PriorityGrant"] | null;
                 /** @description RFC 3339 timestamp. */
                 started_at: string;
                 status: string;

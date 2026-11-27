@@ -62,6 +62,9 @@ pub struct WorkflowMetadata {
     pub description: Option<String>,
     /// Arbitrary key-value tags for organization
     pub tags: HashMap<String, String>,
+    /// The workflow's priority, 0 (the highest) to 10 (CLOACINA-T-1045).
+    /// `None` is the default priority, 5.
+    pub priority: Option<u8>,
 }
 
 impl Default for WorkflowMetadata {
@@ -71,6 +74,7 @@ impl Default for WorkflowMetadata {
             version: String::new(), // Will be auto-calculated
             description: None,
             tags: HashMap::new(),
+            priority: None,
         }
     }
 }

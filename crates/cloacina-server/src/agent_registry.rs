@@ -1134,7 +1134,7 @@ mod tests {
             pool: Some("large".to_string()),
             cpu: Some("500m".to_string()),
             memory: Some("32Gi".to_string()),
-            inline: false,
+            ..Default::default()
         };
         assert_eq!(
             TaskDemand::of(&placement),

@@ -81,6 +81,19 @@ pub struct TaskExecution {
     pub fleet_packet_row_id: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// The priority of the task's workflow, as given: 0 (the highest) to 10
+    /// (CLOACINA-T-1045). Waiting work is ordered by this, then by
+    /// `task_priority`, then by `waiting_since`.
+    #[serde(default = "default_priority")]
+    pub workflow_priority: i32,
+    /// The task's own priority, as given (CLOACINA-T-1045). A task that
+    /// declares none has its workflow's.
+    #[serde(default = "default_priority")]
+    pub task_priority: i32,
+}
+
+fn default_priority() -> i32 {
+    i32::from(cloacina_api_types::DEFAULT_PRIORITY)
 }
 
 /// Structure for creating new task executions (domain type).
