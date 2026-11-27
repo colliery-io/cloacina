@@ -56,25 +56,32 @@ Every authenticated route under `/v1/*` requires an `Authorization: Bearer <key>
 4. On miss, validate against the database; insert on success.
 5. Inject an `AuthenticatedKey` into request extensions, carrying the key's `role` and tenant scope.
 
-The cache is small and short-lived deliberately: it shaves the per-request DB hit at high throughput, but the 30-second TTL bounds how long a revoked key can keep working. Explicit revocation via `DELETE /v1/auth/keys/{key_id}` clears the *entire* cache (not just the revoked entry) so revocation is immediate at the cost of a brief revalidation spike.
+The cache is small and short-lived deliberately: it shaves the per-request DB hit at high throughput, but the 30-second TTL bounds how long a revoked key can keep working. A revocation clears the *entire* cache (not just the revoked entry), at the cost of a brief revalidation spike.
 
-#### The 30-second cross-replica revocation window
+#### How fast a revocation reaches every replica
 
-The cache is **per replica, and only the replica that served the revocation clears it**, with one exception: tenant delete. So in a multi-replica deployment:
+The cache is **per replica**. Each way a key is revoked sends a revocation notice (Postgres `NOTIFY cloacina_api_keys_revoked`):
 
-> A revoked API key may continue to be accepted by *other* replicas for **up to 30 seconds** after revocation. On the replica that handled the `DELETE`, revocation is immediate.
+- `DELETE /v1/auth/keys/{key_id}` and `DELETE /v1/tenants/{tenant_id}/keys/{key_id}`
+- `POST /v1/auth/logout`
+- `POST /v1/auth/refresh`: the rotated-out key, and the key it revokes when the account is no longer active or the login session is over (CLOACINA-T-1128)
+- tenant delete, `DELETE /v1/tenants/{name}`: every key of the tenant (CLOACINA-T-1095)
 
-The same bound applies to every other reason a key stops being valid mid-flight — expiry of a minted login key, the rotation half of `POST /v1/auth/refresh`, and the key revocation performed by `POST /v1/auth/logout`. Each is enforced immediately on the acting replica and within the cache TTL everywhere else.
+Every server listens and clears its whole key cache when a notice arrives, and again each time its listener connects. So:
 
-Tenant delete (`DELETE /v1/tenants/{name}`, CLOACINA-T-1095) also sends a revocation notice (Postgres `NOTIFY cloacina_api_keys_revoked`). Every server listens and clears its whole key cache when a notice arrives, and again each time its listener connects. A key of a deleted tenant then fails on another replica as soon as the notice arrives. The TTL stays the bound: a replica whose listener is down refuses the key after at most 30 seconds, as before, so a broken channel does not widen the window.
+> On the replica that handled the revocation, the key fails at once. On every other replica it fails as soon as the notice arrives. A replica whose listener is down refuses it after at most **30 seconds** (the TTL).
+
+A notice that cannot be sent does not fail a key revoke, a logout or a refresh: the key is revoked in the database, a warning is logged, and other replicas refuse it within the TTL. Tenant delete answers `500` in that case, and a second delete sends it again.
+
+The expiry of a minted login key sends no notice: an expired key is refused on a cache miss, so it can pass on a replica that cached it for at most 30 seconds after it expires.
 
 This is a deliberate trade, not an oversight:
 
-- The window is **short and fixed**. It cannot grow with load, replica count, or clock skew between replicas — the TTL is measured from the moment each replica cached the entry.
-- The alternative — validating every request against the database — puts the auth path on the DB for every call on the hottest code path in the server, for a difference of at most 30 seconds in a scenario (compromised key *and* an attacker actively using it in the same half-minute) where the attacker has already had unbounded time before you noticed.
-- A cross-replica invalidation channel (pub/sub, LISTEN/NOTIFY) used in place of the TTL would buy a smaller window at the cost of a new failure mode: if the channel breaks, revocation silently stops propagating and the window becomes unbounded rather than 30 seconds. A TTL fails safe; a broadcast alone fails open. The notice of tenant delete is sent in addition to the TTL, never in place of it.
+- The bound is **short and fixed**. It cannot grow with load, replica count, or clock skew between replicas — the TTL is measured from the moment each replica cached the entry.
+- The alternative — validating every request against the database — puts the auth path on the DB for every call on the hottest code path in the server.
+- A cross-replica notice used in place of the TTL would fail open: if the channel breaks, revocation silently stops propagating and the window becomes unbounded rather than 30 seconds. The notice is sent in addition to the TTL, never in place of it.
 
-Operationally: when you revoke a key in response to a *confirmed* compromise and need a hard cut-off, wait 30 seconds before declaring the key dead, or restart the replicas (a fresh process has an empty cache). Do not treat revocation as instantaneous across the fleet.
+Operationally: when you revoke a key in response to a *confirmed* compromise and need a hard cut-off without relying on the notice, wait 30 seconds before declaring the key dead, or restart the replicas (a fresh process has an empty cache).
 
 To create, list, and revoke keys in practice, see [Manage API Keys](../../../how-to/service/manage-api-keys/).
 
@@ -303,7 +310,7 @@ In every case the result is an ordinary bearer key; authorization does not care 
 Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`); directly-created API keys have neither and never expire.
 
 - **Refresh** — `POST /v1/auth/refresh` re-checks that the underlying account / identity is still valid, mints a fresh key, and revokes the old one. The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
-- **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and clears the auth cache.
+- **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and sends the revocation notice, so every replica clears its auth cache.
 
 A refreshed key is **re-minted with exactly the scope the original login resolved to** — tenant and role are read from the stored key record, not from anything the caller sends — and the mint path takes no `is_admin` argument at all. A refresh therefore cannot broaden a session's authority, and god-mode remains unreachable through any login flow.
 

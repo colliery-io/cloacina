@@ -302,7 +302,7 @@ List all API keys. No hashes or plaintext values are returned. Requires admin ro
 
 ### DELETE /v1/auth/keys/{key_id}
 
-Revoke an API key. The key is immediately invalidated (the cache is cleared).
+Revoke an API key. The key is invalidated at once on every replica (each one clears its key cache on the revocation notice).
 
 **Path parameters:**
 
@@ -2180,10 +2180,14 @@ them.
 
 - The auth cache is an LRU with **256 entries and a 30-second TTL**.
   Key updates (rare) are not visible until the TTL expires.
-- Revoking a key via `DELETE /v1/auth/keys/{id}` clears the **entire**
-  cache, not just the revoked key. This makes revocation immediate but
-  causes a brief spike in database validation queries as subsequent
-  requests rewarm the cache.
+- A key revoke (`DELETE /v1/auth/keys/{id}`,
+  `DELETE /v1/tenants/{tenant_id}/keys/{key_id}`), a logout, a refresh and
+  a tenant delete send a revocation notice; every replica clears its
+  **entire** cache when it arrives, not just the revoked key. This makes
+  revocation take effect on each replica at once but causes a brief spike
+  in database validation queries as subsequent requests rewarm the cache.
+  A replica whose listener is down refuses the key within the 30-second
+  TTL.
 
 ### WebSocket tickets
 

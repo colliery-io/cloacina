@@ -217,8 +217,9 @@ pub async fn revoke_key(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal.api_keys().revoke_key(id).await {
         Ok(true) => {
-            // Clear cache so revoked key is rejected immediately
-            state.key_cache.clear().await;
+            // Every server clears its key cache, so the revoked key is
+            // rejected on each replica now (CLOACINA-T-1128).
+            crate::routes::auth::announce_key_revocation_or_warn(&state).await;
             audit_record::note(
                 None,
                 AuditEvent::ok(audit_record::actions::KEY_REVOKE, key_id.as_str()),
@@ -409,7 +410,7 @@ pub async fn revoke_tenant_key(
 
     match dal.api_keys().revoke_key(id).await {
         Ok(true) => {
-            state.key_cache.clear().await;
+            crate::routes::auth::announce_key_revocation_or_warn(&state).await;
             audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::KEY_REVOKE, key_id.as_str()),
