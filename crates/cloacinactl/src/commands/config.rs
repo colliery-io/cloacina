@@ -275,6 +275,10 @@ pub struct ServerSection {
     /// (`--fleet-graph-firings`, CLOACINA-T-1125).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fleet_graph_firings: Option<String>,
+    /// Time limit of one poll of a poll trigger on an agent, seconds
+    /// (`--fleet-poll-timeout-s`, CLOACINA-T-1077).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_poll_timeout_s: Option<u64>,
     /// Warning size of a task context, bytes; `0` = off
     /// (`--context-warn-bytes`).
     #[serde(skip_serializing_if = "Option::is_none")]

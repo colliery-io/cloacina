@@ -966,6 +966,7 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 # agent_liveness_misses = 3
 # fleet_artifact_fetch_wait_s = 300
 # fleet_graph_firings = "inline"
+# fleet_poll_timeout_s = 30
 # context_warn_bytes = 1048576
 # context_max_bytes = 16777216
 # cors_allowed_origins = ["https://ops.example.com"]

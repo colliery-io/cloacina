@@ -342,6 +342,7 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.agent_liveness_misses` | not set | Missed heartbeats before an agent is dead. Forwarded as `--agent-liveness-misses`. |
 | `server.fleet_artifact_fetch_wait_s` | not set | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact. Forwarded as `--fleet-artifact-fetch-wait-s`. |
 | `server.fleet_graph_firings` | not set | Where an agent runs a computation-graph firing: `inline` or `worker`. Forwarded as `--fleet-graph-firings`. |
+| `server.fleet_poll_timeout_s` | not set | Time limit (seconds) of one poll of a poll trigger on an agent. Forwarded as `--fleet-poll-timeout-s`. |
 | `server.context_warn_bytes` | not set | Size in bytes above which a task context is logged as a warning. Forwarded as `--context-warn-bytes`. |
 | `server.context_max_bytes` | not set | Largest size in bytes of a task context. Forwarded as `--context-max-bytes`. |
 | `server.cors_allowed_origins` | `[]` | Origins allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-origins`. |
