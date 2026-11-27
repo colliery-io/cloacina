@@ -54,7 +54,9 @@ jobs:
       - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -101,7 +103,9 @@ jobs:
       - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -109,9 +113,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -166,9 +168,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: List runnable examples (sharded)
         id: list
@@ -198,7 +198,9 @@ jobs:
       - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -206,9 +208,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -305,7 +305,9 @@ jobs:
       - uses: ./.github/actions/free-disk-space
 
       - name: Install libpq
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -323,9 +325,7 @@ jobs:
           shared-key: "cloacina-python-tutorials"
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       # CLOACI-T-0917: retries kept deliberately — the postgres pass runs a
       # real docker stack, so INFRA flake tolerance is still warranted. Now
@@ -355,9 +355,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       # The docs are a Starlight site (docs/). `angreal docs build` renders the
       # API reference with plissken 0.2.1 first (as docs.yml does).

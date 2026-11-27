@@ -80,9 +80,9 @@ jobs:
 
       - name: Install PostgreSQL dev libraries
         # cloacina's default features include postgres → links libpq.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Run constructor suite
         run: cargo test -p cloacina --features constructors-wasm --test '*constructor*' --test provider_bundle
@@ -201,9 +201,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Install libpq
         run: |
@@ -266,9 +264,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Run SDK contract matrix
         run: angreal test sdk-contract
@@ -316,9 +312,7 @@ jobs:
           node-version: '22'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Run UI acceptance e2e
         run: angreal test ui-e2e

@@ -49,6 +49,8 @@ jobs:
           python-version: "3.12"
 
       - name: Install angreal
+        # Outside the checkout: see .github/actions/install-angreal.
+        working-directory: ${{ runner.temp }}
         run: pip install angreal
 
       - name: Bring up the demo stack

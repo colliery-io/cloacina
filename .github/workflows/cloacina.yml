@@ -72,9 +72,9 @@ jobs:
 
       - name: Install PostgreSQL dev libraries
         if: matrix.features.backend == 'postgres'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -117,9 +117,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       # libpq only — cloacina's default features link it. No Postgres
       # cluster: macOS never runs the server, and the unit tests need no DB.
@@ -132,9 +130,9 @@ jobs:
 
       - name: Install PostgreSQL dev libraries (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -180,9 +178,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -202,9 +198,9 @@ jobs:
       - name: Install debugging tools
         # CLOACI-I-0140: all legs, not just postgres — the segfault class
         # historically rotated across BOTH backends' lanes.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gdb libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: gdb libpq-dev
 
       - name: Enable core dumps
         run: |
@@ -386,9 +382,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -401,9 +395,9 @@ jobs:
 
       - name: Install PostgreSQL dev libraries
         if: matrix.backend == 'postgres'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Start PostgreSQL services
         if: matrix.backend == 'postgres'
@@ -433,9 +427,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -447,9 +439,9 @@ jobs:
           shared-key: "cloacina-ubuntu-latest"
 
       - name: Install PostgreSQL dev libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Start PostgreSQL services
         uses: hoverkraft-tech/compose-action@v2.0.1
