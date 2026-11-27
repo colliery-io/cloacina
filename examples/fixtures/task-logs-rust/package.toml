@@ -1,0 +1,12 @@
+[package]
+name = "task-logs-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "task_logs_workflow"
+language = "rust"
+description = "Task log fixture: a packaged task that writes with tracing, log and println"
+author = "Cloacina Test Fixtures"

@@ -37,6 +37,7 @@ pub mod executor;
 pub mod fidius_validation;
 pub mod logging;
 pub mod models;
+pub mod packaged_task_logs;
 pub mod packaging;
 pub mod packaging_inspection;
 pub mod primitive_only_packaging;

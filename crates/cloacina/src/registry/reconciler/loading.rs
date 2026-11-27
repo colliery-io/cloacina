@@ -82,6 +82,8 @@ fn load_plugin_handle_from_bytes(library_data: &[u8]) -> Result<fidius_host::Plu
     }
     let loaded = fidius_host::loader::load_library(&temp_path)
         .map_err(|e| format!("dlopen failed: {:?}", e))?;
+    // CLOACINA-T-1099: the trigger's log lines go to this process's log.
+    crate::registry::loader::package_loader::bind_engine_log(&loaded, &temp_path);
     let plugin = loaded
         .plugins
         .into_iter()

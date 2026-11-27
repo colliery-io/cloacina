@@ -79,6 +79,8 @@ impl LoadedGraphPlugin {
 
         let loaded = fidius_host::loader::load_library(&temp_path)
             .map_err(|e| format!("Failed to load library: {}", e))?;
+        // CLOACINA-T-1099: the graph's log lines go to this process's log.
+        crate::registry::loader::package_loader::bind_engine_log(&loaded, &temp_path);
 
         let plugin = loaded
             .plugins

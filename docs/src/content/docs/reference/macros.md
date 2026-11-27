@@ -269,6 +269,30 @@ manifest, and they surface per-task on `WorkflowTaskNode` (`doc_what` /
 build, and an undocumented task simply contributes nothing. The same convention
 applies to Python `@task` docstrings.
 
+### Logging from a task
+
+Use the `tracing` macros or the `log` crate in a task, embedded or packaged.
+
+```rust
+#[task(id = "load")]
+pub async fn load(context: &mut Context<Value>) -> Result<(), TaskError> {
+    tracing::info!(rows = 3, "loaded the batch");
+    Ok(())
+}
+```
+
+The process that runs the task writes the line with its own logger, inside the
+span of the attempt, so the line carries the ids of the task (tenant,
+workflow, run, task, attempt). In a packaged workflow, `cloacina::package!()`
+sends the package's `tracing` events and `log` records to that process: its
+filter decides by the level and target of each line. The fields of an event
+come after the message as `name=value`. Spans that the task opens itself
+(`#[instrument]`, `info_span!`) are not kept. A line from a thread or a tokio
+task that the task starts itself is written without the ids.
+
+`println!` and `eprintln!` go to the process's stdout and stderr, with no ids.
+See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/).
+
 ## #[workflow]
 
 Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks, validates dependencies, and generates registration code.
