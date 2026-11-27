@@ -22,14 +22,16 @@ SCRIPT = PROJECT_ROOT / "scripts" / "provider_wave.py"
 providers = angreal.command_group(name="providers", about="first-party provider wave tooling (T-0872)")
 
 
-def _run(*args) -> int:
+# The name is not `_run`: angreal loads every root `task_*.py` into one
+# namespace, and `task_helm.py` has a `_run` of its own (CLOACINA-T-1044).
+def _wave(*args) -> int:
     return subprocess.run([sys.executable, str(SCRIPT), *args], cwd=PROJECT_ROOT, check=False).returncode
 
 
 @providers()
 @angreal.command(name="check", about="classify providers vs crates.io + run candidate guards")
 def check():
-    rc = _run("classify")
+    rc = _wave("classify")
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "classify", "--json"],
         cwd=PROJECT_ROOT, capture_output=True, text=True,
@@ -39,7 +41,7 @@ def check():
     worst = rc
     for row in json.loads(out.stdout or "[]"):
         if row["candidate"]:
-            worst = max(worst, _run("guard", row["dir"]))
+            worst = max(worst, _wave("guard", row["dir"]))
     return worst
 
 
@@ -47,7 +49,7 @@ def check():
 @angreal.command(name="wave", about="pre-flight a wave and print the tag commands (tag push stays human)")
 def wave():
     print("== classify ==")
-    if _run("classify") != 0:
+    if _wave("classify") != 0:
         return 1
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "classify", "--json"],
@@ -60,7 +62,7 @@ def wave():
     print("\n== guards (candidates) ==")
     failed = 0
     for r in candidates:
-        failed = max(failed, _run("guard", r["dir"]))
+        failed = max(failed, _wave("guard", r["dir"]))
     if failed:
         print("\nguards FAILED — fix the above before cutting a wave", file=sys.stderr)
         return 1
