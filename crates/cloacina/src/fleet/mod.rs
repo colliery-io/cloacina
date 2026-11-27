@@ -29,3 +29,8 @@ pub use protocol::*;
 // CLOACINA-T-1027: the quantity parsers an agent reads its `--cpu` and
 // `--memory` totals with, and a task's placement.
 pub use cloacina_api_types::resources::{TaskPlacement, parse_cpu_millis, parse_memory_bytes};
+
+// CLOACINA-T-1028: the default of the agent's own share of its memory.
+pub use cloacina_api_types::fleet::{
+    DEFAULT_AGENT_RESERVED_MEMORY, DEFAULT_AGENT_RESERVED_MEMORY_BYTES,
+};

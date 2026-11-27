@@ -223,6 +223,14 @@ impl InMemorySecretResolver {
         self.secrets.is_empty()
     }
 
+    /// The plain name → field-map table (CLOACINA-T-1028). The agent unwraps
+    /// a dispatch's secrets and hands them to the task's worker process over
+    /// a pipe; the worker builds its resolver from them with [`Self::new`].
+    /// The values are secret: do not log the result.
+    pub fn into_secrets(self) -> HashMap<String, BTreeMap<String, String>> {
+        self.secrets
+    }
+
     /// Box as a trait object ready to attach to a `Context`.
     pub fn into_arc(self) -> Arc<dyn SecretResolver> {
         Arc::new(self)

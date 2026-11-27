@@ -40,6 +40,16 @@ pub struct AgentInfo {
 /// in it, and a task that names no pool runs in it.
 pub const DEFAULT_AGENT_POOL: &str = "default";
 
+/// The default of an agent's own share of its memory (CLOACINA-T-1028), as
+/// the agent's `--reserved-memory` reads it: `128Mi`. The agent keeps this
+/// much for itself and offers the rest of its memory to tasks. The server
+/// uses the same value when it checks, at publish, that a task fits one
+/// agent of its pool.
+pub const DEFAULT_AGENT_RESERVED_MEMORY: &str = "128Mi";
+
+/// [`DEFAULT_AGENT_RESERVED_MEMORY`] in bytes.
+pub const DEFAULT_AGENT_RESERVED_MEMORY_BYTES: u64 = 128 << 20;
+
 /// Prefix of the capability an agent registers to say which pool it is in
 /// (`pool:<name>`).
 pub const AGENT_POOL_CAPABILITY_PREFIX: &str = "pool:";
@@ -169,6 +179,15 @@ mod tests {
 
     fn caps(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// CLOACINA-T-1028: the text and the byte form of the default are one value.
+    #[test]
+    fn the_reserved_memory_default_is_one_value_in_both_forms() {
+        assert_eq!(
+            crate::resources::parse_memory_bytes(DEFAULT_AGENT_RESERVED_MEMORY),
+            Ok(DEFAULT_AGENT_RESERVED_MEMORY_BYTES)
+        );
     }
 
     #[test]

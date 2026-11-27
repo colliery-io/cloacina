@@ -67,7 +67,8 @@ pub use executions::{
 };
 pub use fleet::{
     AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressRule, AgentInfo, AgentPoolInfo,
-    AgentPoolSettings, DEFAULT_AGENT_POOL, agent_pool_of,
+    AgentPoolSettings, DEFAULT_AGENT_POOL, DEFAULT_AGENT_RESERVED_MEMORY,
+    DEFAULT_AGENT_RESERVED_MEMORY_BYTES, agent_pool_of,
 };
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
