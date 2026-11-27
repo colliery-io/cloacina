@@ -4807,15 +4807,157 @@ mod tests {
         }
     }
 
+    /// Labels that the cardinality guard leaves out of a label set
+    /// (CLOACINA-T-1104):
+    ///
+    /// - `le` and `quantile`: the series of one histogram or one summary. The
+    ///   exporter writes a histogram with no buckets as a summary, with 7
+    ///   `quantile` lines for each label set. They are a fixed number, not a
+    ///   label that grows.
+    /// - `tenant`: one value for each tenant (see "Metric reference" in the
+    ///   metrics catalog). The tests share one recorder, so the number of
+    ///   tenants in a scrape is the number of tenants the tests that ran
+    ///   before made. The guard counts the label sets of one tenant.
+    const CARDINALITY_IGNORED_LABELS: &[&str] = &["le", "quantile", "tenant"];
+
+    /// The most distinct label sets a metric may have in the guard, with the
+    /// labels of [`CARDINALITY_IGNORED_LABELS`] left out.
+    fn cardinality_ceiling(metric: &str) -> usize {
+        match metric {
+            "cloacina_api_request_duration_seconds" | "cloacina_api_requests_total" => 256,
+            _ => 64,
+        }
+    }
+
+    /// One summary line set for a label block, as the exporter writes it.
+    fn summary_lines(metric: &str, labels: &str) -> String {
+        let mut out = String::new();
+        for quantile in ["0", "0.5", "0.9", "0.95", "0.99", "0.999", "1"] {
+            out.push_str(&format!("{metric}{{{labels},quantile=\"{quantile}\"}} 1\n"));
+        }
+        out.push_str(&format!("{metric}_sum{{{labels}}} 7\n"));
+        out.push_str(&format!("{metric}_count{{{labels}}} 7\n"));
+        out
+    }
+
+    /// CLOACINA-T-1104: 40 tenants and the quantile lines of a summary do not
+    /// trip the guard. This is the scrape that failed: the two `kind` values
+    /// were counted once for each tenant and each quantile.
+    #[test]
+    fn the_cardinality_guard_counts_the_label_sets_of_one_tenant() {
+        let mut text = String::from("# TYPE cloacina_context_size_bytes summary\n");
+        for tenant in 0..40 {
+            for kind in ["input", "result"] {
+                text.push_str(&summary_lines(
+                    "cloacina_context_size_bytes",
+                    &format!("kind=\"{kind}\",tenant=\"tenant_{tenant}\""),
+                ));
+            }
+        }
+        // As the guard counted before: every tenant and every quantile.
+        assert_eq!(
+            distinct_label_sets(&text, &["le"])["cloacina_context_size_bytes"].len(),
+            40 * 2 * 8
+        );
+        let sets = distinct_label_sets(&text, CARDINALITY_IGNORED_LABELS);
+        assert_eq!(sets["cloacina_context_size_bytes"].len(), 2);
+        assert!(2 <= cardinality_ceiling("cloacina_context_size_bytes"));
+    }
+
+    /// The guard still fails a metric with an unbounded label, alone or next
+    /// to `tenant`.
+    #[test]
+    fn the_cardinality_guard_still_fails_an_unbounded_label() {
+        let mut text = String::new();
+        for id in 0..100 {
+            text.push_str(&format!("cloacina_bad_total{{task_id=\"task-{id}\"}} 1\n"));
+            text.push_str(&summary_lines(
+                "cloacina_bad_seconds",
+                &format!("tenant=\"acme\",task_id=\"task-{id}\""),
+            ));
+        }
+        // A label whose name only starts like an ignored one is counted.
+        for id in 0..100 {
+            text.push_str(&format!(
+                "cloacina_bad_names_total{{tenant_task=\"t{id}\"}} 1\n"
+            ));
+        }
+        let sets = distinct_label_sets(&text, CARDINALITY_IGNORED_LABELS);
+        for metric in [
+            "cloacina_bad_total",
+            "cloacina_bad_seconds",
+            "cloacina_bad_names_total",
+        ] {
+            assert_eq!(sets[metric].len(), 100, "{metric}");
+            assert!(sets[metric].len() > cardinality_ceiling(metric), "{metric}");
+        }
+    }
+
+    /// The distinct label sets of each `cloacina_*` metric in a Prometheus
+    /// scrape, with the labels named in `ignored` left out of each set.
+    fn distinct_label_sets(
+        text: &str,
+        ignored: &[&str],
+    ) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+        let mut label_sets: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for line in text.lines() {
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            // Capture metric name up to '{' or whitespace.
+            let name_end = line
+                .find('{')
+                .or_else(|| line.find(' '))
+                .unwrap_or(line.len());
+            let name = &line[..name_end];
+            // Strip the `_bucket`, `_sum` and `_count` suffixes so all series
+            // of one histogram or summary count as the same metric.
+            let canonical: &str = if let Some(stripped) = name.strip_suffix("_bucket") {
+                stripped
+            } else if let Some(stripped) = name.strip_suffix("_sum") {
+                stripped
+            } else if let Some(stripped) = name.strip_suffix("_count") {
+                stripped
+            } else {
+                name
+            };
+            if !canonical.starts_with("cloacina_") {
+                continue;
+            }
+            let labels = match (line.find('{'), line.rfind('}')) {
+                (Some(a), Some(b)) if b > a => &line[a + 1..b],
+                _ => "",
+            };
+            let canonical_labels: Vec<&str> = labels
+                .split(',')
+                .map(|kv| kv.trim())
+                .filter(|kv| {
+                    !kv.is_empty()
+                        && !ignored
+                            .iter()
+                            .any(|name| kv.strip_prefix(name).is_some_and(|r| r.starts_with('=')))
+                })
+                .collect();
+            label_sets
+                .entry(canonical.to_string())
+                .or_default()
+                .insert(canonical_labels.join(","));
+        }
+        label_sets
+    }
+
     /// I-0099 cardinality guard — assert that every `cloacina_*` metric
     /// introduced by the initiative stays under a fixed series ceiling.
     ///
     /// Emits each metric exactly as the production code does, scrapes
     /// `/metrics`, then groups all exposition lines by metric name and
     /// asserts each metric's distinct label-set count is below the
-    /// documented limit. Caught here, this protects against the
-    /// "someone added `tenant_id` as a label" failure mode that motivates
-    /// the cardinality discipline in I-0099.
+    /// documented limit. Caught here, this protects against the "someone
+    /// added a task id or an event key as a label" failure mode that
+    /// motivates the cardinality discipline in I-0099. The `tenant` label is
+    /// allowed (CLOACINA-T-1024) and is not counted: see
+    /// `CARDINALITY_IGNORED_LABELS`.
     #[tokio::test]
     #[serial]
     async fn test_i0099_cardinality_within_ceiling() {
@@ -5022,74 +5164,29 @@ mod tests {
         //
         // The ceiling below accommodates the per-test cardinality (one
         // graph/reactor/accumulator name) plus a safety margin. Inflated
-        // labels (e.g., tenant_id, event keys) would push any of these
+        // labels (e.g., task ids, event keys) would push any of these
         // metrics far above the ceiling.
         // Count DISTINCT LABEL SETS per canonical metric — not raw series.
-        // A histogram emits one `_bucket` series per `le` boundary plus `_sum`
-        // and `_count`; those are a fixed Prometheus artifact, not cardinality
-        // risk. Collapsing the `le` label so all buckets of one label set count
-        // once measures the thing the guard actually cares about (unbounded
-        // labels like tenant_id / raw paths still blow up the distinct-set
-        // count). This also keeps the count stable when many tests share one
-        // process-wide recorder (e.g. the request-duration histogram, which the
-        // middleware feeds on every test request).
-        let mut label_sets: HashMap<&str, std::collections::HashSet<String>> = HashMap::new();
-        for line in text.lines() {
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            // Capture metric name up to '{' or whitespace.
-            let name_end = line
-                .find('{')
-                .or_else(|| line.find(' '))
-                .unwrap_or(line.len());
-            let name = &line[..name_end];
-            // Strip Prometheus histogram suffixes so all buckets of one
-            // histogram count as the same metric for our purposes.
-            let canonical: &str = if let Some(stripped) = name.strip_suffix("_bucket") {
-                stripped
-            } else if let Some(stripped) = name.strip_suffix("_sum") {
-                stripped
-            } else if let Some(stripped) = name.strip_suffix("_count") {
-                stripped
-            } else {
-                name
-            };
-            if !canonical.starts_with("cloacina_") {
-                continue;
-            }
-            // Extract the label block between `{` and `}`, dropping the
-            // histogram `le` bucket boundary so buckets collapse to one set.
-            let labels = match (line.find('{'), line.rfind('}')) {
-                (Some(a), Some(b)) if b > a => &line[a + 1..b],
-                _ => "",
-            };
-            let canonical_labels: Vec<&str> = labels
-                .split(',')
-                .map(|kv| kv.trim())
-                .filter(|kv| !kv.is_empty() && !kv.starts_with("le="))
-                .collect();
-            label_sets
-                .entry(canonical)
-                .or_default()
-                .insert(canonical_labels.join(","));
-        }
-        let series_count: HashMap<&str, usize> =
-            label_sets.iter().map(|(k, v)| (*k, v.len())).collect();
+        // See `CARDINALITY_IGNORED_LABELS` for the labels left out of a set.
+        // Many tests share one process-wide recorder (e.g. the
+        // request-duration histogram, which the middleware feeds on every
+        // test request), so the count must not depend on which tests ran.
+        let label_sets = distinct_label_sets(&text, CARDINALITY_IGNORED_LABELS);
+        let series_count: HashMap<&str, usize> = label_sets
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.len()))
+            .collect();
 
         // Per-metric ceilings. The default stays deliberately tight — most
         // I-0099 metrics carry a handful of enum-bounded labels and sit far
-        // below it, so an unbounded label (tenant_id, event keys, raw paths)
+        // below it, so an unbounded label (task ids, event keys, raw paths)
         // trips the guard loudly. The two API metrics are labelled only by
         // (method, status): both bounded, but their product across the full
         // route surface legitimately exceeds the tight default, so they get a
         // higher (still bounded) ceiling that an unbounded label would blow
         // straight past. CLOACI-I-0127.
         for (metric, count) in &series_count {
-            let ceiling = match *metric {
-                "cloacina_api_request_duration_seconds" | "cloacina_api_requests_total" => 256usize,
-                _ => 64usize,
-            };
+            let ceiling = cardinality_ceiling(metric);
             assert!(
                 *count <= ceiling,
                 "I-0099 cardinality guard: {} has {} distinct label sets, \
