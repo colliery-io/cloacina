@@ -2567,7 +2567,14 @@ mod tests {
         let c = compilers(ops.clone(), settings());
         c.reconcile("acme", CompilerWant::Run).await.unwrap();
         // The build role's URL (CLOACINA-T-1063).
-        assert!(ops.secret.lock().unwrap().as_deref().unwrap().contains("buildpw1"));
+        assert!(
+            ops.secret
+                .lock()
+                .unwrap()
+                .as_deref()
+                .unwrap()
+                .contains("buildpw1")
+        );
 
         c.remove("acme").await.unwrap();
 
@@ -2612,7 +2619,14 @@ mod tests {
         let ops = FakeKube::with_replicas(None);
         let c = compilers(ops.clone(), settings());
         c.reconcile("acme", CompilerWant::Run).await.unwrap();
-        assert!(ops.secret.lock().unwrap().as_deref().unwrap().contains("buildpw1"));
+        assert!(
+            ops.secret
+                .lock()
+                .unwrap()
+                .as_deref()
+                .unwrap()
+                .contains("buildpw1")
+        );
 
         // The first removal deletes the Deployment and then fails.
         *ops.fail_delete_once.lock().unwrap() = Some(KubeKind::NetworkPolicy);

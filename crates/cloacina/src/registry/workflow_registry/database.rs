@@ -355,8 +355,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             ($tx:expr, $rows:expr, $package_name:expr, $version:expr) => {{
                 use crate::dal::unified::retention::TERMINAL_EXECUTION_STATUSES;
                 use crate::database::schema::unified::{
-                    package_artifacts, package_providers,
-                    workflow_execution_package_pins as pins, workflow_executions,
+                    package_artifacts, package_providers, workflow_execution_package_pins as pins,
+                    workflow_executions,
                 };
                 let pinned: Vec<UniversalUuid> = pins::table
                     .filter(pins::package_name.eq($package_name))
