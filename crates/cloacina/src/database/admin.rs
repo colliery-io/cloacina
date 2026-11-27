@@ -463,6 +463,44 @@ mod postgres_impl {
             })
         }
 
+        /// Whether `schema_name` holds migrations: a schema with a
+        /// `__diesel_schema_migrations` table, as in
+        /// [`Self::list_migrated_tenant_schemas`] (CLOACINA-T-1093).
+        pub async fn is_migrated_tenant_schema(
+            &self,
+            schema_name: &str,
+        ) -> Result<bool, AdminError> {
+            // A bound parameter: any name is safe here, and a name that is
+            // no schema is `false`.
+            let schema_name = schema_name.to_string();
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+
+            conn.interact(move |conn| {
+                diesel::sql_query(
+                    "SELECT n.nspname::text AS nspname \
+                     FROM pg_catalog.pg_namespace n \
+                     JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid \
+                     WHERE c.relname = '__diesel_schema_migrations' \
+                     AND c.relkind = 'r' \
+                     AND n.nspname = $1",
+                )
+                .bind::<diesel::sql_types::Text, _>(schema_name)
+                .load::<SchemaName>(conn)
+                .map(|rows| !rows.is_empty())
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to look up the schema: {}", e),
+            })?
+            .map_err(|e: diesel::result::Error| AdminError::SqlExecution {
+                message: format!("Failed to query the schema: {}", e),
+            })
+        }
+
         /// Runs the pending migrations of one tenant schema, under the
         /// migration lock (CLOACINA-T-1056). Returns how many ran: zero when
         /// the schema is up to date, or when another process applied them
