@@ -494,15 +494,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 None => return Ok(()), // Idempotent - already doesn't exist
             };
 
+        // Delete the row and its built artifacts first (CLOACINA-T-1098): a
+        // delete refused because an execution is pinned to the version leaves
+        // the loaded tasks in place.
+        self.delete_package_metadata_by_id(package_id).await?;
+
         // Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_id) {
             self.registrar
                 .unregister_package_tasks(&package_id.to_string())
                 .map_err(RegistryError::Loader)?;
         }
-
-        // Delete metadata from database
-        self.delete_package_metadata_by_id(package_id).await?;
 
         // Delete binary data from storage
         self.storage.delete_binary(&registry_id).await?;
@@ -785,15 +787,17 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         // 2. Find the package ID to unregister tasks
         let package_uuid = Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?;
 
-        // 3. Unregister tasks from global registry
+        // 3. Delete the row and its built artifacts (CLOACINA-T-1098). First,
+        //    so a delete refused because an execution is pinned to the version
+        //    leaves the loaded tasks in place.
+        self.delete_package_metadata(package_name, version).await?;
+
+        // 4. Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_uuid) {
             self.registrar
                 .unregister_package_tasks(&package_uuid.to_string())
                 .map_err(RegistryError::Loader)?;
         }
-
-        // 4. Delete metadata from database (this will cascade to registry storage via foreign key)
-        self.delete_package_metadata(package_name, version).await?;
 
         // 5. Delete binary data from storage
         self.storage.delete_binary(&registry_id).await?;
@@ -1097,5 +1101,92 @@ mod tests {
         let active: Vec<_> = versions.iter().filter(|v| v.active).collect();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, id_v1);
+    }
+
+    /// CLOACINA-T-1098: a deleted package version leaves no built artifact
+    /// behind: neither a Rust library per target nor a vendored Python set.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn deleting_a_package_version_removes_its_artifacts() {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let mut registry = sqlite_registry().await;
+        let id = registry
+            .register_workflow(pack_source("t1098-jobs", "1.0.0", "// one\n"))
+            .await
+            .unwrap();
+        registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim the build");
+        registry.mark_build_success(id, Vec::new()).await.unwrap();
+
+        // What the compilers store for the version: a library for a second
+        // target, and a vendored set per platform.
+        let dal = crate::dal::DAL::new(registry.database.clone());
+        dal.workflow_packages()
+            .upsert_artifact(
+                "t1098-jobs",
+                "1.0.0",
+                None,
+                "aarch64-unknown-linux-gnu",
+                "digest-lib",
+                vec![1, 2, 3],
+            )
+            .await
+            .unwrap();
+        registry
+            .store_python_vendor(
+                id,
+                "t1098-jobs",
+                "1.0.0",
+                vec![
+                    ("x86_64-linux".to_string(), vec![4, 5]),
+                    ("aarch64-linux".to_string(), vec![6, 7]),
+                ],
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            dal.workflow_packages()
+                .get_artifact_triples_for_package("t1098-jobs", "1.0.0")
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+
+        registry
+            .unregister_workflow("t1098-jobs", "1.0.0")
+            .await
+            .unwrap();
+
+        assert!(
+            registry
+                .list_package_versions("t1098-jobs")
+                .await
+                .unwrap()
+                .is_empty(),
+            "the package row is gone"
+        );
+        let left = dal
+            .workflow_packages()
+            .get_artifact_triples_for_package("t1098-jobs", "1.0.0")
+            .await
+            .unwrap();
+        assert!(
+            left.is_empty(),
+            "artifacts of a deleted version are left: {left:?}"
+        );
+        assert!(
+            dal.workflow_packages()
+                .get_artifact_data_by_content_hash("digest-lib")
+                .await
+                .unwrap()
+                .is_none(),
+            "an agent can still fetch the library of a deleted version by digest"
+        );
     }
 }

@@ -5814,6 +5814,16 @@
               }
             }
           },
+          "409": {
+            "description": "An execution that has not finished is pinned to this version (package_in_use)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {

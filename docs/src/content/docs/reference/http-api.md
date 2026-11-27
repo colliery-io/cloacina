@@ -1037,6 +1037,15 @@ active: use the activation route for that.
 A refused or missing delete writes no audit row. A later upload of the same
 bytes makes a new package row.
 
+A delete removes the version's row and what the compilers built for it: the
+library per target and the vendored Python set per platform
+(`package_artifacts`) and the bundled providers (`package_providers`), in one
+transaction. After it, an agent fetch by a digest of the version finds nothing.
+While an execution that has not finished (status other than `Completed`,
+`Failed` or `Cancelled`) is pinned to the version, the delete is refused with
+`409` and nothing is removed: its later tasks are dispatched from that version.
+Let the executions finish, or cancel them, then delete again.
+
 **Path parameters:**
 
 | Parameter | Type | Description |
@@ -1061,6 +1070,7 @@ bytes makes a new package row.
 |---|---|---|
 | `404` | `workflow_not_found` | No package of this name and version. |
 | `409` | `package_building` | The compiler is building the package. |
+| `409` | `package_in_use` | An execution that has not finished is pinned to the version: `version <version> of package '<name>' is in use: <N> execution(s) that have not finished run on it. …` |
 
 ### Named workflow instances
 

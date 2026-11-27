@@ -263,29 +263,19 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(workflows)
     }
 
-    /// Delete package metadata from the database.
+    /// Delete a package version: its row, its `package_artifacts` and its
+    /// `package_providers` rows, in one transaction. Refused with
+    /// `PackageInUse` while an unfinished execution is pinned to it
+    /// (CLOACINA-T-1098).
     pub(super) async fn delete_package_metadata(
         &self,
         package_name: &str,
         version: &str,
     ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-
-        let package_name = package_name.to_string();
-        let version = version.to_string();
-
         let dal = self.dal();
-        crate::interact_on_backend!(dal, |conn| {
-            diesel::delete(
-                workflow_packages::table
-                    .filter(workflow_packages::package_name.eq(&package_name))
-                    .filter(workflow_packages::version.eq(&version)),
-            )
-            .execute(conn)
-        })
-        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        Ok(())
+        dal.workflow_packages()
+            .delete_package_metadata(package_name, version)
+            .await
     }
 
     /// Delete every row of a package name and version, in any build state, in
@@ -329,11 +319,65 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             }
         }
 
+        // CLOACINA-T-1098, after the lookup of CLOACINA-T-1122: refused while
+        // an execution that has not finished is pinned to the version (the
+        // count is returned as `Err`); else the version's `package_artifacts`
+        // and `package_providers` rows go with its package rows, in the same
+        // transaction.
+        macro_rules! pin_check_and_remove {
+            ($tx:expr, $rows:expr, $package_name:expr, $version:expr) => {{
+                use crate::dal::unified::retention::TERMINAL_EXECUTION_STATUSES;
+                use crate::database::schema::unified::{
+                    package_artifacts, package_providers,
+                    workflow_execution_package_pins as pins, workflow_executions,
+                };
+                let pinned: Vec<UniversalUuid> = pins::table
+                    .filter(pins::package_name.eq($package_name))
+                    .filter(pins::version.eq($version))
+                    .select(pins::workflow_execution_id)
+                    .load($tx)?;
+                let mut in_use: i64 = 0;
+                for chunk in pinned.chunks(500) {
+                    in_use += workflow_executions::table
+                        .filter(workflow_executions::id.eq_any(chunk.to_vec()))
+                        .filter(
+                            workflow_executions::status
+                                .ne_all(TERMINAL_EXECUTION_STATUSES.to_vec()),
+                        )
+                        .count()
+                        .get_result::<i64>($tx)?;
+                }
+                if in_use > 0 {
+                    return Ok(Err(in_use));
+                }
+                diesel::delete(
+                    package_artifacts::table
+                        .filter(package_artifacts::package_name.eq($package_name))
+                        .filter(package_artifacts::version.eq($version)),
+                )
+                .execute($tx)?;
+                diesel::delete(
+                    package_providers::table
+                        .filter(package_providers::package_name.eq($package_name))
+                        .filter(package_providers::version.eq($version)),
+                )
+                .execute($tx)?;
+                diesel::delete(
+                    workflow_packages::table
+                        .filter(workflow_packages::package_name.eq($package_name))
+                        .filter(workflow_packages::version.eq($version)),
+                )
+                .execute($tx)?;
+                Ok(Ok(removed($rows)))
+            }};
+        }
+
         let package_name = package_name.to_string();
         let version = version.to_string();
+        let (pn_out, ver_out) = (package_name.clone(), version.clone());
         // Explicit twins: the Postgres read takes `FOR UPDATE`, which SQLite
         // has not.
-        let outcome: Result<PackageVersionDelete, diesel::result::Error> = crate::dispatch_backend!(
+        let outcome: Result<Result<PackageVersionDelete, i64>, diesel::result::Error> = crate::dispatch_backend!(
             self.database.backend(),
             {
                 let conn = self
@@ -355,15 +399,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             .for_update()
                             .load(tx)?;
                         if let Some(outcome) = decide(&rows) {
-                            return Ok(outcome);
+                            return Ok(Ok(outcome));
                         }
-                        diesel::delete(
-                            workflow_packages::table
-                                .filter(workflow_packages::package_name.eq(&package_name))
-                                .filter(workflow_packages::version.eq(&version)),
-                        )
-                        .execute(tx)?;
-                        Ok(removed(rows))
+                        pin_check_and_remove!(tx, rows, &package_name, &version)
                     })
                 })
                 .await
@@ -388,22 +426,23 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             ))
                             .load(tx)?;
                         if let Some(outcome) = decide(&rows) {
-                            return Ok(outcome);
+                            return Ok(Ok(outcome));
                         }
-                        diesel::delete(
-                            workflow_packages::table
-                                .filter(workflow_packages::package_name.eq(&package_name))
-                                .filter(workflow_packages::version.eq(&version)),
-                        )
-                        .execute(tx)?;
-                        Ok(removed(rows))
+                        pin_check_and_remove!(tx, rows, &package_name, &version)
                     })
                 })
                 .await
                 .map_err(|e| RegistryError::Database(e.to_string()))?
             }
         );
-        outcome.map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+        match outcome.map_err(|e| RegistryError::Database(format!("Database error: {}", e)))? {
+            Ok(outcome) => Ok(outcome),
+            Err(in_use) => Err(RegistryError::PackageInUse {
+                package_name: pn_out,
+                version: ver_out,
+                active_count: in_use as usize,
+            }),
+        }
     }
 
     /// Get package metadata + compiled artifact by ID for a successfully-built package.
@@ -896,23 +935,16 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         }))
     }
 
-    /// Delete package metadata by ID.
+    /// Delete a package version by the id of its row, as
+    /// `delete_package_metadata` does (CLOACINA-T-1098).
     pub(super) async fn delete_package_metadata_by_id(
         &self,
         package_id: Uuid,
     ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::UniversalUuid;
-
-        let pkg_id = UniversalUuid(package_id);
         let dal = self.dal();
-        crate::interact_on_backend!(dal, |conn| {
-            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(pkg_id)))
-                .execute(conn)
-        })
-        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        Ok(())
+        dal.workflow_packages()
+            .delete_package_metadata_by_id(package_id)
+            .await
     }
 
     // ========================================================================
