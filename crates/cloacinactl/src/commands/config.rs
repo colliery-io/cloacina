@@ -145,6 +145,51 @@ pub struct CompilerSection {
     /// The `uv` program (`--uv`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uv: Option<String>,
+
+    // CLOACINA-T-1124: the other compiler settings, forwarded the same way.
+    /// Build only this tenant's packages (`--tenant-schema`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_schema: Option<String>,
+    /// Run as a per-target compiler for this triple (`--build-target`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_target: Option<String>,
+    /// With `build_target`: build only this package (`--build-target-package`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_target_package: Option<String>,
+    /// Cargo flags added to the default list (`--cargo-flag`). Empty = not
+    /// forwarded.
+    pub cargo_flags: Vec<String>,
+    /// The whole cargo flag list, defaults replaced
+    /// (`--cargo-flags-replace`). Empty = not forwarded. Not with
+    /// `cargo_flags`.
+    pub cargo_flags_replace: Vec<String>,
+    /// A shared cargo target folder for package builds (`--cargo-target-dir`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cargo_target_dir: Option<String>,
+    /// `CARGO_HOME` of the cargo build, a vendored cargo home
+    /// (`--vendor-dir`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor_dir: Option<String>,
+    /// Dev only: a local cloacina workspace that builds patch to
+    /// (`--dev-workspace`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace: Option<String>,
+    /// `RLIMIT_CPU` of the cargo build, CPU-seconds (`--build-rlimit-cpu`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_rlimit_cpu: Option<u64>,
+    /// `RLIMIT_AS` of the cargo build: bytes, or a size with `K`, `M` or `G`
+    /// (`--build-rlimit-mem`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_rlimit_mem: Option<String>,
+    /// `RLIMIT_NOFILE` of the cargo build (`--build-rlimit-files`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_rlimit_files: Option<u64>,
+    /// `RLIMIT_NPROC` of the cargo build (`--build-rlimit-procs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_rlimit_procs: Option<u64>,
+    /// Daily log files to keep; `0` keeps all (`--log-retention-days`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_retention_days: Option<u64>,
 }
 
 impl Default for CompilerSection {
@@ -159,6 +204,19 @@ impl Default for CompilerSection {
             python_uv_cache_dir: None,
             python_offline: None,
             uv: None,
+            tenant_schema: None,
+            build_target: None,
+            build_target_package: None,
+            cargo_flags: Vec::new(),
+            cargo_flags_replace: Vec::new(),
+            cargo_target_dir: None,
+            vendor_dir: None,
+            dev_workspace: None,
+            build_rlimit_cpu: None,
+            build_rlimit_mem: None,
+            build_rlimit_files: None,
+            build_rlimit_procs: None,
+            log_retention_days: None,
         }
     }
 }
