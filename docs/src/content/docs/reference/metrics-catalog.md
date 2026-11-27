@@ -46,6 +46,19 @@ Series per counter are at most tenants × 101 workflows × the `status` and
 `reason` values. If that is too many for your Prometheus, drop the `workflow`
 label at scrape time with a `metric_relabel_configs` `labeldrop` rule.
 
+Every metric with the `tenant` label grows with the number of tenants; no
+setting caps it. The server writes a histogram as a Prometheus summary: each
+label set is 9 series (7 `quantile` values, `_sum` and `_count`). So
+`cloacina_context_size_bytes` (`kind`, `tenant`) is 18 series for each tenant
+that has run a task: 1,000 tenants give 18,000. A gauge with only the `tenant`
+label is one series for each tenant.
+
+The server's cardinality test (`test_i0099_cardinality_within_ceiling`) counts
+the label sets of one tenant: it leaves the `tenant` label and the `quantile`
+label of a summary out of a label set, and fails a metric that then has more
+than 64 label sets (256 for the two API request metrics). It is a limit of the
+test, on the labels other than `tenant`; a running server has no such limit.
+
 ### Counters
 
 | Name | Labels | Description |
