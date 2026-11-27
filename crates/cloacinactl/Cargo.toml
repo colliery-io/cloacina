@@ -45,6 +45,10 @@ tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 libc = "0.2"
 reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
+# CLOACINA-T-1030: a build with the features of every workspace member unified
+# has both rustls crypto backends compiled in, so main() installs aws-lc-rs as
+# the process default (a wss:// connect panics without one).
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 # CLOACI-T-0629: WS client for `cloacinactl execution events --follow` (substrate consumer).
 futures-util = "0.3"
 serde_yaml = "0.9"
