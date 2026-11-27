@@ -453,8 +453,8 @@ Build code is a build script, a proc-macro, or a provider crate's build. It
 runs as the compiler's user, inside the compiler's container. What it can
 reach depends on which compiler builds the package.
 
-**A tenant compiler that the server made** (Kubernetes actuator,
-`fleet.compiler.enabled`; see
+**A tenant compiler that the server made** (Kubernetes or Docker actuator,
+`fleet.compiler.enabled`; `public` gets one like every tenant; see
 [Run cloacina-compiler in Production](../../../how-to/service/running-the-compiler/#how-many-compilers-a-deployment-runs)):
 
 - **Other tenants' source and build output: no.** The compiler serves one
@@ -463,11 +463,24 @@ reach depends on which compiler builds the package.
   they are emptied each time the compiler starts.
 - **The database URL: yes.** The URL is the pod's `DATABASE_URL` environment
   variable, from a Secret. It is not on the command line. Build code has the
-  compiler's uid, so it can read `/proc/<compiler pid>/environ`.
-- **What that URL opens.** By default it is the server's own URL, which
-  reaches every tenant's schema. With
-  `fleet.compiler.databaseUrlSecretRef` it is the URL of the role the operator
-  made for builds, and reaches what that role is granted.
+  compiler's uid, so it can read `/proc/<compiler pid>/environ`. The build role
+  limits what the URL opens; it does not hide the URL.
+- **What that URL opens: the tenant's build tables, nothing else.** The user
+  is the tenant's build role, `<tenant>$build` (`public$build` for `public`).
+  It has `SELECT, UPDATE` on `workflow_packages`, `SELECT` on
+  `workflow_registry`, and `SELECT, INSERT, DELETE` on `package_providers` and
+  `package_artifacts`, all in the tenant's own schema, and `USAGE` on that
+  schema. It has no right on another tenant's schema, no right on any table of
+  `public` (keys, accounts, secrets, audit rows), no other table of its own
+  schema, and cannot create a table anywhere. A table that the tenant schema
+  lacks is found in `public` by name and Postgres refuses it: it is not read.
+  `public$build` has the same four tables in `public` and nothing else there.
+- **How long the URL works.** The server sets a new password each time it
+  starts the compiler, and keeps no copy. A URL read by a build stops working
+  at the compiler's next start (after its queue has been empty for the
+  cooldown, 300 s by default). A compiler that never runs out of work keeps
+  its password until it stops. The URL stops working at once when the tenant
+  is deleted: the role is dropped.
 - **The network.** The compiler pods' NetworkPolicy allows DNS, the database
   port and, by default, TCP 443 to public IPv4 addresses. The tenant's agent
   policy adds the server. No ingress is allowed. With
@@ -481,8 +494,11 @@ reach depends on which compiler builds the package.
 - **The compiler process.** Build code has its uid: it can signal it, and it
   can leave a process behind that outlives the build until the pod stops.
 
-**A compiler shared by tenants, or the `public` compiler:** as above for the
-database URL and the process. Its target directory, cargo home and temp
+**A compiler that the operator runs** (the chart's own compiler, which the
+chart renders only with the fleet compilers off, or one run by hand): as above
+for the process. Its URL is the one the operator gives it, and opens what
+that role is granted; the chart gives it the server's URL, which reaches every
+schema (the single-trust install). Its target directory, cargo home and temp
 directories are shared by every package it builds, and the chart writes no
 egress rule for it.
 

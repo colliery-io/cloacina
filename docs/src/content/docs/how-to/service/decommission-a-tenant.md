@@ -23,7 +23,7 @@ Server-side, the `DELETE /v1/tenants/{name}` route runs four steps in order, eac
 1. **Revoke every still-active API key for the tenant.** Closes the auth surface so new requests against the tenant start failing immediately. Bypasses the auth-cache TTL by clearing the entire cache (this is the same path `key revoke` uses).
 2. **Evict the tenant's `DefaultRunner` from `TenantRunnerCache`**, awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s` server flag, default 30s). The runner stops its scheduler loop and closes its per-tenant DB pool. Past the timeout, the runner is **hard-evicted** — any task that ignored cooperative cancellation will error on its next DB write once step 4 lands.
 3. **Evict the tenant's `Database` from `TenantDatabaseCache`.** Releases the per-tenant connection pool.
-4. **Drop the schema + user via `DatabaseAdmin::remove_tenant`** (`DROP SCHEMA … CASCADE` + `DROP USER`).
+4. **Drop the schema + user via `DatabaseAdmin::remove_tenant`** (`DROP SCHEMA … CASCADE` + `DROP USER`), and the tenant's build role (`DROP ROLE "<tenant>$build"`, CLOACINA-T-1063). A URL that the tenant's compiler held stops working here.
 
 Between steps 3 and 4, a server that runs a compiler per tenant (see [Run cloacina-compiler in Production](../running-the-compiler/#how-many-compilers-a-deployment-runs)) removes the tenant's compiler: it deletes the Deployment `cloacina-compiler` and its NetworkPolicy in the tenant's namespace and writes an empty value over the Secret `cloacina-compiler-db`. If that fails, the delete answers 500 and the schema is not dropped.
 

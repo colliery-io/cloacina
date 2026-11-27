@@ -208,7 +208,7 @@ Read by the server. With a fleet actuator and `CLOACINA_TENANT_COMPILERS=true`, 
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_TENANT_COMPILERS` | Run a compiler per tenant. | `false` (the chart sets `true` with `fleet.actuator=kubernetes`) | `true` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_IMAGE` | The compiler image. | `cloacina-compiler:latest` | `ghcr.io/colliery-io/cloacina-compiler:0.12.0` | Server (actuator) | No |
-| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | The database URL the tenant compilers connect with. | The server's own URL | `postgres://builder:…@db.example:5432/cloacina` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | Where the tenant compilers reach the database: host, port, database and parameters. Its user and password are not used: each compiler connects as its tenant's build role, `<tenant>$build`, with a password the server sets at each start (CLOACINA-T-1063). | The server's own URL | `postgres://db.example:5432/cloacina` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | The whole cargo flag list of a build, separated by spaces (the compiler's `--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. | empty | `build --lib` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `--vendor-dir`: a cargo home inside the compiler image. | None | `/opt/vendor` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `--dev-workspace`: a cloacina workspace inside the image. Development only. | None | `/workspace` | Server (actuator) | No |
