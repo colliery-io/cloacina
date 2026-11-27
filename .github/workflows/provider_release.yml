@@ -43,7 +43,9 @@ jobs:
         with:
           targets: wasm32-wasip2
       - name: Install libpq
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Classify
         id: classify
@@ -93,7 +95,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.99.0
       - name: Install libpq + sasl
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev libsasl2-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev libsasl2-dev
 
       # The certify harness produces via `docker exec cloacina-kafka` (core
       # carries no kafka client, T-0898) — run the broker as a named

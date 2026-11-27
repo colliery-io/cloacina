@@ -1,0 +1,32 @@
+---
+# apt-get update and install, without the package sources we never use
+# (CLOACINA-T-1102).
+#
+# The runner image lists packages.microsoft.com as an apt source. When it
+# answers 403, `apt-get update` fails the job ("The repository ... is no
+# longer signed"). Every package installed here comes from the Ubuntu
+# archive, so that source is removed first. A failure of an Ubuntu source
+# still fails the step.
+name: apt install
+description: Install apt packages from the Ubuntu archive (Linux only)
+inputs:
+  packages:
+    description: Package names, separated by spaces
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: apt-get install
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        unused=$(sudo grep -rl 'packages\.microsoft\.com' /etc/apt/sources.list.d || true)
+        if [ -n "$unused" ]; then
+          echo "Removing unused apt sources:"
+          echo "$unused"
+          echo "$unused" | xargs sudo rm -f
+        fi
+        sudo apt-get update
+        # shellcheck disable=SC2086  # a list of package names, split on spaces
+        sudo apt-get install -y $PACKAGES

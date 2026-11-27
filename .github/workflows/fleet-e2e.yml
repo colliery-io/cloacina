@@ -60,9 +60,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@1.99.0
@@ -73,9 +71,9 @@ jobs:
           shared-key: "cloacina-fleet-e2e"
 
       - name: Install libpq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       # Each task starts its own Postgres with docker compose and resets it.
       - name: Fleet e2e (one task on the agent)

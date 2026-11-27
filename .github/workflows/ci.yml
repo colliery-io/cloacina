@@ -202,9 +202,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+        uses: ./.github/actions/install-angreal
 
       - name: Spec drift check
         run: angreal docs spec-check

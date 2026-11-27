@@ -191,7 +191,9 @@ jobs:
 
       - name: Install libpq (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Install libpq (macOS)
         if: runner.os == 'macOS'
@@ -201,6 +203,8 @@ jobs:
           echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install maturin
+        # Outside the checkout: see .github/actions/install-angreal.
+        working-directory: ${{ runner.temp }}
         run: pip install maturin
 
       - name: Build wheel
@@ -230,6 +234,8 @@ jobs:
           python-version: '3.12'
 
       - name: Install maturin
+        # Outside the checkout: see .github/actions/install-angreal.
+        working-directory: ${{ runner.temp }}
         run: pip install maturin
 
       - name: Build sdist
@@ -374,7 +380,9 @@ jobs:
 
       - name: Install libpq (Linux native)
         if: runner.os == 'Linux' && matrix.cross == false
-        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
 
       - name: Install libpq (macOS)
         if: runner.os == 'macOS'
