@@ -1943,15 +1943,23 @@ mod tests {
                 .register(
                     FleetAgentRegistration {
                         agent_id: AGENT.to_string(),
-                        tenant_id: Some("public".to_string()),
                         target_triple: host_target_triple(),
                         capabilities: vec![],
                         max_concurrency: 1,
+                        cpu_millis: None,
+                        memory_bytes: None,
                     },
                     cloacina::security::ServerKeyPool::new(),
+                    // CLOACINA-T-1050: the agent's tenant is its key's.
+                    &cloacina::security::ownership::Principal {
+                        key_id: uuid::Uuid::new_v4(),
+                        tenant_id: Some("public".to_string()),
+                        is_admin: false,
+                    },
                 )
                 .await
-                .unwrap();
+                .unwrap()
+                .expect("a new agent id is free");
 
             let runtime = Arc::new(cloacina::Runtime::empty());
             runtime.register_task(cloacina::parse_namespace(TASK).unwrap(), move || {
@@ -2089,11 +2097,17 @@ mod tests {
                 duration_ms: 0,
                 outcome,
             };
-            assert!(
+            // CLOACINA-T-1050: a report carries the tenant of its agent.
+            let report = crate::fleet_coordinator::CheckedReport {
+                agent_tenant: Some("public".to_string()),
+                report,
+            };
+            assert_eq!(
                 stack
                     .coordinator
-                    .forward(event.task_execution_id, report)
-                    .is_ok(),
+                    .accept(&stack.dal, event.task_execution_id, report)
+                    .await,
+                Ok(crate::fleet_coordinator::Accepted::Local),
                 "the executor waits for this report"
             );
             push.id
