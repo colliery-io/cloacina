@@ -124,7 +124,7 @@ pub(crate) fn register_authoring(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<context::PyContext>()?;
 
-    m.add_function(wrap_pyfunction!(task::task, m)?)?;
+    m.add_function(wrap_pyfunction!(task::task_py, m)?)?;
     m.add_class::<task::PyTaskHandle>()?;
     m.add_class::<task::TaskDecorator>()?;
 

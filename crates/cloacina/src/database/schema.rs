@@ -53,6 +53,8 @@ mod unified_schema {
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
             trigger_origin -> Nullable<Text>,
+            priority_asked -> Nullable<Integer>,
+            priority -> Integer,
         }
     }
 
@@ -87,6 +89,8 @@ mod unified_schema {
             fleet_agent_id -> Nullable<Text>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            workflow_priority -> Integer,
+            task_priority -> Integer,
         }
     }
 

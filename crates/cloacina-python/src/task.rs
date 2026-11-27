@@ -926,30 +926,8 @@ impl TaskDecorator {
     }
 }
 
-/// Python @task decorator function
-#[pyfunction]
-#[pyo3(signature = (
-    *,
-    id = None,
-    dependencies = None,
-    retry = None,
-    retry_attempts = None,
-    retry_backoff = None,
-    retry_delay_ms = None,
-    retry_max_delay_ms = None,
-    retry_condition = None,
-    retry_jitter = None,
-    on_success = None,
-    on_failure = None,
-    invokes = None,
-    post_invocation = None,
-    trigger_rules = None,
-    timeout_seconds = None,
-    pool = None,
-    cpu = None,
-    memory = None,
-    inline = false
-))]
+/// The `@task` decorator without a priority: [`task_py`] with
+/// `priority = None`. For callers in Rust.
 #[allow(clippy::too_many_arguments)]
 pub fn task(
     py: Python,
@@ -972,6 +950,80 @@ pub fn task(
     cpu: Option<Py<PyAny>>,
     memory: Option<Py<PyAny>>,
     inline: bool,
+) -> PyResult<TaskDecorator> {
+    task_py(
+        py,
+        id,
+        dependencies,
+        retry,
+        retry_attempts,
+        retry_backoff,
+        retry_delay_ms,
+        retry_max_delay_ms,
+        retry_condition,
+        retry_jitter,
+        on_success,
+        on_failure,
+        invokes,
+        post_invocation,
+        trigger_rules,
+        timeout_seconds,
+        pool,
+        cpu,
+        memory,
+        inline,
+        None,
+    )
+}
+
+/// Python @task decorator function
+#[pyfunction(name = "task")]
+#[pyo3(signature = (
+    *,
+    id = None,
+    dependencies = None,
+    retry = None,
+    retry_attempts = None,
+    retry_backoff = None,
+    retry_delay_ms = None,
+    retry_max_delay_ms = None,
+    retry_condition = None,
+    retry_jitter = None,
+    on_success = None,
+    on_failure = None,
+    invokes = None,
+    post_invocation = None,
+    trigger_rules = None,
+    timeout_seconds = None,
+    pool = None,
+    cpu = None,
+    memory = None,
+    inline = false,
+    priority = None
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn task_py(
+    py: Python,
+    id: Option<String>,
+    dependencies: Option<Vec<Py<PyAny>>>,
+    retry: Option<crate::bindings::PyRetryPolicy>,
+    retry_attempts: Option<usize>,
+    retry_backoff: Option<String>,
+    retry_delay_ms: Option<u64>,
+    retry_max_delay_ms: Option<u64>,
+    retry_condition: Option<String>,
+    retry_jitter: Option<bool>,
+    on_success: Option<Py<PyAny>>,
+    on_failure: Option<Py<PyAny>>,
+    invokes: Option<Py<PyAny>>,
+    post_invocation: Option<Py<PyAny>>,
+    trigger_rules: Option<Py<PyAny>>,
+    timeout_seconds: Option<u64>,
+    pool: Option<String>,
+    cpu: Option<Py<PyAny>>,
+    memory: Option<Py<PyAny>>,
+    inline: bool,
+    priority: Option<i64>,
 ) -> PyResult<TaskDecorator> {
     // CLOACI-T-0882: two retry-authoring surfaces exist — the `retry_*` kwargs
     // and a `RetryPolicy` value object. Accept either, never both: silently
@@ -1036,6 +1088,16 @@ pub fn task(
         cpu: quantity_argument(py, "cpu", cpu)?,
         memory: quantity_argument(py, "memory", memory)?,
         inline,
+        // CLOACINA-T-1045: 0 (the highest) to 10.
+        priority: match priority {
+            Some(value) => Some(
+                cloacina_workflow::priority::validate_priority(value).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!("@task(priority: {e})"))
+                })?,
+            ),
+            None => None,
+        },
+        workflow_priority: None,
     };
     placement
         .validate()

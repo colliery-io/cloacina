@@ -114,12 +114,14 @@
 //! ```
 
 mod context_manager;
+pub mod priority;
 mod scheduler_loop;
 pub mod stale_claim_sweeper;
 mod state_manager;
 mod trigger_rules;
 
 // Re-export public types
+pub use priority::{PriorityAuthority, RunPriority, WaitingOrder};
 pub use trigger_rules::{TriggerCondition, TriggerRule, ValueOperator};
 
 use std::sync::Arc;
@@ -153,6 +155,8 @@ struct PlannedTaskRow {
     pool: Option<String>,
     cpu_request_millis: Option<i64>,
     memory_request_bytes: Option<i64>,
+    /// CLOACINA-T-1045: the task's own priority, as given.
+    task_priority: i32,
 }
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
@@ -203,6 +207,11 @@ pub struct TaskScheduler {
     dispatcher: Option<Arc<dyn Dispatcher>>,
     /// Shutdown signal for graceful termination of the scheduling loop.
     shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
+    /// CLOACINA-T-1045: who limits the priority a package declares. `None`:
+    /// a declared priority is given as declared.
+    priority_authority: std::sync::RwLock<Option<Arc<dyn PriorityAuthority>>>,
+    /// CLOACINA-T-1045: the ageing interval of waiting work.
+    priority_aging_interval: Duration,
 }
 
 impl TaskScheduler {
@@ -265,7 +274,41 @@ impl TaskScheduler {
             poll_interval,
             dispatcher: None,
             shutdown_rx: None,
+            priority_authority: std::sync::RwLock::new(None),
+            priority_aging_interval: cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL,
         }
+    }
+
+    /// Sets who limits the priority that a package declares
+    /// (CLOACINA-T-1045). With none set, a declared priority is given as
+    /// declared.
+    pub fn with_priority_authority(self, authority: Arc<dyn PriorityAuthority>) -> Self {
+        self.set_priority_authority(authority);
+        self
+    }
+
+    /// [`with_priority_authority`](Self::with_priority_authority) on a
+    /// scheduler that is already built.
+    pub fn set_priority_authority(&self, authority: Arc<dyn PriorityAuthority>) {
+        *self
+            .priority_authority
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(authority);
+    }
+
+    fn priority_authority(&self) -> Option<Arc<dyn PriorityAuthority>> {
+        self.priority_authority
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Sets the ageing interval of waiting work (CLOACINA-T-1045). For each
+    /// interval a task has waited, its priority in the order improves by
+    /// one. The default is two minutes. Zero switches ageing off.
+    pub fn with_priority_aging_interval(mut self, interval: Duration) -> Self {
+        self.priority_aging_interval = interval;
+        self
     }
 
     /// Sets the runtime for this scheduler, replacing the default.
@@ -355,6 +398,30 @@ impl TaskScheduler {
         workflow_name: &str,
         input_context: Context<serde_json::Value>,
     ) -> Result<Uuid, ValidationError> {
+        self.schedule_workflow_execution_with_priority(
+            workflow_name,
+            input_context,
+            RunPriority::default(),
+        )
+        .await
+        .map(|(id, _)| id)
+    }
+
+    /// [`schedule_workflow_execution`](Self::schedule_workflow_execution)
+    /// for a run that asks for a workflow priority (CLOACINA-T-1045).
+    ///
+    /// Returns the execution id and the priority: asked and given. The given
+    /// priority is the asked one held to `run.limit`. A run that asks for
+    /// nothing gets what the workflow declares, held to the limit of its
+    /// package ([`PriorityAuthority`]). Each task row gets the workflow's
+    /// given priority and its own: what the task declares, held to the same
+    /// package limit, or the workflow's when it declares none.
+    pub async fn schedule_workflow_execution_with_priority(
+        &self,
+        workflow_name: &str,
+        input_context: Context<serde_json::Value>,
+        run: RunPriority,
+    ) -> Result<(Uuid, cloacina_api_types::PriorityGrant), ValidationError> {
         info!("Scheduling workflow execution: {}", workflow_name);
 
         // Look up workflow in scoped runtime registry
@@ -381,6 +448,16 @@ impl TaskScheduler {
 
         // Store context first (separate operation - needed before main transaction)
         let stored_context = self.dal.context().create(&input_context).await?;
+
+        // CLOACINA-T-1045: the priority of the run. The limit of what the
+        // package's code may declare is read now, at the start of the run:
+        // a limit that was raised or lowered since the publish applies.
+        let authority = self.priority_authority();
+        let declared_limit = match &authority {
+            Some(authority) => authority.declared_limit(workflow_name).await,
+            None => None,
+        };
+        let workflow_priority = priority::workflow_grant(run, workflow.priority(), declared_limit);
 
         // Build all task data BEFORE the transaction
         let task_ids = workflow.topological_sort()?;
@@ -410,6 +487,11 @@ impl TaskScheduler {
                 pool: placement.pool.clone(),
                 cpu_request_millis: placement.cpu_millis().and_then(|v| i64::try_from(v).ok()),
                 memory_request_bytes: placement.memory_bytes().and_then(|v| i64::try_from(v).ok()),
+                task_priority: i32::from(priority::task_priority(
+                    placement.priority,
+                    declared_limit,
+                    workflow_priority.given,
+                )),
             });
         }
 
@@ -430,6 +512,7 @@ impl TaskScheduler {
                 wf_version,
                 stored_context,
                 task_data,
+                workflow_priority,
             )
             .await?,
             self.create_workflow_execution_sqlite(
@@ -439,17 +522,34 @@ impl TaskScheduler {
                 wf_version,
                 stored_context,
                 task_data,
+                workflow_priority,
             )
             .await?
         );
+
+        if workflow_priority.is_held() {
+            metrics::counter!(
+                "cloacina_priority_held_total",
+                "tenant" => self.dal.tenant_label().to_string(),
+            )
+            .increment(1);
+            if let Some(authority) = &authority {
+                authority.run_held(workflow_name, workflow_priority).await;
+            }
+        }
 
         // NOTE: cloacina_active_workflows gauge is SQL-derived — re-seeded
         // each tick in SchedulerLoop::process_active_executions from the
         // workflow_executions row count. We intentionally do NOT increment
         // here; doing so would cause gauge drift on any code path that skips
         // finalize_workflow_execution (crash, claim loss, etc.).
-        info!("Workflow execution scheduled: {}", workflow_execution_id);
-        Ok(workflow_execution_id.into())
+        info!(
+            priority = workflow_priority.given,
+            priority_asked = workflow_priority.asked,
+            "Workflow execution scheduled: {}",
+            workflow_execution_id
+        );
+        Ok((workflow_execution_id.into(), workflow_priority))
     }
 
     /// Creates workflow execution and tasks in PostgreSQL.
@@ -462,6 +562,7 @@ impl TaskScheduler {
         workflow_version: String,
         stored_context: Option<UniversalUuid>,
         task_data: Vec<PlannedTaskRow>,
+        workflow_priority: cloacina_api_types::PriorityGrant,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -483,6 +584,8 @@ impl TaskScheduler {
                         started_at: now,
                         created_at: now,
                         updated_at: now,
+                        priority_asked: Some(i32::from(workflow_priority.asked)),
+                        priority: Some(i32::from(workflow_priority.given)),
                     })
                     .execute(conn)?;
 
@@ -503,6 +606,8 @@ impl TaskScheduler {
                             memory_request_bytes: task.memory_request_bytes,
                             created_at: now,
                             updated_at: now,
+                            workflow_priority: Some(i32::from(workflow_priority.given)),
+                            task_priority: Some(task.task_priority),
                         })
                         .execute(conn)?;
                 }
@@ -526,6 +631,7 @@ impl TaskScheduler {
         workflow_version: String,
         stored_context: Option<UniversalUuid>,
         task_data: Vec<PlannedTaskRow>,
+        workflow_priority: cloacina_api_types::PriorityGrant,
     ) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -547,6 +653,8 @@ impl TaskScheduler {
                         started_at: now,
                         created_at: now,
                         updated_at: now,
+                        priority_asked: Some(i32::from(workflow_priority.asked)),
+                        priority: Some(i32::from(workflow_priority.given)),
                     })
                     .execute(conn)?;
 
@@ -567,6 +675,8 @@ impl TaskScheduler {
                             memory_request_bytes: task.memory_request_bytes,
                             created_at: now,
                             updated_at: now,
+                            workflow_priority: Some(i32::from(workflow_priority.given)),
+                            task_priority: Some(task.task_priority),
                         })
                         .execute(conn)?;
                 }
@@ -625,7 +735,8 @@ impl TaskScheduler {
             self.instance_id,
             self.poll_interval,
             self.dispatcher.clone(),
-        );
+        )
+        .with_priority_aging_interval(self.priority_aging_interval);
         if let Some(ref shutdown_rx) = self.shutdown_rx {
             scheduler_loop = scheduler_loop.with_shutdown(shutdown_rx.clone());
         }
@@ -640,7 +751,8 @@ impl TaskScheduler {
             self.instance_id,
             self.poll_interval,
             self.dispatcher.clone(),
-        );
+        )
+        .with_priority_aging_interval(self.priority_aging_interval);
         scheduler_loop.process_active_executions().await
     }
 
@@ -666,6 +778,9 @@ impl TaskScheduler {
         serde_json::json!({})
     }
 }
+
+#[cfg(all(test, feature = "sqlite"))]
+mod priority_tests;
 
 #[cfg(all(test, feature = "sqlite"))]
 mod placement_row_tests {
@@ -725,7 +840,7 @@ mod placement_row_tests {
                         pool: Some("large".to_string()),
                         cpu: Some("500m".to_string()),
                         memory: Some("32Gi".to_string()),
-                        inline: false,
+                        ..Default::default()
                     },
                 ))
                 .expect("add big")

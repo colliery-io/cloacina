@@ -289,3 +289,53 @@ fn test_workflow_tasks_keep_their_placement() {
         assert!(small.placement().is_default());
     }
 }
+
+// CLOACINA-T-1045: `#[workflow(priority = N)]` sets the workflow's priority,
+// `#[task(priority = N)]` the task's own. A task with none declares none: it
+// takes its workflow's when a run is planned.
+#[workflow(name = "priority_workflow", priority = 8)]
+pub mod priority_workflow {
+    use super::*;
+
+    #[task(id = "plain", dependencies = [])]
+    pub async fn plain(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+
+    #[task(id = "urgent", dependencies = ["plain"], priority = 1)]
+    pub async fn urgent(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_workflow_and_task_priority_from_the_macros() {
+    let runtime = cloacina::Runtime::new();
+    let wf = runtime
+        .get_workflow("priority_workflow")
+        .expect("priority_workflow should be auto-registered");
+    assert_eq!(wf.priority(), Some(8));
+    let task = |id: &str| {
+        let ns = wf
+            .get_task_ids()
+            .into_iter()
+            .find(|ns| ns.task_id == id)
+            .unwrap_or_else(|| panic!("task {id} is in the workflow"));
+        wf.get_task(&ns).expect("the task is in the workflow")
+    };
+    assert_eq!(task("urgent").placement().priority, Some(1));
+    assert_eq!(task("plain").placement().priority, None);
+
+    // A workflow that declares none has none: the default applies.
+    let plain = runtime
+        .get_workflow("placement_workflow")
+        .expect("placement_workflow should be auto-registered");
+    assert_eq!(plain.priority(), None);
+
+    // What a package's metadata is built from.
+    let descriptor = inventory::iter::<cloacina::cloacina_workflow_plugin::WorkflowDescriptorEntry>
+        .into_iter()
+        .find(|descriptor| descriptor.name == "priority_workflow")
+        .expect("the workflow has a descriptor");
+    assert_eq!(descriptor.priority, Some(8));
+}

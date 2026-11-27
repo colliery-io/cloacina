@@ -44,6 +44,7 @@ pub mod input_interface;
 pub mod instances;
 pub mod keys;
 pub mod operations;
+pub mod priority;
 pub mod reactor;
 pub mod resources;
 pub mod secrets;
@@ -81,6 +82,10 @@ pub use keys::{
     CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
 };
 pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
+pub use priority::{
+    DEFAULT_PRIORITY, DEFAULT_PRIORITY_AGING_INTERVAL, HIGHEST_PRIORITY, LOWEST_PRIORITY,
+    PriorityGrant, aged_priority, aging_steps, clamp_priority, validate_priority,
+};
 pub use reactor::{
     FireMode, FireReactorRequest, FireReactorResponse, InjectAccumulatorRequest,
     InjectAccumulatorResponse, ReactorCommand, ReactorResponse,

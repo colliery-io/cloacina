@@ -982,6 +982,8 @@ mod tests {
             created_at: at(0),
             updated_at: at(95),
             trigger_origin: None,
+            priority_asked: None,
+            priority: 5,
         }
     }
 
@@ -1013,6 +1015,8 @@ mod tests {
             fleet_agent_id: None,
             created_at: at(0),
             updated_at: at(90),
+            workflow_priority: 5,
+            task_priority: 5,
         }
     }
 

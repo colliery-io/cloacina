@@ -59,4 +59,6 @@ pub mod types;
 
 pub use default::DefaultDispatcher;
 pub use traits::{Dispatcher, TaskExecutor};
-pub use types::{DispatchError, ExecutionResult, ExecutionStatus, ExecutorMetrics, TaskReadyEvent};
+pub use types::{
+    Admission, DispatchError, ExecutionResult, ExecutionStatus, ExecutorMetrics, TaskReadyEvent,
+};

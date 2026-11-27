@@ -78,6 +78,11 @@ pub struct UnifiedWorkflowExecution {
     /// How this run was triggered (CLOACI-T-0776); `Some("manual")` for an
     /// operator REST run, `None` otherwise.
     pub trigger_origin: Option<String>,
+    /// CLOACINA-T-1045: the workflow priority that was asked for. `None` on
+    /// a row from before the column.
+    pub priority_asked: Option<i32>,
+    /// CLOACINA-T-1045: the workflow priority the execution runs at.
+    pub priority: i32,
 }
 
 #[derive(Debug, Insertable)]
@@ -91,6 +96,9 @@ pub struct NewUnifiedWorkflowExecution {
     pub started_at: UniversalTimestamp,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// CLOACINA-T-1045: asked and given. `None` writes the column default.
+    pub priority_asked: Option<i32>,
+    pub priority: Option<i32>,
 }
 
 // =====================================================================// Task Execution Models
@@ -124,6 +132,11 @@ pub struct UnifiedTaskExecution {
     pub fleet_agent_id: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// CLOACINA-T-1045: the priority of the task's workflow and the task's
+    /// own priority, as given. The order of waiting work is by these two,
+    /// then by `waiting_since`.
+    pub workflow_priority: i32,
+    pub task_priority: i32,
 }
 
 #[derive(Debug, Insertable)]
@@ -144,6 +157,9 @@ pub struct NewUnifiedTaskExecution {
     pub memory_request_bytes: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    /// CLOACINA-T-1045: `None` writes the column default, 5.
+    pub workflow_priority: Option<i32>,
+    pub task_priority: Option<i32>,
 }
 
 // =====================================================================// Task Execution Metadata Models
@@ -909,6 +925,8 @@ impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
             created_at: u.created_at,
             updated_at: u.updated_at,
             trigger_origin: u.trigger_origin,
+            priority_asked: u.priority_asked,
+            priority: u.priority,
         }
     }
 }
@@ -942,6 +960,8 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             fleet_agent_id: u.fleet_agent_id,
             created_at: u.created_at,
             updated_at: u.updated_at,
+            workflow_priority: u.workflow_priority,
+            task_priority: u.task_priority,
         }
     }
 }

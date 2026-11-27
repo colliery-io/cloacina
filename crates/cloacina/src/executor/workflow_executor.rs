@@ -369,6 +369,26 @@ pub trait WorkflowExecutor: Send + Sync {
         context: Context<serde_json::Value>,
     ) -> Result<WorkflowExecution, WorkflowExecutionError>;
 
+    /// [`execute_async`](Self::execute_async) for a run that asks for a
+    /// workflow priority (CLOACINA-T-1045).
+    ///
+    /// Returns the handle and the priority: asked and given. The default
+    /// implementation ignores the priority and runs at the default: an
+    /// executor that orders its work by priority overrides it.
+    async fn execute_async_with_priority(
+        &self,
+        workflow_name: &str,
+        context: Context<serde_json::Value>,
+        _priority: crate::execution_planner::RunPriority,
+    ) -> Result<(WorkflowExecution, cloacina_api_types::PriorityGrant), WorkflowExecutionError>
+    {
+        let execution = self.execute_async(workflow_name, context).await?;
+        Ok((
+            execution,
+            cloacina_api_types::PriorityGrant::unlimited(cloacina_api_types::DEFAULT_PRIORITY),
+        ))
+    }
+
     /// Gets the current status of a running execution.
     ///
     /// # Arguments

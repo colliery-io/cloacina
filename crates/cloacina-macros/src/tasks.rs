@@ -195,6 +195,21 @@ impl Parse for TaskAttributes {
                     let lit: syn::LitBool = input.parse()?;
                     placement.inline = lit.value;
                 }
+                // CLOACINA-T-1045: 0 (the highest) to 10; a value outside
+                // the scale is a compile error at the attribute.
+                "priority" => {
+                    let lit: syn::LitInt = input.parse().map_err(|e| {
+                        syn::Error::new(
+                            e.span(),
+                            "priority must be an integer from 0 (the highest) to 10, \
+                             e.g. priority = 2",
+                        )
+                    })?;
+                    let value: i64 = lit.base10_parse()?;
+                    let value = cloacina_api_types::validate_priority(value)
+                        .map_err(|e| syn::Error::new(lit.span(), format!("priority: {e}")))?;
+                    placement.priority = Some(value);
+                }
                 "trigger_rules" => {
                     let expr: Expr = input.parse()?;
                     trigger_rules = Some(expr);
@@ -805,12 +820,19 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         let cpu = option(&attrs.placement.cpu);
         let memory = option(&attrs.placement.memory);
         let inline = attrs.placement.inline;
+        // CLOACINA-T-1045: the task's own priority, `None` when not set.
+        let priority = match attrs.placement.priority {
+            Some(value) => quote! { Some(#value) },
+            None => quote! { None },
+        };
         quote! {
             ::cloacina_workflow::TaskPlacement {
                 pool: #pool,
                 cpu: #cpu,
                 memory: #memory,
                 inline: #inline,
+                priority: #priority,
+                workflow_priority: None,
             }
         }
     };
@@ -1340,10 +1362,39 @@ mod tests {
         }
     }
 
+    // CLOACINA-T-1045: `priority = N`, 0 (the highest) to 10.
+    #[test]
+    fn a_task_priority_is_parsed_and_one_outside_the_scale_is_refused() {
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "urgent", priority = 0"#).expect("attributes parse");
+        assert_eq!(attrs.placement.priority, Some(0));
+        let attrs: TaskAttributes =
+            syn::parse_str(r#"id = "lazy", priority = 10"#).expect("attributes parse");
+        assert_eq!(attrs.placement.priority, Some(10));
+        let attrs: TaskAttributes = syn::parse_str(r#"id = "plain""#).expect("attributes parse");
+        assert_eq!(
+            attrs.placement.priority, None,
+            "no priority: the workflow's"
+        );
+
+        for (text, needle) in [
+            (r#"id = "t", priority = 11"#, "priority:"),
+            (
+                r#"id = "t", priority = "high""#,
+                "priority must be an integer",
+            ),
+        ] {
+            let err = syn::parse_str::<TaskAttributes>(text)
+                .err()
+                .unwrap_or_else(|| panic!("`{text}` should be refused"));
+            assert!(err.to_string().contains(needle), "`{text}`: {err}");
+        }
+    }
+
     #[test]
     fn the_generated_task_returns_its_placement() {
         let attrs: TaskAttributes = syn::parse_str(
-            r#"id = "big", pool = "large", cpu = "4", memory = "32Gi", inline = true"#,
+            r#"id = "big", pool = "large", cpu = "4", memory = "32Gi", inline = true, priority = 2"#,
         )
         .expect("attributes parse");
         let func: ItemFn = syn::parse_str(
@@ -1354,7 +1405,7 @@ mod tests {
         let compact: String = code.split_whitespace().collect();
         assert!(
             compact.contains(
-                "fnplacement(&self)->::cloacina_workflow::TaskPlacement{::cloacina_workflow::TaskPlacement{pool:Some(\"large\".to_string()),cpu:Some(\"4\".to_string()),memory:Some(\"32Gi\".to_string()),inline:true,}}"
+                "fnplacement(&self)->::cloacina_workflow::TaskPlacement{::cloacina_workflow::TaskPlacement{pool:Some(\"large\".to_string()),cpu:Some(\"4\".to_string()),memory:Some(\"32Gi\".to_string()),inline:true,priority:Some(2u8),workflow_priority:None,}}"
             ),
             "generated code: {code}"
         );
@@ -1370,7 +1421,9 @@ mod tests {
         let code = generate_task_impl(attrs, func).to_string();
         let compact: String = code.split_whitespace().collect();
         assert!(
-            compact.contains("TaskPlacement{pool:None,cpu:None,memory:None,inline:false,}"),
+            compact.contains(
+                "TaskPlacement{pool:None,cpu:None,memory:None,inline:false,priority:None,workflow_priority:None,}"
+            ),
             "generated code: {code}"
         );
     }
