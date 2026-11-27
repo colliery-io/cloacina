@@ -1028,6 +1028,15 @@ Unregister a specific workflow version. Only the active version can be deleted
 this way. Deleting it does not make an earlier version active: use the
 activation route for that.
 
+A delete removes the version's row and what the compilers built for it: the
+library per target and the vendored Python set per platform
+(`package_artifacts`) and the bundled providers (`package_providers`), in one
+transaction. After it, an agent fetch by a digest of the version finds nothing.
+While an execution that has not finished (status other than `Completed`,
+`Failed` or `Cancelled`) is pinned to the version, the delete is refused with
+`409` and nothing is removed: its later tasks are dispatched from that version.
+Let the executions finish, or cancel them, then delete again.
+
 **Path parameters:**
 
 | Parameter | Type | Description |
@@ -1050,7 +1059,8 @@ activation route for that.
 
 | Status | Body |
 |---|---|
-| `404` | `{"error": "<detail>"}` |
+| `404` | `{"error": "<detail>", "code": "workflow_not_found"}` |
+| `409` | `{"error": "version <version> of package '<name>' is in use: <N> execution(s) that have not finished run on it. …", "code": "package_in_use"}` |
 
 ### Named workflow instances
 

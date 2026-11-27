@@ -596,6 +596,7 @@ fn detect_source_language(path: &str) -> Option<String> {
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
         (status = 404, description = "Registry lookup failed", body = cloacina_api_types::ErrorBody),
+        (status = 409, description = "An execution that has not finished is pinned to this version (package_in_use)", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
@@ -647,7 +648,7 @@ pub async fn delete_workflow(
                 "Failed to delete workflow '{}' v{} for tenant '{}': {}",
                 name, version, tenant_id, e
             );
-            ApiError::not_found("workflow_not_found", format!("{}", e)).into_response()
+            delete_error(&e).into_response()
         }
     }
 }
@@ -945,6 +946,26 @@ pub async fn activate_workflow_version(
     }
 }
 
+/// The answer to a failed delete. A version that an unfinished execution is
+/// pinned to is refused with 409 (CLOACINA-T-1098).
+fn delete_error(e: &cloacina::registry::error::RegistryError) -> ApiError {
+    match e {
+        cloacina::registry::error::RegistryError::PackageInUse {
+            package_name,
+            version,
+            active_count,
+        } => ApiError::conflict(
+            "package_in_use",
+            format!(
+                "version {version} of package `{package_name}` is in use: {active_count} \
+                 execution(s) that have not finished run on it. Wait for them to finish, or \
+                 cancel them, then delete again."
+            ),
+        ),
+        _ => ApiError::not_found("workflow_not_found", format!("{}", e)),
+    }
+}
+
 /// 413 for an upload over the server's package size limit.
 fn package_too_large(size: Option<u64>, limit: u64) -> ApiError {
     ApiError::new(
@@ -989,4 +1010,36 @@ async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, FileFi
     Err(FileFieldError::Invalid(
         "no 'file' field in multipart request".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod delete_error_tests {
+    use super::delete_error;
+    use axum::http::StatusCode;
+    use cloacina::registry::error::RegistryError;
+
+    /// CLOACINA-T-1098: a version an unfinished execution is pinned to is
+    /// refused with 409 and its own code.
+    #[test]
+    fn package_in_use_is_409_with_its_own_code() {
+        let e = delete_error(&RegistryError::PackageInUse {
+            package_name: "jobs".to_string(),
+            version: "1.0.0".to_string(),
+            active_count: 2,
+        });
+        assert_eq!(e.status, StatusCode::CONFLICT);
+        assert_eq!(e.code, "package_in_use");
+        assert!(e.message.contains("version 1.0.0 of package `jobs`"));
+        assert!(e.message.contains("2 execution(s)"));
+    }
+
+    #[test]
+    fn other_delete_errors_stay_workflow_not_found() {
+        let e = delete_error(&RegistryError::PackageNotFound {
+            package_name: "jobs".to_string(),
+            version: "1.0.0".to_string(),
+        });
+        assert_eq!(e.status, StatusCode::NOT_FOUND);
+        assert_eq!(e.code, "workflow_not_found");
+    }
 }

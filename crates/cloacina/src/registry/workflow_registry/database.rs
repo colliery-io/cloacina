@@ -248,29 +248,19 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(workflows)
     }
 
-    /// Delete package metadata from the database.
+    /// Delete a package version: its row, its `package_artifacts` and its
+    /// `package_providers` rows, in one transaction. Refused with
+    /// `PackageInUse` while an unfinished execution is pinned to it
+    /// (CLOACINA-T-1098).
     pub(super) async fn delete_package_metadata(
         &self,
         package_name: &str,
         version: &str,
     ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-
-        let package_name = package_name.to_string();
-        let version = version.to_string();
-
         let dal = self.dal();
-        crate::interact_on_backend!(dal, |conn| {
-            diesel::delete(
-                workflow_packages::table
-                    .filter(workflow_packages::package_name.eq(&package_name))
-                    .filter(workflow_packages::version.eq(&version)),
-            )
-            .execute(conn)
-        })
-        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        Ok(())
+        dal.workflow_packages()
+            .delete_package_metadata(package_name, version)
+            .await
     }
 
     /// Get package metadata + compiled artifact by ID for a successfully-built package.
@@ -763,23 +753,16 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         }))
     }
 
-    /// Delete package metadata by ID.
+    /// Delete a package version by the id of its row, as
+    /// `delete_package_metadata` does (CLOACINA-T-1098).
     pub(super) async fn delete_package_metadata_by_id(
         &self,
         package_id: Uuid,
     ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::UniversalUuid;
-
-        let pkg_id = UniversalUuid(package_id);
         let dal = self.dal();
-        crate::interact_on_backend!(dal, |conn| {
-            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(pkg_id)))
-                .execute(conn)
-        })
-        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-
-        Ok(())
+        dal.workflow_packages()
+            .delete_package_metadata_by_id(package_id)
+            .await
     }
 
     // ========================================================================

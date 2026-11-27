@@ -492,15 +492,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 None => return Ok(()), // Idempotent - already doesn't exist
             };
 
+        // Delete the row and its built artifacts first (CLOACINA-T-1098): a
+        // delete refused because an execution is pinned to the version leaves
+        // the loaded tasks in place.
+        self.delete_package_metadata_by_id(package_id).await?;
+
         // Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_id) {
             self.registrar
                 .unregister_package_tasks(&package_id.to_string())
                 .map_err(RegistryError::Loader)?;
         }
-
-        // Delete metadata from database
-        self.delete_package_metadata_by_id(package_id).await?;
 
         // Delete binary data from storage
         self.storage.delete_binary(&registry_id).await?;
@@ -754,15 +756,17 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         // 2. Find the package ID to unregister tasks
         let package_uuid = Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?;
 
-        // 3. Unregister tasks from global registry
+        // 3. Delete the row and its built artifacts (CLOACINA-T-1098). First,
+        //    so a delete refused because an execution is pinned to the version
+        //    leaves the loaded tasks in place.
+        self.delete_package_metadata(package_name, version).await?;
+
+        // 4. Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_uuid) {
             self.registrar
                 .unregister_package_tasks(&package_uuid.to_string())
                 .map_err(RegistryError::Loader)?;
         }
-
-        // 4. Delete metadata from database (this will cascade to registry storage via foreign key)
-        self.delete_package_metadata(package_name, version).await?;
 
         // 5. Delete binary data from storage
         self.storage.delete_binary(&registry_id).await?;

@@ -95,6 +95,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `tenant_exists` | `POST /v1/tenants` | A tenant of this name exists. The message names the tenant. |
 | `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
 | `trusted_key_exists` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The tenant already has this key, live or revoked. |
+| `package_in_use` | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | An execution that has not finished (not `Completed`, `Failed` or `Cancelled`) is pinned to this version, so its later tasks need the version's row and artifacts. Nothing is removed. The message names the version and the number of executions. Retry after they finish, or cancel them. (CLOACINA-T-1098) |
 
 ### 500 Internal Server Error
 
