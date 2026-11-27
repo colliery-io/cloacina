@@ -7290,6 +7290,7 @@ mod tests {
         signer
             .sign_package_with_db_key(
                 tf.path(),
+                org_id,
                 key_info.id,
                 &master_key,
                 /* store_signature= */ true,

@@ -23,9 +23,9 @@ revocations take effect immediately.
 | Method | Signature | Description |
 |---|---|---|
 | `create_signing_key` | `(org_id, name: &str, master_key: &[u8]) -> SigningKeyInfo` | Generate a new Ed25519 signing keypair and store the private key encrypted under `master_key`. `name` must be unique per org. |
-| `get_signing_key_info` | `(key_id) -> SigningKeyInfo` | Metadata for a signing key (no private material). |
-| `get_signing_key` | `(key_id, master_key: &[u8]) -> (Vec<u8>, Vec<u8>)` | Decrypt and return `(public_key, private_key)` raw bytes for signing. |
-| `export_public_key` | `(key_id) -> PublicKeyExport` | Export a public key (fingerprint, PEM, raw) for distribution. |
+| `get_signing_key_info` | `(org_id, key_id) -> SigningKeyInfo` | Metadata for a signing key (no private material). The key must belong to `org_id`; a key of another org gives `KeyError::NotFound`. |
+| `get_signing_key` | `(org_id, key_id, master_key: &[u8]) -> (Vec<u8>, Vec<u8>)` | Decrypt and return `(public_key, private_key)` raw bytes for signing. The key must belong to `org_id`; a key of another org gives `KeyError::NotFound`. |
+| `export_public_key` | `(org_id, key_id) -> PublicKeyExport` | Export a public key (fingerprint, PEM, raw) for distribution. The key must belong to `org_id`; a key of another org gives `KeyError::NotFound`. |
 | `trust_public_key` | `(org_id, public_key: &[u8], name: Option<&str>) -> TrustedKeyInfo` | Trust a raw 32-byte Ed25519 public key for verification. |
 | `trust_public_key_pem` | `(org_id, pem: &str, name: Option<&str>) -> TrustedKeyInfo` | Trust a public key supplied in PEM form. |
 | `revoke_signing_key` | `(org_id, key_id) -> ()` | Prevent future signing with this key. The key must belong to `org_id`; a key of another org gives `KeyError::NotFound`. |
@@ -42,7 +42,7 @@ database-backed implementation.
 
 | Method | Signature | Description |
 |---|---|---|
-| `sign_package_with_db_key` | `(package_path, key_id, master_key: &[u8], store_signature: bool) -> PackageSignatureInfo` | Sign a package with a database-stored key; optionally persist the signature. `async`. |
+| `sign_package_with_db_key` | `(package_path, org_id, key_id, master_key: &[u8], store_signature: bool) -> PackageSignatureInfo` | Sign a package with a database-stored key; optionally persist the signature. The key must belong to `org_id`; a key of another org gives `PackageSignError::KeyNotFound`. `async`. |
 | `sign_package_with_raw_key` | `(package_path, private_key: &[u8], public_key: &[u8]) -> PackageSignatureInfo` | Offline signing with raw key bytes. |
 | `sign_package_data` | `(package_data: &[u8], private_key: &[u8], public_key: &[u8]) -> PackageSignatureInfo` | Sign in-memory package bytes. |
 | `store_signature` | `(&PackageSignatureInfo) -> UniversalUuid` | Persist a signature. `async`. |

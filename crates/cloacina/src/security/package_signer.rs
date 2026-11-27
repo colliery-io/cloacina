@@ -156,6 +156,8 @@ pub trait PackageSigner: Send + Sync {
     /// # Arguments
     ///
     /// * `package_path` - Path to the package file to sign
+    /// * `org_id` - Organization that owns the signing key. A key of another
+    ///   organization gives [`PackageSignError::KeyNotFound`].
     /// * `key_id` - ID of the signing key in the database
     /// * `master_key` - AES-256 key for decrypting the signing key
     /// * `store_signature` - Whether to store the signature in the database
@@ -166,6 +168,7 @@ pub trait PackageSigner: Send + Sync {
     async fn sign_package_with_db_key(
         &self,
         package_path: &Path,
+        org_id: UniversalUuid,
         key_id: UniversalUuid,
         master_key: &[u8],
         store_signature: bool,
@@ -281,6 +284,7 @@ impl PackageSigner for DbPackageSigner {
     async fn sign_package_with_db_key(
         &self,
         package_path: &Path,
+        org_id: UniversalUuid,
         key_id: UniversalUuid,
         master_key: &[u8],
         store_signature: bool,
@@ -293,7 +297,7 @@ impl PackageSigner for DbPackageSigner {
         // Get the signing key from the database
         let key_manager = DbKeyManager::new(self.dal.clone());
         let (public_key, private_key) = key_manager
-            .get_signing_key(key_id, master_key)
+            .get_signing_key(org_id, key_id, master_key)
             .await
             .map_err(|e| {
                 audit::log_package_sign_failed(&path_str, &e.to_string());
@@ -845,7 +849,7 @@ mod tests {
             std::fs::write(temp_file.path(), b"db-key-signed package").unwrap();
 
             let sig_info = signer
-                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, false)
+                .sign_package_with_db_key(temp_file.path(), org_id, key_info.id, &mk, false)
                 .await
                 .unwrap();
 
@@ -870,7 +874,7 @@ mod tests {
             std::fs::write(temp_file.path(), b"stored signature content").unwrap();
 
             let sig_info = signer
-                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, true)
+                .sign_package_with_db_key(temp_file.path(), org_id, key_info.id, &mk, true)
                 .await
                 .unwrap();
 
@@ -897,9 +901,36 @@ mod tests {
             std::fs::write(temp_file.path(), b"content").unwrap();
 
             let result = signer
-                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, false)
+                .sign_package_with_db_key(temp_file.path(), org_id, key_info.id, &mk, false)
                 .await;
             assert!(matches!(result, Err(PackageSignError::KeyRevoked)));
+        }
+
+        /// CLOACINA-T-1060: an org cannot sign with a key of another org.
+        #[tokio::test]
+        async fn test_sign_package_with_db_key_of_another_org_is_refused() {
+            let dal = unique_dal().await;
+            let km = DbKeyManager::new(dal.clone());
+            let signer = DbPackageSigner::new(dal);
+            let owner_org = UniversalUuid::new_v4();
+            let other_org = UniversalUuid::new_v4();
+            let mk = master_key();
+
+            let key_info = km
+                .create_signing_key(owner_org, "owner-signer", &mk)
+                .await
+                .unwrap();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"content").unwrap();
+
+            let result = signer
+                .sign_package_with_db_key(temp_file.path(), other_org, key_info.id, &mk, true)
+                .await;
+            assert!(
+                matches!(result, Err(PackageSignError::KeyNotFound(id)) if id == key_info.id),
+                "another org signed with the key: {result:?}"
+            );
         }
 
         #[tokio::test]
@@ -913,6 +944,7 @@ mod tests {
             let result = signer
                 .sign_package_with_db_key(
                     temp_file.path(),
+                    UniversalUuid::new_v4(),
                     UniversalUuid::new_v4(),
                     &[0u8; 32],
                     false,
@@ -1060,7 +1092,7 @@ mod tests {
             std::fs::write(temp_file.path(), b"verifiable content").unwrap();
 
             let sig_info = signer
-                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, true)
+                .sign_package_with_db_key(temp_file.path(), org_id, key_info.id, &mk, true)
                 .await
                 .unwrap();
 

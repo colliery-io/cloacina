@@ -69,7 +69,7 @@ let key_info = key_manager
     .await?;
 
 // Export the public key for distribution
-let export = key_manager.export_public_key(key_info.id).await?;
+let export = key_manager.export_public_key(org_id, key_info.id).await?;
 println!("{}", export.public_key_pem);
 
 // Trust the public key (from raw bytes or PEM)
@@ -93,7 +93,7 @@ use cloacina::security::{DbPackageSigner, PackageSigner};
 let signer = DbPackageSigner::new(dal);
 
 let signature = signer
-    .sign_package_with_db_key(&package_path, key_id, &master_key, true)
+    .sign_package_with_db_key(&package_path, org_id, key_id, &master_key, true)
     .await?;
 ```
 
