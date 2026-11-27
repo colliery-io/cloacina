@@ -172,6 +172,24 @@ pub fn actuator_kind_from_env() -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+/// The warning the server logs at start when the Docker actuator runs with
+/// more than one tenant (CLOACINA-T-1133). `tenants` counts every tenant,
+/// `public` included. The Docker actuator is for one user only: every
+/// tenant's containers share one Docker host and one network, with no
+/// namespaces, no network policies and no hardened pods. `None` for any
+/// other actuator, or for one tenant.
+pub fn docker_single_user_warning(kind: &str, tenants: usize) -> Option<String> {
+    if kind != "docker" || tenants <= 1 {
+        return None;
+    }
+    Some(format!(
+        "the Docker fleet actuator is for one user only, and this server has {tenants} tenants: \
+         every tenant's containers share one Docker host and one network, with no namespaces, \
+         no network policies and no hardened pods. Use the Kubernetes actuator for several \
+         teams on one server."
+    ))
+}
+
 /// Build the actuator for `kind`, validating it against `substrate`
 /// (fail-closed). On `Ok` the server proceeds; on `Err` the caller MUST refuse
 /// to start. `database` is used by the actuator to mint per-tenant agent keys.
@@ -407,5 +425,24 @@ mod tests {
         // FIXME: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var("CLOACINA_FLEET_ACTUATOR") };
         assert_eq!(actuator_kind_from_env(), "none");
+    }
+
+    /// CLOACINA-T-1133: the Docker actuator with more than one tenant gets a
+    /// warning that names the single-user rule; one tenant, or another
+    /// actuator, gets none.
+    #[test]
+    fn docker_with_more_than_one_tenant_warns_of_the_single_user_rule() {
+        let warning = docker_single_user_warning("docker", 2).expect("two tenants warn");
+        assert!(warning.contains("for one user only"), "{warning}");
+        assert!(warning.contains("2 tenants"), "{warning}");
+        assert!(
+            warning.contains("one Docker host and one network"),
+            "{warning}"
+        );
+
+        assert_eq!(docker_single_user_warning("docker", 1), None);
+        assert_eq!(docker_single_user_warning("docker", 0), None);
+        assert_eq!(docker_single_user_warning("kubernetes", 5), None);
+        assert_eq!(docker_single_user_warning("none", 5), None);
     }
 }
