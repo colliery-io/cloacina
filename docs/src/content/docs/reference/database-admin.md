@@ -202,22 +202,28 @@ The method performs these operations in a single transaction:
 
 ### What `remove_tenant` Does
 
-The method performs these operations in a single transaction:
+The method performs these operations in a single transaction, with each lock
+wait bounded to 5 s (`REMOVE_LOCK_TIMEOUT`):
 
-1. **Revoke Permissions**
-2. **Drop User**: `DROP USER IF EXISTS xyz_user`
+1. **Delete the tenant's admin-schema rows** (`TENANT_ROWS`, `TENANT_FLEET_ROWS`): its API keys and their sessions, WebSocket tickets, local accounts, delivery outbox and reactor rows, agent limit, desired count, pools and agent rows, and the trusted keys, signing keys, package signatures, trust grants and secrets of its org. The tenant is `schema_name`. A table the admin schema does not have is skipped. Audit rows stay.
+2. **Write one `tenant.removed` audit row**, while the schema exists.
 3. **Drop Schema**: `DROP SCHEMA IF EXISTS tenant_xyz CASCADE`
+4. **Drop User**: `DROP USER IF EXISTS xyz_user` (the user may have another name than the schema)
+
+A failure rolls everything back and returns the error; a second call finishes
+the removal. A call for a tenant that is gone returns `Ok`.
 
 > **Production callers: use the HTTP route, not this library call.**
-> Per CLOACI-T-0581, the server's `DELETE /v1/tenants/{name}` route
-> performs a 4-step orchestrated teardown around this call:
-> (1) revoke API keys for the tenant, (2) evict the tenant's
+> Per CLOACI-T-0581 and CLOACINA-T-1095, the server's `DELETE /v1/tenants/{name}` route
+> performs an orchestrated teardown around this call:
+> (1) revoke API keys for the tenant and tell every server to clear its key cache, (2) evict the tenant's
 > `DefaultRunner` from `TenantRunnerCache` with a bounded drain
 > (`--tenant-deletion-drain-timeout-s`, default 30s),
 > (3) evict the tenant's `Database` from `TenantDatabaseCache`,
-> then (4) call `DatabaseAdmin::remove_tenant` (this function).
+> (4) remove the tenant's compiler and agents under the fleet lock and call `remove_tenant_fleet_rows`,
+> then (5) call `DatabaseAdmin::remove_tenant` (this function).
 > Each step emits a structured audit event with duration. The bare
-> library call skips steps 1-3 and leaves in-process state stale.
+> library call skips steps 1-4 and leaves in-process state stale.
 > Use it directly only for testing or for one-shot scripts where
 > no `cloacina-server` instance is holding tenant caches.
 

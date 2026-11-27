@@ -76,13 +76,20 @@ print(f"Connection string: {credentials.connection_string}")
 remove_tenant(schema_name: str, username: str) -> None
 ```
 
-Drops the tenant's schema and database user.
+Deletes the tenant's rows in the admin schema, then drops the tenant's schema
+and database user, in one transaction. See the Rust
+[DatabaseAdmin reference](../../database-admin/#what-remove_tenant-does) for
+the rows. A tenant that is gone is not an error; a second call after a failure
+finishes the removal.
 
 **Parameters:**
 - `schema_name` (str): Schema of the tenant to remove
 - `username` (str): The tenant's database username
 
-**Raises:** `RuntimeError` on failure.
+**Raises:** `RuntimeError` on failure, with the text
+`Failed to remove tenant: <reason>`. A refused drop (the user owns objects
+outside the schema, or a lock in the schema held longer than 5 s) raises; the
+tenant is then as it was.
 
 **Example:**
 ```python
