@@ -1373,12 +1373,11 @@ fn parse_param_required(attr: &syn::Attribute) -> SynResult<bool> {
 fn option_inner(ty: &Type) -> Option<Type> {
     if let Type::Path(tp) = ty {
         let seg = tp.path.segments.last()?;
-        if seg.ident == "Option" {
-            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                    return Some(inner.clone());
-                }
-            }
+        if seg.ident == "Option"
+            && let syn::PathArguments::AngleBracketed(args) = &seg.arguments
+            && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+        {
+            return Some(inner.clone());
         }
     }
     None
@@ -1415,10 +1414,10 @@ fn json_schema_for(ty: &Type) -> TokenStream2 {
 /// uses it to bincode-encode the kwarg value as the concrete type the guest's
 /// config struct decodes. Falls back to the rendered type tokens for exotic types.
 fn config_type_name(ty: &Type) -> String {
-    if let Type::Path(tp) = ty {
-        if let Some(seg) = tp.path.segments.last() {
-            return seg.ident.to_string();
-        }
+    if let Type::Path(tp) = ty
+        && let Some(seg) = tp.path.segments.last()
+    {
+        return seg.ident.to_string();
     }
     quote!(#ty).to_string()
 }
