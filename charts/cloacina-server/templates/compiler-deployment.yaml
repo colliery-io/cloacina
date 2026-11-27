@@ -109,6 +109,11 @@ spec:
             - name: CLOACINA_COMPILER_PYTHON_INDEX_URL
               value: {{ .Values.compiler.python.indexUrl | quote }}
             {{- end }}
+            # The unpack limit of the server (CLOACINA-T-1106): the compiler
+            # refuses a package that unpacks to more, and a vendored set the
+            # loader would refuse.
+            - name: CLOACINA_MAX_UNPACKED_BYTES
+              value: {{ .Values.packages.maxUnpackedBytes | int64 | quote }}
             {{- with .Values.compiler.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

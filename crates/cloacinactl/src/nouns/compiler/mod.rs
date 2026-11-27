@@ -63,6 +63,9 @@ enum CompilerVerb {
         /// Sweeper loop interval (seconds).
         #[arg(long)]
         sweep_interval_s: Option<u64>,
+
+        #[command(flatten)]
+        settings: Box<start::CompilerSettingArgs>,
     },
     /// Stop a locally-running compiler via PID file + SIGTERM.
     Stop {
@@ -87,6 +90,7 @@ impl CompilerCmd {
                 heartbeat_interval_s,
                 stale_threshold_s,
                 sweep_interval_s,
+                settings,
             } => {
                 start::run(
                     globals,
@@ -97,6 +101,7 @@ impl CompilerCmd {
                     heartbeat_interval_s,
                     stale_threshold_s,
                     sweep_interval_s,
+                    *settings,
                 )
                 .await
             }

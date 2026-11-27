@@ -105,3 +105,53 @@ impl ServerCmd {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// The source of the flags of `cloacina-server`.
+    const SERVER_MAIN: &str = include_str!("../../../../cloacina-server/src/main.rs");
+
+    /// The long flags of `cloacinactl server start`, its own and the two
+    /// global flags it passes on (`--home`, `--verbose`).
+    fn server_start_flags() -> BTreeSet<String> {
+        let cmd = ServerCmd::augment_args(clap::Command::new("server"));
+        let start = cmd
+            .find_subcommand("start")
+            .expect("server has a start verb");
+        let mut flags: BTreeSet<String> = start
+            .get_arguments()
+            .filter_map(|a| a.get_long().map(|l| format!("--{l}")))
+            .collect();
+        flags.insert("--home".to_string());
+        flags.insert("--verbose".to_string());
+        flags
+    }
+
+    /// CLOACINA-T-1106: every flag of `cloacina-server` is a flag of
+    /// `cloacinactl server start`. A new server setting fails this test until
+    /// `server start` takes it (a field of `ServerSettingArgs`, a key of
+    /// `[server]`, a line of `forwarded_settings`).
+    #[test]
+    fn server_start_has_every_flag_of_cloacina_server() {
+        let server = crate::shared::flag_list::long_flags(SERVER_MAIN, "Cli");
+        assert!(
+            server.len() > 30,
+            "the server's flags were not read: {server:?}"
+        );
+        let start = server_start_flags();
+        let missing: Vec<&String> = server.difference(&start).collect();
+        assert!(
+            missing.is_empty(),
+            "flags of cloacina-server that `cloacinactl server start` lacks: {missing:?}"
+        );
+        // And `server start` has no flag that the server does not know.
+        let unknown: Vec<&String> = start.difference(&server).collect();
+        assert!(
+            unknown.is_empty(),
+            "flags of `server start` that cloacina-server lacks: {unknown:?}"
+        );
+    }
+}

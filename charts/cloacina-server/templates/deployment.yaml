@@ -320,6 +320,14 @@ spec:
               value: {{ .Values.context.warnBytes | int64 | quote }}
             - name: CLOACINA_CONTEXT_MAX_BYTES
               value: {{ .Values.context.maxBytes | int64 | quote }}
+            # CLOACINA-T-1106: the wait for a package artifact, and the size
+            # limits of a package.
+            - name: CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S
+              value: {{ .Values.fleetTaskTimeLimits.artifactFetchWaitSeconds | int64 | quote }}
+            - name: CLOACINA_MAX_PACKAGE_BYTES
+              value: {{ .Values.packages.maxPackageBytes | int64 | quote }}
+            - name: CLOACINA_MAX_UNPACKED_BYTES
+              value: {{ .Values.packages.maxUnpackedBytes | int64 | quote }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

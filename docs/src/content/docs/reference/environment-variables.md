@@ -88,17 +88,15 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 
 `CLOACINA_DEFAULT_EXECUTOR` / `--default-executor` is forwarded by the
 `cloacinactl server start` wrapper (preferably set via
-`[server].default_executor` in `config.toml`). The wrapper also takes
-`CLOACINA_DATABASE_WAIT_TIMEOUT_S`, the
-three retention settings, the two fleet time limits, the alert webhook
-settings (but not the secret) and `CLOACINA_PUBLIC_BASE_URL`: as a flag of
-the same name, as the env var above, or as a key of `[server]` in
-`config.toml` (see [Configuration](../configuration/#server-section)).
+`[server].default_executor` in `config.toml`). The wrapper takes every
+variable of this table but `DATABASE_URL`, `CLOACINA_BOOTSTRAP_KEY`,
+`CLOACINA_METRICS_BIND` and `CLOACINA_REQUIRE_SIGNATURES` (its own base
+flags) and `CLOACINA_ALERT_WEBHOOK_SECRET`: as a flag of the same name, as
+the env var above, or as a key of `[server]` in `config.toml` (see
+[Configuration](../configuration/#server-section)). The alert webhook URL is
+given to the server as `CLOACINA_ALERT_WEBHOOK_URL`, not as an argument.
 `CLOACINA_ALERT_WEBHOOK_SECRET` is an env var only; the server that the
-wrapper starts inherits it. The two `CLOACINA_AGENT_*` liveness flags are
-read by the `cloacina-server` binary directly (and via the env vars above);
-the wrapper does **not** forward them, so set them on `cloacina-server`
-itself or through the environment.
+wrapper starts inherits it.
 
 The Helm chart `cloacina-server` sets these variables from its values:
 
@@ -110,6 +108,11 @@ The Helm chart `cloacina-server` sets these variables from its values:
 | `CLOACINA_RETENTION_INTERVAL_S` | `retention.intervalSeconds` | `300` |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `fleetTaskTimeLimits.defaultSeconds` | `300` |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `fleetTaskTimeLimits.maxSeconds` | `86400` |
+| `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `fleetTaskTimeLimits.artifactFetchWaitSeconds` | `300` |
+| `CLOACINA_CONTEXT_WARN_BYTES` | `context.warnBytes` | `1048576` |
+| `CLOACINA_CONTEXT_MAX_BYTES` | `context.maxBytes` | `16777216` |
+| `CLOACINA_MAX_PACKAGE_BYTES` | `packages.maxPackageBytes` | `104857600` |
+| `CLOACINA_MAX_UNPACKED_BYTES` | `packages.maxUnpackedBytes`; also set on the chart's compiler | `524288000` |
 | `CLOACINA_ALERT_WEBHOOK_URL` | `alertWebhook.url`, or `alertWebhook.urlSecretRef` (an existing Secret) | not set |
 | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `alertWebhook.events` | `[failed]` |
 | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `alertWebhook.timeoutSeconds` | `10` |
@@ -119,7 +122,7 @@ The Helm chart `cloacina-server` sets these variables from its values:
 
 The alert variables are rendered only when a URL is set.
 
-The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
+The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents. `cloacinactl server start` takes the last two as flags and as the `[server]` keys `reconcile_interval_s` and `log_retention_days`.
 
 ---
 
