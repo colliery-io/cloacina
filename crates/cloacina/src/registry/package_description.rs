@@ -40,13 +40,19 @@ use cloacina_workflow_plugin::{
 };
 
 use crate::Runtime;
+pub use crate::registry::in_process::{InProcessReason, ProviderDescription};
 use crate::registry::loader::package_loader::{PackageMetadata, TaskDocs, TaskMetadata};
 use crate::task::TaskNamespace;
 
 /// The format version this build writes into
 /// [`PackageDescription::format_version`]. Raise it when a field is added
 /// that a reader needs: the compiler then describes each stored package again.
-pub const PACKAGE_DESCRIPTION_VERSION: u32 = 1;
+///
+/// - 1: CLOACINA-T-1074.
+/// - 2 (CLOACINA-T-1078): the bundled providers with their runtime, the list
+///   of what would run in process, Python constructor declarations, and a
+///   Python graph's accumulators with their authored types.
+pub const PACKAGE_DESCRIPTION_VERSION: u32 = 2;
 
 /// The full metadata of one built package. See the module docs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,9 +104,18 @@ pub struct PackageDescription {
     /// The trigger-less computation graphs of the package.
     #[serde(default)]
     pub triggerless_graphs: Vec<TriggerlessGraphMetadataEntry>,
-    /// The constructor nodes a Rust package declares.
+    /// The constructor nodes the package declares. A Python package's
+    /// (format 2) are also in `tasks`, as its import registers them.
     #[serde(default)]
     pub constructors: Vec<ConstructorPackageMetadata>,
+    /// The providers the package bundles, with their runtime (format 2).
+    #[serde(default)]
+    pub providers: Vec<ProviderDescription>,
+    /// What of the package would run tenant code in the process that loads
+    /// it, as the compiler found it (format 2). See
+    /// [`crate::registry::in_process`].
+    #[serde(default)]
+    pub in_process: Vec<InProcessReason>,
     /// The declared workflow params. A declared secret is a slot with
     /// `encrypted = true`.
     #[serde(default)]
@@ -338,6 +353,8 @@ impl PackageDescription {
             graph: meta.graph,
             triggerless_graphs: meta.triggerless_graphs,
             constructors: meta.constructors,
+            providers: Vec::new(),
+            in_process: Vec::new(),
             declared_params: meta.declared_params,
             declared_secrets: Vec::new(),
             declared_surfaces: meta.declared_surfaces,
@@ -457,6 +474,8 @@ impl PackageDescription {
             graph: view.graph,
             triggerless_graphs,
             constructors: Vec::new(),
+            providers: Vec::new(),
+            in_process: Vec::new(),
             declared_params: Vec::new(),
             declared_secrets: Vec::new(),
             declared_surfaces: Vec::new(),
@@ -646,14 +665,31 @@ pub fn python_load_view(
         .find(|n| !pre_graph_names.contains(n))
         .and_then(|graph_name| {
             let reg = runtime.get_computation_graph(&graph_name)?;
+            // CLOACINA-T-1078: the authored kinds of the graph's reactor, so
+            // the document names a polling or stream accumulator of a Python
+            // graph as the reactor entry does.
+            let authored: Vec<cloacina_computation_graph::AccumulatorSpec> = reg
+                .trigger_reactor
+                .as_deref()
+                .and_then(|name| runtime.get_reactor(name))
+                .map(|reactor| reactor.accumulator_specs)
+                .unwrap_or_default();
             let accumulators: Vec<AccumulatorDeclarationEntry> = reg
                 .accumulator_names
                 .iter()
                 .map(|acc_name| {
+                    // Precedence as for reactors: manifest entry, then the
+                    // authored kind, then passthrough.
                     let (accumulator_type, config) = accumulator_overrides
                         .iter()
                         .find(|cfg| &cfg.name == acc_name)
                         .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
+                        .or_else(|| {
+                            authored
+                                .iter()
+                                .find(|spec| &spec.name == acc_name)
+                                .map(|spec| (spec.accumulator_type.clone(), spec.config.clone()))
+                        })
                         .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
                     AccumulatorDeclarationEntry {
                         name: acc_name.clone(),

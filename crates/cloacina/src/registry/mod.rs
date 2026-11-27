@@ -64,6 +64,7 @@
 //! ```
 
 pub mod error;
+pub mod in_process;
 pub mod loader;
 pub mod package_description;
 pub mod placement_check;
