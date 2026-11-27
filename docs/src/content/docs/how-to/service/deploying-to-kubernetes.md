@@ -481,6 +481,8 @@ Pods that start together run the migrations once: they run under a
 PostgreSQL advisory lock, and a pod that waited for the lock finds
 nothing left to do. If a tenant schema cannot be migrated, the new pod
 logs the tenant's name and exits, and the existing pod keeps serving.
+A tenant created through the old pod while the new pod runs is migrated
+by the new pod when it first opens that tenant.
 
 ## Uninstall
 

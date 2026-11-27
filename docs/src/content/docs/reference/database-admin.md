@@ -41,11 +41,17 @@ impl DatabaseAdmin {
     /// Run the pending migrations of one tenant schema, in one transaction
     /// under the migration lock. Returns how many ran
     pub async fn migrate_tenant_schema(&self, schema_name: &str) -> Result<usize, AdminError>;
+
+    /// Whether the schema has a `__diesel_schema_migrations` table
+    pub async fn is_migrated_tenant_schema(&self, schema_name: &str) -> Result<bool, AdminError>;
 }
 ```
 
-The API server calls the last two at each start: it migrates the `public`
-schema and then each tenant schema. See
+The API server calls `list_migrated_tenant_schemas` and
+`migrate_tenant_schema` at each start: it migrates the `public` schema and
+then each tenant schema. Each replica also calls
+`is_migrated_tenant_schema` and `migrate_tenant_schema` when it first opens
+a tenant. See
 [Upgrading the server](../../how-to/service/production-deployment/#upgrading-the-server).
 
 ### TenantConfig

@@ -163,7 +163,8 @@ const REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE: u32 = 3;
 /// Cached per-tenant database connections for schema isolation.
 ///
 /// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
-/// Lazily populated on first request for a given tenant.
+/// Lazily populated on first request for a given tenant. The first open
+/// migrates the tenant schema (CLOACINA-T-1093).
 pub struct TenantDatabaseCache {
     databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>,
     database_url: String,
@@ -196,6 +197,13 @@ impl TenantDatabaseCache {
                 return Ok(db.clone());
             }
         }
+
+        // CLOACINA-T-1093: the first open of a tenant on this replica brings
+        // its schema to this binary's migrations, before a runner or a route
+        // uses it. A failure caches nothing, so the next call tries again.
+        crate::startup_migrations::migrate_tenant_on_first_open(admin_db, tenant_id)
+            .await
+            .map_err(cloacina::database::connection::DatabaseError::Migration)?;
 
         // Slow path: create and cache
         let db = Database::try_new_with_schema(
