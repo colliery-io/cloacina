@@ -34,13 +34,14 @@
 //!    server KEK, so a `$secret`-referencing fleet task actually resolves (it
 //!    failed closed while the factory was `None`).
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
 use cloacina::SecretResolver;
 use cloacina::database::Database;
-use cloacina::security::{SecretStore, SecretStoreResolver, tenant_org_id};
+use cloacina::security::{SecretAllow, SecretStore, SecretStoreResolver, tenant_org_id};
 
 use crate::TenantDatabaseCache;
 use crate::fleet_executor::FleetSecretResolverFactory;
@@ -54,15 +55,11 @@ use crate::fleet_executor::FleetSecretResolverFactory;
 /// secrets configured, so a secret-referencing dispatch fails closed (never a
 /// plaintext leak).
 ///
-/// **Grant scope (honest v1 limitation):** the resolver is scoped to the tenant
-/// (`org_id`) — the permanent isolation boundary. Per-*package* grant gating
-/// (`ResolvedGrants.secrets` → a `SecretAllow::List`) is NOT yet enforced on this
-/// path because per-package secret grants are not persisted server-side (they
-/// live only in a package's constructor declarations, extracted from the cdylib
-/// at reconciler-load time — unavailable at dispatch without loading the
-/// artifact). A fleet task therefore resolves any secret *in its own tenant* that
-/// it references; cross-tenant resolution is impossible. Tightening to the
-/// package's granted allow-list is the follow-up once those grants are persisted.
+/// **Grant scope (CLOACINA-T-1081):** the resolver is scoped to the tenant
+/// (`org_id`), the outer boundary, and gated with `SecretAllow::List` to the
+/// task's grant: the secrets its package declares in the stored metadata
+/// document, through the run's bindings. The fleet executor computes the grant
+/// and refuses a dispatch that names a secret outside it before it asks here.
 #[derive(Clone)]
 pub struct ServerFleetSecretResolverFactory {
     /// Admin (public-schema) database — the base `TenantDatabaseCache::resolve`
@@ -87,7 +84,9 @@ impl ServerFleetSecretResolverFactory {
 /// on the fleet. Returns `None` when `CLOACINA_SECRET_KEK` is unset — the
 /// executor then fails closed with the clear "secrets backend not configured"
 /// error. Same composition as the fleet factory: tenant DB → SecretStore →
-/// tenant-org-scoped SecretStoreResolver.
+/// tenant-org-scoped SecretStoreResolver. The runner gates it per task to the
+/// secrets the task's package declares (`SecretGrantMode::Declared`,
+/// CLOACINA-T-1081).
 pub fn runner_secret_resolver(tenant: &str, db: &Database) -> Option<Arc<dyn SecretResolver>> {
     let kek = SecretStoreResolver::kek_from_env().ok()?;
     let store = SecretStore::new(cloacina::dal::DAL::new(db.clone()));
@@ -96,7 +95,12 @@ pub fn runner_secret_resolver(tenant: &str, db: &Database) -> Option<Arc<dyn Sec
 
 #[async_trait]
 impl FleetSecretResolverFactory for ServerFleetSecretResolverFactory {
-    async fn resolver_for(&self, tenant: &str, package: &str) -> Option<Arc<dyn SecretResolver>> {
+    async fn resolver_for(
+        &self,
+        tenant: &str,
+        package: &str,
+        allowed: &BTreeSet<String>,
+    ) -> Option<Arc<dyn SecretResolver>> {
         // No KEK ⇒ secrets are not configured on this deployment → fail closed.
         let kek = match SecretStoreResolver::kek_from_env() {
             Ok(kek) => kek,
@@ -127,9 +131,70 @@ impl FleetSecretResolverFactory for ServerFleetSecretResolverFactory {
 
         let store = SecretStore::new(cloacina::dal::DAL::new(tenant_db));
         let org_id = tenant_org_id(tenant);
-        // Tenant-scoped resolver (see the grant-scope note on the struct).
-        let resolver = SecretStoreResolver::new(store, org_id, kek);
+        // Tenant-scoped and gated to the task's grant (see the note on the
+        // struct).
+        let allow = SecretAllow::List(allowed.iter().cloned().collect());
+        let resolver = SecretStoreResolver::new_gated(store, org_id, kek, allow);
         Some(resolver.into_arc())
+    }
+}
+
+/// The audit action of a refused request for a secret (CLOACINA-T-1081).
+pub const ACTION_SECRET_REFUSED: &str = "secret.refused";
+
+/// Writes an audit row for each secret a task asked for and its package does
+/// not declare (CLOACINA-T-1081). Registered once at server start with
+/// [`cloacina::security::register_secret_refusal_recorder`]. The row names
+/// the secret, never a value.
+pub struct AuditSecretRefusalRecorder {
+    /// Admin (public-schema) database: `audit_events` lives there.
+    admin_db: Database,
+}
+
+impl AuditSecretRefusalRecorder {
+    pub fn new(admin_db: Database) -> Self {
+        Self { admin_db }
+    }
+}
+
+/// The audit row of a refusal.
+pub fn refusal_audit_row(
+    refusal: &cloacina::security::SecretRefusal,
+) -> cloacina::dal::unified::audit_events::NewAuditEvent {
+    cloacina::dal::unified::audit_events::NewAuditEvent {
+        tenant_id: Some(refusal.tenant.clone()),
+        actor_key_id: "server".to_string(),
+        actor_key_name: "server".to_string(),
+        actor_identity: None,
+        action: ACTION_SECRET_REFUSED.to_string(),
+        target_kind: "secret".to_string(),
+        target: Some(refusal.secret.clone()),
+        outcome: cloacina::dal::unified::audit_events::OUTCOME_DENIED.to_string(),
+        detail: serde_json::json!({
+            "package": refusal.package,
+            "version": refusal.version,
+            "task": refusal.task,
+            "workflow_execution_id": refusal.workflow_execution_id,
+            "task_execution_id": refusal.task_execution_id,
+            "path": refusal.path,
+            "reason": refusal.message,
+        }),
+    }
+}
+
+#[async_trait]
+impl cloacina::security::SecretRefusalRecorder for AuditSecretRefusalRecorder {
+    async fn record(&self, refusal: &cloacina::security::SecretRefusal) {
+        let dal = cloacina::dal::DAL::new(self.admin_db.clone());
+        if let Err(e) = dal.audit_events().insert(refusal_audit_row(refusal)).await {
+            metrics::counter!("cloacina_audit_write_errors_total").increment(1);
+            tracing::warn!(
+                tenant = %refusal.tenant,
+                package = %refusal.package,
+                error = %e,
+                "audit: the row of a refused secret could not be written"
+            );
+        }
     }
 }
 
@@ -143,4 +208,34 @@ mod tests {
     // additionally proven piecewise by the `cloacina` crate's own
     // `SecretStoreResolver` tests (metadata-only reads, tenant isolation, grant
     // gating) under sqlite.
+
+    use super::*;
+
+    /// CLOACINA-T-1081: the audit row of a refused secret names the secret,
+    /// the package and the task, in the tenant, with outcome `denied`.
+    #[test]
+    fn a_refused_secret_has_an_audit_row_with_names_only() {
+        let refusal = cloacina::security::SecretRefusal {
+            tenant: "acme".into(),
+            package: "pkg_a".into(),
+            version: Some("1.0.0".into()),
+            task: "acme::pkg_a::wf::t1".into(),
+            workflow_execution_id: "run-1".into(),
+            task_execution_id: "task-1".into(),
+            secret: "b_secret".into(),
+            path: "fleet",
+            message: "b_secret: package `pkg_a` does not declare it".into(),
+        };
+        let row = refusal_audit_row(&refusal);
+        assert_eq!(row.tenant_id.as_deref(), Some("acme"));
+        assert_eq!(row.action, ACTION_SECRET_REFUSED);
+        assert_eq!(row.target_kind, "secret");
+        assert_eq!(row.target.as_deref(), Some("b_secret"));
+        assert_eq!(row.outcome, "denied");
+        assert_eq!(row.actor_key_id, "server");
+        assert_eq!(row.detail["package"], "pkg_a");
+        assert_eq!(row.detail["version"], "1.0.0");
+        assert_eq!(row.detail["task"], "acme::pkg_a::wf::t1");
+        assert_eq!(row.detail["path"], "fleet");
+    }
 }

@@ -49,9 +49,13 @@ use cloacina::fleet::{
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
 use cloacina::retry::RetryPolicy;
-use cloacina::security::{decode_pool_public_key, resolve_and_wrap_secrets, secret_ref_names};
+use cloacina::security::{
+    SecretGrant, SecretRefusal, decode_pool_public_key, record_secret_refusal,
+    resolve_and_wrap_secrets, secret_bindings, secret_ref_names,
+};
 use cloacina::task::TaskNamespace;
 use cloacina::{Context, SecretResolver};
+use std::collections::BTreeSet;
 use tracing::{debug, info, warn};
 
 use crate::agent_registry::{
@@ -241,18 +245,24 @@ const FLEET_CLAIM_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 /// CLOACI-T-0861 / I-0133 (D-2/D-5) — builds the grant-gated secret resolver a
 /// fleet dispatch uses to resolve + HPKE-wrap a task's secrets.
 ///
-/// This is the seam between the fleet dispatch path (which is fully wired: extract
-/// the task's `$secret` names, consume a one-time pooled key, wrap, attach) and
-/// the tenant secrets subsystem (the tenant→`org_id` mapping, the server KEK, and
-/// the package's `ResolvedGrants` → `SecretAllow`). A concrete impl belongs to
-/// the (not-yet-built) server secrets subsystem; when absent, secret-referencing
-/// fleet tasks fail closed at dispatch (never a plaintext leak).
+/// This is the seam between the fleet dispatch path (extract the task's
+/// `$secret` names, check them against the package's declared secrets,
+/// consume a one-time pooled key, wrap, attach) and the tenant secrets
+/// subsystem (the tenant→`org_id` mapping, the server KEK). When absent,
+/// secret-referencing fleet tasks fail closed at dispatch (never a plaintext
+/// leak).
 #[async_trait]
 pub trait FleetSecretResolverFactory: Send + Sync {
-    /// Build a fail-closed, grant-gated [`SecretResolver`] scoped to `tenant` +
-    /// `package`. `None` ⇒ this deployment cannot resolve secrets for that scope
-    /// (secrets not configured, or no grants) — the dispatch then fails closed.
-    async fn resolver_for(&self, tenant: &str, package: &str) -> Option<Arc<dyn SecretResolver>>;
+    /// Build a fail-closed [`SecretResolver`] scoped to `tenant` that resolves
+    /// only the stored secrets in `allowed` (CLOACINA-T-1081: the grant of
+    /// the task, from what `package` declares). `None` ⇒ this deployment
+    /// cannot resolve secrets for that scope — the dispatch then fails closed.
+    async fn resolver_for(
+        &self,
+        tenant: &str,
+        package: &str,
+        allowed: &BTreeSet<String>,
+    ) -> Option<Arc<dyn SecretResolver>>;
 }
 
 pub struct FleetExecutor {
@@ -376,6 +386,7 @@ impl FleetExecutor {
         agent_id: &str,
         execution_id: &str,
         secret_names: &[String],
+        grant: &SecretGrant,
     ) -> Result<(Vec<WrappedSecret>, Option<String>), String> {
         let Some(factory) = self.secret_resolver_factory.as_ref() else {
             return Err(format!(
@@ -387,7 +398,11 @@ impl FleetExecutor {
             ));
         };
         let Some(resolver) = factory
-            .resolver_for(&namespace.tenant_id, &namespace.package_name)
+            .resolver_for(
+                &namespace.tenant_id,
+                &namespace.package_name,
+                &grant.allowed,
+            )
             .await
         else {
             return Err(format!(
@@ -773,49 +788,51 @@ impl TaskExecutor for FleetExecutor {
             // CLOACINA-T-1018: the lookup goes through the execution's version
             // pin. The first task of an execution pins the active version; each
             // later task gets that version, also after a newer one is active.
-            let (primary_digest, language, package_version, python_platforms) = match self
-                .dal
-                .workflow_packages()
-                .resolve_dispatch_for_execution(
-                    event.workflow_execution_id,
-                    &namespace.package_name,
-                    None,
-                )
-                .await
-            {
-                Ok(Some(pkg)) => (
-                    pkg.content_hash,
-                    pkg.language,
-                    pkg.version,
-                    pkg.python_platforms,
-                ),
-                Ok(None) => {
-                    return Ok(self
-                        .reconcile_error(
-                            &event,
-                            &claimed_task,
-                            &retry_policy,
-                            start.elapsed(),
-                            format!(
-                                "no active (success, non-superseded) artifact for package `{}` \
+            let (primary_digest, language, package_version, python_platforms, declared_secrets) =
+                match self
+                    .dal
+                    .workflow_packages()
+                    .resolve_dispatch_for_execution(
+                        event.workflow_execution_id,
+                        &namespace.package_name,
+                        None,
+                    )
+                    .await
+                {
+                    Ok(Some(pkg)) => (
+                        pkg.content_hash,
+                        pkg.language,
+                        pkg.version,
+                        pkg.python_platforms,
+                        pkg.declared_secrets,
+                    ),
+                    Ok(None) => {
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &retry_policy,
+                                start.elapsed(),
+                                format!(
+                                    "no active (success, non-superseded) artifact for package `{}` \
                                  in tenant {:?}",
-                                namespace.package_name, task_tenant
-                            ),
-                        )
-                        .await);
-                }
-                Err(e) => {
-                    return Ok(self
-                        .reconcile_error(
-                            &event,
-                            &claimed_task,
-                            &retry_policy,
-                            start.elapsed(),
-                            format!("artifact digest lookup failed: {}", e),
-                        )
-                        .await);
-                }
-            };
+                                    namespace.package_name, task_tenant
+                                ),
+                            )
+                            .await);
+                    }
+                    Err(e) => {
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &retry_policy,
+                                start.elapsed(),
+                                format!("artifact digest lookup failed: {}", e),
+                            )
+                            .await);
+                    }
+                };
 
             // CLOACI-T-0780: an INTERPRETED package (e.g. Python) has no arch-specific
             // cdylib — it runs from its source on ANY agent. A COMPILED package runs
@@ -1071,7 +1088,41 @@ impl TaskExecutor for FleetExecutor {
             //        from the selected agent. Fail the dispatch CLEANLY on any
             //        problem (no resolver, no grant, exhausted pool) — never a
             //        plaintext fallback, never a reused key.
+            //
+            //        CLOACINA-T-1081: only the secrets the task's package
+            //        declares, through the run's bindings. A name outside that
+            //        grant refuses the dispatch; nothing is resolved for it.
             let secret_names = secret_ref_names(&context_value);
+            let grant = SecretGrant::from_declaration(
+                &namespace.package_name,
+                Some(&package_version),
+                declared_secrets.as_deref(),
+                &secret_bindings(&context_value),
+            );
+            if let Some(refused) = secret_names.iter().find(|name| !grant.permits(name)) {
+                let message = grant.refusal_message(refused);
+                record_secret_refusal(&SecretRefusal {
+                    tenant: namespace.tenant_id.clone(),
+                    package: namespace.package_name.clone(),
+                    version: Some(package_version.clone()),
+                    task: event.task_name.clone(),
+                    workflow_execution_id: event.workflow_execution_id.to_string(),
+                    task_execution_id: event.task_execution_id.to_string(),
+                    secret: refused.clone(),
+                    path: "fleet",
+                    message: message.clone(),
+                })
+                .await;
+                return Ok(self
+                    .reconcile_error(
+                        &event,
+                        &claimed_task,
+                        &retry_policy,
+                        start.elapsed(),
+                        format!("fleet secret delivery refused: secret not granted: {message}"),
+                    )
+                    .await);
+            }
             let (wrapped_secrets, secret_key_id) = if secret_names.is_empty() {
                 (Vec::new(), None)
             } else {
@@ -1081,6 +1132,7 @@ impl TaskExecutor for FleetExecutor {
                         &agent_id,
                         &event.task_execution_id.0.to_string(),
                         &secret_names,
+                        &grant,
                     )
                     .await
                 {
