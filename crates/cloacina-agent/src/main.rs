@@ -2442,6 +2442,86 @@ mod tests {
         }
     }
 
+    // ── CLOACINA-T-1058: a packet the agent cannot decode ────────────────
+
+    /// A push frame whose payload is a work packet of another shape: it has
+    /// the task's ids, and lacks fields this agent needs (`artifact`,
+    /// `timeout_seconds`), as a packet from a newer or older server can.
+    fn undecodable_push(push_id: i64, kind: &str) -> String {
+        let payload = serde_json::json!({
+            "protocol_version": AGENT_PROTOCOL_VERSION,
+            "task_execution_id": "00000000-0000-0000-0000-000000001058",
+            "firing_id": "00000000-0000-0000-0000-000000001058",
+            "attempt": 1,
+            "dispatch_id": "d1",
+        });
+        serde_json::json!({
+            "type": "push",
+            "id": push_id,
+            "kind": kind,
+            "payload_b64": BASE64.encode(serde_json::to_vec(&payload).unwrap()),
+        })
+        .to_string()
+    }
+
+    /// Give the agent one push frame it cannot decode. Returns whether the
+    /// agent acked the push and how many reports the server got.
+    async fn deliver_undecodable(
+        push_id: i64,
+        kind: &str,
+        in_flight: u32,
+        max_concurrency: u32,
+    ) -> (bool, u32) {
+        let (server, hits) = result_server(vec![200]).await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        let _ = handle_text_frame(
+            undecodable_push(push_id, kind),
+            &reqwest::Client::new(),
+            &server,
+            "key",
+            "agent-a",
+            "any-triple",
+            &Arc::new(AtomicU32::new(in_flight)),
+            max_concurrency,
+            &ack_tx,
+            &Arc::new(tempdir()),
+            &empty_key_pool(),
+        )
+        .await;
+        // The report and the ack come from a spawned task.
+        let acked = tokio::time::timeout(Duration::from_secs(2), ack_rx.recv())
+            .await
+            .is_ok();
+        (acked, hits.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test]
+    async fn a_full_agent_reports_a_packet_it_cannot_decode() {
+        let (acked, reports) = deliver_undecodable(1_058_001, WORK_PACKET_KIND, 1, 1).await;
+        assert!(
+            reports >= 1,
+            "the server must learn of the packet: acked={acked}, reports={reports}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_agent_with_a_free_slot_reports_a_packet_it_cannot_decode() {
+        let (acked, reports) = deliver_undecodable(1_058_002, WORK_PACKET_KIND, 0, 1).await;
+        assert!(
+            reports >= 1,
+            "the server must learn of the packet: acked={acked}, reports={reports}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_agent_reports_a_graph_packet_it_cannot_decode() {
+        let (acked, reports) = deliver_undecodable(1_058_003, GRAPH_PACKET_KIND, 0, 1).await;
+        assert!(
+            reports >= 1,
+            "the server must learn of the packet: acked={acked}, reports={reports}"
+        );
+    }
+
     #[test]
     fn only_a_4xx_that_rejects_the_report_is_permanent() {
         use reqwest::StatusCode;
