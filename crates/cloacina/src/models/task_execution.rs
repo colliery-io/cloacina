@@ -90,6 +90,12 @@ pub struct TaskExecution {
     /// declares none has its workflow's.
     #[serde(default = "default_priority")]
     pub task_priority: i32,
+    /// The runner whose claim the fleet dispatch was recorded under
+    /// (CLOACINA-T-1136). A replica takes over the wait of a stale dispatch
+    /// only while this equals `claimed_by`. `None` on a row of the previous
+    /// release, or in no fleet dispatch.
+    #[serde(default)]
+    pub fleet_dispatch_claimed_by: Option<UniversalUuid>,
 }
 
 fn default_priority() -> i32 {

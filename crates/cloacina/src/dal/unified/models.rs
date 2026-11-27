@@ -139,6 +139,9 @@ pub struct UnifiedTaskExecution {
     /// then by `waiting_since`.
     pub workflow_priority: i32,
     pub task_priority: i32,
+    /// CLOACINA-T-1136: the runner whose claim the fleet dispatch was
+    /// recorded under.
+    pub fleet_dispatch_claimed_by: Option<UniversalUuid>,
 }
 
 #[derive(Debug, Insertable)]
@@ -973,6 +976,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             updated_at: u.updated_at,
             workflow_priority: u.workflow_priority,
             task_priority: u.task_priority,
+            fleet_dispatch_claimed_by: u.fleet_dispatch_claimed_by,
         }
     }
 }

@@ -93,6 +93,7 @@ mod unified_schema {
             updated_at -> DbTimestamp,
             workflow_priority -> Integer,
             task_priority -> Integer,
+            fleet_dispatch_claimed_by -> Nullable<DbUuid>,
         }
     }
 
