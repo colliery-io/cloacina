@@ -620,6 +620,11 @@ filesystem registry): build the package with `--vendor`.
 ### "declares dependencies in pyproject.toml … and has no requirements.lock"
 
 Run `cloacinactl package build .` to write the lock file, then publish again.
+`cloacinactl package validate`, the server's upload (status 400, code
+`python_dependencies_not_locked`) and the compiler give this error with the same
+check. The same code comes with an error that names a line of
+`requirements.lock`: an option, a URL or a path, a pin with no `--hash`, or a
+dependency of `pyproject.toml` that the lock does not pin.
 
 ### "has native dependencies vendored for …, and none for this platform"
 

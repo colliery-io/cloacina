@@ -237,8 +237,19 @@ pub async fn upload_workflow(
                 "Failed to register workflow for tenant '{}': {}",
                 tenant_id, e
             );
-            ApiError::bad_request("upload_failed", format!("{}", e)).into_response()
+            upload_error(&e).into_response()
         }
+    }
+}
+
+/// The answer to a failed registration. A Python package with dependencies
+/// that no valid lock file pins has a code of its own (CLOACINA-T-1097).
+fn upload_error(e: &cloacina::registry::error::RegistryError) -> ApiError {
+    match e {
+        cloacina::registry::error::RegistryError::PythonDependenciesNotLocked { reason } => {
+            ApiError::bad_request("python_dependencies_not_locked", reason.clone())
+        }
+        _ => ApiError::bad_request("upload_failed", format!("{}", e)),
     }
 }
 
@@ -989,4 +1000,35 @@ async fn extract_file_field(multipart: &mut Multipart) -> Result<Vec<u8>, FileFi
     Err(FileFieldError::Invalid(
         "no 'file' field in multipart request".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod upload_error_tests {
+    use super::upload_error;
+    use axum::http::StatusCode;
+    use cloacina::registry::error::RegistryError;
+
+    /// CLOACINA-T-1097: a Python package with dependencies and no valid lock
+    /// file has its own code, and its message is the check's text.
+    #[test]
+    fn python_dependencies_not_locked_has_its_own_code() {
+        let reason = "package `demo` declares dependencies in pyproject.toml (six) and has no \
+                      requirements.lock and no vendor/ folder."
+            .to_string();
+        let e = upload_error(&RegistryError::PythonDependenciesNotLocked {
+            reason: reason.clone(),
+        });
+        assert_eq!(e.status, StatusCode::BAD_REQUEST);
+        assert_eq!(e.code, "python_dependencies_not_locked");
+        assert_eq!(e.message, reason);
+    }
+
+    #[test]
+    fn other_registration_errors_stay_upload_failed() {
+        let e = upload_error(&RegistryError::ValidationError {
+            reason: "bad manifest".to_string(),
+        });
+        assert_eq!(e.status, StatusCode::BAD_REQUEST);
+        assert_eq!(e.code, "upload_failed");
+    }
 }

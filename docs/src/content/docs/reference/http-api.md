@@ -770,7 +770,8 @@ version stays in service. An upload of the same bytes returns the same
 |---|---|---|
 | `400` | `{"error": "no 'file' field in multipart request"}` | Missing file field |
 | `400` | `{"error": "empty package file"}` | Zero-byte file |
-| `400` | `{"error": "<detail>"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
+| `400` | `{"error": "<detail>", "code": "upload_failed"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
+| `400` | `{"error": "package '<name>' declares dependencies in pyproject.toml (…) and has no requirements.lock and no vendor/ folder. Run 'cloacinactl package build' …", "code": "python_dependencies_not_locked"}` | A Python package with dependencies and no `vendor/` folder has no `requirements.lock`, or its lock file fails the compiler's checks (an option line, a URL or a path, a pin with no `--hash`, a dependency not pinned; the error names the line). The checks of `cloacinactl package validate` and the compiler. Nothing is stored and no build is queued |
 | `413` | `{"error": "package too large: the upload is <N> bytes (<M> MiB), and the limit of this server is <L> bytes (<K> MiB). …", "code": "package_too_large"}` | The upload is larger than `--max-package-bytes` (`CLOACINA_MAX_PACKAGE_BYTES`, default 100 MiB) |
 | `500` | `{"error": "internal registry error"}` | Registry initialization failure |
 

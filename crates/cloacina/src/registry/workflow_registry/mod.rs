@@ -586,6 +586,16 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
             .map_err(|reason| RegistryError::ValidationError { reason })?;
         }
 
+        // CLOACINA-T-1097: refuse at upload a Python package the compiler
+        // cannot build: dependencies with no lock file and no `vendor/`, or a
+        // lock file that fails the compiler's checks. The same function as the
+        // compiler and `cloacinactl package validate`, on the same unpacked
+        // folder. Nothing is stored before this point.
+        if manifest.metadata.language.eq_ignore_ascii_case("python") {
+            cloacina_workflow_plugin::python_vendor::vendor_plan(&pkg_name, &source_dir)
+                .map_err(|reason| RegistryError::PythonDependenciesNotLocked { reason })?;
+        }
+
         // 3. Content hash for idempotency + audit of what's installed.
         let content_hash = {
             use sha2::{Digest, Sha256};
@@ -1066,5 +1076,215 @@ mod tests {
         let active: Vec<_> = versions.iter().filter(|v| v.active).collect();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, id_v1);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CLOACINA-T-1097: a Python package the compiler cannot build is refused
+    // at upload, by the compiler's own lock checks.
+    // ────────────────────────────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000001";
+
+    /// Pack a minimal Python source package. `files` are extra files, by
+    /// path from the package root.
+    #[cfg(feature = "sqlite")]
+    fn pack_python(name: &str, files: &[(&str, &str)]) -> Vec<u8> {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("pkg");
+        std::fs::create_dir_all(src.join("workflow/demo")).unwrap();
+        std::fs::write(
+            src.join("package.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\
+                 interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+                 extension = \"cloacina\"\n\n[metadata]\nlanguage = \"python\"\n\
+                 workflow_name = \"demo\"\nentry_module = \"demo.tasks\"\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(src.join("workflow/demo/__init__.py"), "").unwrap();
+        std::fs::write(src.join("workflow/demo/tasks.py"), "# tasks\n").unwrap();
+        for (path, text) in files {
+            let path = src.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let out = dir.path().join("out.cloacina");
+        fidius_core::package::pack_package(&src, Some(&out)).unwrap();
+        std::fs::read(&out).unwrap()
+    }
+
+    #[cfg(feature = "sqlite")]
+    const PYPROJECT_SIX: &str =
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\ndependencies = [\"six>=1.16\"]\n";
+
+    /// Register `bytes`; expect the refusal of CLOACINA-T-1097, and that
+    /// nothing of the package is in the registry or the build queue.
+    #[cfg(feature = "sqlite")]
+    async fn expect_not_locked(name: &str, bytes: Vec<u8>) -> String {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let mut registry = sqlite_registry().await;
+        let err = registry.register_workflow(bytes).await.unwrap_err();
+        let reason = match err {
+            super::RegistryError::PythonDependenciesNotLocked { reason } => reason,
+            other => panic!("expected PythonDependenciesNotLocked, got {other:?}"),
+        };
+        assert!(
+            registry
+                .list_package_versions(name)
+                .await
+                .unwrap()
+                .is_empty(),
+            "a refused upload must store no row"
+        );
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+        reason
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_dependencies_and_no_lock_is_refused() {
+        let reason = expect_not_locked(
+            "py-nolock",
+            pack_python("py-nolock", &[("pyproject.toml", PYPROJECT_SIX)]),
+        )
+        .await;
+        assert!(reason.contains("requirements.lock"), "{reason}");
+        assert!(reason.contains("cloacinactl package build"), "{reason}");
+        assert!(reason.contains("six"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_lock_option_line_is_refused_with_its_line() {
+        let lock = format!(
+            "# locked\n--index-url https://example.invalid/simple\nsix==1.17.0 --hash={HASH}\n"
+        );
+        let reason = expect_not_locked(
+            "py-opt",
+            pack_python(
+                "py-opt",
+                &[
+                    ("pyproject.toml", PYPROJECT_SIX),
+                    ("requirements.lock", &lock),
+                ],
+            ),
+        )
+        .await;
+        assert!(reason.contains("line 2"), "{reason}");
+        assert!(reason.contains("--index-url"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_lock_url_is_refused_with_its_line() {
+        let lock = "six @ https://example.invalid/six-1.17.0-py2.py3-none-any.whl\n";
+        let reason = expect_not_locked(
+            "py-url",
+            pack_python(
+                "py-url",
+                &[
+                    ("pyproject.toml", PYPROJECT_SIX),
+                    ("requirements.lock", lock),
+                ],
+            ),
+        )
+        .await;
+        assert!(reason.contains("line 1"), "{reason}");
+        assert!(reason.contains("not a pinned version"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_pin_with_no_hash_is_refused_with_its_line() {
+        let lock = "# locked\n\nsix==1.17.0\n";
+        let reason = expect_not_locked(
+            "py-nohash",
+            pack_python(
+                "py-nohash",
+                &[
+                    ("pyproject.toml", PYPROJECT_SIX),
+                    ("requirements.lock", lock),
+                ],
+            ),
+        )
+        .await;
+        assert!(reason.contains("line 3"), "{reason}");
+        assert!(reason.contains("no `--hash`"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_dependency_not_pinned_is_refused() {
+        let pyproject = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\
+                         dependencies = [\"six>=1.16\", \"PyYAML\"]\n";
+        let lock = format!("six==1.17.0 --hash={HASH}\n");
+        let reason = expect_not_locked(
+            "py-stale",
+            pack_python(
+                "py-stale",
+                &[("pyproject.toml", pyproject), ("requirements.lock", &lock)],
+            ),
+        )
+        .await;
+        assert!(reason.contains("`pyyaml`"), "{reason}");
+    }
+
+    /// A package with `vendor/`, one with no dependencies, and one with a
+    /// good lock file are accepted, and each waits for its build.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_uploads_the_compiler_can_build_are_accepted() {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let lock = format!("# locked\nsix==1.17.0 \\\n    --hash={HASH}\n");
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            (
+                "py-vendored",
+                pack_python(
+                    "py-vendored",
+                    &[
+                        ("pyproject.toml", PYPROJECT_SIX),
+                        ("vendor/x86_64-linux/six.py", "# six\n"),
+                    ],
+                ),
+            ),
+            ("py-nodeps", pack_python("py-nodeps", &[])),
+            (
+                "py-nodeps-pyproject",
+                pack_python(
+                    "py-nodeps-pyproject",
+                    &[(
+                        "pyproject.toml",
+                        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+                    )],
+                ),
+            ),
+            (
+                "py-locked",
+                pack_python(
+                    "py-locked",
+                    &[
+                        ("pyproject.toml", PYPROJECT_SIX),
+                        ("requirements.lock", &lock),
+                    ],
+                ),
+            ),
+        ];
+        for (name, bytes) in cases {
+            let mut registry = sqlite_registry().await;
+            let id = registry
+                .register_workflow(bytes)
+                .await
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let claimed = registry
+                .claim_next_build()
+                .await
+                .unwrap()
+                .unwrap_or_else(|| panic!("{name}: no build queued"));
+            assert_eq!(claimed.id, id, "{name}");
+        }
     }
 }
