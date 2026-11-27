@@ -338,7 +338,8 @@ what happens when an attempt fails.
   to an agent carries `--fleet-task-timeout-s`, and the server waits for its
   result for that limit plus 30 seconds, then reports the firing as failed. A
   graph has no time limit of its own, and the maximum does not apply to it.
-  The agent does not stop a firing at the limit.
+  The agent kills the firing's worker at the limit, as it does a task's, and
+  the server sends a cancel when its wait ends.
 - **The retry policy is the task's own.** `retry_attempts`, `retry_condition`
   and the backoff settings of the task apply on the fleet as they do in
   process. `retry_attempts = 0` or `retry_condition = "never"` gives one
@@ -617,8 +618,6 @@ to clean up. A slot is free when the worker process has exited.
 - **A process that leaves.** A process the task starts in a new session
   leaves the worker's process group. It is still counted for the memory limit
   while its parents live, and it is not killed with the worker.
-- **Graph firings.** A computation graph firing runs in the agent process,
-  with no worker, no memory limit and no kill.
 - **Systems other than Linux.** macOS has the memory watchdog, the time limit
   and the cancel; it has no `setrlimit` limits and no out-of-memory score.
 
@@ -640,6 +639,35 @@ debug build): a worker with no package starts, answers and exits in about
 13 ms; a Python task with one small module and no dependencies takes about
 100 ms from the start of the worker to its result. A Python worker also
 unpacks the package for each task.
+
+**Graph firings.** A computation-graph firing that the server sends to an
+agent runs in a worker process too, with the same rows of the table above. The
+agent fetches the package; the worker loads it (a Rust graph: its library; a
+Python graph: the import, with the package's providers), runs the graph on the
+reactor's input snapshot, and hands back the outputs. Accumulators, the input
+cache and the reactor's state stay on the server; a firing carries no secrets.
+
+- Its memory limit is the share of a task with no request: a graph has no
+  memory request.
+- Its time limit is the server's default (`--fleet-task-timeout-s`).
+- A cancel names the firing, and the agent kills that worker.
+- The errors name a firing: `graph firing exceeded its memory limit of
+  <limit>`, `graph firing exceeded timeout of <n>s`. The reactor gets the
+  error as a failed firing and does not run the firing again in-process.
+
+A firing pays the start of a worker and the load of its package each time.
+Measured on a development machine (Apple silicon, a debug build, the test
+binary as the worker): a Rust graph firing of a small routing graph takes
+about 210 ms in a worker, most of it the load of the library, and about
+0.2 ms in the agent process once the library is loaded. A reactor waits for
+each firing before the next, so this cost lowers how often it can fire. A
+graph cannot be marked inline yet: the packet has an `inline` field, which
+the agent obeys, and the server sends it as `false`.
+
+With versions mixed: an agent from before graph firings ran in workers runs a
+firing in its own process, as before, and acks a cancel and does nothing with
+it. A server from before sends no cancel for a firing; the agent still kills
+the firing's worker at its time limit.
 
 ### What a publish checks
 

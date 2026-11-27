@@ -120,6 +120,8 @@ The reactor does not hard-code *where* the compute happens. When it decides to f
 
 Because every firing event carries the in-process closure, the fleet executor can always fall back to local execution rather than wedge the reactor's hot path. It falls back *before* dispatch — an embedded graph with no owning package, a Python package (interpreted graphs stay in-process for now), no eligible agent, or an enqueue error — running the closure locally with a warning. It deliberately does **not** fall back *after* dispatch: once an agent has accepted a firing, a timeout or a reported error surfaces as a failed result rather than a local re-run, because double-running one firing is worse than reporting it failed.
 
+On the agent each firing runs in a worker process of its own, held to a memory limit and to its time limit, and the server sends a cancel when its wait for the result ends. A firing that goes over its memory limit fails alone, and the agent's other work goes on. Each firing pays the start of a worker and the load of its package, and the reactor waits for each firing before the next. See [Worker processes and limits](../../service/execution-agent-fleet/#worker-processes-and-limits).
+
 ### Health States
 
 | State | Meaning | Behavior |

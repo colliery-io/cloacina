@@ -39,6 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     before this change ignores `inline` and the cancel, and runs tasks inside
     its own process as before. A server from before it sends no `inline` and
     no cancel.
+- **Fleet: computation-graph firings run in a worker process too**
+  (CLOACINA-T-1125). A firing the server sends to an agent gets the memory
+  share of a task with no request, is killed at its time limit, and is
+  stopped by a cancel when the server's wait for its result ends. A firing
+  over its limit fails with `graph firing exceeded its memory limit of ...`.
+  Each firing pays the start of a worker and the load of its package, and a
+  reactor waits for each firing before the next: a reactor that fires often
+  fires less often. A graph cannot be marked inline yet. An agent from before
+  this change runs firings in its own process, as before.
 
 ## [0.12.0] - 2026-10-13
 
