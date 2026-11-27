@@ -20,6 +20,17 @@
 //! single `run()` entrypoint that boots the axum HTTP server with auth, tenant
 //! management, workflow upload, and execution APIs.
 
+/// Install the process default rustls crypto provider (aws-lc-rs). Call it
+/// once, first thing in `main`, before any TLS client is built.
+///
+/// CLOACINA-T-1030: rustls has both ring and aws-lc-rs compiled in (see
+/// Cargo.toml). With no process default it panics when a client asks it to
+/// pick one, which is what the Kubernetes fleet actuator's client does at
+/// start. A second call does nothing.
+pub fn install_default_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 pub mod actuator;
 pub mod agent_registry;
 pub mod alerts;
@@ -2211,6 +2222,28 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
             delete(crate::routes::instances::delete_instance),
         )
+        // Backfills (CLOACINA-T-1020). The static `backfills` segment wins
+        // over the `{version}` wildcard of the delete route below.
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            post(crate::routes::backfills::create_backfill),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills",
+            get(crate::routes::backfills::list_backfills),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
+            get(crate::routes::backfills::get_backfill),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+            post(crate::routes::backfills::cancel_backfill),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+            post(crate::routes::backfills::retry_backfill),
+        )
         .route(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::routes::workflows::delete_workflow),
@@ -2754,6 +2787,7 @@ mod tests {
 
     /// Router tests of the audit record (CLOACINA-T-1024).
     mod audit_routes;
+    mod backfill_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;

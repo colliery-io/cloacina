@@ -21,6 +21,7 @@ export {
   type AuditListResponse,
   type CloacinaClientOptions,
   type ListAuditQuery,
+  type ListBackfillsQuery,
   type CreateSecretBody,
   type ErrorBody,
   type RotateSecretBody,

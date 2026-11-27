@@ -37,6 +37,11 @@ export type ListInstancesQuery = NonNullable<
   paths["/v1/tenants/{tenant_id}/workflows/{name}/instances"]["get"]["parameters"]["query"]
 >;
 
+/** Query string for the backfill list (paging) — CLOACINA-T-1020. */
+export type ListBackfillsQuery = NonNullable<
+  paths["/v1/tenants/{tenant_id}/workflows/{name}/backfills"]["get"]["parameters"]["query"]
+>;
+
 // ---- audit record (CLOACINA-T-1024) ----
 
 /** Query string for the audit record: filters, page size and cursor. */
@@ -633,6 +638,106 @@ export class CloacinaClient {
               instance,
             },
           },
+        },
+      ),
+    );
+  }
+
+  // ---- backfills (CLOACINA-T-1020) ----
+
+  /**
+   * Create a backfill of a workflow: one run for each fire time of the cron
+   * expression from `start` to `end`, oldest first, with its own limit on
+   * active runs.
+   */
+  async createBackfill(
+    workflow: string,
+    body: schemas["CreateBackfillRequest"],
+    tenant?: string,
+  ): Promise<schemas["BackfillSummary"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name: workflow },
+          },
+          body,
+        },
+      ),
+    );
+  }
+
+  /** The backfills of a workflow, newest first, each with its progress. */
+  async listBackfills(
+    workflow: string,
+    query?: ListBackfillsQuery,
+    tenant?: string,
+  ): Promise<schemas["TenantListResponse_BackfillSummary"]> {
+    return unwrap(
+      await this.api.GET("/v1/tenants/{tenant_id}/workflows/{name}/backfills", {
+        params: {
+          path: { tenant_id: this.#tenant(tenant), name: workflow },
+          query: query as never,
+        },
+      }),
+    );
+  }
+
+  /** One backfill, with its progress and its failed intervals. */
+  async getBackfill(
+    workflow: string,
+    id: string,
+    tenant?: string,
+  ): Promise<schemas["BackfillDetail"]> {
+    return unwrap(
+      await this.api.GET(
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name: workflow, id },
+          },
+        },
+      ),
+    );
+  }
+
+  /**
+   * Stop a backfill: no new interval gets a run, active runs end on their
+   * own.
+   */
+  async cancelBackfill(
+    workflow: string,
+    id: string,
+    tenant?: string,
+  ): Promise<schemas["BackfillSummary"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name: workflow, id },
+          },
+        },
+      ),
+    );
+  }
+
+  /** Create a new backfill from the failed intervals of backfill `id`. */
+  async retryBackfill(
+    workflow: string,
+    id: string,
+    body: schemas["RetryBackfillRequest"] = {},
+    tenant?: string,
+  ): Promise<schemas["BackfillSummary"]> {
+    return unwrap(
+      await this.api.POST(
+        "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+        {
+          params: {
+            path: { tenant_id: this.#tenant(tenant), name: workflow, id },
+          },
+          body,
         },
       ),
     );

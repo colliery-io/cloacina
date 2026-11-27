@@ -44,6 +44,8 @@
 //! └───────────────┘                   └──────────────────┘              └─────────────┘
 //! ```
 
+mod backfill;
+
 use crate::context::Context;
 use crate::cron_evaluator::CronEvaluator;
 use crate::dal::DAL;
@@ -185,6 +187,11 @@ pub struct Scheduler {
     /// again each `cron_held_poll_interval` and when one of their runs ends.
     /// Shared by the clones of the scheduler that process schedules.
     cron_held: CronHeldSet,
+    /// The backfills that are due but held: at their limit on active runs,
+    /// or with every interval taken and a run still active (CLOACINA-T-1020,
+    /// see the `backfill` module). Apart from `cron_held`, which the cron
+    /// pass prunes against the due cron schedules.
+    backfill_held: CronHeldSet,
     /// Tracks when reactor subscriptions were last polled
     /// (CLOACI-I-0100 / T-0599).
     last_reactor_poll: Option<Instant>,
@@ -236,7 +243,7 @@ fn compute_cron_sleep_delay(
 /// `schedule_expression`, and the interval that the run covers
 /// (CLOACINA-T-1020): `interval_start` is the fire time of the expression
 /// before `scheduled_time`, `interval_end` is `scheduled_time`. Times are
-/// RFC 3339 in UTC.
+/// RFC 3339 in UTC. On a run of a backfill, also `backfill_id`.
 ///
 /// Called after the bound params are merged, and it replaces a key that is
 /// already there, so on a scheduled run the scheduler's values win. The cron
@@ -255,7 +262,7 @@ pub(crate) fn stamp_cron_fire_keys(
             message: format!("Cron evaluation error: {}", e),
         })?;
 
-    let keys = [
+    let mut keys = vec![
         ("scheduled_time", scheduled_time.to_rfc3339()),
         ("schedule_id", schedule.id.to_string()),
         ("schedule_timezone", tz.to_string()),
@@ -272,6 +279,13 @@ pub(crate) fn stamp_cron_fire_keys(
             scheduled_time.to_rfc3339(),
         ),
     ];
+    // A run of a backfill also names its backfill (CLOACINA-T-1020).
+    if schedule.is_backfill() {
+        keys.push((
+            crate::workflow_instance::BACKFILL_ID_KEY,
+            schedule.id.to_string(),
+        ));
+    }
     for (key, value) in keys {
         let value = serde_json::Value::String(value);
         if context.update(key, value.clone()).is_err() {
@@ -319,6 +333,7 @@ impl Scheduler {
             runtime,
             cron_change,
             cron_held: Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new())),
+            backfill_held: Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new())),
             last_poll_times: HashMap::new(),
             last_reactor_poll: None,
             last_reactor_prune: None,
@@ -482,7 +497,10 @@ impl Scheduler {
     /// it is held (CLOACINA-T-1020). So the sleep then follows the earliest
     /// due time of the OTHER schedules, capped at `cron_held_poll_interval`:
     /// the others still fire on time and the held ones are looked at again.
-    async fn next_cron_wake(&self) -> (Option<DateTime<Utc>>, Duration) {
+    ///
+    /// The loop calls `next_cron_wake` (in the `backfill` module), which
+    /// takes this and wakes sooner for a due backfill.
+    async fn next_live_cron_wake(&self) -> (Option<DateTime<Utc>>, Duration) {
         let next_due = self.query_next_cron_due().await;
         let held: Vec<UniversalUuid> = self.cron_held.lock().iter().copied().collect();
         if held.is_empty() {
@@ -519,6 +537,10 @@ impl Scheduler {
         debug!("Checking for due cron schedules at {}", now);
         #[cfg(test)]
         CRON_CHECK_PASSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        // The due backfills: schedule rows of their own type, with their own
+        // pass (CLOACINA-T-1020, see the `backfill` module).
+        self.check_and_execute_backfills(now).await;
 
         let due_schedules = self
             .dal
@@ -1890,6 +1912,7 @@ mod tests {
             params: None,
             instance_name: None,
             max_active_runs: None,
+            backfill: None,
         }
     }
 
@@ -1918,6 +1941,7 @@ mod tests {
             params: None,
             instance_name: None,
             max_active_runs: None,
+            backfill: None,
         }
     }
 

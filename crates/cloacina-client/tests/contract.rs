@@ -357,6 +357,83 @@ async fn full_rest_surface_contract() {
     let gone_pool = client.get_pool(&pool_name, None).await;
     assert!(matches!(gone_pool, Err(ClientError::NotFound(_))));
 
+    // ---- backfills (CLOACINA-T-1020) ----
+    // A range in the future: the scheduler takes none of its intervals, so
+    // the progress is the same on each read.
+    let backfill_workflow = "rs_contract_backfill";
+    let backfill = client
+        .create_backfill(
+            backfill_workflow,
+            &types::CreateBackfillRequest {
+                cron: Some("0 * * * *".to_string()),
+                start: "2099-01-01T00:00:00Z".to_string(),
+                end: "2099-01-01T04:00:00Z".to_string(),
+                max_active_runs: Some(2),
+                params: Some(serde_json::json!({ "region": "eu" })),
+                ..Default::default()
+            },
+            None,
+        )
+        .await
+        .expect("create_backfill");
+    assert_eq!(backfill.workflow_name, backfill_workflow);
+    assert_eq!(backfill.status, "running");
+    assert_eq!(backfill.max_active_runs, 2);
+    assert_eq!(backfill.progress.total, 5);
+    assert_eq!(backfill.progress.remaining, 5);
+
+    let backfills = client
+        .list_backfills(backfill_workflow, Some(10), Some(0), None)
+        .await
+        .expect("list_backfills");
+    assert!(backfills.items.iter().any(|b| b.id == backfill.id));
+
+    let detail = client
+        .get_backfill(backfill_workflow, &backfill.id, None)
+        .await
+        .expect("get_backfill");
+    assert_eq!(detail.backfill.id, backfill.id);
+    assert!(detail.failed_intervals.is_empty());
+    assert!(!detail.failed_intervals_truncated);
+
+    // A retry needs a failed interval: 409.
+    let no_retry = client
+        .retry_backfill(
+            backfill_workflow,
+            &backfill.id,
+            &types::RetryBackfillRequest::default(),
+            None,
+        )
+        .await;
+    assert!(matches!(
+        no_retry,
+        Err(ClientError::Server { status: 409, .. })
+    ));
+
+    let cancelled = client
+        .cancel_backfill(backfill_workflow, &backfill.id, None)
+        .await
+        .expect("cancel_backfill");
+    assert_eq!(cancelled.status, "cancelled");
+
+    let bad_backfill = client
+        .create_backfill(
+            backfill_workflow,
+            &types::CreateBackfillRequest {
+                cron: Some("0 * * * *".to_string()),
+                start: "2099-01-02T00:00:00Z".to_string(),
+                end: "2099-01-01T00:00:00Z".to_string(),
+                ..Default::default()
+            },
+            None,
+        )
+        .await;
+    assert!(matches!(bad_backfill, Err(ClientError::InvalidRequest(_))));
+    let no_backfill = client
+        .get_backfill(backfill_workflow, RANDOM_UUID, None)
+        .await;
+    assert!(matches!(no_backfill, Err(ClientError::NotFound(_))));
+
     // ---- computation-graph health ----
     let accs = client.list_accumulators().await.expect("accumulators");
     assert_eq!(accs.total, accs.items.len());

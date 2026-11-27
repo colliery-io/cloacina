@@ -533,6 +533,33 @@ pub fn build_authz_table() -> AuthzTable {
         "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
         Access::tenant(Level::Write),
     );
+    // Backfills (CLOACINA-T-1020): list and inspect are tenant-Read; create,
+    // cancel and retry are tenant-Write.
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}/backfills",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::GET,
+        "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
+        Access::tenant(Level::Read),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/backfills",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
+        Access::tenant(Level::Write),
+    );
+    add(
+        Method::POST,
+        "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
+        Access::tenant(Level::Write),
+    );
     add(
         Method::POST,
         "/tenants/{tenant_id}/triggers/{name}/pause",
@@ -1022,7 +1049,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            76,
+            81,
             "authz table size changed — a route was added/removed without updating the table"
         );
 

@@ -77,6 +77,15 @@ pub async fn execute_workflow(
     let provided_ctx: Option<serde_json::Map<String, serde_json::Value>> =
         body.context.as_ref().and_then(|v| v.as_object()).cloned();
 
+    // CLOACINA-T-1020: a manual run sets the interval of the run in the same
+    // keys as a scheduled run. They are checked here: two timestamps, the
+    // end after the start.
+    if let Some(ctx) = provided_ctx.as_ref()
+        && let Err(message) = cloacina::workflow_instance::validate_interval_keys(ctx)
+    {
+        return ApiError::bad_request("invalid_interval", message).into_response();
+    }
+
     // Merge provided context if any. Route through the SAME merge the
     // instance fire path uses (CLOACI-T-0859): a `{"$secret": "name"}` value
     // is routed AWAY from the plaintext context into the reserved alias map

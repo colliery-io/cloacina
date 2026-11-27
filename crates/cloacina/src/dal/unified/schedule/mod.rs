@@ -21,6 +21,7 @@
 //! Works with both PostgreSQL and SQLite backends, selecting the appropriate
 //! implementation at runtime based on the database connection type.
 
+mod backfill;
 mod crud;
 
 use diesel::prelude::*;
@@ -157,6 +158,10 @@ impl<'a> ScheduleDAL<'a> {
     }
 
     /// Lists schedules with optional filtering by type and enabled status.
+    ///
+    /// With no type, the list holds the cron and trigger schedules. A
+    /// backfill (CLOACINA-T-1020) is not a live schedule: ask for the type
+    /// `"backfill"`, or use `list_backfills`.
     pub async fn list(
         &self,
         schedule_type: Option<&str>,
@@ -169,8 +174,9 @@ impl<'a> ScheduleDAL<'a> {
         let results: Vec<UnifiedSchedule> = crate::interact_on_backend!(self.dal, |conn| {
             let mut query = schedules::table.into_boxed();
 
-            if let Some(ref stype) = schedule_type {
-                query = query.filter(schedules::schedule_type.eq(stype));
+            match schedule_type {
+                Some(ref stype) => query = query.filter(schedules::schedule_type.eq(stype)),
+                None => query = query.filter(schedules::schedule_type.ne("backfill")),
             }
 
             if enabled_only {
@@ -329,8 +335,8 @@ impl<'a> ScheduleDAL<'a> {
         )
     }
 
-    /// Takes the next fires of a due cron schedule, in one transaction
-    /// (CLOACINA-T-1020).
+    /// Takes the next fires of a due cron schedule, or of a due backfill, in
+    /// one transaction (CLOACINA-T-1020).
     ///
     /// `candidates` are the fire times the caller wants, oldest first. The
     /// claim takes as many of them as the limit on active runs allows, writes
@@ -379,7 +385,7 @@ impl<'a> ScheduleDAL<'a> {
                 // Lock the row and check that it is the row the caller read.
                 // The assignment changes nothing.
                 let locked = diesel::update(schedules::table.find(id))
-                    .filter(schedules::schedule_type.eq("cron"))
+                    .filter(schedules::schedule_type.eq_any(["cron", "backfill"]))
                     .filter(schedules::next_run_at.eq(Some(expected_ts)))
                     .filter(schedules::next_run_at.le(Some(current_ts)))
                     .filter(schedules::enabled.eq(enabled_true))
