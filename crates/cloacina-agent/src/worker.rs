@@ -39,7 +39,9 @@
 //!
 //! A task marked `inline` does not come here: it runs in the agent process.
 //!
-//! A computation-graph firing runs the same way (CLOACINA-T-1125): its job
+//! A computation-graph firing whose packet is not marked `inline` (the
+//! server's `--fleet-graph-firings worker`) runs the same way
+//! (CLOACINA-T-1125): its job
 //! is a [`GraphJob`], it has the memory share of a task with no request and
 //! the packet's time limit, and a cancel names its firing id.
 

@@ -387,7 +387,7 @@ pub struct GraphWorkPacket {
     /// CLOACINA-T-1125 — run the firing in the agent process, with no worker
     /// process, no memory limit and no kill. `false` (and a server from
     /// before the field) ⇒ the agent runs the firing in a worker process.
-    /// The server sends `false`: a graph has no inline mark yet.
+    /// The server sets it from `--fleet-graph-firings` (default `inline`).
     #[serde(default)]
     pub inline: bool,
 }

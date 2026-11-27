@@ -231,6 +231,9 @@ spec:
               value: {{ .Values.fleetTaskTimeLimits.defaultSeconds | int64 | quote }}
             - name: CLOACINA_FLEET_TASK_TIMEOUT_MAX_S
               value: {{ .Values.fleetTaskTimeLimits.maxSeconds | int64 | quote }}
+            # Where agents run graph firings (CLOACINA-T-1125).
+            - name: CLOACINA_FLEET_GRAPH_FIRINGS
+              value: {{ .Values.fleet.graphFirings | default "inline" | quote }}
             {{- if or .Values.alertWebhook.url .Values.alertWebhook.urlSecretRef.name }}
             # Alert webhook (CLOACINA-T-1024). Rendered only when a URL is set.
             - name: CLOACINA_ALERT_WEBHOOK_URL
