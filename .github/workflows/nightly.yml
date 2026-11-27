@@ -318,6 +318,18 @@ jobs:
         run: angreal test ui-e2e
 
   # -----------------------------------------------------------------------
+  # Package signing e2e (CLOACINA-T-1121)
+  #
+  # publish --sign to a server with --require-signatures: a signed package
+  # runs to Completed, an unsigned one and an untrusted signer are refused.
+  # Release-blocking: this workflow is the release gate.
+  # -----------------------------------------------------------------------
+
+  signing-e2e:
+    name: Signing E2E
+    uses: ./.github/workflows/signing-e2e.yml
+
+  # -----------------------------------------------------------------------
   # Nightly Docker image (CLOACI-I-0111 / T-0604)
   #
   # Pushes ghcr.io/<owner>/cloacina-server:nightly so users tracking the
@@ -445,7 +457,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, signing-e2e, nightly-docker-manifest]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -509,7 +521,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, signing-e2e, nightly-docker-manifest]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -557,7 +569,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, signing-e2e, nightly-docker-manifest]
     if: always()
     runs-on: ubuntu-latest
     permissions:
