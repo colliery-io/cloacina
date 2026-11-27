@@ -59,13 +59,26 @@ def _run(cmd, **kwargs):
     return subprocess.run(cmd, check=check, **kwargs)
 
 
+# CLOACINA-T-1075: the server chart renders only when the install says where
+# tenant tasks run. Renders that do not test that choice use external agents.
+FLEET_CHOICE = "fleet.externalAgents=true"
+_FLEET_KEYS = ("fleet.actuator=", "fleet.externalAgents=", "server.singleTrust=")
+
+
+def _with_fleet_choice(sets):
+    """`sets` (a list of `key=value`), with `FLEET_CHOICE` unless it makes one."""
+    if any(s.startswith(_FLEET_KEYS) for s in sets):
+        return list(sets)
+    return [*sets, FLEET_CHOICE]
+
+
 def _template_expect(label, sets, present=(), absent=()):
     """Render the server chart and check the output for lines.
 
     `present`: each string must be in the output. `absent`: none may be.
     """
     cmd = ["helm", "template", "cloacina", str(CHART_DIR)]
-    for item in sets:
+    for item in _with_fleet_choice(sets):
         cmd += ["--set", item]
     print(f"$ {' '.join(cmd)}", flush=True)
     out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
@@ -98,8 +111,13 @@ def _env_from_secret(name, secret, key):
 
 
 def _render(args):
-    """`helm template` of the server chart with `args`; return the manifests."""
-    cmd = ["helm", "template", "cloacina", str(CHART_DIR), *args]
+    """`helm template` of the server chart with `args`; return the manifests.
+
+    A fleet choice is added unless `args` makes one (CLOACINA-T-1075).
+    """
+    sets = [args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--set", "--set-string")]
+    extra = [] if any(s.startswith(_FLEET_KEYS) for s in sets) else ["--set", FLEET_CHOICE]
+    cmd = ["helm", "template", "cloacina", str(CHART_DIR), *args, *extra]
     print(f"$ {' '.join(cmd)}", flush=True)
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
 
@@ -132,6 +150,7 @@ def helm_lint():
     _run([
         "helm", "template", "cloacina", str(CHART_DIR),
         "--set", "database.url=postgres://u:p@h:5432/d",
+        "--set", FLEET_CHOICE,
     ], stdout=subprocess.DEVNULL)
 
     # Variant 2: bring-your-own Postgres via secret ref + extras.
@@ -140,6 +159,7 @@ def helm_lint():
         "--set", "databaseUrlSecretRef.name=cloacina-db",
         "--set", "ingress.enabled=true",
         "--set", "serviceMonitor.enabled=true",
+        "--set", FLEET_CHOICE,
     ], stdout=subprocess.DEVNULL)
 
     # Variant 3: bundled Postgres subchart.
@@ -328,6 +348,43 @@ def helm_lint():
         )
         sys.exit(1)
 
+    # Variant 5 (CLOACINA-T-1075): a database and no fleet choice must error,
+    # with a message that names the three values.
+    rc = subprocess.run(
+        ["helm", "template", "cloacina", str(CHART_DIR),
+         "--set", "database.url=postgres://u:p@h:5432/d"],
+        capture_output=True, text=True,
+        check=False,
+    )
+    if rc.returncode == 0:
+        print(
+            "error: helm template should have failed with no fleet choice",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    for value in ("fleet.actuator=kubernetes", "fleet.externalAgents=true",
+                  "server.singleTrust=true"):
+        if value not in rc.stderr:
+            print(
+                f"error: expected validateFleet to name `{value}`, got:\n" + rc.stderr,
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # Each fleet choice renders. Single trust is a server flag; the others
+    # are not.
+    out = _render(["--set", "database.url=postgres://u:p@h:5432/d",
+                   "--set", "server.singleTrust=true"])
+    _expect(out, "single trust", present=['- "--single-trust"'])
+    out = _render(["--set", "database.url=postgres://u:p@h:5432/d",
+                   "--set", "fleet.externalAgents=true"])
+    _expect(out, "external agents", absent=["--single-trust", "CLOACINA_FLEET_ACTUATOR"])
+    out = _render(["--set", "database.url=postgres://u:p@h:5432/d",
+                   "--set", "fleet.actuator=kubernetes"])
+    _expect(out, "kubernetes actuator",
+            present=[_env("CLOACINA_FLEET_ACTUATOR", "kubernetes"), "kind: ClusterRole"],
+            absent=["--single-trust"])
+
     # ── cloacina-agent chart (CLOACI-T-0635) ───────────────────────────
     _run(["helm", "lint", str(AGENT_CHART_DIR)])
 
@@ -456,6 +513,9 @@ def helm_test():
             "--set", "image.pullPolicy=Never",  # use loaded image, never pull
             "--set", "postgresql.enabled=true",
             "--set", f"postgresql.auth.password={password}",
+            # CLOACINA-T-1075: the install must say where tasks run; this
+            # test checks /health only and runs no agent.
+            "--set", FLEET_CHOICE,
             "--wait", "--timeout=8m",
         ])
 
@@ -877,6 +937,9 @@ def helm_fleet():
             "apiKeySecretRef:\n"
             "  name: fleet-bootstrap\n"
             "  key: key\n"
+            # CLOACINA-T-1075: this test deploys its own agents.
+            "fleet:\n"
+            "  externalAgents: true\n"
             "server:\n"
             "  extraEnv:\n"
             "    - name: CLOACINA_DEFAULT_EXECUTOR\n"

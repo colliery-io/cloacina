@@ -163,6 +163,8 @@ def ws_integration_test():
         server_proc = subprocess.Popen(
             [
                 server_binary,
+                # CLOACINA-T-1075: tasks run in the server, no agents here.
+                "--single-trust",
                 "--home",
                 str(test_home),
                 "--database-url",

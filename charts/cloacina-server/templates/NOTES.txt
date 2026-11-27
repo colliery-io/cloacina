@@ -53,6 +53,21 @@ Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
    authentication: every client that can reach the API, each tenant's agents
    included, can read every tenant's names in the metric labels.
 {{- end }}
+{{- if .Values.server.singleTrust }}
+
+5. WARNING: server.singleTrust=true. The server loads each package in its own
+   process and runs its tasks there: every tenant's code can reach the
+   database, the secrets key and the other tenants' data.
+{{- else if eq .Values.fleet.actuator "kubernetes" }}
+
+5. Tenant tasks run only on agents. The server makes each tenant's agents in
+   the tenant's namespace; it runs no tenant code itself.
+{{- else }}
+
+5. Tenant tasks run only on agents, and this release makes none
+   (fleet.externalAgents=true). Work waits until an agent of the tenant
+   registers, for example from the cloacina-agent chart.
+{{- end }}
 {{- if .Values.postgresql.enabled }}
 
 NOTE: Bundled Postgres is installed in this release. The default
