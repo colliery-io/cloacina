@@ -354,6 +354,12 @@ mod unified_schema {
             compiled_at -> Nullable<DbTimestamp>,
             paused -> DbBool,
             paused_at -> Nullable<DbTimestamp>,
+            // CLOACINA-T-1074: the full metadata document a describe child
+            // of the compiler wrote, its format version, and why the last
+            // describe failed.
+            metadata_document -> Nullable<Text>,
+            metadata_document_version -> Nullable<Integer>,
+            describe_error -> Nullable<Text>,
         }
     }
 

@@ -30,6 +30,9 @@ pub struct InspectedPackage {
     pub metadata: WorkflowMetadata,
     pub build_status: String,
     pub build_error: Option<String>,
+    /// CLOACINA-T-1074: why the compiler could not write the package's
+    /// metadata document. `None` when it could, or has not tried yet.
+    pub describe_error: Option<String>,
 }
 
 /// One stored version of a package, for the versions list (CLOACINA-T-1018).
@@ -43,9 +46,33 @@ pub struct PackageVersion {
     pub superseded: bool,
     pub build_status: String,
     pub build_error: Option<String>,
+    /// CLOACINA-T-1074: why the compiler could not write this version's
+    /// metadata document.
+    pub describe_error: Option<String>,
     pub content_hash: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub compiled_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// A package in service that has no metadata document of the current format
+/// (CLOACINA-T-1074). See
+/// [`WorkflowRegistryImpl::list_undescribed_packages`].
+#[derive(Debug, Clone)]
+pub struct UndescribedPackage {
+    pub id: Uuid,
+    pub package_name: String,
+    pub version: String,
+}
+
+/// What a package row holds about its metadata document (CLOACINA-T-1074).
+#[derive(Debug, Clone)]
+pub struct StoredDescription {
+    /// The document. `None`: not described, or the describe failed.
+    pub document: Option<crate::registry::package_description::PackageDescription>,
+    /// The format version of the last describe, set also when it failed.
+    pub version: Option<u32>,
+    /// Why the last describe failed.
+    pub describe_error: Option<String>,
 }
 
 /// Build the task dependency graph (one node per task, with its upstream
@@ -531,6 +558,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             String,
             UniversalTimestamp,
             Option<UniversalTimestamp>,
+            Option<String>,
         );
 
         let name = package_name.to_string();
@@ -548,6 +576,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     workflow_packages::content_hash,
                     workflow_packages::created_at,
                     workflow_packages::compiled_at,
+                    workflow_packages::describe_error,
                 ))
                 .load(conn)
         })
@@ -565,6 +594,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     content_hash,
                     created,
                     built,
+                    describe_error,
                 )| {
                     let superseded = superseded.is_true();
                     PackageVersion {
@@ -575,6 +605,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                         superseded,
                         build_status,
                         build_error,
+                        describe_error,
                         content_hash,
                         created_at: created.0,
                         compiled_at: built.map(|t| t.0),
@@ -760,6 +791,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             },
             build_status: record.build_status,
             build_error: record.build_error,
+            describe_error: record.describe_error,
         }))
     }
 
@@ -937,14 +969,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         declared_params: Vec<cloacina_api_types::InputSlot>,
         declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
     ) -> Result<(), RegistryError> {
-        use crate::database::schema::unified::workflow_packages;
-        use crate::database::universal_types::{
-            UniversalBinary, UniversalTimestamp, UniversalUuid,
-        };
-
-        let pid = UniversalUuid(package_id);
-        let now = UniversalTimestamp::now();
-
         // Extract the authoritative metadata (executable `workflow_name`, task
         // list, graph data, triggers) from the freshly compiled cdylib and
         // merge it into the stored row's `metadata` JSON. At upload time the
@@ -978,8 +1002,149 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             }
         };
 
+        // No document: this path opens the library in the calling process
+        // (embedded use and tests). The compiler service uses
+        // `mark_build_success_described`.
+        self.finish_build(package_id, compiled, merged_metadata_json, None)
+            .await
+    }
+
+    /// Record a successful build with the full metadata document that the
+    /// compiler's describe child wrote (CLOACINA-T-1074).
+    ///
+    /// This does not open the compiled library: the fields of the row's
+    /// `metadata` JSON that the library used to be opened for (workflow name,
+    /// task list, graph data, subscriptions, declared params and surfaces)
+    /// are taken from `document`. `document` is stored in `metadata_document`
+    /// with its format version, and `describe_error` is cleared.
+    ///
+    /// `task_docs`, `declared_params` and `declared_surfaces` are the
+    /// compiler's parse of the package source; the caller has already put
+    /// them into `document` with
+    /// [`PackageDescription::overlay_source_parse`](crate::registry::package_description::PackageDescription::overlay_source_parse).
+    ///
+    /// The swap of the active version is the one of
+    /// [`Self::mark_build_success_with_docs`].
+    pub async fn mark_build_success_described(
+        &self,
+        package_id: Uuid,
+        compiled: Vec<u8>,
+        document: &crate::registry::package_description::PackageDescription,
+        task_docs: std::collections::HashMap<
+            String,
+            crate::registry::loader::package_loader::TaskDocs,
+        >,
+        declared_params: Vec<cloacina_api_types::InputSlot>,
+        declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
+    ) -> Result<(), RegistryError> {
+        let merged = self
+            .merge_described_build_metadata(
+                package_id,
+                document,
+                &task_docs,
+                &declared_params,
+                &declared_surfaces,
+            )
+            .await?;
+        let document_json =
+            serde_json::to_string(document).map_err(RegistryError::Serialization)?;
+        self.finish_build(
+            package_id,
+            compiled,
+            merged,
+            Some((document_json, document.format_version as i32)),
+        )
+        .await
+    }
+
+    /// The row's `metadata` JSON after a described build: the stored JSON
+    /// with the code-derived fields replaced from `document`. `None` when the
+    /// row is gone.
+    async fn merge_described_build_metadata(
+        &self,
+        package_id: Uuid,
+        document: &crate::registry::package_description::PackageDescription,
+        task_docs: &std::collections::HashMap<
+            String,
+            crate::registry::loader::package_loader::TaskDocs,
+        >,
+        source_declared_params: &[cloacina_api_types::InputSlot],
+        source_declared_surfaces: &[cloacina_api_types::DeclaredSurface],
+    ) -> Result<Option<String>, RegistryError> {
+        use crate::dal::unified::models::UnifiedWorkflowPackage;
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let dal = self.dal();
+        let record: Option<UnifiedWorkflowPackage> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .first::<UnifiedWorkflowPackage>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        let Some(record) = record else {
+            return Ok(None);
+        };
+        let mut merged: crate::registry::loader::package_loader::PackageMetadata =
+            serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+
+        if document.language == "python" {
+            // As before the document existed: a Python row gets the source
+            // parse at build, and its task list at load
+            // (`persist_task_graph_db`).
+            merged.declared_params = source_declared_params.to_vec();
+            merged.declared_surfaces = source_declared_surfaces.to_vec();
+        } else {
+            // CLOACI-T-0736: the compiled code is authoritative for
+            // workflow_name; a manifest value that disagrees is replaced.
+            if !merged.workflow_name.is_empty()
+                && !document.workflow_name.is_empty()
+                && merged.workflow_name != document.workflow_name
+            {
+                tracing::warn!(
+                    manifest = %merged.workflow_name,
+                    code = %document.workflow_name,
+                    package = %record.package_name,
+                    "package.toml workflow_name disagrees with the compiled code — \
+                     the code value wins (drop the manifest line; it is optional)"
+                );
+            }
+            document.merge_into_legacy(&mut merged);
+        }
+        merged.task_docs = task_docs.clone();
+
+        let json = serde_json::to_string(&merged).map_err(RegistryError::Serialization)?;
+        Ok(Some(json))
+    }
+
+    /// Write a finished build: the compiled bytes, the `metadata` JSON when
+    /// there is a new one, the metadata document when there is one, and the
+    /// swap of the active version.
+    async fn finish_build(
+        &self,
+        package_id: Uuid,
+        compiled: Vec<u8>,
+        merged_metadata_json: Option<String>,
+        document: Option<(String, i32)>,
+    ) -> Result<(), RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{
+            UniversalBinary, UniversalTimestamp, UniversalUuid,
+        };
+
+        let pid = UniversalUuid(package_id);
+        let now = UniversalTimestamp::now();
         let bytes = UniversalBinary::new(compiled);
         let meta = merged_metadata_json;
+        // A build with no document leaves the row "not described": a document
+        // of an earlier build of the row does not describe the new bytes.
+        let (document_json, document_version) = match document {
+            Some((json, version)) => (Some(json), Some(version)),
+            None => (None, None),
+        };
         let dal = self.dal();
         // CLOACINA-T-1018: the swap. One transaction retires the active row of
         // the same name and makes this row `success`. Until here the old
@@ -1027,6 +1192,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             workflow_packages::compiled_at.eq(Some(now)),
                             workflow_packages::build_error.eq::<Option<String>>(None),
                             workflow_packages::metadata.eq(meta),
+                            workflow_packages::metadata_document.eq(document_json),
+                            workflow_packages::metadata_document_version.eq(document_version),
+                            workflow_packages::describe_error.eq::<Option<String>>(None),
                         ))
                         .execute(tx)?,
                     None => diesel::update(target)
@@ -1035,6 +1203,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             workflow_packages::compiled_data.eq(Some(bytes)),
                             workflow_packages::compiled_at.eq(Some(now)),
                             workflow_packages::build_error.eq::<Option<String>>(None),
+                            workflow_packages::metadata_document.eq(document_json),
+                            workflow_packages::metadata_document_version.eq(document_version),
+                            workflow_packages::describe_error.eq::<Option<String>>(None),
                         ))
                         .execute(tx)?,
                 };
@@ -1426,6 +1597,202 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(updated > 0)
     }
 
+    // ========================================================================
+    // The metadata document (CLOACINA-T-1074)
+    // ========================================================================
+
+    /// The packages in service that have no metadata document of this build's
+    /// format: active rows (`success`, not superseded) whose
+    /// `metadata_document_version` is NULL or older than
+    /// [`PACKAGE_DESCRIPTION_VERSION`](crate::registry::package_description::PACKAGE_DESCRIPTION_VERSION).
+    /// Oldest upload first, at most `limit` rows.
+    ///
+    /// These are packages built before the document existed, packages whose
+    /// build was taken over from an identical upload, and packages a build
+    /// recorded with no document. A row whose describe failed has the version
+    /// of that try, so it is not listed again until the format changes or the
+    /// package is built again.
+    pub async fn list_undescribed_packages(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<UndescribedPackage>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        let current = crate::registry::package_description::PACKAGE_DESCRIPTION_VERSION as i32;
+        let dal = self.dal();
+        let rows: Vec<(UniversalUuid, String, String)> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::build_status.eq("success"))
+                .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                .filter(
+                    workflow_packages::metadata_document_version
+                        .is_null()
+                        .or(workflow_packages::metadata_document_version.lt(current)),
+                )
+                .order(workflow_packages::created_at.asc())
+                .limit(limit)
+                .select((
+                    workflow_packages::id,
+                    workflow_packages::package_name,
+                    workflow_packages::version,
+                ))
+                .load(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, package_name, version)| UndescribedPackage {
+                id: id.0,
+                package_name,
+                version,
+            })
+            .collect())
+    }
+
+    /// The compiled library of a package row, by id. `None` when the row is
+    /// gone or holds no library (a Python package holds an empty one).
+    pub async fn get_compiled_data_by_id(
+        &self,
+        package_id: Uuid,
+    ) -> Result<Option<Vec<u8>>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBinary, UniversalUuid};
+
+        let pid = UniversalUuid(package_id);
+        let dal = self.dal();
+        let data: Option<Option<UniversalBinary>> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .select(workflow_packages::compiled_data)
+                .first(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(data.flatten().map(|b| b.into_inner()))
+    }
+
+    /// Store the metadata document of a package that is already built
+    /// (CLOACINA-T-1074): the describe of a package from before the document
+    /// existed. Only a `success` row is written; the build state, the library
+    /// and the `metadata` JSON are not changed. Returns `true` when the row
+    /// was written.
+    pub async fn store_package_description(
+        &self,
+        package_id: Uuid,
+        document: &crate::registry::package_description::PackageDescription,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let json = serde_json::to_string(document).map_err(RegistryError::Serialization)?;
+        let version = document.format_version as i32;
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("success")),
+            )
+            .set((
+                workflow_packages::metadata_document.eq(Some(json)),
+                workflow_packages::metadata_document_version.eq(Some(version)),
+                workflow_packages::describe_error.eq::<Option<String>>(None),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// Record that a built package could not be described (CLOACINA-T-1074):
+    /// `describe_error` gets the reason and `metadata_document_version` the
+    /// format version of the try, so the package is not tried again by the
+    /// same compiler version. A document of an earlier format is removed: it
+    /// does not describe the package in the current format. The build state
+    /// is not changed. Returns `true` when the row was written.
+    pub async fn store_describe_error(
+        &self,
+        package_id: Uuid,
+        error: &str,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        const MAX_ERR: usize = 64 * 1024;
+        let reason = if error.len() > MAX_ERR {
+            let mut start = error.len() - MAX_ERR;
+            while !error.is_char_boundary(start) {
+                start += 1;
+            }
+            error[start..].to_string()
+        } else {
+            error.to_string()
+        };
+        let pid = UniversalUuid(package_id);
+        let version = crate::registry::package_description::PACKAGE_DESCRIPTION_VERSION as i32;
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("success")),
+            )
+            .set((
+                workflow_packages::metadata_document.eq::<Option<String>>(None),
+                workflow_packages::metadata_document_version.eq(Some(version)),
+                workflow_packages::describe_error.eq(Some(reason)),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// The stored metadata document of a package row, with the reason of a
+    /// failed describe. `None` when the row does not exist.
+    pub async fn get_package_description(
+        &self,
+        package_id: Uuid,
+    ) -> Result<Option<StoredDescription>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let dal = self.dal();
+        let row: Option<(Option<String>, Option<i32>, Option<String>)> =
+            crate::interact_on_backend!(dal, |conn| {
+                use diesel::prelude::*;
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .select((
+                        workflow_packages::metadata_document,
+                        workflow_packages::metadata_document_version,
+                        workflow_packages::describe_error,
+                    ))
+                    .first(conn)
+                    .optional()
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        let Some((json, version, describe_error)) = row else {
+            return Ok(None);
+        };
+        let document = match json {
+            Some(json) => Some(serde_json::from_str(&json).map_err(RegistryError::Serialization)?),
+            None => None,
+        };
+        Ok(Some(StoredDescription {
+            document,
+            version: version.map(|v| v as u32),
+            describe_error,
+        }))
+    }
+
     /// Refresh `build_claimed_at` so the stale-build sweeper doesn't reset us.
     /// No-op if the row is no longer in `building` state.
     pub async fn heartbeat_build(&self, package_id: Uuid) -> Result<(), RegistryError> {
@@ -1546,6 +1913,19 @@ pub async fn build_queue_stats(
             .filter(workflow_packages::build_status.eq("building"))
             .count()
             .get_result::<i64>(conn)?;
+        // CLOACINA-T-1074: active packages with no metadata document of the
+        // current format. The compiler describes them from the stored build.
+        let undescribed =
+            workflow_packages::table
+                .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                .filter(workflow_packages::build_status.eq("success"))
+                .filter(workflow_packages::metadata_document_version.is_null().or(
+                    workflow_packages::metadata_document_version.lt(
+                        crate::registry::package_description::PACKAGE_DESCRIPTION_VERSION as i32,
+                    ),
+                ))
+                .count()
+                .get_result::<i64>(conn)?;
         let last_success: Option<UnifiedWorkflowPackage> = workflow_packages::table
             .filter(workflow_packages::build_status.eq("success"))
             .order(workflow_packages::compiled_at.desc())
@@ -1564,6 +1944,7 @@ pub async fn build_queue_stats(
         Ok::<_, diesel::result::Error>(BuildQueueStats {
             pending: pending as u64,
             building: building as u64,
+            undescribed: undescribed as u64,
             last_success_at: last_success.and_then(|r| r.compiled_at.map(|t| t.0)),
             last_failure_at: last_failure.map(|r| r.updated_at.0),
             heartbeat_at: heartbeat_row.and_then(|r| r.build_claimed_at.map(|t| t.0)),
@@ -1577,6 +1958,10 @@ pub async fn build_queue_stats(
 pub struct BuildQueueStats {
     pub pending: u64,
     pub building: u64,
+    /// CLOACINA-T-1074: packages in service with no metadata document of the
+    /// current format. The compiler describes them from the stored build, so
+    /// they are work for it like a pending build.
+    pub undescribed: u64,
     pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
     pub heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -2824,5 +3209,279 @@ mod tests {
             .await
             .unwrap();
         assert!(registry.claim_next_build().await.unwrap().is_some());
+    }
+
+    // ========================================================================
+    // The metadata document (CLOACINA-T-1074)
+    // ========================================================================
+
+    /// A document as the describe child writes it for a Rust library with two
+    /// tasks, a trigger subscription and a declared secret.
+    #[cfg(feature = "sqlite")]
+    fn sample_document(
+        workflow_name: &str,
+    ) -> crate::registry::package_description::PackageDescription {
+        use crate::registry::package_description::{PackageDescription, RustLibraryMetadata};
+        use cloacina_workflow_plugin::types::{PackageTasksMetadata, TaskMetadataEntry};
+
+        let task = |index: u32, id: &str, deps: &[&str]| TaskMetadataEntry {
+            index,
+            id: id.to_string(),
+            namespaced_id_template: format!("{{tenant}}::pkg::{workflow_name}::{id}"),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+            description: format!("{id} step"),
+            source_location: "src/lib.rs".to_string(),
+            trigger_rules: "{\"type\":\"Always\"}".to_string(),
+            requires_handle: false,
+            retry_policy: String::new(),
+            timeout_seconds: Some(30),
+            pool: Some("large".to_string()),
+            cpu: None,
+            memory: Some("2Gi".to_string()),
+            inline: false,
+        };
+        PackageDescription::from_rust_library(RustLibraryMetadata {
+            tasks: PackageTasksMetadata {
+                workflow_name: workflow_name.to_string(),
+                package_name: "pkg".to_string(),
+                package_description: None,
+                package_author: None,
+                workflow_fingerprint: None,
+                graph_data_json: None,
+                tasks: vec![task(0, "extract", &[]), task(1, "load", &["extract"])],
+                triggers: vec!["nightly".to_string()],
+            },
+            declared_params: vec![cloacina_api_types::InputSlot::secret("warehouse")],
+            declared_surfaces: Vec::new(),
+            graph: None,
+            reactors: Vec::new(),
+            triggers: Vec::new(),
+            triggerless_graphs: Vec::new(),
+            constructors: Vec::new(),
+        })
+    }
+
+    /// A described build stores the document, and fills the row's `metadata`
+    /// from it. The compiled bytes here are not a library: nothing opens them.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_described_build_stores_the_document_and_opens_no_library() {
+        use crate::registry::package_description::PACKAGE_DESCRIPTION_VERSION;
+
+        let registry = create_test_registry().await;
+        let mut manifest_meta = sample_metadata("described-pkg", "1.0.0");
+        manifest_meta.workflow_name = String::new();
+        manifest_meta.tasks = Vec::new();
+        let id = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &manifest_meta,
+                "h-described",
+                None,
+            )
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap().expect("claim");
+
+        let mut document = sample_document("etl_workflow");
+        let docs = std::collections::HashMap::from([(
+            "load".to_string(),
+            crate::registry::loader::package_loader::TaskDocs {
+                what: Some("loads".to_string()),
+                why: None,
+            },
+        )]);
+        document.overlay_source_parse(&docs, &[], &[]);
+
+        registry
+            .mark_build_success_described(
+                id,
+                b"not a library: a described build never opens it".to_vec(),
+                &document,
+                docs,
+                Vec::new(),
+                Vec::new(),
+            )
+            .await
+            .expect("a described build needs no loadable library");
+
+        let stored = registry
+            .get_package_description(id)
+            .await
+            .unwrap()
+            .expect("row");
+        assert_eq!(stored.version, Some(PACKAGE_DESCRIPTION_VERSION));
+        assert!(stored.describe_error.is_none());
+        let stored_doc = stored.document.expect("document");
+        assert_eq!(
+            serde_json::to_value(&stored_doc).unwrap(),
+            serde_json::to_value(&document).unwrap()
+        );
+        assert_eq!(stored_doc.tasks[1].pool.as_deref(), Some("large"));
+        assert_eq!(stored_doc.tasks[1].timeout_seconds, Some(30));
+        assert_eq!(stored_doc.declared_secrets, vec!["warehouse"]);
+
+        // The fields the library used to be opened for are in `metadata`.
+        let inspected = registry
+            .inspect_package_by_id(id)
+            .await
+            .unwrap()
+            .expect("row");
+        assert_eq!(inspected.build_status, "success");
+        assert_eq!(inspected.metadata.workflow_name, "etl_workflow");
+        assert_eq!(inspected.metadata.tasks, vec!["extract", "load"]);
+        assert_eq!(
+            inspected.metadata.task_graph[1].dependencies,
+            vec!["extract"]
+        );
+        assert_eq!(
+            inspected.metadata.task_graph[1].doc_what.as_deref(),
+            Some("loads")
+        );
+        assert_eq!(inspected.metadata.workflow_triggers, vec!["nightly"]);
+        assert_eq!(inspected.metadata.declared_params.len(), 1);
+        assert!(inspected.describe_error.is_none());
+
+        assert!(
+            registry
+                .list_undescribed_packages(10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(registry.build_queue_stats().await.unwrap().undescribed, 0);
+    }
+
+    /// A package in service with no document is listed until it is described,
+    /// or until a describe failed for it. The build state does not change.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_undescribed_packages_are_listed_until_described_or_marked() {
+        use crate::registry::package_description::PACKAGE_DESCRIPTION_VERSION;
+
+        let registry = create_test_registry().await;
+        // Built the old way: no document.
+        let ok_id = upload_and_build(&registry, "old-ok", "1", "h-old-ok").await;
+        let bad_id = upload_and_build(&registry, "old-bad", "1", "h-old-bad").await;
+        // A candidate that is not built is not listed.
+        let pending_id = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("old-pending", "1"),
+                "h-old-pending",
+                None,
+            )
+            .await
+            .unwrap();
+
+        let listed: std::collections::HashSet<Uuid> = registry
+            .list_undescribed_packages(10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(listed, std::collections::HashSet::from([ok_id, bad_id]));
+        assert_eq!(
+            registry.list_undescribed_packages(1).await.unwrap().len(),
+            1
+        );
+        assert_eq!(registry.build_queue_stats().await.unwrap().undescribed, 2);
+
+        // Neither write touches a row that is not built.
+        assert!(
+            !registry
+                .store_package_description(pending_id, &sample_document("wf"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !registry
+                .store_describe_error(pending_id, "not built")
+                .await
+                .unwrap()
+        );
+
+        assert!(
+            registry
+                .store_package_description(ok_id, &sample_document("old_ok_workflow"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            registry
+                .store_describe_error(bad_id, "the library does not load")
+                .await
+                .unwrap()
+        );
+
+        let ok = registry
+            .get_package_description(ok_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            ok.document.expect("document").workflow_name,
+            "old_ok_workflow"
+        );
+        assert!(ok.describe_error.is_none());
+
+        let bad = registry
+            .get_package_description(bad_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(bad.document.is_none());
+        assert_eq!(bad.version, Some(PACKAGE_DESCRIPTION_VERSION));
+        assert_eq!(
+            bad.describe_error.as_deref(),
+            Some("the library does not load")
+        );
+
+        // Both stay in service; the mark is on the inspect and versions reads.
+        for (name, id) in [("old-ok", ok_id), ("old-bad", bad_id)] {
+            assert_eq!(
+                row_state(&registry, name, id).await,
+                (false, "success".to_string())
+            );
+        }
+        let inspected = registry
+            .inspect_package_by_id(bad_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            inspected.describe_error.as_deref(),
+            Some("the library does not load")
+        );
+        let versions = registry.list_package_versions("old-bad").await.unwrap();
+        assert_eq!(
+            versions[0].describe_error.as_deref(),
+            Some("the library does not load")
+        );
+
+        assert!(
+            registry
+                .list_undescribed_packages(10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(registry.build_queue_stats().await.unwrap().undescribed, 0);
+
+        // A new build of the row with no document makes it "not described"
+        // again: the document of the earlier bytes is gone.
+        registry.request_recompile(ok_id).await.unwrap();
+        registry.claim_next_build().await.unwrap().expect("claim");
+        registry
+            .mark_build_success(ok_id, Vec::new())
+            .await
+            .unwrap();
+        let rebuilt = registry
+            .get_package_description(ok_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(rebuilt.document.is_none() && rebuilt.version.is_none());
     }
 }

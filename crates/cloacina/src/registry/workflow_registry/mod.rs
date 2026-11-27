@@ -24,7 +24,10 @@ mod database;
 pub mod filesystem;
 mod package;
 
-pub use database::{BuildQueueStats, ReconcilerStats, build_queue_stats, reconciler_stats};
+pub use database::{
+    BuildQueueStats, ReconcilerStats, StoredDescription, UndescribedPackage, build_queue_stats,
+    reconciler_stats,
+};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
