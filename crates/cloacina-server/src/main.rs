@@ -138,15 +138,26 @@ struct Cli {
     #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S", default_value_t = 300)]
     retention_interval_s: u64,
 
-    /// Executor every task is dispatched to (CLOACI-T-0640). `default` (the
-    /// in-process thread executor) unless set to another registered key —
-    /// notably `fleet` to send all work to the execution-agent fleet. The key
-    /// must match a registered executor or the server fails fast at startup.
-    /// Operators normally set this via `[server].default_executor` in
-    /// `config.toml` (forwarded by `cloacinactl server start`); this flag/env
-    /// is the override for direct `cloacina-server` runs.
-    #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR", default_value = "default")]
-    default_executor: String,
+    /// Executor every task is dispatched to (CLOACI-T-0640). Not set: `fleet`
+    /// (the execution-agent fleet), or `default` (the in-process thread
+    /// executor) with `--single-trust`. `default` needs `--single-trust`: the
+    /// server does not start with it otherwise (CLOACINA-T-1075). The key must
+    /// match a registered executor or the server fails fast at startup.
+    /// `cloacinactl server start` forwards `[server].default_executor` of
+    /// `config.toml` when it is set.
+    #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR")]
+    default_executor: Option<String>,
+
+    /// Single trust (CLOACINA-T-1075): every tenant of this server is trusted
+    /// as much as the server itself. Turns on the two things that run tenant
+    /// code in the server process: packages are loaded in process (their
+    /// libraries opened, their Python modules imported), and
+    /// `--default-executor default` is allowed. Off by default: the server
+    /// loads each package from the metadata document its compiler stored and
+    /// sends every task to the agent fleet. The server logs a warning at start
+    /// when it is on.
+    #[arg(long, env = "CLOACINA_SINGLE_TRUST")]
+    single_trust: bool,
 
     /// Heartbeat interval (seconds) the server advertises to fleet agents and
     /// uses as its liveness sweep cadence. Lower = faster dead-agent detection
@@ -416,6 +427,14 @@ async fn main() -> Result<()> {
         )
         .map_err(|e| anyhow::anyhow!(e))?;
 
+    // CLOACINA-T-1075: where tenant code runs. A mode that would run tenant
+    // tasks in this process without single trust stops the start.
+    let execution_mode = cloacina_server::execution_mode::ExecutionMode::resolve(
+        cli.single_trust,
+        cli.default_executor.as_deref(),
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
+
     cloacina_server::run(
         cli.home,
         cli.bind,
@@ -429,7 +448,7 @@ async fn main() -> Result<()> {
         cli.tenant_runner_cache_size,
         std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
         cli.log_retention_days,
-        cli.default_executor,
+        execution_mode,
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
         fleet_task_time_limits,
@@ -490,6 +509,35 @@ mod tests {
             Some(std::time::Duration::from_secs(3_600))
         );
         assert!(cfg.enabled());
+    }
+
+    // CLOACINA-T-1075: single trust is off and the executor is not set by
+    // default, so the server needs the fleet; the flag turns single trust on.
+    #[test]
+    fn single_trust_is_off_by_default_and_the_executor_unset() {
+        use cloacina_server::execution_mode::ExecutionMode;
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert!(!cli.single_trust);
+        assert_eq!(cli.default_executor, None);
+        let mode =
+            ExecutionMode::resolve(cli.single_trust, cli.default_executor.as_deref()).unwrap();
+        assert_eq!(mode.default_executor, "fleet");
+
+        let cli = Cli::try_parse_from([
+            "cloacina-server",
+            "--single-trust",
+            "--default-executor",
+            "default",
+        ])
+        .unwrap();
+        assert!(cli.single_trust);
+        let mode =
+            ExecutionMode::resolve(cli.single_trust, cli.default_executor.as_deref()).unwrap();
+        assert_eq!(mode.default_executor, "default");
+
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--default-executor", "default"]).unwrap();
+        assert!(ExecutionMode::resolve(cli.single_trust, cli.default_executor.as_deref()).is_err());
     }
 
     // CLOACINA-T-1048: the unpack limit is a setting next to the upload limit.

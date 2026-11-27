@@ -3142,6 +3142,16 @@ export interface components {
             description?: string | null;
             /** @description Package UUID. */
             id: string;
+            /**
+             * @description Why this built package is not loaded (CLOACINA-T-1075). A server that
+             *     loads packages from their metadata only does not load a package that
+             *     has no metadata document: it waits for the tenant's compiler to
+             *     describe it, or the compiler could not (`describe_error`). Absent when
+             *     the package has a document, is not built, or the server runs with
+             *     single trust. A package the server refuses has `build_status`
+             *     `failed` and the reason in `build_error`.
+             */
+            not_loaded_reason?: string | null;
             package_name: string;
             /**
              * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse

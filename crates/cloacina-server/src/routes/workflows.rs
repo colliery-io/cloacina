@@ -305,6 +305,43 @@ pub async fn list_workflows(
     }
 }
 
+/// Why a built package is not loaded by a server that loads packages from
+/// their metadata only (CLOACINA-T-1075): it has no metadata document yet, or
+/// its compiler could not describe it. `None` with single trust, for a
+/// package that is not built, and for one with a document.
+async fn not_loaded_reason(
+    state: &AppState,
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package_id: uuid::Uuid,
+    build_status: &str,
+) -> Option<String> {
+    if state.package_load_mode != cloacina::registry::PackageLoadMode::MetadataOnly
+        || build_status != "success"
+    {
+        return None;
+    }
+    let stored = match registry.get_package_description(package_id).await {
+        Ok(Some(stored)) => stored,
+        Ok(None) => return None,
+        Err(e) => {
+            warn!(package = %package_id, error = %e, "could not read the metadata document");
+            return None;
+        }
+    };
+    if stored.document.is_some() {
+        return None;
+    }
+    Some(match stored.describe_error {
+        Some(reason) => format!(
+            "the compiler could not describe this package ({reason}); this server loads \
+             packages from their metadata only. Build the package again."
+        ),
+        None => "waiting for the tenant's compiler to describe this package; this server \
+                 loads packages from their metadata only"
+            .to_string(),
+    })
+}
+
 /// GET /tenants/:tenant_id/workflows/:name — get workflow details.
 #[utoipa::path(
     get,
@@ -350,7 +387,10 @@ pub async fn get_workflow(
     if let Ok(pkg_id) = uuid::Uuid::parse_str(&name) {
         match registry.inspect_package_by_id(pkg_id).await {
             Ok(Some(ins)) => {
+                let not_loaded_reason =
+                    not_loaded_reason(&state, &registry, ins.metadata.id, &ins.build_status).await;
                 return Json(WorkflowDetail {
+                    not_loaded_reason,
                     uploaded_by: audit_record::package_uploader(
                         &state,
                         &tenant_id,
@@ -409,6 +449,13 @@ pub async fn get_workflow(
                     // addition to success).
                     match registry.inspect_package_by_id(w.id).await {
                         Ok(Some(ins)) => Json(WorkflowDetail {
+                            not_loaded_reason: not_loaded_reason(
+                                &state,
+                                &registry,
+                                ins.metadata.id,
+                                &ins.build_status,
+                            )
+                            .await,
                             uploaded_by: audit_record::package_uploader(
                                 &state,
                                 &tenant_id,
