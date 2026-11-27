@@ -20,21 +20,14 @@ use super::manifest::{self, PackageLanguage};
 use crate::shared::error::CliError;
 
 pub fn run(dir: &Path, out: Option<&Path>, sign: Option<&Path>) -> Result<(), CliError> {
-    // CLOACI-T-0596 / API-05: `--sign` is part of the public surface but
-    // the CLI doesn't yet drive `cloacina::security::package_signer`.
-    // Previously this silently ignored the flag with an `eprintln!` —
-    // operators thought they were producing signed packages. Now we
-    // fail-hard so the gap is visible. When the signing path lands,
-    // replace this with the actual side-car generation.
-    if let Some(key_path) = sign {
-        return Err(CliError::UserError(format!(
-            "--sign {} is not yet implemented — package signing is tracked under I-0103. \
-             Remove --sign and re-run, or wait for the signing-side completion.",
-            key_path.display()
-        )));
-    }
-
     let produced = pack_to(dir, out)?;
+    // CLOACINA-T-1062: `--sign` writes the signature beside the archive
+    // (`<archive>.sig`). `package upload` sends it with the archive. The
+    // archive's path stays the one line on stdout.
+    if let Some(key_file) = sign {
+        let signature = super::sign::sign_archive_to_file(&produced, key_file)?;
+        eprintln!("signature: {}", signature.display());
+    }
     println!("{}", produced.display());
     Ok(())
 }

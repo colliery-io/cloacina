@@ -31,6 +31,7 @@ pub mod manifest;
 pub mod new;
 pub mod pack;
 pub mod publish;
+pub mod sign;
 pub mod upload;
 pub mod validate;
 pub mod vendor;
@@ -112,8 +113,12 @@ enum PackageVerb {
         /// Output path (default: <dir>/<name>.cloacina).
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Sign the archive with this Ed25519 key file.
-        #[arg(long)]
+        /// Sign the archive with this key file and write the signature
+        /// beside it, as <archive>.sig. The key file is an unencrypted
+        /// Ed25519 private key in PKCS#8 PEM (`openssl genpkey -algorithm
+        /// ed25519`) that only its owner can read. The key stays on this
+        /// machine.
+        #[arg(long, value_name = "KEY_FILE")]
         sign: Option<PathBuf>,
         #[command(flatten)]
         unpack_limit: UnpackLimitArgs,
@@ -123,15 +128,26 @@ enum PackageVerb {
         dir: PathBuf,
         #[arg(long)]
         release: bool,
-        #[arg(long)]
+        /// Sign the archive with this key file and send the signature with
+        /// the upload. The key file is an unencrypted Ed25519 private key in
+        /// PKCS#8 PEM that only its owner can read. Only the signature goes
+        /// to the server.
+        #[arg(long, value_name = "KEY_FILE")]
         sign: Option<PathBuf>,
         #[command(flatten)]
         vendor: vendor::VendorArgs,
         #[command(flatten)]
         unpack_limit: UnpackLimitArgs,
     },
-    /// Upload a pre-packed .cloacina archive.
-    Upload { file: PathBuf },
+    /// Upload a pre-packed .cloacina archive. The signature file beside it
+    /// (<FILE>.sig, written by `package pack --sign`) is sent with it when
+    /// it is there.
+    Upload {
+        file: PathBuf,
+        /// Send this signature file with the archive, in place of <FILE>.sig.
+        #[arg(long, value_name = "SIG_FILE")]
+        signature: Option<PathBuf>,
+    },
     /// List installed packages.
     List {
         #[arg(long)]
@@ -202,7 +218,13 @@ impl PackageCmd {
                 unpack_limit.apply()?;
                 publish::run(globals, &dir, release, sign.as_deref(), &vendor).await
             }
-            PackageVerb::Upload { file } => upload::run(globals, &file).await,
+            PackageVerb::Upload { file, signature } => {
+                let signature = match signature {
+                    Some(path) => sign::UploadSignature::File(path),
+                    None => sign::UploadSignature::Sidecar,
+                };
+                upload::run(globals, &file, Some(signature)).await
+            }
             PackageVerb::List { filter } => list::run(globals, filter.as_deref()).await,
             PackageVerb::Inspect { id } => inspect::run(globals, &id).await,
             PackageVerb::Versions { name } => versions::list(globals, &name).await,
@@ -232,6 +254,35 @@ mod tests {
             | PackageVerb::Pack { unpack_limit, .. }
             | PackageVerb::Publish { unpack_limit, .. } => unpack_limit.max_unpacked_bytes,
             _ => panic!("the verb has no unpack limit"),
+        }
+    }
+
+    /// CLOACINA-T-1062: `--sign` takes the key file on `pack` and `publish`;
+    /// `upload` takes a signature file.
+    #[test]
+    fn sign_and_signature_flags_are_read() {
+        let cli = TestCli::try_parse_from(["t", "pack", "pkg", "--sign", "key.pem"]).unwrap();
+        match cli.package.verb {
+            PackageVerb::Pack { sign, .. } => assert_eq!(sign, Some(PathBuf::from("key.pem"))),
+            _ => panic!("not pack"),
+        }
+        let cli = TestCli::try_parse_from(["t", "publish", "pkg", "--sign", "key.pem"]).unwrap();
+        match cli.package.verb {
+            PackageVerb::Publish { sign, .. } => assert_eq!(sign, Some(PathBuf::from("key.pem"))),
+            _ => panic!("not publish"),
+        }
+        let cli =
+            TestCli::try_parse_from(["t", "upload", "a.cloacina", "--signature", "a.sig"]).unwrap();
+        match cli.package.verb {
+            PackageVerb::Upload { signature, .. } => {
+                assert_eq!(signature, Some(PathBuf::from("a.sig")))
+            }
+            _ => panic!("not upload"),
+        }
+        let cli = TestCli::try_parse_from(["t", "upload", "a.cloacina"]).unwrap();
+        match cli.package.verb {
+            PackageVerb::Upload { signature, .. } => assert_eq!(signature, None),
+            _ => panic!("not upload"),
         }
     }
 
