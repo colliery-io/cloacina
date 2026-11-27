@@ -5805,17 +5805,7 @@
             }
           },
           "409": {
-            "description": "`package_building`: the compiler is building the package; nothing was removed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "An execution that has not finished is pinned to this version (package_in_use)",
+            "description": "`package_building`: the compiler is building the package; `package_in_use`: an execution that has not finished is pinned to this version. Nothing was removed",
             "content": {
               "application/json": {
                 "schema": {

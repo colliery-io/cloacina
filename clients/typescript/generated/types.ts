@@ -7531,7 +7531,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description `package_building`: the compiler is building the package; nothing was removed */
+            /** @description `package_building`: the compiler is building the package; `package_in_use`: an execution that has not finished is pinned to this version. Nothing was removed */
             409: {
                 headers: {
                     [name: string]: unknown;
