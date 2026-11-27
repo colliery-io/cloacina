@@ -51,6 +51,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   small Rust graph on a debug build), and a reactor waits for each firing.
   An agent of this version with a server from before runs firings in
   workers: upgrade the server first.
+- **Packages: the workflow plugin interface goes from version 7 to 8**
+  (`plugin_interface`). A Rust package built against the 0.12 crates does
+  not load on this server. Change the package's `cloacina` crate pins to the
+  new minor and publish it again. Python packages are not affected.
+- **API keys: a key request must name its role** (CLOACINA-T-1055).
+  `POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` answer 400 to
+  a request with no `role`; the server does not choose one
+  (`CreateKeyRequest.role`). Name the role in each key request.
+- **Package delete answers 404 for a missing version, and 409 while it
+  builds** (CLOACINA-T-1122).
+  `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` answered 200
+  when no package matched; it now answers `404 workflow_not_found`. A version
+  the compiler is building is refused with `409 package_building`, and
+  nothing is removed. A version in any other build state is removed with its
+  stored archives.
+
+### Upgrade notes
+
+- **Database migrations 051 to 067.** The server applies them at start:
+  `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
+  `061`, `062`, `063`, `064`, `065`, `066`, `067` (Postgres and SQLite). Back
+  up the database before the upgrade; there is no downgrade, restore the
+  backup to go back.
+- **Chart: `/metrics` moves off the API port** (CLOACINA-T-1025,
+  CLOACINA-T-1032). `metrics.enabled` is `true` by default: the server serves
+  `/metrics` on `metrics.port` (9090) through the Service
+  `<fullname>-metrics`, and the API port answers 404 for it. Scrape the
+  metrics Service, and add your Prometheus pods to
+  `metrics.networkPolicy.from`: until then the NetworkPolicy refuses the
+  scrape. `metrics.enabled=false` keeps `/metrics` on the API port.
 
 ## [0.12.0] - 2026-10-13
 
