@@ -43,6 +43,23 @@ pub struct ApiKeyInfo {
     pub issued_via: Option<String>,
 }
 
+/// The role of the key of an execution agent.
+pub const AGENT_ROLE: &str = "agent";
+
+/// Refuse a key of role `agent` with no tenant (CLOACINA-T-1118). An agent
+/// registers in the tenant of its key, and an agent with no tenant serves no
+/// tenant's work. [`ApiKeyDAL::create_key`] and [`ApiKeyDAL::mint_key`], the
+/// only code that writes an `api_keys` row, call it, so no route can make
+/// such a key.
+pub fn check_key_scope(tenant_id: Option<&str>, role: &str) -> Result<(), ValidationError> {
+    if role == AGENT_ROLE && tenant_id.is_none() {
+        return Err(ValidationError::ExecutionFailed {
+            message: "a key of role `agent` needs a tenant".to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// DAL for API key operations. Postgres only.
 #[derive(Clone)]
 pub struct ApiKeyDAL<'a> {
@@ -132,5 +149,20 @@ impl<'a> ApiKeyDAL<'a> {
     #[cfg(feature = "postgres")]
     pub async fn revoke_keys_for_tenant(&self, tenant_id: &str) -> Result<usize, ValidationError> {
         crud::revoke_keys_for_tenant(self.dal, tenant_id).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t1118_an_agent_key_needs_a_tenant() {
+        assert!(check_key_scope(None, AGENT_ROLE).is_err());
+        assert!(check_key_scope(Some("acme"), AGENT_ROLE).is_ok());
+        for role in ["read", "write", "admin"] {
+            assert!(check_key_scope(None, role).is_ok(), "{role}");
+            assert!(check_key_scope(Some("acme"), role).is_ok(), "{role}");
+        }
     }
 }

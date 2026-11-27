@@ -115,6 +115,8 @@ impl Principal {
     /// Whether this key may register `agent_id`, given the row that holds the
     /// id now (`None`: no row).
     ///
+    /// - A key with no tenant: no, whatever its role and whatever the row
+    ///   (CLOACINA-T-1118). An agent with no tenant serves no tenant's work.
     /// - No row: yes. The key becomes the owner.
     /// - The row is held by this key, in this key's tenant: yes (an agent
     ///   that restarts and registers again).
@@ -122,6 +124,9 @@ impl Principal {
     ///   this key's tenant: yes. The register claims the row.
     /// - Any other row: no.
     pub fn may_register_agent(&self, existing: Option<&AgentOwner>) -> Result<(), Refusal> {
+        if self.tenant_id.is_none() {
+            return Err(Refusal::NoTenant);
+        }
         let Some(row) = existing else {
             return Ok(());
         };
@@ -407,7 +412,7 @@ mod tests {
         };
         assert_eq!(
             admin.may_register_agent(Some(&held_by(&owner))),
-            Err(Refusal::OtherTenant)
+            Err(Refusal::NoTenant)
         );
         assert_eq!(
             admin.may_act_as_agent(Some(&held_by(&owner))),
@@ -427,8 +432,28 @@ mod tests {
         );
         assert_eq!(
             key(None).may_register_agent(Some(&unowned(Some("a")))),
-            Err(Refusal::OtherTenant)
+            Err(Refusal::NoTenant)
         );
+    }
+
+    #[test]
+    fn t1118_a_key_with_no_tenant_cannot_register_an_agent() {
+        let admin = Principal {
+            key_id: Uuid::new_v4(),
+            tenant_id: None,
+            is_admin: true,
+        };
+        for k in [key(None), admin] {
+            assert_eq!(k.may_register_agent(None), Err(Refusal::NoTenant));
+            assert_eq!(
+                k.may_register_agent(Some(&unowned(None))),
+                Err(Refusal::NoTenant)
+            );
+            assert_eq!(
+                k.may_register_agent(Some(&held_by(&k))),
+                Err(Refusal::NoTenant)
+            );
+        }
     }
 
     // ── act as an agent ─────────────────────────────────────────────────
