@@ -22,7 +22,7 @@ class KeyCreatedResponse:
             is_admin (bool): God-mode flag — never granted via the create endpoints.
             key (str): One-time plaintext API key.
             name (str):
-            permissions (str): Role string: `read` | `write` | `admin`.
+            permissions (str): Role string: `read` | `write` | `admin` | `agent`.
             tenant_id (None | str | Unset): Tenant scope; `null` for global keys.
     """
 

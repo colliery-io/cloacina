@@ -346,7 +346,7 @@ class PublishWorld:
 
         The manifests copy `crates/cloacina-server/src/actuator/kubernetes.rs`
         (`agent_deployment_manifest`, `network_policy_manifest`) and the key
-        has the actuator's role (`read`, tenant-scoped). The driver does this
+        has the actuator's role (`agent`, tenant-scoped). The driver does this
         because the server does not start with `fleet.actuator=kubernetes`
         today (see features/publishing/README.md). Keep the copy in step with
         the actuator, or the probe scenario measures the wrong pod.
@@ -355,7 +355,7 @@ class PublishWorld:
         if self.kubectl_json("get", "deploy", "cloacina-agent", "-n", ns):
             return
         _, created = self.api("POST", f"/v1/tenants/{tenant}/keys", key=self.bootstrap_key,
-                              body={"name": f"agent:{tenant}:bdd-driver", "role": "read"},
+                              body={"name": f"agent:{tenant}:bdd-driver", "role": "agent"},
                               expect=(200, 201))
         managed = {"cloacina.managed": "true"}
         labels = {"app.kubernetes.io/name": "cloacina-agent", "cloacina.managed": "true",

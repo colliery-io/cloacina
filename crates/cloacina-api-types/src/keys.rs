@@ -18,15 +18,21 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Allowed roles for API keys.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+/// The role of an API key: a named set of permissions, fixed in the server.
+///
+/// - `read`: list and inspect.
+/// - `write`: `read`, plus upload, run and operate.
+/// - `admin`: `write`, plus keys, accounts, secrets, the audit record and the
+///   fleet size of its tenant.
+/// - `agent`: act as an execution agent, and nothing else.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum KeyRole {
-    #[default]
     Admin,
     Write,
     Read,
+    Agent,
 }
 
 impl KeyRole {
@@ -35,6 +41,7 @@ impl KeyRole {
             KeyRole::Admin => "admin",
             KeyRole::Write => "write",
             KeyRole::Read => "read",
+            KeyRole::Agent => "agent",
         }
     }
 }
@@ -44,7 +51,8 @@ impl KeyRole {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreateKeyRequest {
     pub name: String,
-    #[serde(default)]
+    /// Required. A request with no role is refused with 400: the server does
+    /// not choose a role for the caller.
     pub role: KeyRole,
 }
 
@@ -58,7 +66,7 @@ pub struct KeyCreatedResponse {
     pub name: String,
     /// One-time plaintext API key.
     pub key: String,
-    /// Role string: `read` | `write` | `admin`.
+    /// Role string: `read` | `write` | `admin` | `agent`.
     pub permissions: String,
     /// Tenant scope; `null` for global keys.
     pub tenant_id: Option<String>,
@@ -75,7 +83,7 @@ pub struct KeyInfo {
     /// Key UUID.
     pub id: String,
     pub name: String,
-    /// Role string: `read` | `write` | `admin`.
+    /// Role string: `read` | `write` | `admin` | `agent`.
     pub permissions: String,
     /// Tenant scope; `null` for global keys.
     pub tenant_id: Option<String>,

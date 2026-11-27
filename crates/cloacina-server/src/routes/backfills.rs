@@ -318,11 +318,11 @@ async fn check_params(
 )]
 pub async fn create_backfill(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<CreateBackfillRequest>,
 ) -> Response {
-    match create_backfill_inner(&state, &auth, &tenant_id, &name, body).await {
+    match create_backfill_inner(&state, &tenant_id, &name, body).await {
         Ok(summary) => Json(summary).into_response(),
         Err(e) => e.into_response(),
     }
@@ -330,7 +330,6 @@ pub async fn create_backfill(
 
 async fn create_backfill_inner(
     state: &AppState,
-    auth: &AuthenticatedKey,
     tenant_id: &str,
     name: &str,
     body: CreateBackfillRequest,
@@ -378,7 +377,7 @@ async fn create_backfill_inner(
         "intervals": summary.progress.total,
     });
     let event = AuditEvent::ok(audit_record::actions::BACKFILL_CREATE, &summary.id);
-    audit_record::record(state, auth, Some(tenant_id), event.detail(detail)).await;
+    audit_record::note(Some(tenant_id), event.detail(detail));
     Ok(summary)
 }
 
@@ -534,7 +533,7 @@ pub async fn get_backfill(
 )]
 pub async fn cancel_backfill(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name, id)): Path<(String, String, String)>,
 ) -> Response {
     let result = async {
@@ -562,7 +561,7 @@ pub async fn cancel_backfill(
             "remaining": summary.progress.remaining,
         });
         let event = AuditEvent::ok(audit_record::actions::BACKFILL_CANCEL, &summary.id);
-        audit_record::record(&state, &auth, Some(&tenant_id), event.detail(detail)).await;
+        audit_record::note(Some(&tenant_id), event.detail(detail));
         Ok::<_, ApiError>(summary)
     }
     .await;
@@ -601,7 +600,7 @@ pub async fn cancel_backfill(
 )]
 pub async fn retry_backfill(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name, id)): Path<(String, String, String)>,
     Json(body): Json<RetryBackfillRequest>,
 ) -> Response {
@@ -659,7 +658,7 @@ pub async fn retry_backfill(
             "intervals": summary.progress.total,
         });
         let event = AuditEvent::ok(audit_record::actions::BACKFILL_RETRY, &id);
-        audit_record::record(&state, &auth, Some(&tenant_id), event.detail(detail)).await;
+        audit_record::note(Some(&tenant_id), event.detail(detail));
         Ok::<_, ApiError>(summary)
     }
     .await;

@@ -214,7 +214,7 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
-| `role` | string | no | Key role. Lowercase string: `"admin"`, `"write"`, or `"read"`. Defaults to `"admin"`. |
+| `role` | string | yes | Key role. Lowercase string: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. |
 
 > **Naming note:** the request field is `role`; the response field
 > is `permissions`. They carry the same value (e.g., `"admin"`).
@@ -240,6 +240,7 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 
 | Status | Body | Cause |
 |---|---|---|
+| `400` | `{"error": "a key request needs a name and a role ...", "code": "invalid_request"}` | No `role`, an unknown role, or a body that is not a key request |
 | `403` | `{"error": "insufficient permissions"}` | Caller does not have admin role |
 | `500` | `{"error": "failed to create API key"}` | Database error |
 
@@ -345,7 +346,7 @@ Create an API key scoped to a specific tenant. Only `is_admin` (god-mode) keys c
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
-| `role` | string | no | Key role: `"admin"`, `"write"`, or `"read"`. Defaults to `"admin"`. |
+| `role` | string | yes | Key role: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. Give `"agent"` to the key of an execution agent. |
 
 **Response:** `201 Created`
 

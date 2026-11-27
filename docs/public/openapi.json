@@ -308,6 +308,16 @@
               }
             }
           },
+          "400": {
+            "description": "No role, an unknown role, or a body that is not a key request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing or invalid API key",
             "content": {
@@ -1556,6 +1566,16 @@
               }
             }
           },
+          "400": {
+            "description": "The role is not one of read, write, admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing or invalid API key",
             "content": {
@@ -2273,7 +2293,7 @@
         "tags": [
           "keys"
         ],
-        "summary": "GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).\nTenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the\nroute-table middleware, so the caller is already confined to `tenant_id`.",
+        "summary": "GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).\nTenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the\nroute-table middleware, so the caller is already confined to `tenant_id`.",
         "operationId": "list_tenant_keys",
         "parameters": [
           {
@@ -2338,7 +2358,7 @@
         "tags": [
           "keys"
         ],
-        "summary": "POST /tenants/:tenant_id/keys — create a key scoped to a tenant.\nAdmin-only: only is_admin keys can create tenant-scoped keys.",
+        "summary": "POST /tenants/:tenant_id/keys — create a key scoped to a tenant.\nNeeds `keys.manage` in the tenant: a tenant admin, or the platform admin.\nThe role is one of `read`, `write`, `admin`, `agent` and must be given.",
         "operationId": "create_tenant_key",
         "parameters": [
           {
@@ -2372,6 +2392,16 @@
               }
             }
           },
+          "400": {
+            "description": "No role, an unknown role, or a body that is not a key request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing or invalid API key",
             "content": {
@@ -2383,7 +2413,7 @@
             }
           },
           "403": {
-            "description": "Admin (god-mode) key required",
+            "description": "Tenant access or admin role denied",
             "content": {
               "application/json": {
                 "schema": {
@@ -6401,14 +6431,16 @@
         "type": "object",
         "description": "Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`.",
         "required": [
-          "name"
+          "name",
+          "role"
         ],
         "properties": {
           "name": {
             "type": "string"
           },
           "role": {
-            "$ref": "#/components/schemas/KeyRole"
+            "$ref": "#/components/schemas/KeyRole",
+            "description": "Required. A request with no role is refused with 400: the server does\nnot choose a role for the caller."
           }
         }
       },
@@ -7066,7 +7098,7 @@
           },
           "permissions": {
             "type": "string",
-            "description": "Role string: `read` | `write` | `admin`."
+            "description": "Role string: `read` | `write` | `admin` | `agent`."
           },
           "tenant_id": {
             "type": [
@@ -7105,7 +7137,7 @@
           },
           "permissions": {
             "type": "string",
-            "description": "Role string: `read` | `write` | `admin`."
+            "description": "Role string: `read` | `write` | `admin` | `agent`."
           },
           "revoked": {
             "type": "boolean"
@@ -7139,11 +7171,12 @@
       },
       "KeyRole": {
         "type": "string",
-        "description": "Allowed roles for API keys.",
+        "description": "The role of an API key: a named set of permissions, fixed in the server.\n\n- `read`: list and inspect.\n- `write`: `read`, plus upload, run and operate.\n- `admin`: `write`, plus keys, accounts, secrets, the audit record and the\n  fleet size of its tenant.\n- `agent`: act as an execution agent, and nothing else.",
         "enum": [
           "admin",
           "write",
-          "read"
+          "read",
+          "agent"
         ]
       },
       "ListResponse_AccountInfo": {
@@ -7556,7 +7589,7 @@
                 },
                 "permissions": {
                   "type": "string",
-                  "description": "Role string: `read` | `write` | `admin`."
+                  "description": "Role string: `read` | `write` | `admin` | `agent`."
                 },
                 "revoked": {
                   "type": "boolean"

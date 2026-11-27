@@ -56,14 +56,18 @@ Before completing the upgrade, the server:
 2. Hashes the token with SHA-256
 3. Checks the LRU cache (256 entries, 30-second TTL)
 4. On cache miss, validates against the database
-5. Checks per-endpoint authorization policy (tenant scoping, explicit producer/operator lists)
+5. Checks the permission the route needs, like a REST route:
+   - `/v1/ws/accumulator/{name}` needs `accumulators.inject` (role `write` or `admin`).
+   - `/v1/ws/reactor/{name}` needs `graphs.read` to connect (role `read`, `write` or `admin`). A `ForceFire`, `FireWith`, `Pause` or `Resume` command needs `reactors.operate` (role `write` or `admin`); a key of role `read` gets an error response to such a command and can still send `GetState`.
+   - `/v1/ws/delivery/{recipient}` needs the permission of the recipient's kind: `agent:<id>` needs `agent.act` (role `agent`), `exec_events:<id>` needs `executions.read`, `ops_metrics:global` needs `ops.read`.
+6. Checks per-endpoint authorization policy (tenant scoping, explicit producer/operator lists)
 
 If authentication fails, the server returns an HTTP error response (not a WebSocket close frame) since the upgrade has not yet completed:
 
 | HTTP Status | Cause |
 |---|---|
 | `401 Unauthorized` | Missing token, invalid/revoked API key |
-| `403 Forbidden` | Valid key but not authorized for this endpoint |
+| `403 Forbidden` | Valid key whose role does not hold the permission, or that is not authorized for this endpoint |
 
 ### 3. Connection Establishment
 
@@ -233,7 +237,7 @@ The connection remains open -- only the individual command is rejected.
 
 The delivery endpoint is the client side of the interservice communication substrate (CLOACI-S-0012): a transactional outbox in the server database, drained by a relay, pushed over WebSocket to whichever connection has registered for `{recipient}`. It carries a **versioned envelope** — every frame in both directions includes a `protocol_version` field (currently `1`).
 
-Authentication matches the other endpoints (Bearer header or `?token=` — typically a [single-use ticket](#websocket-ticket-flow)). The tenant scope is inferred from the authenticated key and enforced against each outbox row's `tenant_id`.
+Authentication matches the other endpoints (Bearer header or `?token=` — typically a [single-use ticket](#websocket-ticket-flow)). The kind of the recipient decides the permission the key needs: `agent:<id>` needs `agent.act`, `exec_events:<id>` needs `executions.read`, `ops_metrics:global` needs `ops.read`; a recipient of another kind is refused with `403`. The tenant scope is inferred from the authenticated key and enforced against each outbox row's `tenant_id`.
 
 ### Recipients: Who May Subscribe
 

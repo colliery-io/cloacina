@@ -5,8 +5,9 @@ Use it as a context manager. It stops every process on exit and prints the
 logs when the body raises.
 
 An agent takes its tenant from its API key, and dispatch only picks an agent of
-the task's tenant. So `start_agent` gives the agent a key scoped to a tenant;
-an agent on the bootstrap admin key has no tenant and gets no work.
+the task's tenant. So `start_agent` gives the agent a key scoped to a tenant.
+The key has the role `agent` (CLOACINA-T-1055): no other role, and not the
+bootstrap admin key, may register an agent.
 """
 
 import json
@@ -135,18 +136,20 @@ class FleetStack:
         assert body.get("build_status") == "success", body
         print("  ok: workflow compiled")
 
-    def mint_tenant_key(self, tenant: str) -> str:
-        body = self.api("POST", f"/v1/tenants/{tenant}/keys", {"name": f"{self.name}-agent", "role": "read"})
+    def create_tenant(self, tenant: str) -> None:
+        """Create a tenant with the bootstrap key."""
+        self.api("POST", "/v1/tenants", {"name": tenant})
+        print(f"  ok: tenant {tenant} created")
+
+    def mint_agent_key(self, tenant: str) -> str:
+        """A key of `tenant` with the role `agent`: the only role that may
+        register an agent."""
+        body = self.api("POST", f"/v1/tenants/{tenant}/keys", {"name": f"{self.name}-agent", "role": "agent"})
         return body["key"]
 
-    def start_agent(
-        self, tenant: str | None = "public", max_concurrency: int = 2, env: dict | None = None
-    ):
-        """Start one agent with a key scoped to `tenant`. Returns its log path.
-
-        `tenant=None` gives the agent the bootstrap admin key: it registers
-        with no tenant, has free capacity, and is eligible for no task.
-        """
+    def start_agent(self, tenant: str = "public", max_concurrency: int = 2, env: dict | None = None):
+        """Start one agent with an `agent` key scoped to `tenant`. Returns its
+        log path."""
         self._agents += 1
         log_name = f"agent-{self._agents}.log"
         agent_env = os.environ.copy()
@@ -156,7 +159,7 @@ class FleetStack:
             [
                 "target/debug/cloacina-agent",
                 "--server", self.server_url,
-                "--api-key", self.bootstrap_key if tenant is None else self.mint_tenant_key(tenant),
+                "--api-key", self.mint_agent_key(tenant),
                 "--max-concurrency", str(max_concurrency),
             ],
             agent_env,

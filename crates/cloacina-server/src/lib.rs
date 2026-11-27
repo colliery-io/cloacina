@@ -283,9 +283,9 @@ pub struct AppState {
     /// Operator-configurable via `CLOACINA_INITIAL_AGENTS` (default 1); `0`
     /// disables auto-provision.
     pub initial_agents: u32,
-    /// CLOACI-T-0783: declarative `(method, path) -> Access` authorization
-    /// table, consulted by `authz_mw`. Built once at startup; fail-closed —
-    /// a matched route absent from this map is denied.
+    /// The authorization table (CLOACINA-T-1055): one row for each route,
+    /// read by the `guard` middleware. Built once at start; a route with no
+    /// row stops the start, and is refused if it is ever reached.
     pub authz_table: Arc<crate::routes::authz::AuthzTable>,
     /// CLOACI-T-0789/0790: the OIDC relying party, if an issuer is configured
     /// (`CLOACINA_OIDC_*`) and discovery succeeded; `None` → OIDC login is off.
@@ -404,6 +404,14 @@ pub async fn run(
     let cors_layer = cors.layer()?;
     // Fail fast at boot rather than 403 at first upload (CLOACI-I-0103 / T-0567).
     validate_security_args(require_signatures, verification_org_id.as_ref())?;
+    // CLOACINA-T-1055: every route has a row in the authorization table, or
+    // the server does not start. Checked before any heavy start-up work.
+    check_route_coverage(&crate::routes::authz::build_authz_table())
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // A rule of the OIDC map with a role that is not `read`, `write` or
+    // `admin` stops the start: to skip it would change which rule wins.
+    crate::oidc::MappingPolicy::check(&std::env::var("CLOACINA_OIDC_MAP").unwrap_or_default())
+        .map_err(|e| anyhow::anyhow!("CLOACINA_OIDC_MAP: {e}"))?;
 
     // CLOACI-T-0582: enable strict search_path checking on the server.
     // Adds a `current_schema()` round-trip on every tenant-scoped
@@ -1300,6 +1308,11 @@ pub async fn run(
     // CLOACINA_DEMO_TENANT_KEYS; a no-op in normal deployments.
     bootstrap_demo_tenant_keys(&state).await?;
 
+    // CLOACINA-T-1055: a key whose stored role is not one of the four holds
+    // no permission. Name such keys at start, so an operator sees why a key
+    // that worked before the upgrade is refused.
+    warn_keys_with_unknown_role(&state).await;
+
     // Operational-metrics publisher (CLOACI-T-0718): pushes server/compiler/
     // fleet/reconciler snapshots to a subscribed Operations UI over the WS
     // substrate (direct sink push, not the durable outbox). No-op when nothing
@@ -2067,438 +2080,362 @@ fn metrics_router(handle: metrics_exporter_prometheus::PrometheusHandle) -> Rout
         .fallback(fallback_404)
 }
 
-/// Build the main router. `serve_metrics` is false when a separate metrics
-/// listener is on: `/metrics` then answers 404 here (an explicit route, so the
-/// embedded UI fallback never answers for it).
-fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
-    use axum::{
-        extract::DefaultBodyLimit, middleware, routing::delete, routing::post, routing::put,
-    };
+/// Every route of the server, registered through [`RouteSet`] so the
+/// start-up check can compare them with the authorization table
+/// (CLOACINA-T-1055). The first set is the top level (no key), the second is
+/// the `/v1` nest. `serve_metrics` is false when a separate metrics listener
+/// is on: `/metrics` then answers 404 here (an explicit route, so the embedded
+/// UI fallback never answers for it).
+///
+/// Register a route here and give it a row in
+/// `routes::authz::build_authz_table`. With no row the server does not start.
+fn registered_routes(
+    serve_metrics: bool,
+) -> (
+    crate::routes::authz::RouteSet,
+    crate::routes::authz::RouteSet,
+) {
+    use crate::routes::authz::RouteSet;
 
-    // Authenticated routes — behind auth middleware
-    let auth_routes = Router::new()
+    let v1 = RouteSet::new("/v1")
         // Key management
-        .route("/auth/keys", post(crate::routes::keys::create_key))
-        .route("/auth/keys", get(crate::routes::keys::list_keys))
-        .route(
-            "/auth/keys/{key_id}",
-            delete(crate::routes::keys::revoke_key),
-        )
+        .post("/auth/keys", crate::routes::keys::create_key)
+        .get("/auth/keys", crate::routes::keys::list_keys)
+        .delete("/auth/keys/{key_id}", crate::routes::keys::revoke_key)
         // WebSocket ticket exchange (single-use, short-lived)
-        .route(
-            "/auth/ws-ticket",
-            post(crate::routes::keys::create_ws_ticket),
-        )
+        .post("/auth/ws-ticket", crate::routes::keys::create_ws_ticket)
         // CLOACI-T-0794: login-session lifecycle (authenticated — caller's own key).
-        .route("/auth/refresh", post(crate::routes::session::refresh))
-        .route("/auth/logout", post(crate::routes::session::logout))
+        .post("/auth/refresh", crate::routes::session::refresh)
+        .post("/auth/logout", crate::routes::session::logout)
         // CLOACI-T-0803: the caller's own role, so the UI can gate write/admin controls.
-        .route("/auth/whoami", get(crate::routes::session::whoami))
+        .get("/auth/whoami", crate::routes::session::whoami)
         // Execution-agent fleet roster (admin, operator-facing) — CLOACI-I-0124
-        .route("/agents", get(crate::routes::agent::list_agents))
+        .get("/agents", crate::routes::agent::list_agents)
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124
-        .route(
-            "/compiler/status",
-            get(crate::routes::compiler::compiler_status),
-        )
+        .get("/compiler/status", crate::routes::compiler::compiler_status)
         // Audit record (CLOACINA-T-1024): the platform form and the tenant form.
-        .route("/audit", get(crate::routes::audit::list_audit))
-        .route(
+        .get("/audit", crate::routes::audit::list_audit)
+        .get(
             "/tenants/{tenant_id}/audit",
-            get(crate::routes::audit::list_tenant_audit),
+            crate::routes::audit::list_tenant_audit,
         )
         // Tenant management
-        .route("/tenants", post(crate::routes::tenants::create_tenant))
-        .route("/tenants", get(crate::routes::tenants::list_tenants))
-        .route(
+        .post("/tenants", crate::routes::tenants::create_tenant)
+        .get("/tenants", crate::routes::tenants::list_tenants)
+        .delete(
             "/tenants/{schema_name}",
-            delete(crate::routes::tenants::remove_tenant),
+            crate::routes::tenants::remove_tenant,
         )
         // Tenant-scoped key creation (admin-only)
-        .route(
+        .post(
             "/tenants/{tenant_id}/keys",
-            post(crate::routes::keys::create_tenant_key),
+            crate::routes::keys::create_tenant_key,
         )
         // CLOACI-T-0784: tenant-admin key self-service (list + revoke own-tenant).
-        .route(
+        .get(
             "/tenants/{tenant_id}/keys",
-            get(crate::routes::keys::list_tenant_keys),
+            crate::routes::keys::list_tenant_keys,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/keys/{key_id}",
-            delete(crate::routes::keys::revoke_tenant_key),
+            crate::routes::keys::revoke_tenant_key,
         )
         // CLOACI-T-0797: tenant-admin local-account management.
-        .route(
+        .post(
             "/tenants/{tenant_id}/accounts",
-            post(crate::routes::local_auth::create_account),
+            crate::routes::local_auth::create_account,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/accounts",
-            get(crate::routes::local_auth::list_accounts),
+            crate::routes::local_auth::list_accounts,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/accounts/{account_id}",
-            delete(crate::routes::local_auth::disable_account),
+            crate::routes::local_auth::disable_account,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/accounts/{account_id}/password",
-            post(crate::routes::local_auth::reset_password),
+            crate::routes::local_auth::reset_password,
         )
         // CLOACI-T-0862: tenant secrets CRUD (metadata-only reads). Values are
         // write-only (create/rotate body); list/get never return a value.
-        .route(
+        .post(
             "/tenants/{tenant_id}/secrets",
-            post(crate::routes::secrets::create_secret),
+            crate::routes::secrets::create_secret,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/secrets",
-            get(crate::routes::secrets::list_secrets),
+            crate::routes::secrets::list_secrets,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/secrets/{name}",
-            get(crate::routes::secrets::get_secret),
+            crate::routes::secrets::get_secret,
         )
-        .route(
+        .put(
             "/tenants/{tenant_id}/secrets/{name}",
-            put(crate::routes::secrets::rotate_secret),
+            crate::routes::secrets::rotate_secret,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/secrets/{name}",
-            delete(crate::routes::secrets::delete_secret),
+            crate::routes::secrets::delete_secret,
         )
         // CLOACI-T-0808: agent-capacity limits (admin default + per-tenant exceptions).
-        .route(
+        .post(
             "/tenants/{tenant_id}/limits",
-            post(crate::routes::limits::set_tenant_limit),
+            crate::routes::limits::set_tenant_limit,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/limits",
-            get(crate::routes::limits::get_tenant_limit),
+            crate::routes::limits::get_tenant_limit,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/limits",
-            delete(crate::routes::limits::clear_tenant_limit),
+            crate::routes::limits::clear_tenant_limit,
         )
         // CLOACINA-T-1021: agent pools (settings and size of each pool of a tenant).
-        .route(
+        .get(
             "/tenants/{tenant_id}/pools",
-            get(crate::routes::pools::list_pools),
+            crate::routes::pools::list_pools,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/pools/{pool}",
-            get(crate::routes::pools::get_pool)
-                .put(crate::routes::pools::put_pool)
-                .delete(crate::routes::pools::delete_pool),
+            crate::routes::pools::get_pool,
+        )
+        .put(
+            "/tenants/{tenant_id}/pools/{pool}",
+            crate::routes::pools::put_pool,
+        )
+        .delete(
+            "/tenants/{tenant_id}/pools/{pool}",
+            crate::routes::pools::delete_pool,
         )
         // CLOACI-T-0809: per-tenant fleet scaling (desired-count provisioning).
-        .route(
+        .get(
             "/tenants/{tenant_id}/fleet",
-            get(crate::routes::fleet::get_fleet),
+            crate::routes::fleet::get_fleet,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/fleet/provision",
-            post(crate::routes::fleet::provision),
+            crate::routes::fleet::provision,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/fleet/deprovision",
-            post(crate::routes::fleet::deprovision),
+            crate::routes::fleet::deprovision,
         )
         // Workflow packages (tenant-scoped)
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows",
-            post(crate::routes::workflows::upload_workflow),
+            crate::routes::workflows::upload_workflow,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows",
-            get(crate::routes::workflows::list_workflows),
+            crate::routes::workflows::list_workflows,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}",
-            get(crate::routes::workflows::get_workflow),
+            crate::routes::workflows::get_workflow,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/source",
-            get(crate::routes::workflows::get_workflow_source),
+            crate::routes::workflows::get_workflow_source,
         )
         // Pause / resume a workflow (block new executions) — CLOACI-T-0749.
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/pause",
-            post(crate::routes::workflows::pause_workflow),
+            crate::routes::workflows::pause_workflow,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/resume",
-            post(crate::routes::workflows::resume_workflow),
+            crate::routes::workflows::resume_workflow,
         )
         // Versions of a package: list, and make an earlier one active
         // (CLOACINA-T-1018). The static `versions` segment wins over the
         // `{version}` wildcard of the delete route below.
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/versions",
-            get(crate::routes::workflows::list_workflow_versions),
+            crate::routes::workflows::list_workflow_versions,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate",
-            post(crate::routes::workflows::activate_workflow_version),
+            crate::routes::workflows::activate_workflow_version,
         )
         // Named workflow instances (CLOACI-T-0894). Declared BEFORE the
         // `{version}` delete so the static `instances` segment is never
         // shadowed by the version wildcard.
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/instances",
-            post(crate::routes::instances::create_instance),
+            crate::routes::instances::create_instance,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/instances",
-            get(crate::routes::instances::list_instances),
+            crate::routes::instances::list_instances,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
-            get(crate::routes::instances::get_instance),
+            crate::routes::instances::get_instance,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/workflows/{name}/instances/{instance}",
-            delete(crate::routes::instances::delete_instance),
+            crate::routes::instances::delete_instance,
         )
         // Backfills (CLOACINA-T-1020). The static `backfills` segment wins
         // over the `{version}` wildcard of the delete route below.
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/backfills",
-            post(crate::routes::backfills::create_backfill),
+            crate::routes::backfills::create_backfill,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/backfills",
-            get(crate::routes::backfills::list_backfills),
+            crate::routes::backfills::list_backfills,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/workflows/{name}/backfills/{id}",
-            get(crate::routes::backfills::get_backfill),
+            crate::routes::backfills::get_backfill,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel",
-            post(crate::routes::backfills::cancel_backfill),
+            crate::routes::backfills::cancel_backfill,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry",
-            post(crate::routes::backfills::retry_backfill),
+            crate::routes::backfills::retry_backfill,
         )
-        .route(
+        .delete(
             "/tenants/{tenant_id}/workflows/{name}/{version}",
-            delete(crate::routes::workflows::delete_workflow),
+            crate::routes::workflows::delete_workflow,
         )
         // Trigger schedules (tenant-scoped, read-only)
-        .route(
+        .get(
             "/tenants/{tenant_id}/triggers",
-            get(crate::routes::triggers::list_triggers),
+            crate::routes::triggers::list_triggers,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/triggers/{name}",
-            get(crate::routes::triggers::get_trigger),
+            crate::routes::triggers::get_trigger,
         )
         // Pause / resume a schedule (cron or trigger) — CLOACI-T-0749.
-        .route(
+        .post(
             "/tenants/{tenant_id}/triggers/{name}/pause",
-            post(crate::routes::triggers::pause_trigger),
+            crate::routes::triggers::pause_trigger,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/triggers/{name}/resume",
-            post(crate::routes::triggers::resume_trigger),
+            crate::routes::triggers::resume_trigger,
         )
-        .route(
+        .post(
             "/tenants/{tenant_id}/triggers/{name}/fire",
-            post(crate::routes::triggers::fire_trigger),
+            crate::routes::triggers::fire_trigger,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/triggers/{name}/interface",
-            get(crate::routes::triggers::get_trigger_interface),
+            crate::routes::triggers::get_trigger_interface,
         )
         // Executions (tenant-scoped)
-        .route(
+        .post(
             "/tenants/{tenant_id}/workflows/{name}/execute",
-            post(crate::routes::executions::execute_workflow),
+            crate::routes::executions::execute_workflow,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions",
-            get(crate::routes::executions::list_executions),
+            crate::routes::executions::list_executions,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions/{exec_id}",
-            get(crate::routes::executions::get_execution),
+            crate::routes::executions::get_execution,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions/{exec_id}/events",
-            get(crate::routes::executions::get_execution_events),
+            crate::routes::executions::get_execution_events,
         )
-        .route(
+        .get(
             "/tenants/{tenant_id}/executions/{exec_id}/tasks",
-            get(crate::routes::executions::get_execution_tasks),
+            crate::routes::executions::get_execution_tasks,
         )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::authz::authz_mw,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::auth::require_auth,
-        ));
-
-    // Computation graph health routes — behind auth.
-    // CLOACI-T-0595 / API-08: paths are relative to the `/v1` nest below
-    // (previously these used absolute `/v1/...` and were merged at the
-    // top level, bypassing the `/v1` nest's middleware contract).
-    let graph_health_routes = Router::new()
-        .route(
+        // Computation graph health routes. Paths are relative to the `/v1`
+        // nest (CLOACI-T-0595 / API-08).
+        .get(
             "/health/accumulators",
-            get(crate::routes::health_graphs::list_accumulators),
+            crate::routes::health_graphs::list_accumulators,
         )
-        .route(
+        .get(
             "/health/reactors",
-            get(crate::routes::health_graphs::list_reactors),
+            crate::routes::health_graphs::list_reactors,
         )
         // Operator manual reactor fire (CLOACI-T-0751) — REST surface over the
-        // existing reactor ForceFire/FireWith mechanics. Per-op authZ + audit
-        // live in the handler; the route-layer auth below supplies the key.
-        .route(
+        // existing reactor ForceFire/FireWith mechanics. The tenant policy of
+        // the endpoint is checked in the handler.
+        .post(
             "/health/reactors/{name}/fire",
-            post(crate::routes::health_graphs::fire_reactor),
+            crate::routes::health_graphs::fire_reactor,
         )
         // Observable fires (CLOACI-T-0766): recent fires + per-minute cadence.
-        .route(
+        .get(
             "/health/reactors/{name}/fires",
-            get(crate::routes::health_graphs::list_reactor_fires),
+            crate::routes::health_graphs::list_reactor_fires,
         )
-        .route(
+        .get(
             "/health/reactors/{name}/fires/timeseries",
-            get(crate::routes::health_graphs::reactor_fire_timeseries),
+            crate::routes::health_graphs::reactor_fire_timeseries,
         )
         // Operator manual accumulator inject (CLOACI-T-0753) — REST analogue of
         // the WS accumulator-push path; typed JSON event, server-side encoding.
-        .route(
+        .post(
             "/health/accumulators/{name}/inject",
-            post(crate::routes::health_graphs::inject_accumulator),
+            crate::routes::health_graphs::inject_accumulator,
         )
         // Declared input-interface discovery (CLOACI-I-0128 / T-0758) — the typed
         // slots an operator supplies to fire/inject; backs UI typed forms.
-        .route(
+        .get(
             "/health/reactors/{name}/interface",
-            get(crate::routes::health_graphs::get_reactor_interface),
+            crate::routes::health_graphs::get_reactor_interface,
         )
-        .route(
+        .get(
             "/health/accumulators/{name}/interface",
-            get(crate::routes::health_graphs::get_accumulator_interface),
+            crate::routes::health_graphs::get_accumulator_interface,
         )
-        .route(
-            "/health/graphs",
-            get(crate::routes::health_graphs::list_graphs),
-        )
-        .route(
+        .get("/health/graphs", crate::routes::health_graphs::list_graphs)
+        .get(
             "/health/graphs/{name}",
-            get(crate::routes::health_graphs::get_graph),
+            crate::routes::health_graphs::get_graph,
         )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::authz::authz_mw,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::auth::require_auth,
-        ));
-
-    // WebSocket routes — auth handled in the handler (before upgrade).
-    // Relative paths so they nest cleanly under `/v1` per API-08.
-    let ws_routes = Router::new()
-        .route(
-            "/ws/accumulator/{name}",
-            get(crate::routes::ws::accumulator_ws),
-        )
-        .route("/ws/reactor/{name}", get(crate::routes::ws::reactor_ws))
-        // Substrate delivery (CLOACI-I-0115 / T-0627). Auth handled in the
-        // handler (header bearer or single-use ticket); tenant inferred from
-        // the authenticated key and enforced against delivery_outbox.tenant_id.
-        .route(
+        // WebSocket routes. The upgrade request goes through the middleware
+        // like a REST route (bearer key, or a single-use ticket).
+        .get("/ws/accumulator/{name}", crate::routes::ws::accumulator_ws)
+        .get("/ws/reactor/{name}", crate::routes::ws::reactor_ws)
+        // Substrate delivery (CLOACI-I-0115 / T-0627). The tenant comes from
+        // the authenticated key and is enforced against
+        // delivery_outbox.tenant_id.
+        .get(
             "/ws/delivery/{recipient}",
-            get(crate::routes::delivery_ws::delivery_ws),
-        );
-
-    // Execution-agent fleet (CLOACI-I-0114 / T-0631). All endpoints share
-    // the standard authed-route middleware; tenant + admin checks live in
-    // each handler. Register/heartbeat persist to the DB-backed roster
-    // (CLOACI-T-0916); result rendezvouses with the FleetExecutor (T-0633).
-    let agent_routes = axum::routing::Router::new()
-        .route(
-            "/agent/register",
-            axum::routing::post(crate::routes::agent::register_agent),
+            crate::routes::delivery_ws::delivery_ws,
         )
-        .route(
-            "/agent/heartbeat",
-            axum::routing::post(crate::routes::agent::heartbeat_agent),
-        )
-        .route(
-            "/agent/keys",
-            axum::routing::post(crate::routes::agent::replenish_keys),
-        )
-        .route(
-            "/agent/result",
-            axum::routing::post(crate::routes::agent::report_result),
-        )
-        .route(
+        // Execution-agent fleet (CLOACI-I-0114 / T-0631): a key of role
+        // `agent` only. Register/heartbeat persist to the DB-backed roster
+        // (CLOACI-T-0916); result rendezvouses with the FleetExecutor (T-0633).
+        .post("/agent/register", crate::routes::agent::register_agent)
+        .post("/agent/heartbeat", crate::routes::agent::heartbeat_agent)
+        .post("/agent/keys", crate::routes::agent::replenish_keys)
+        .post("/agent/result", crate::routes::agent::report_result)
+        .get(
             "/agent/artifact/{digest}",
-            axum::routing::get(crate::routes::agent::fetch_artifact),
+            crate::routes::agent::fetch_artifact,
         )
-        .route(
-            "/agent/source/{digest}",
-            axum::routing::get(crate::routes::agent::fetch_source),
-        )
-        .route(
+        .get("/agent/source/{digest}", crate::routes::agent::fetch_source)
+        .get(
             "/agent/providers/{digest}",
-            axum::routing::get(crate::routes::agent::fetch_providers),
+            crate::routes::agent::fetch_providers,
         )
-        // All four agent endpoints authenticate with an API key (bearer) and
-        // extract `Extension<AuthenticatedKey>`. The layer MUST be attached
-        // here, before the merge into `auth_routes` below: `.route_layer` only
-        // covers routes already in the router, so `auth_routes`' own layer does
-        // NOT reach these merged routes. Without this, `register_agent` panics
-        // on the missing extension → 500 → the agent exits on register. The
-        // delivery WS (ws_routes) is deliberately NOT key-authed — it uses a
-        // single-use ws-ticket — so auth stays per-sub-router, not nest-wide.
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::authz::authz_mw,
-        ))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::routes::auth::require_auth,
-        ));
+        // The login routes: the caller has no key yet. Their rows are public.
+        .post("/auth/local/login", crate::routes::local_auth::local_login)
+        .get("/auth/oidc/login", crate::routes::oidc_auth::oidc_login)
+        .get("/auth/callback", crate::routes::oidc_auth::oidc_callback);
 
-    // All of v1 in a single nest — API-08 invariant: anything served
-    // under `/v1/*` shares the same middleware stack.
-    let v1 = auth_routes
-        .merge(graph_health_routes)
-        .merge(ws_routes)
-        .merge(agent_routes)
-        // Public auth entry points (caller has no bearer key yet — NOT behind
-        // require_auth / authz_mw; they mint the key). CLOACI-T-0796/0790.
-        .merge(
-            Router::new()
-                .route(
-                    "/auth/local/login",
-                    post(crate::routes::local_auth::local_login),
-                )
-                .route(
-                    "/auth/oidc/login",
-                    get(crate::routes::oidc_auth::oidc_login),
-                )
-                .route(
-                    "/auth/callback",
-                    get(crate::routes::oidc_auth::oidc_callback),
-                ),
-        );
-
-    // Public routes — no auth
-    Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
-        .route(
+    // No key: liveness, metrics, the API document.
+    let top = RouteSet::new("")
+        .get("/health", health)
+        .get("/ready", ready)
+        .add(
+            axum::http::Method::GET,
             "/metrics",
             if serve_metrics {
                 get(metrics)
@@ -2508,17 +2445,44 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
         )
         // Machine-readable API contract (CLOACI-T-0643 / REQ-001). Same
         // document the `emit-openapi` subcommand writes to disk.
-        .route(
-            "/openapi.json",
-            get(|| async {
-                (
-                    [(axum::http::header::CONTENT_TYPE, "application/json")],
-                    crate::openapi::openapi_json(),
-                )
-            }),
-        )
-        // All v1 routes (auth + graph health + ws) under one nest.
-        .nest("/v1", v1)
+        .get("/openapi.json", || async {
+            (
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                crate::openapi::openapi_json(),
+            )
+        });
+
+    (top, v1)
+}
+
+/// Compare the routes of the server with the authorization table, both ways
+/// (CLOACINA-T-1055). The server calls it before it listens: a route with no
+/// row, or a row with no route, stops the start.
+pub fn check_route_coverage(
+    table: &crate::routes::authz::AuthzTable,
+) -> Result<(), crate::routes::authz::CoverageError> {
+    // `/metrics` is registered on the main router in both modes.
+    let (top, v1) = registered_routes(true);
+    let mut registered = top.registered().to_vec();
+    registered.extend_from_slice(v1.registered());
+    crate::routes::authz::check_coverage(&registered, table)
+}
+
+/// Build the main router: every route of [`registered_routes`], with the
+/// authorization middleware on the whole `/v1` nest. One layer, put on after
+/// every `/v1` route is registered, so no route can be outside it.
+fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
+    use axum::{extract::DefaultBodyLimit, middleware};
+
+    let (top, v1) = registered_routes(serve_metrics);
+    let (v1, _) = v1.into_parts();
+    let v1 = v1.route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        crate::routes::authz::guard,
+    ));
+    let (top, _) = top.into_parts();
+
+    top.nest("/v1", v1)
         // CLOACI-I-0130: with the UI embedded, unmatched non-API paths serve
         // the SPA (assets immutable, index.html no-store); API prefixes keep
         // the JSON 404. Feature-off = today's JSON 404 for everything.
@@ -2751,6 +2715,37 @@ async fn bootstrap_admin_key(
     Ok(())
 }
 
+/// The unrevoked keys whose role string is not a role: `(id, name, role)`.
+fn keys_with_unknown_role(
+    keys: &[cloacina::dal::unified::api_keys::ApiKeyInfo],
+) -> Vec<(String, String, String)> {
+    keys.iter()
+        .filter(|k| !k.revoked && crate::routes::authz::Role::parse(&k.permissions).is_none())
+        .map(|k| (k.id.to_string(), k.name.clone(), k.permissions.clone()))
+        .collect()
+}
+
+/// Log each unrevoked key whose role is not `read`, `write`, `admin` or
+/// `agent`: it authenticates and is refused on every route (CLOACINA-T-1055).
+/// A read error is logged; it does not stop the start.
+async fn warn_keys_with_unknown_role(state: &AppState) {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal.api_keys().list_keys().await {
+        Ok(keys) => {
+            for (id, name, role) in keys_with_unknown_role(&keys) {
+                warn!(
+                    key_id = %id,
+                    key_name = %name,
+                    role = %role,
+                    "this API key has a role that is not read, write, admin or agent: it is \
+                     refused on every route. Revoke it and create a key with one of the four roles"
+                );
+            }
+        }
+        Err(e) => warn!("could not read the API keys to check their roles: {e}"),
+    }
+}
+
 /// CLOACI-T-0779 — demo-only: seed deterministic tenant-SCOPED API keys from the
 /// `CLOACINA_DEMO_TENANT_KEYS` env so the demo can demonstrate tenant isolation
 /// with known keys (like the bootstrap admin key). Format: comma-separated
@@ -2781,6 +2776,13 @@ async fn bootstrap_demo_tenant_keys(state: &AppState) -> Result<()> {
             .copied()
             .filter(|r| !r.is_empty())
             .unwrap_or("admin");
+        if crate::routes::authz::Role::parse(role).is_none() {
+            warn!(
+                "CLOACINA_DEMO_TENANT_KEYS: skipping the key of '{}': '{}' is not a role (read, write, admin, agent)",
+                tenant, role
+            );
+            continue;
+        }
         let hash = cloacina::security::api_keys::hash_api_key(key);
         match dal
             .api_keys()
@@ -2823,9 +2825,90 @@ mod tests {
     use std::io::Write;
     use tower::ServiceExt;
 
+    /// CLOACINA-T-1055: the routes the server registers and the
+    /// authorization table agree, with and without `/metrics` on the main
+    /// listener. Needs no database.
+    #[test]
+    fn test_every_registered_route_has_a_row() {
+        let table = crate::routes::authz::build_authz_table();
+        assert_eq!(check_route_coverage(&table), Ok(()));
+        for serve_metrics in [true, false] {
+            let (top, v1) = registered_routes(serve_metrics);
+            let mut registered = top.registered().to_vec();
+            registered.extend_from_slice(v1.registered());
+            assert_eq!(registered.len(), table.len());
+            assert_eq!(
+                crate::routes::authz::check_coverage(&registered, &table),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
+    fn test_keys_with_unknown_role_are_found() {
+        let key =
+            |name: &str, role: &str, revoked: bool| cloacina::dal::unified::api_keys::ApiKeyInfo {
+                id: uuid::Uuid::new_v4(),
+                name: name.to_string(),
+                permissions: role.to_string(),
+                created_at: chrono::Utc::now(),
+                revoked,
+                tenant_id: Some("acme".to_string()),
+                is_admin: false,
+                expires_at: None,
+                issued_via: None,
+            };
+        let keys = vec![
+            key("a", "read", false),
+            key("b", "write", false),
+            key("c", "admin", false),
+            key("d", "agent", false),
+            key("e", "owner", false),
+            key("f", "owner", true),
+            key("g", "", false),
+        ];
+        let found: Vec<(String, String)> = keys_with_unknown_role(&keys)
+            .into_iter()
+            .map(|(_, name, role)| (name, role))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("e".to_string(), "owner".to_string()),
+                ("g".to_string(), String::new())
+            ]
+        );
+    }
+
+    /// A route added to the server's own router with no row fails the check
+    /// that the server runs before it listens.
+    #[test]
+    fn test_a_new_route_with_no_row_stops_the_start() {
+        let table = crate::routes::authz::build_authz_table();
+        let (top, v1) = registered_routes(true);
+        let v1 = v1.post("/tenants/{tenant_id}/forgotten", || async {});
+        let mut registered = top.registered().to_vec();
+        registered.extend_from_slice(v1.registered());
+        let err = crate::routes::authz::check_coverage(&registered, &table).unwrap_err();
+        assert_eq!(
+            err.routes_without_row,
+            vec!["POST /v1/tenants/{tenant_id}/forgotten"]
+        );
+        // A row taken out of the table fails it the other way.
+        let mut short = crate::routes::authz::AuthzTable::default();
+        for r in table.rows().iter().skip(1) {
+            short.add(r.method.clone(), r.path, r.row);
+        }
+        let err = check_route_coverage(&short).unwrap_err();
+        assert_eq!(err.routes_without_row, vec!["GET /health"]);
+    }
+
     /// Router tests of the audit record (CLOACINA-T-1024).
     mod agent_ownership;
     mod audit_routes;
+    /// Router tests of the authorization model (CLOACINA-T-1055).
+    mod authz_routes;
+    /// Router tests of backfills (CLOACINA-T-1020).
     mod backfill_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
@@ -5096,19 +5179,69 @@ mod tests {
             .uri("/v1/auth/keys")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"name": "new-test-key"}"#))
+            .body(Body::from(r#"{"name": "new-test-key", "role": "read"}"#))
             .unwrap();
 
         let (status, body) = send_request(app, req).await;
         assert_eq!(status, StatusCode::CREATED);
         assert!(body["key"].as_str().unwrap().starts_with("clk_"));
         assert_eq!(body["name"], "new-test-key");
+        assert_eq!(body["permissions"], "read");
+        assert_eq!(body["is_admin"], false);
         assert!(body["id"].as_str().is_some());
+    }
+
+    /// CLOACINA-T-1055: a key request with no role is refused with 400, on
+    /// both key routes. It made an `admin` key before. An unknown role is
+    /// refused the same way, and `agent` is a role a key can have.
+    #[tokio::test]
+    #[serial]
+    async fn test_create_key_with_no_role_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        for (uri, body, want) in [
+            (
+                "/v1/auth/keys",
+                r#"{"name": "no-role"}"#,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/v1/tenants/public/keys",
+                r#"{"name": "no-role"}"#,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/v1/tenants/public/keys",
+                r#"{"name": "bad-role", "role": "owner"}"#,
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "/v1/tenants/public/keys",
+                r#"{"name": "an-agent", "role": "agent"}"#,
+                StatusCode::CREATED,
+            ),
+        ] {
+            let req = axum::http::Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body))
+                .unwrap();
+            let (status, answer) = send_request(build_router(state.clone()), req).await;
+            assert_eq!(status, want, "{uri} {body}: {answer}");
+            if want == StatusCode::CREATED {
+                assert_eq!(answer["permissions"], "agent");
+            } else {
+                assert_eq!(answer["code"], "invalid_request");
+            }
+        }
     }
 
     #[tokio::test]
     #[serial]
-    async fn test_create_key_missing_name_returns_422() {
+    async fn test_create_key_missing_name_returns_400() {
         let state = test_state().await;
         let token = create_test_api_key(&state).await;
         let app = build_router(state);
@@ -5122,8 +5255,8 @@ mod tests {
             .unwrap();
 
         let (status, _) = send_request(app, req).await;
-        // axum returns 422 for deserialization failures
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        // A body that is not a key request is refused with 400.
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -6251,8 +6384,8 @@ mod tests {
         (status, body)
     }
 
-    /// Two tenants and the public schema, each with one package, and a key of
-    /// each tenant.
+    /// Two tenants and the public schema, each with one package, and an `agent`
+    /// key of each tenant and of `public`.
     struct FetchTenants {
         state: AppState,
         admin_token: String,
@@ -6260,6 +6393,7 @@ mod tests {
         schema_b: String,
         key_a: String,
         key_b: String,
+        key_public: String,
         pkg_a: SeededFetchPackage,
         pkg_b: SeededFetchPackage,
         pkg_public: SeededFetchPackage,
@@ -6299,8 +6433,11 @@ mod tests {
         let pkg_b = seed_fetch_package(&db_b, "b").await;
         let pkg_public = seed_fetch_package(&state.database, "public").await;
 
-        let key_a = create_tenant_api_key(&state, &schema_a, "read").await;
-        let key_b = create_tenant_api_key(&state, &schema_b, "read").await;
+        // The fetch routes ask `agent.act`: only a key of role `agent` holds
+        // it (CLOACINA-T-1055).
+        let key_a = create_tenant_api_key(&state, &schema_a, "agent").await;
+        let key_b = create_tenant_api_key(&state, &schema_b, "agent").await;
+        let key_public = create_tenant_api_key(&state, "public", "agent").await;
 
         FetchTenants {
             state,
@@ -6309,6 +6446,7 @@ mod tests {
             schema_b,
             key_a,
             key_b,
+            key_public,
             pkg_a,
             pkg_b,
             pkg_public,
@@ -6378,7 +6516,8 @@ mod tests {
     /// CLOACINA-T-1016: a key of a named tenant gets its own package on all
     /// three routes. Before the fix the source and providers routes read the
     /// admin schema, so a named tenant's Python package could not be fetched.
-    /// The platform admin key still reads the public schema.
+    /// An agent key of the `public` tenant reads the public schema. The
+    /// platform admin key is not an agent (CLOACINA-T-1055): 403.
     #[tokio::test]
     #[serial]
     async fn agent_fetch_routes_serve_the_callers_own_tenant() {
@@ -6388,7 +6527,7 @@ mod tests {
         for (who, key, pkg) in [
             ("tenant A", &t.key_a, &t.pkg_a),
             ("tenant B", &t.key_b, &t.pkg_b),
-            ("platform admin", &t.admin_token, &t.pkg_public),
+            ("public", &t.key_public, &t.pkg_public),
         ] {
             let (status, body) =
                 agent_get(&t.state, key, &format!("/v1/agent/artifact/{}", pkg.digest)).await;
@@ -6419,15 +6558,29 @@ mod tests {
             );
         }
 
-        // The platform admin key reads the admin schema only: a tenant's
-        // digest is not there.
+        // A key of the `public` tenant reads the admin schema only: a
+        // tenant's digest is not there.
         let (status, _) = agent_get(
             &t.state,
-            &t.admin_token,
+            &t.key_public,
             &format!("/v1/agent/source/{}", t.pkg_a.digest),
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // The platform admin flag does not grant `agent.act`, and neither
+        // does a tenant's `read` key: no fetch, on any of the three routes.
+        let reader = create_tenant_api_key(&t.state, &t.schema_a, "read").await;
+        for route in AGENT_FETCH_ROUTES {
+            for (who, key, digest) in [
+                ("platform admin", &t.admin_token, &t.pkg_public.digest),
+                ("read key of tenant A", &reader, &t.pkg_a.digest),
+            ] {
+                let (status, _) =
+                    agent_get(&t.state, key, &format!("/v1/agent/{}/{}", route, digest)).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{}: {}", who, route);
+            }
+        }
 
         teardown_fetch_tenants(t).await;
     }
@@ -7626,7 +7779,7 @@ mod tests {
         );
     }
 
-    /// A key whose 15-minute TTL already lapsed cannot refresh: `require_auth`
+    /// A key whose 15-minute TTL already lapsed cannot refresh: the `guard` middleware
     /// rejects it before the handler runs. Sane, and the documented reason the
     /// SPA must refresh on a timer rather than on demand after idling.
     #[tokio::test]

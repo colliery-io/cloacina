@@ -79,6 +79,10 @@ const AGENT_DEPLOYMENT_NAME: &str = "cloacina-agent";
 const AGENT_SECRET_NAME: &str = "cloacina-agent-key";
 /// Key within [`AGENT_SECRET_NAME`] holding the plaintext agent key.
 const AGENT_SECRET_KEY: &str = "api-key";
+/// Pod-template annotation naming the id of the API key in the Secret
+/// (CLOACINA-T-1055). It tells the actuator which key the tenant's agents
+/// hold, and a new key changes the template, so the Deployment rolls.
+const KEY_ID_ANNOTATION: &str = "cloacina.io/agent-key-id";
 /// Name of the per-tenant agent `NetworkPolicy` (REQ-007, CLOACI-T-0819).
 const AGENT_NETWORK_POLICY_NAME: &str = "cloacina-agent-fleet";
 
@@ -342,6 +346,9 @@ pub struct AgentDeployment {
     /// Secret the agent key is read from (referenced as `CLOACINA_API_KEY`).
     pub secret_name: String,
     pub secret_key: String,
+    /// The id of the API key in the Secret: the pod-template annotation
+    /// [`KEY_ID_ANNOTATION`]. `None` leaves the annotation out.
+    pub key_id: Option<String>,
     /// Resource requests + limits for the agent container.
     pub resources: AgentResources,
 }
@@ -424,6 +431,14 @@ pub trait KubeOps: Send + Sync {
     /// Current ready replica count for the agent `Deployment` (0 if absent).
     async fn count_ready_replicas(&self, namespace: &str, name: &str)
     -> Result<u32, ActuatorError>;
+    /// The id of the API key a `Deployment`'s pods are started with: its
+    /// pod-template annotation [`KEY_ID_ANNOTATION`]. `None` when the
+    /// Deployment is absent or was applied before CLOACINA-T-1055.
+    async fn deployment_key_id(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<String>, ActuatorError>;
 }
 
 /// Kubernetes fleet actuator. Generic over its API substrate ([`KubeOps`]) and
@@ -492,6 +507,7 @@ impl KubernetesActuator {
         pool: &str,
         settings: &AgentPoolSettings,
         desired: u32,
+        key_id: &str,
     ) -> Result<ReconcileOutcome, ActuatorError> {
         let name = pool_deployment_name(pool);
 
@@ -522,22 +538,6 @@ impl KubernetesActuator {
         let running = self.ops.count_ready_replicas(namespace, &name).await?;
         let delta = reconcile_delta(running, desired);
 
-        // Only (re)mint a key + upsert the Secret when we are adding capacity.
-        //
-        // DECISION (CLOACI-T-0814, flagged): a single per-tenant Secret backs
-        // every pool's Deployment, so all replicas share one key (unlike the
-        // Docker actuator, which mints one key per container). We re-mint on
-        // every scale-UP event (not every reconcile — at convergence
-        // `to_spawn == 0`), upserting the Secret in place; existing pods keep
-        // their env until rescheduled. Key revocation on scale-down is deferred,
-        // same as the Docker actuator.
-        if delta.to_spawn > 0 {
-            let api_key = self.minter.mint(tenant_id).await?;
-            self.ops
-                .ensure_secret(namespace, AGENT_SECRET_NAME, AGENT_SECRET_KEY, &api_key)
-                .await?;
-        }
-
         // Ensure the Deployment object exists (idempotent; never sets replicas).
         // The pool's settings override the server-wide defaults.
         let spec = AgentDeployment {
@@ -557,6 +557,7 @@ impl KubernetesActuator {
             server_url: self.config.server_url.clone(),
             secret_name: AGENT_SECRET_NAME.to_string(),
             secret_key: AGENT_SECRET_KEY.to_string(),
+            key_id: Some(key_id.to_string()),
             resources: self.config.resources.with_pool(settings),
         };
         self.ops.ensure_deployment(&spec).await?;
@@ -629,6 +630,35 @@ impl FleetActuator for KubernetesActuator {
             }
         }
 
+        // The tenant's agent key (CLOACINA-T-1055). One Secret backs every
+        // pool's Deployment, so all the tenant's agents share one key of role
+        // `agent`. The `default` Deployment's pod template names the key in
+        // use. With none named (a cold start, or a Deployment from before the
+        // `agent` role), or one that is not a live `agent` key (revoked, or a
+        // `read` key), a new key is minted and written to the Secret; the
+        // annotation then changes on every pool's Deployment, which rolls its
+        // pods onto the new key.
+        let noted = self
+            .ops
+            .deployment_key_id(&namespace, &pool_deployment_name(DEFAULT_AGENT_POOL))
+            .await?;
+        let key_id = match noted {
+            Some(id) if self.minter.is_live_agent_key(tenant_id, &id).await? => id,
+            _ => {
+                let key = self.minter.mint(tenant_id).await?;
+                self.ops
+                    .ensure_secret(
+                        &namespace,
+                        AGENT_SECRET_NAME,
+                        AGENT_SECRET_KEY,
+                        &key.plaintext,
+                    )
+                    .await?;
+                info!(tenant = %tenant_id, namespace = %namespace, "fleet actuator minted the tenant's agent key (kubernetes)");
+                key.id
+            }
+        };
+
         // One Deployment per pool. `desired` is the count of `default`; another
         // pool runs its own fixed count. A pool that fails does not stop the
         // others; the first error is returned after all were tried.
@@ -641,7 +671,7 @@ impl FleetActuator for KubernetesActuator {
                 fixed_agent_count(settings)
             };
             match self
-                .reconcile_pool(tenant_id, &namespace, pool, settings, want)
+                .reconcile_pool(tenant_id, &namespace, pool, settings, want, &key_id)
                 .await
             {
                 Ok(out) => {
@@ -655,10 +685,22 @@ impl FleetActuator for KubernetesActuator {
                 }
             }
         }
-        match first_error {
-            Some(e) => Err(e),
-            None => Ok(total),
+        if let Some(e) = first_error {
+            return Err(e);
         }
+        // Every pool is on `key_id` now: revoke every other key the actuator
+        // minted for the tenant (finding 12 of CLOACINA-D-0019). That takes
+        // the key just replaced and the `read` keys from before the `agent`
+        // role. Not done after a failed pool: its pods may still hold the old
+        // key.
+        let revoked = self
+            .minter
+            .revoke_others(tenant_id, std::slice::from_ref(&key_id))
+            .await?;
+        if revoked > 0 {
+            info!(tenant = %tenant_id, revoked, "fleet actuator revoked replaced agent keys (kubernetes)");
+        }
+        Ok(total)
     }
 
     async fn remove_pool(&self, tenant_id: &str, pool: &str) -> Result<(), ActuatorError> {
@@ -815,6 +857,10 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
     }
     if !spec.pod_annotations.is_empty() {
         template_meta["annotations"] = serde_json::json!(spec.pod_annotations);
+    }
+    // After the pool's annotations, so a stored value cannot replace it.
+    if let Some(key_id) = &spec.key_id {
+        template_meta["annotations"][KEY_ID_ANNOTATION] = key_id.clone().into();
     }
     let pod = &mut manifest["spec"]["template"]["spec"];
     if let Some(sa) = &spec.service_account_name {
@@ -1170,6 +1216,23 @@ impl KubeOps for KubeApiOps {
             .unwrap_or(0);
         Ok(ready.max(0) as u32)
     }
+
+    async fn deployment_key_id(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> Result<Option<String>, ActuatorError> {
+        let api: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
+        let found = api
+            .get_opt(name)
+            .await
+            .map_err(|e| ActuatorError::Substrate(format!("get deployment failed: {e}")))?;
+        Ok(found
+            .and_then(|d| d.spec)
+            .and_then(|s| s.template.metadata)
+            .and_then(|m| m.annotations)
+            .and_then(|a| a.get(KEY_ID_ANNOTATION).cloned()))
+    }
 }
 
 #[cfg(test)]
@@ -1212,6 +1275,8 @@ mod tests {
         deleted: Mutex<Vec<String>>,
         /// Deployment name whose apply fails, if any.
         fail_deployment: Option<String>,
+        /// The key id the `default` Deployment's pod template names.
+        key_id: Mutex<Option<String>>,
     }
 
     impl MockOps {
@@ -1229,6 +1294,9 @@ mod tests {
                 pool_policies: Mutex::new(Vec::new()),
                 deleted: Mutex::new(Vec::new()),
                 fail_deployment: None,
+                // Running agents are on a live `agent` key; with none running
+                // there is no Deployment yet.
+                key_id: Mutex::new((ready > 0).then(|| "minted-before".to_string())),
             }
         }
     }
@@ -1268,6 +1336,9 @@ mod tests {
             }
             self.deployments.fetch_add(1, Ordering::SeqCst);
             self.deployment_specs.lock().unwrap().push(spec.clone());
+            if spec.name == pool_deployment_name(DEFAULT_AGENT_POOL) {
+                *self.key_id.lock().unwrap() = spec.key_id.clone();
+            }
             Ok(())
         }
         async fn ensure_pool_network_policy(
@@ -1329,18 +1400,53 @@ mod tests {
         ) -> Result<u32, ActuatorError> {
             Ok(self.ready)
         }
+        async fn deployment_key_id(
+            &self,
+            _namespace: &str,
+            _name: &str,
+        ) -> Result<Option<String>, ActuatorError> {
+            Ok(self.key_id.lock().unwrap().clone())
+        }
     }
 
-    /// Mock minter that counts and hands back a deterministic plaintext.
+    /// Mock minter: counts, hands back a deterministic key, and records the
+    /// keys it was told to keep. A key id that starts with `minted-` is a
+    /// live `agent` key; any other id is not.
+    #[derive(Default)]
     struct MockMinter {
         minted: AtomicU32,
+        kept: Mutex<Vec<Vec<String>>>,
     }
 
     #[async_trait]
     impl KeyMinter for MockMinter {
-        async fn mint(&self, _tenant_id: &str) -> Result<String, ActuatorError> {
+        async fn mint(
+            &self,
+            _tenant_id: &str,
+        ) -> Result<super::super::docker::MintedKey, ActuatorError> {
             let n = self.minted.fetch_add(1, Ordering::SeqCst);
-            Ok(format!("clk_test_{n}"))
+            Ok(super::super::docker::MintedKey {
+                id: format!("minted-{n}"),
+                plaintext: format!("clk_test_{n}"),
+            })
+        }
+        async fn is_live_agent_key(
+            &self,
+            _tenant_id: &str,
+            key_id: &str,
+        ) -> Result<bool, ActuatorError> {
+            Ok(key_id.starts_with("minted-"))
+        }
+        async fn revoke(&self, _key_id: &str) -> Result<(), ActuatorError> {
+            Ok(())
+        }
+        async fn revoke_others(
+            &self,
+            _tenant_id: &str,
+            keep: &[String],
+        ) -> Result<u32, ActuatorError> {
+            self.kept.lock().unwrap().push(keep.to_vec());
+            Ok(0)
         }
     }
 
@@ -1376,9 +1482,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_scales_from_zero_and_mints_one_key() {
         let ops = Arc::new(MockOps::with_ready(0));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 3).await.unwrap();
@@ -1415,9 +1519,7 @@ mod tests {
         let mut cfg = config();
         cfg.server_endpoint = None;
         let ops = Arc::new(MockOps::with_ready(0));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = KubernetesActuator::new(ops.clone(), minter, cfg);
         act.reconcile("acme", 1).await.unwrap();
         assert!(ops.network_policies.lock().unwrap().is_empty());
@@ -1426,9 +1528,7 @@ mod tests {
         let mut cfg = config();
         cfg.network_policy_enabled = false;
         let ops = Arc::new(MockOps::with_ready(0));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = KubernetesActuator::new(ops.clone(), minter, cfg);
         act.reconcile("acme", 1).await.unwrap();
         assert!(ops.network_policies.lock().unwrap().is_empty());
@@ -1450,6 +1550,7 @@ mod tests {
             server_url: "http://server:8080".to_string(),
             secret_name: AGENT_SECRET_NAME.to_string(),
             secret_key: AGENT_SECRET_KEY.to_string(),
+            key_id: None,
             resources: AgentResources::default(),
         };
         let m = agent_deployment_manifest(&spec);
@@ -1590,9 +1691,7 @@ mod tests {
     use cloacina_api_types::AgentEgressPort;
 
     fn minter() -> Arc<MockMinter> {
-        Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        })
+        Arc::new(MockMinter::default())
     }
 
     fn default_spec() -> AgentDeployment {
@@ -1610,6 +1709,7 @@ mod tests {
             server_url: "http://server:8080".to_string(),
             secret_name: AGENT_SECRET_NAME.to_string(),
             secret_key: AGENT_SECRET_KEY.to_string(),
+            key_id: None,
             resources: AgentResources::default(),
         }
     }
@@ -2263,12 +2363,101 @@ mod tests {
         assert_eq!(m.len(), 3);
     }
 
+    /// CLOACINA-T-1055: agents from before the `agent` role (no key named on
+    /// the Deployment), or on a key that is not a live `agent` key, get a new
+    /// key: the Secret is written, every pool's pod template names the new
+    /// key (so it rolls), and every other key of the tenant is revoked.
+    #[tokio::test]
+    async fn agents_on_an_old_key_are_moved_to_a_new_agent_key() {
+        for old in [None, Some("read-key-from-before".to_string())] {
+            let ops = Arc::new(MockOps::with_ready(2));
+            *ops.key_id.lock().unwrap() = old;
+            let minter = Arc::new(MockMinter::default());
+            let act = actuator(ops.clone(), minter.clone());
+
+            // Converged on the count: only the key is wrong.
+            let out = act.reconcile("acme", 2).await.unwrap();
+            assert_eq!(out.spawned, 0);
+            assert_eq!(minter.minted.load(Ordering::SeqCst), 1);
+            assert_eq!(ops.secrets.load(Ordering::SeqCst), 1);
+            let named = ops.deployment_specs.lock().unwrap()[0].key_id.clone();
+            assert_eq!(named.as_deref(), Some("minted-0"));
+            let kept = minter.kept.lock().unwrap().clone();
+            assert_eq!(kept, vec![vec!["minted-0".to_string()]]);
+
+            // The next reconcile finds the new key named and mints nothing.
+            act.reconcile("acme", 2).await.unwrap();
+            assert_eq!(minter.minted.load(Ordering::SeqCst), 1);
+            assert_eq!(ops.secrets.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    /// Adding agents does not mint a key: the tenant keeps the one it has.
+    #[tokio::test]
+    async fn a_scale_up_keeps_the_tenants_key() {
+        let ops = Arc::new(MockOps::with_ready(1));
+        let minter = Arc::new(MockMinter::default());
+        let act = actuator(ops.clone(), minter.clone());
+        let out = act.reconcile("acme", 3).await.unwrap();
+        assert_eq!(out.spawned, 2);
+        assert_eq!(minter.minted.load(Ordering::SeqCst), 0);
+        assert_eq!(ops.secrets.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            ops.deployment_specs.lock().unwrap()[0].key_id.as_deref(),
+            Some("minted-before")
+        );
+    }
+
+    /// A pool that fails keeps the old keys: its pods may still hold one.
+    #[tokio::test]
+    async fn a_failed_pool_revokes_nothing() {
+        let mut ops = MockOps::with_ready(0);
+        ops.fail_deployment = Some(pool_deployment_name(DEFAULT_AGENT_POOL));
+        let minter = Arc::new(MockMinter::default());
+        let act = actuator(Arc::new(ops), minter.clone());
+        assert!(act.reconcile("acme", 1).await.is_err());
+        assert!(minter.kept.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_manifest_names_the_key_in_the_pod_template() {
+        let mut spec = AgentDeployment {
+            namespace: "cloacina-tenant-acme".to_string(),
+            name: "cloacina-agent".to_string(),
+            tenant_id: "acme".to_string(),
+            pool: DEFAULT_AGENT_POOL.to_string(),
+            max_concurrency: None,
+            service_account_name: None,
+            pod_labels: BTreeMap::new(),
+            pod_annotations: string_map(&[(KEY_ID_ANNOTATION, "from-the-pool")]),
+            automount_service_account_token: None,
+            image: "cloacina-agent:latest".to_string(),
+            server_url: "http://server:8080".to_string(),
+            secret_name: AGENT_SECRET_NAME.to_string(),
+            secret_key: AGENT_SECRET_KEY.to_string(),
+            key_id: Some("key-1".to_string()),
+            resources: config().resources,
+        };
+        let m = agent_deployment_manifest(&spec);
+        // The actuator's value wins over a pool annotation of the same name.
+        assert_eq!(
+            m["spec"]["template"]["metadata"]["annotations"][KEY_ID_ANNOTATION],
+            "key-1"
+        );
+        spec.key_id = None;
+        spec.pod_annotations = BTreeMap::new();
+        let m = agent_deployment_manifest(&spec);
+        assert!(
+            m["spec"]["template"]["metadata"]
+                .get("annotations")
+                .is_none()
+        );
+    }
+
     #[tokio::test]
     async fn reconcile_scales_down_without_minting() {
         let ops = Arc::new(MockOps::with_ready(5));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 2).await.unwrap();
@@ -2288,9 +2477,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_is_noop_when_converged() {
         let ops = Arc::new(MockOps::with_ready(3));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 3).await.unwrap();
@@ -2311,9 +2498,7 @@ mod tests {
     #[tokio::test]
     async fn reconcile_scales_to_zero_without_minting() {
         let ops = Arc::new(MockOps::with_ready(2));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         let act = actuator(ops.clone(), minter.clone());
 
         let out = act.reconcile("acme", 0).await.unwrap();
@@ -2331,9 +2516,7 @@ mod tests {
     #[test]
     fn kind_is_kubernetes() {
         let ops = Arc::new(MockOps::with_ready(0));
-        let minter = Arc::new(MockMinter {
-            minted: AtomicU32::new(0),
-        });
+        let minter = Arc::new(MockMinter::default());
         assert_eq!(actuator(ops, minter).kind(), "kubernetes");
     }
 

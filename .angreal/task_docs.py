@@ -195,6 +195,45 @@ def spec_check():
     return 1
 
 
+AUTHZ_DOC_TEST = "routes::authz::tests::the_security_model_page_holds_the_generated_tables"
+
+
+@docs()
+@angreal.command(
+    name="authz-table-check",
+    about="verify the security model page holds the route and role tables generated from the code",
+    when_to_use=["CI", "after changing the authorization table (routes/authz.rs)"],
+    when_not_to_use=["rewriting the page — run the test with CLOACINA_UPDATE_AUTHZ_DOC=1 and commit"]
+)
+def authz_table_check():
+    """Run the test that compares the tables of
+    docs/src/content/docs/explanation/service/security-model.md with the
+    authorization table of cloacina-server (CLOACINA-T-1055).
+
+    To rewrite the page after a change to the table:
+
+        CLOACINA_UPDATE_AUTHZ_DOC=1 cargo test -p cloacina-server --lib \\
+            the_security_model_page
+    """
+    result = subprocess.run(
+        ["cargo", "test", "-p", "cloacina-server", "--lib", "--", "--exact", AUTHZ_DOC_TEST],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        check=False,
+    )
+    # A renamed test would match nothing and exit 0: ask for the one pass.
+    if result.returncode == 0 and "1 passed" in result.stdout:
+        print("The security model page is in sync with the authorization table.")
+        return 0
+    print(result.stdout, file=sys.stderr)
+    print(result.stderr, file=sys.stderr)
+    print("\nThe security model page and the authorization table differ. Rewrite the page with:\n"
+          "  CLOACINA_UPDATE_AUTHZ_DOC=1 cargo test -p cloacina-server --lib the_security_model_page",
+          file=sys.stderr)
+    return 1
+
+
 @docs()
 @angreal.command(
     name="build",

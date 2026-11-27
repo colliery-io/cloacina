@@ -71,7 +71,7 @@ def sync_detailed(
     client: AuthenticatedClient,
 ) -> Response[ErrorBody | ListResponseKeyInfo]:
     """GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
-    Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+    Tenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the
     route-table middleware, so the caller is already confined to `tenant_id`.
 
     Args:
@@ -102,7 +102,7 @@ def sync(
     client: AuthenticatedClient,
 ) -> ErrorBody | ListResponseKeyInfo | None:
     """GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
-    Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+    Tenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the
     route-table middleware, so the caller is already confined to `tenant_id`.
 
     Args:
@@ -128,7 +128,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
 ) -> Response[ErrorBody | ListResponseKeyInfo]:
     """GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
-    Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+    Tenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the
     route-table middleware, so the caller is already confined to `tenant_id`.
 
     Args:
@@ -157,7 +157,7 @@ async def asyncio(
     client: AuthenticatedClient,
 ) -> ErrorBody | ListResponseKeyInfo | None:
     """GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
-    Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+    Tenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the
     route-table middleware, so the caller is already confined to `tenant_id`.
 
     Args:

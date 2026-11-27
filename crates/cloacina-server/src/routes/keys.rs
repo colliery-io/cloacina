@@ -21,7 +21,7 @@
 
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, State, rejection::JsonRejection},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -37,6 +37,25 @@ use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
 
+/// The body of a key request, or a 400 that says what is wrong with it.
+///
+/// A request with no `role` is refused (CLOACINA-T-1055): the server does not
+/// choose a role for the caller. An unknown role is refused the same way.
+fn key_request(
+    body: Result<Json<CreateKeyRequest>, JsonRejection>,
+) -> Result<CreateKeyRequest, ApiError> {
+    match body {
+        Ok(Json(body)) => Ok(body),
+        Err(rejection) => Err(ApiError::bad_request(
+            "invalid_request",
+            format!(
+                "a key request needs a name and a role (read, write, admin or agent): {}",
+                rejection.body_text()
+            ),
+        )),
+    }
+}
+
 /// POST /auth/keys — create a new API key.
 ///
 /// Requires admin role. Non-admin keys cannot create keys with higher
@@ -49,6 +68,7 @@ use crate::routes::error::ApiError;
     request_body = CreateKeyRequest,
     responses(
         (status = 201, description = "Key created — plaintext returned exactly once", body = KeyCreatedResponse),
+        (status = 400, description = "No role, an unknown role, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
@@ -58,8 +78,12 @@ use crate::routes::error::ApiError;
 pub async fn create_key(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
-    Json(body): Json<CreateKeyRequest>,
+    body: Result<Json<CreateKeyRequest>, JsonRejection>,
 ) -> impl IntoResponse {
+    let body = match key_request(body) {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
+    };
     // Privilege-escalation guard. `body.role` populates the per-key
     // `permissions` string (read/write/admin scoped to a tenant);
     // `is_admin` is the orthogonal god-mode flag that grants
@@ -92,14 +116,11 @@ pub async fn create_key(
         .await
     {
         Ok(info) => {
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 info.tenant_id.as_deref(),
                 AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
                     .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
-            )
-            .await;
+            );
             (
                 StatusCode::CREATED,
                 Json(KeyCreatedResponse {
@@ -198,13 +219,10 @@ pub async fn revoke_key(
         Ok(true) => {
             // Clear cache so revoked key is rejected immediately
             state.key_cache.clear().await;
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 None,
                 AuditEvent::ok(audit_record::actions::KEY_REVOKE, key_id.as_str()),
-            )
-            .await;
+            );
             Json(KeyRevokedResponse {
                 status: "revoked".to_string(),
                 id: key_id,
@@ -222,7 +240,8 @@ pub async fn revoke_key(
 }
 
 /// POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
-/// Admin-only: only is_admin keys can create tenant-scoped keys.
+/// Needs `keys.manage` in the tenant: a tenant admin, or the platform admin.
+/// The role is one of `read`, `write`, `admin`, `agent` and must be given.
 #[utoipa::path(
     post,
     path = "/v1/tenants/{tenant_id}/keys",
@@ -231,8 +250,9 @@ pub async fn revoke_key(
     request_body = CreateKeyRequest,
     responses(
         (status = 201, description = "Tenant-scoped key created — plaintext returned exactly once", body = KeyCreatedResponse),
+        (status = 400, description = "No role, an unknown role, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
-        (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
@@ -241,8 +261,12 @@ pub async fn create_tenant_key(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
-    Json(body): Json<CreateKeyRequest>,
+    body: Result<Json<CreateKeyRequest>, JsonRejection>,
 ) -> impl IntoResponse {
+    let body = match key_request(body) {
+        Ok(body) => body,
+        Err(e) => return e.into_response(),
+    };
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -262,14 +286,11 @@ pub async fn create_tenant_key(
                 "Created tenant-scoped key '{}' for tenant '{}'",
                 info.name, tenant_id
             );
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
                     .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
-            )
-            .await;
+            );
             (
                 StatusCode::CREATED,
                 Json(KeyCreatedResponse {
@@ -292,7 +313,7 @@ pub async fn create_tenant_key(
 }
 
 /// GET /tenants/:tenant_id/keys — list keys scoped to one tenant (CLOACI-T-0784).
-/// Tenant-admin self-service; authZ (`TenantParam + Admin`) is enforced by the
+/// Tenant-admin self-service; authZ (`keys.manage` in the tenant of the path) is enforced by the
 /// route-table middleware, so the caller is already confined to `tenant_id`.
 #[utoipa::path(
     get,
@@ -359,7 +380,7 @@ pub async fn list_tenant_keys(
 )]
 pub async fn revoke_tenant_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthenticatedKey>,
+    Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, key_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let id = match uuid::Uuid::parse_str(&key_id) {
@@ -389,13 +410,10 @@ pub async fn revoke_tenant_key(
     match dal.api_keys().revoke_key(id).await {
         Ok(true) => {
             state.key_cache.clear().await;
-            audit_record::record(
-                &state,
-                &auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::KEY_REVOKE, key_id.as_str()),
-            )
-            .await;
+            );
             Json(KeyRevokedResponse {
                 status: "revoked".to_string(),
                 id: key_id,

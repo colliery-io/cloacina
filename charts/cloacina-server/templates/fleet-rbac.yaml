@@ -46,7 +46,8 @@ rules:
     verbs: ["create", "patch"]
   # The agent Deployment of each pool. `create` + `patch` for the server-side
   # apply that ensures it and the merge-patch that sets the replica count (scale
-  # up/down); `get` to read the ready-replica count during reconcile. `delete`
+  # up/down); `get` to read the ready-replica count and the id of the agent key
+  # that the pod template names (CLOACINA-T-1055) during reconcile. `delete`
   # for the removal of a pool (CLOACINA-T-1021): the server deletes the pool's
   # Deployment by name, and only after it checked that the pool has no agents.
   # A tenant's deprovision still scales to zero and deletes nothing. No `list`

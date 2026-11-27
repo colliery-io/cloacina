@@ -187,9 +187,7 @@ pub async fn upload_workflow(
     );
     match registry.register_workflow_package(package_data).await {
         Ok(package_id) => {
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(
                     audit_record::actions::PACKAGE_UPLOAD,
@@ -199,8 +197,7 @@ pub async fn upload_workflow(
                     audit_record::upload_detail(&registry, package_id, content_hash, size_bytes)
                         .await,
                 ),
-            )
-            .await;
+            );
             info!(
                 "Uploaded workflow package for tenant '{}': {}",
                 tenant_id, package_id
@@ -622,14 +619,11 @@ pub async fn delete_workflow(
                 "Deleted workflow '{}' v{} for tenant '{}'",
                 name, version, tenant_id
             );
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::PACKAGE_DELETE, name.as_str())
                     .detail(serde_json::json!({ "version": version })),
-            )
-            .await;
+            );
             Json(WorkflowDeletedResponse {
                 status: "deleted".to_string(),
                 package_name: name,
@@ -743,14 +737,11 @@ async fn set_workflow_paused(
             } else {
                 audit_record::actions::WORKFLOW_RESUME
             };
-            audit_record::record(
-                &state,
-                &_auth,
+            audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(action, name.as_str())
                     .detail(serde_json::json!({ "package_id": id.to_string() })),
-            )
-            .await;
+            );
             Json(WorkflowPauseResponse {
                 tenant_id,
                 id: id.to_string(),
@@ -917,7 +908,7 @@ pub async fn activate_workflow_version(
             );
             let detail = serde_json::json!({ "version": version, "package_id": id.to_string() });
             let event = AuditEvent::ok(audit_record::actions::PACKAGE_ACTIVATE, name.as_str());
-            audit_record::record(&state, &_auth, Some(&tenant_id), event.detail(detail)).await;
+            audit_record::note(Some(&tenant_id), event.detail(detail));
             Json(WorkflowVersionActivatedResponse {
                 tenant_id,
                 id: id.to_string(),

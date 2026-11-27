@@ -58,7 +58,18 @@ cloacinactl server start --default-executor fleet
 ## 2. Run the agents
 
 Each agent is a standalone `cloacina-agent` process. The minimum is a server URL
-and an API key:
+and an API key of role `agent`, scoped to the tenant whose work the agent runs.
+No other role may register an agent, and neither may the bootstrap key. Create
+the key as a tenant admin or the platform admin:
+
+```bash
+curl -s -X POST http://cloacina-server:8080/v1/tenants/acme/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "acme-agents", "role": "agent"}' | jq -r '.key'
+```
+
+Then start the agent with it:
 
 ```bash
 cloacina-agent \
@@ -361,8 +372,9 @@ CLOACINA_AGENT_SERVER_URL=http://server:8080 \
 cloacina-server --default-executor fleet --bind 0.0.0.0:8080
 ```
 
-The actuator mints a tenant-scoped key per container and injects it as
-`CLOACINA_API_KEY`, so you don't manage agent keys yourself. The substrate guard
+The actuator mints a tenant-scoped key of role `agent` per container, injects it
+as `CLOACINA_API_KEY`, and revokes it when the container is stopped, so you don't
+manage agent keys yourself. The substrate guard
 is **fail-closed**: `docker` refuses to start if it detects Kubernetes or finds
 no Docker socket. Of a pool's settings it applies the image, the memory and CPU
 limits and the max concurrency, and replaces the containers of a pool whose

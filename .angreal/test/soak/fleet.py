@@ -211,12 +211,12 @@ def fleet():
 
         # --- start N agents ------------------------------------------------
         # CLOACINA-T-1017: an agent takes its tenant from its key, and dispatch
-        # only picks an agent of the task's tenant. An agent on the bootstrap
-        # admin key has no tenant and gets no work, so mint a key scoped to
-        # the tenant of the workload.
+        # only picks an agent of the task's tenant, so mint a key scoped to
+        # the tenant of the workload. The key has the role `agent`
+        # (CLOACINA-T-1055): no other role may register an agent.
         key_req = urllib.request.Request(
             f"{server_url}/v1/tenants/public/keys",
-            data=json.dumps({"name": "soak-fleet-agent", "role": "read"}).encode(),
+            data=json.dumps({"name": "soak-fleet-agent", "role": "agent"}).encode(),
             headers={"Authorization": f"Bearer {bootstrap_key}",
                      "Content-Type": "application/json"},
             method="POST",

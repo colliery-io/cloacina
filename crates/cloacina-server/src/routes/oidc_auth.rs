@@ -152,6 +152,21 @@ pub async fn oidc_callback(
                     // failed sign-in.
                     warn!("oidc session persist failed (login not refreshable): {e}");
                 }
+                // The audit row of a login names the key the login minted:
+                // one row for each tenant the identity is mapped to.
+                crate::routes::audit::note_as(
+                    crate::routes::audit::Actor {
+                        key_id: info.id.to_string(),
+                        key_name: info.name.clone(),
+                        identity: info.issued_via.clone(),
+                    },
+                    info.tenant_id.as_deref(),
+                    crate::routes::audit::AuditEvent::ok(
+                        crate::routes::audit::actions::AUTH_LOGIN,
+                        claims.subject.as_str(),
+                    )
+                    .detail(serde_json::json!({ "via": "oidc", "role": info.permissions })),
+                );
                 memberships.push(Membership {
                     key: plaintext,
                     tenant: info.tenant_id.unwrap_or_default(),
