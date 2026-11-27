@@ -1793,6 +1793,20 @@ impl FleetExecutor {
                     agent_id = %agent_id,
                     "fleet: agent result wait exceeded server-side timeout (taken over)"
                 );
+                // CLOACINA-T-1028 with CLOACINA-T-1084: a taken-over wait that
+                // ends with no report asks the agent to stop its work, as the
+                // first wait does.
+                if let Some(dispatch_id) = task.fleet_dispatch_id.as_deref() {
+                    self.cancel_dispatch(
+                        task_id,
+                        task.fleet_packet_row_id,
+                        &agent_id,
+                        Some(namespace.tenant_id.clone()),
+                        dispatch_id,
+                        "the server's wait for the result ended",
+                    )
+                    .await;
+                }
                 self.result_handler
                     .handle_outcome(
                         &event,
