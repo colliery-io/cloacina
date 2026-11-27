@@ -177,7 +177,7 @@ pub fn validate_python_env(
         }
     }
     if dir.join("vendor").is_dir() {
-        let limits = fidius_core::package::UnpackOptions::default();
+        let limits = cloacina_workflow_plugin::unpack_limit::unpack_options();
         check_unpacked_size(dir, limits.max_decompressed, u64::from(limits.max_entries))?;
     }
     Ok(())
@@ -185,7 +185,8 @@ pub fn validate_python_env(
 
 /// Refuse a package source that is larger than an archive can be unpacked
 /// to. The server and the loader unpack an archive with these limits, so a
-/// larger package would be refused after the upload.
+/// larger package would be refused after the upload. `max_bytes` is the
+/// setting `--max-unpacked-bytes` / `CLOACINA_MAX_UNPACKED_BYTES`.
 fn check_unpacked_size(dir: &Path, max_bytes: u64, max_entries: u64) -> Result<(), CliError> {
     fn walk(dir: &Path, bytes: &mut u64, entries: &mut u64) {
         let Ok(read) = fs::read_dir(dir) else { return };
@@ -214,7 +215,9 @@ fn check_unpacked_size(dir: &Path, max_bytes: u64, max_entries: u64) -> Result<(
         return Err(CliError::UserError(format!(
             "the package is {} unpacked, and a package archive can hold {} unpacked. \
              Vendor for fewer platforms (`cloacinactl package build --arch`), or remove \
-             dependencies.",
+             dependencies. An operator who raised the limit of the server and the agents \
+             (--max-unpacked-bytes or CLOACINA_MAX_UNPACKED_BYTES) gives the same value \
+             here.",
             mib(bytes),
             mib(max_bytes)
         )));
@@ -574,6 +577,8 @@ mod tests {
         );
         assert!(err.contains("unpacked"), "{err}");
         assert!(err.contains("--arch"), "{err}");
+        assert!(err.contains("--max-unpacked-bytes"), "{err}");
+        assert!(err.contains("CLOACINA_MAX_UNPACKED_BYTES"), "{err}");
         // vendor, x86_64-linux, a.py, b.py = 4 entries.
         check_unpacked_size(tmp.path(), 4096, 4).unwrap();
         let err = format!(

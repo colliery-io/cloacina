@@ -47,9 +47,10 @@ pub fn run(path: &Path, python_version: Option<&str>) -> Result<(), CliError> {
         path.to_path_buf()
     } else {
         let tmp = TempDir::new().map_err(CliError::Io)?;
-        let extracted = fidius_core::package::unpack_package(path, tmp.path()).map_err(|e| {
-            CliError::UserError(format!("failed to unpack {}: {e}", path.display()))
-        })?;
+        let extracted = cloacina_workflow_plugin::unpack_limit::unpack_package(path, tmp.path())
+            .map_err(|e| {
+                CliError::UserError(format!("failed to unpack {}: {e}", path.display()))
+            })?;
         _staging = Some(tmp);
         extracted
     };

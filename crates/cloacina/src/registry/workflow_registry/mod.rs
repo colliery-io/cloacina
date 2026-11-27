@@ -496,10 +496,11 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         std::fs::create_dir_all(&extract_dir)
             .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
 
-        let source_dir = fidius_core::package::unpack_package(&archive_path, &extract_dir)
-            .map_err(|e| RegistryError::ValidationError {
-                reason: format!("Failed to unpack source archive: {}", e),
-            })?;
+        let source_dir =
+            cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+                .map_err(|e| RegistryError::ValidationError {
+                    reason: format!("Failed to unpack source archive: {}", e),
+                })?;
 
         let manifest = cloacina_workflow_plugin::manifest::load_resolved_manifest(&source_dir)
             .map_err(|e| RegistryError::ValidationError {
@@ -802,11 +803,10 @@ fn extract_source_files(archive_bytes: &[u8]) -> Result<Vec<WorkflowSourceFile>,
         .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
 
     let source_dir =
-        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
-            RegistryError::ValidationError {
+        cloacina_workflow_plugin::unpack_limit::unpack_package(&archive_path, &extract_dir)
+            .map_err(|e| RegistryError::ValidationError {
                 reason: format!("Failed to unpack source archive: {}", e),
-            }
-        })?;
+            })?;
 
     let mut files = Vec::new();
     collect_source_files(&source_dir, &source_dir, &mut files)?;

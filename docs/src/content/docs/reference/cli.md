@@ -257,6 +257,7 @@ These flags send a JSON `POST` when a run ends. They live on the `cloacina-serve
 | `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--max-package-bytes <N>` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload gets status 413 with the code `package_too_large` and an error that names the size of the upload and the limit. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. CLOACINA-T-1048. |
+| `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to (500 MiB). The server refuses an upload that unpacks to more, and its package loader refuses to load one. The limits of 10,000 entries and of 10 times the archive size stay. `cloacina-compiler`, `cloacina-agent` and `cloacinactl package validate`, `pack` and `publish` take the same flag and variable; `cloacinactl daemon` reads the variable. Give each of them the same value. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. CLOACINA-T-1048. |
 | `--database-wait-timeout-s <N>` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds `cloacina-server` waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s) and logs `Waiting for the database to accept connections` for each wait. After this time it exits with an error that holds the last connection error. `0` = one try, no wait. The HTTP listener opens after the database answers and the migrations ran, so `/health` and `/ready` do not answer during the wait. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. |
 
 ### `server stop` / `status` / `health`
@@ -294,6 +295,11 @@ cloacinactl compiler start [--bind <ADDR>] [--database-url <URL>]
 | `--stale-threshold-s` | (binary default) | Seconds before an in-flight build is considered stale and reclaimable. |
 | `--sweep-interval-s` | (binary default) | How often to sweep for stale claims. |
 
+`cloacina-compiler` also takes `--max-unpacked-bytes <N>` /
+`CLOACINA_MAX_UNPACKED_BYTES` (default `524288000`, 500 MiB): the largest
+size a package archive may unpack to. With `cloacinactl compiler start` set
+the environment variable.
+
 `stop` / `status` / `health` follow the same pattern as `server`: PID
 file for stop, HTTP `GET /v1/status` for status, HTTP `GET /health`
 for health. Note: `compiler status` / `health` probe the address in
@@ -315,7 +321,7 @@ holding no database connection of its own. It is a standalone binary, not a
 cloacina-agent --server <URL> --api-key <KEY>
                [--agent-id <ID>] [--max-concurrency <N>] [--pool <NAME>]
                [--capabilities <TAG,TAG>] [--target-triple-override <TRIPLE>]
-               [--cache-dir <PATH>]
+               [--cache-dir <PATH>] [--max-unpacked-bytes <N>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -329,6 +335,7 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--capabilities <TAG,TAG>` | | (none) | Free-form capability tags advertised at registration. |
 | `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
+| `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package or provider archive may unpack to (500 MiB). The agent refuses to load a larger one. Use the value of the server. |
 
 The agent exposes no HTTP surface of its own — observe it via its logs and the
 server's fleet metrics (`cloacina_fleet_*`). See the how-to guide
@@ -386,7 +393,7 @@ names it); `uv` is not found (the error says how to install it);
 `requires_python` excludes `--python-version`; `--locked` is given and
 there is no `requirements.lock`.
 
-### `package validate <PATH> [--python-version <V>]`
+### `package validate <PATH> [--python-version <V>] [--max-unpacked-bytes <N>]`
 
 Validates a package — a source directory or a `.cloacina` archive —
 against the canonical format without uploading. Checks the resolved
@@ -403,7 +410,13 @@ platform of `[metadata.vendored]` must have its `vendor/<platform>/`
 folder. The Python that runs the package is `--python-version` when
 given, else `[metadata.vendored].python_version`, else `3.11`.
 
-### `package pack <DIR> [--out <PATH>] [--sign <KEY>]`
+A package that unpacks to more than `--max-unpacked-bytes` /
+`CLOACINA_MAX_UNPACKED_BYTES` (default `524288000`, 500 MiB) is refused:
+a source directory with a `vendor/` folder by the size of its files, an
+archive when it is unpacked. Give the value of the server and the agents.
+`package pack` and `package publish` take the same flag.
+
+### `package pack <DIR> [--out <PATH>] [--sign <KEY>] [--max-unpacked-bytes <N>]`
 
 Packs the source directory into a `.cloacina` archive (tar + bzip2
 **source** archive — no compiled artifacts). `--out` defaults to
@@ -418,7 +431,7 @@ exists, so a server requiring signatures cannot accept packages packed
 by this CLI until I-0103 lands (signature rows must be inserted
 out-of-band).
 
-### `package publish <DIR> [--release] [--sign <KEY>] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-vendor]`
+### `package publish <DIR> [--release] [--sign <KEY>] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-vendor] [--max-unpacked-bytes <N>]`
 
 `build` → `pack` → `upload` in one shot. `--sign` fails hard, same as
 `package pack`. It takes the flags of `package build`: a publish of a

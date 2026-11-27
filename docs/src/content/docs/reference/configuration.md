@@ -25,6 +25,7 @@ command-line flags (most also accept an environment variable). The
 | `--public-base-url` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--max-package-bytes` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts. A larger upload is refused with status 413. |
+| `--max-unpacked-bytes` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to. A larger archive is refused at upload and at load. The compiler, the agent and `cloacinactl` read the same setting. |
 | `--database-wait-timeout-s` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds to wait at start for the database to accept a connection, with retries. After it the server exits with an error. `0` = one try. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject unsigned package uploads. Requires `--verification-org-id`. |

@@ -263,11 +263,13 @@ impl RegistryReconciler {
         let archive_path_clone = archive_path.clone();
         let extract_dir_clone = extract_dir.clone();
         let source_dir = tokio::task::spawn_blocking(move || {
-            fidius_core::package::unpack_package(&archive_path_clone, &extract_dir_clone).map_err(
-                |e| RegistryError::RegistrationFailed {
-                    message: format!("Failed to unpack source archive: {}", e),
-                },
+            cloacina_workflow_plugin::unpack_limit::unpack_package(
+                &archive_path_clone,
+                &extract_dir_clone,
             )
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to unpack source archive: {}", e),
+            })
         })
         .await
         .map_err(|e| RegistryError::RegistrationFailed {

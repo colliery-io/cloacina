@@ -307,12 +307,13 @@ pub fn bundle_providers(
 
         // Unpack it into the bundle's providers/ tree (fidius makes `<name>-<ver>/`).
         let bundled_dir =
-            fidius_core::package::unpack_package(&archive, &providers_dir).map_err(|e| {
-                ProviderBundleError::Io(format!(
-                    "unpack provider '{}' into bundle: {e}",
-                    provider.name
-                ))
-            })?;
+            cloacina_workflow_plugin::unpack_limit::unpack_package(&archive, &providers_dir)
+                .map_err(|e| {
+                    ProviderBundleError::Io(format!(
+                        "unpack provider '{}' into bundle: {e}",
+                        provider.name
+                    ))
+                })?;
 
         // Read the bundled provider.json back for the authoritative name/version.
         let manifest_path = bundled_dir.join(PROVIDER_MANIFEST_FILE);

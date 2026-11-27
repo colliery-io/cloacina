@@ -833,6 +833,15 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
                 "value": n.to_string(),
             }));
         }
+        // The agent unpacks packages with the server's limit
+        // (CLOACINA-T-1048). Not set for the default, so the manifest is as
+        // before and an upgrade rolls nothing.
+        if let Some(bytes) = cloacina::cloacina_workflow_plugin::unpack_limit::child_env_value() {
+            env.push(serde_json::json!({
+                "name": "CLOACINA_MAX_UNPACKED_BYTES",
+                "value": bytes,
+            }));
+        }
     }
     manifest
 }
@@ -1743,6 +1752,12 @@ mod tests {
             .iter()
             .find(|e| e["name"] == name)
             .map(|e| &e["value"])
+    }
+
+    #[test]
+    fn manifest_sets_no_unpack_limit_env_for_the_default_limit() {
+        let m = agent_deployment_manifest(&default_spec());
+        assert!(env_value(&m, "CLOACINA_MAX_UNPACKED_BYTES").is_none());
     }
 
     #[test]

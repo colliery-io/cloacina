@@ -444,6 +444,11 @@ fn spawn_env(spec: &SpawnSpec) -> Vec<String> {
     if let Some(n) = spec.settings.max_concurrency {
         env.push(format!("CLOACINA_AGENT_MAX_CONCURRENCY={n}"));
     }
+    // The agent unpacks packages with the server's limit (CLOACINA-T-1048).
+    // Not set for the default, so the environment is as before.
+    if let Some(bytes) = cloacina::cloacina_workflow_plugin::unpack_limit::child_env_value() {
+        env.push(format!("CLOACINA_MAX_UNPACKED_BYTES={bytes}"));
+    }
     env
 }
 

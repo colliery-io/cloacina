@@ -91,9 +91,12 @@ The loader picks the vendor folder in this order:
    hand). It is refused when it holds a wheel or a compiled file built for
    another platform.
 
-An archive unpacks to at most 500 MiB and 10,000 files and folders, and to at
-most 10 times its own size. An upload is at most the server's
-`--max-package-bytes` (100 MiB by default).
+An archive unpacks to at most `--max-unpacked-bytes` /
+`CLOACINA_MAX_UNPACKED_BYTES` (500 MiB by default) and 10,000 files and
+folders, and to at most 10 times its own size. The server, the compiler, the
+agent, the daemon and `cloacinactl package validate` and `pack` each read the
+setting. An upload is at most the server's `--max-package-bytes` (100 MiB by
+default).
 
 One package holds every platform. The server keeps one active version per
 package name, so a package per platform is not a supported layout.
