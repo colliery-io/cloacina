@@ -485,6 +485,7 @@ Create a new tenant. **Admin-only** (requires an `is_admin` key).
 | `400` | `tenant_creation_failed` | The name is not a valid tenant name. The message says why. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
 | `409` | `tenant_exists` | A tenant of this name exists. The message is `tenant '<name>' already exists`. |
+| `409` | `tenant_namespace_taken` | A tenant of another name has this name's Kubernetes namespace (`cloacina-tenant-<t>`): the two names differ only in case, in `_` runs at the ends or inside, or after the 47th character. The message names the other tenant and the namespace. |
 | `500` | `internal_error` | The database refused or failed the create. The body holds a fixed text; the cause is in the server log under the response's `x-request-id`. |
 
 ### GET /v1/tenants

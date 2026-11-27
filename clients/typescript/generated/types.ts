@@ -4490,7 +4490,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description A tenant of this name exists (`tenant_exists`) */
+            /** @description A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`) */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -3268,6 +3268,9 @@ mod tests {
     /// Tenant delete reports a failed drop (CLOACINA-T-1068).
     mod tenant_removal;
 
+    /// Two tenants never share a Kubernetes namespace (CLOACINA-T-1070).
+    mod tenant_namespace;
+
     /// The build role of a tenant's compiler (CLOACINA-T-1063).
     mod build_role;
 

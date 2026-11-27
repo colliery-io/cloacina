@@ -96,6 +96,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | Code | Routes | When it fires |
 |---|---|---|
 | `tenant_exists` | `POST /v1/tenants` | A tenant of this name exists. The message names the tenant. |
+| `tenant_namespace_taken` | `POST /v1/tenants` | A tenant of another name has this name's Kubernetes namespace. The message names the other tenant and the namespace. (CLOACINA-T-1070) |
 | `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
 | `package_building` | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | The compiler is building the package version. Nothing is removed; delete it when the build ends. |
 | `trusted_key_exists` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The tenant already has this key, live or revoked. |
