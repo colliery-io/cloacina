@@ -80,6 +80,9 @@ or an execution context. A secret action records the secret's name only.
 | `trigger.fire` | `POST /v1/tenants/{t}/triggers/{name}/fire` | trigger name | `execution_ids` |
 | `instance.create` | `POST /v1/tenants/{t}/workflows/{name}/instances` | instance name | `workflow`, `schedule_id` |
 | `instance.delete` | `DELETE /v1/tenants/{t}/workflows/{name}/instances/{instance}` | instance name | `workflow` |
+| `backfill.create` | `POST /v1/tenants/{t}/workflows/{name}/backfills` | backfill id | `workflow`, `start`, `end`, `intervals` |
+| `backfill.cancel` | `POST /v1/tenants/{t}/workflows/{name}/backfills/{id}/cancel` | backfill id | `workflow`, `was_enabled`, `remaining` |
+| `backfill.retry` | `POST /v1/tenants/{t}/workflows/{name}/backfills/{id}/retry` | id of the backfill that is retried | `workflow`, `new_backfill_id`, `intervals` |
 | `key.create` | `POST /v1/auth/keys`, `POST /v1/tenants/{t}/keys` | key id | `name`, `role` |
 | `key.revoke` | `DELETE /v1/auth/keys/{id}`, `DELETE /v1/tenants/{t}/keys/{id}` | key id | — |
 | `tenant.create` | `POST /v1/tenants` | tenant name | — |

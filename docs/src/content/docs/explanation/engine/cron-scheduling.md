@@ -375,7 +375,7 @@ The limit counts the runs that this schedule started. It does not count a manual
 
 A long backlog is cheap to hold: 5,500 missed hourly fire times are two timestamps on the schedule row, and the scheduler starts `N` runs at a time, not 5,500 at once.
 
-`run_all` starts at the creation of the schedule, so it does not load the history from before that. A backfill over a chosen range of intervals is not built yet (CLOACINA-T-1020). Until then, one interval is loaded with a manual run that sets `interval_start` and `interval_end`.
+`run_all` starts at the creation of the schedule, so it does not load the history from before that. A [backfill](#backfill) loads a chosen range of intervals.
 
 See [Configuration Reference](../../../reference/configuration/) for the related knobs:
 `cron_max_catchup_executions` (default 100), `cron_recovery_interval` (default 5min), `cron_max_recovery_age` (default 24h), `cron_max_recovery_attempts` (default 3).
@@ -407,10 +407,67 @@ curl -X POST "$SERVER/v1/tenants/acme/workflows/build_hourly_table/execute" \
   -d '{"context": {"interval_start": "2026-01-01T04:00:00+00:00", "interval_end": "2026-01-01T05:00:00+00:00"}}'
 ```
 
-So a workflow reads its interval from the same keys in a scheduled run, a rerun of one interval and a history load. The server does not check the two values on a manual run.
+So a workflow reads its interval from the same keys in a scheduled run, a manual run and a backfill.
+
+The server checks the two keys on a manual run. A run that sets one must set both. Each is an RFC 3339 timestamp in a string, and `interval_end` is after `interval_start`. A run that breaks one of these rules gets `400` with the code `invalid_interval` and a message that names the key. A run with neither key is not checked.
 
 The other scheduler keys (`scheduled_time`, `schedule_id`, `schedule_timezone`, `schedule_expression`, `trigger_name`, `triggered_at`) stay reserved: a manual run that sends them has them dropped, with no error. On a cron run the scheduler writes all of its keys after the bound params of an instance, so a param named `interval_start` does not change the interval of a scheduled run.
 
+
+## Backfill
+
+A backfill is a bounded second schedule for one workflow. It runs the workflow once for each fire time of a cron expression from a start to an end, oldest first, and then turns itself off. It loads the history that `run_all` does not reach, and it runs a range again.
+
+```bash
+cloacinactl backfill create build_hourly_table \
+  --cron "0 * * * *" --start 2026-01-01T00:00:00Z --end 2026-08-18T23:00:00Z \
+  --max-active-runs 8
+```
+
+### The range
+
+The backfill takes each fire time `F` of the expression with `start <= F <= end`. Each fire time is one interval, with the same meaning as on a cron run: `interval_end = F` and `interval_start` is the fire time before `F`. A backfill of one interval has `start = end = F`. One backfill holds at most 100,000 intervals.
+
+Each run gets the keys of a cron run (`scheduled_time`, `interval_start`, `interval_end`, `schedule_id`, `schedule_timezone`, `schedule_expression`) and `backfill_id`, the id of the backfill. The params of the backfill are merged first, so the scheduler's keys win.
+
+### How it is stored
+
+A backfill is a row of `schedules`:
+
+| Column | Value |
+|---|---|
+| `schedule_type` | `backfill` |
+| `catchup_policy` | `run_all` |
+| `max_active_runs` | The limit of the backfill. 1 when not given. |
+| `last_run_at` | At creation: the fire time before the range. After that: the last fire time taken. This is the position of the backfill. |
+| `next_run_at` | The next fire time to take. |
+| `backfill` | JSON: `start`, `end`, `first_fire`, `last_fire`, `total`, and for a retry `fire_times` and `retry_of`. |
+| `start_date`, `end_date` | Empty. The scheduler compares these two with the wall clock; a backfill is bounded by fire time, by `last_fire`. |
+
+So a range of 5,500 intervals is one row, and its progress is one timestamp. The schedule execution rows of the backfill are the record of the intervals that got a run.
+
+The type keeps the row apart from the live schedules. The registration of a packaged cron trigger matches rows of type `cron` only, so it never changes a backfill. The schedule list (`GET /v1/tenants/{tenant}/triggers`) leaves backfills out. The gauge `cloacina_schedule_lag_seconds` reads cron schedules only.
+
+### How it runs
+
+The cron loop of the scheduler looks at the due backfills on each pass. For one backfill it computes the next fire times of the range, at most `cron_max_catchup_executions` of them and none after the present, and takes them with the same claim as a `run_all` schedule: as many as `max_active_runs` leaves room for, each with a schedule execution row, in one transaction. A backfill at its limit stays due; the loop looks again when one of its runs ends, and each second.
+
+- **Order.** Intervals start oldest first. With a limit above 1, runs can end in any order.
+- **Its own limit.** The limit counts the runs of the backfill only. The live schedule of the workflow keeps its own limit, and the two do not wait for each other.
+- **Overlap.** A backfill can cover fire times that the live schedule ran or will run. Nothing checks for it: the workflow must be safe to run twice for one interval.
+- **A failed run.** The backfill goes on with the next interval. An interval is failed when its run ended `Failed` or `Cancelled`, or when no run could be started for it.
+- **The end.** When no fire time of the range is left and no run of the backfill is active, the scheduler disables the row.
+- **Cancel.** Cancel disables the row. No new interval gets a run; active runs end on their own.
+
+### Progress
+
+`GET /v1/tenants/{tenant}/workflows/{name}/backfills/{id}` and `cloacinactl backfill inspect` give `total`, `completed`, `failed`, `running`, `remaining`, the position (`last_interval_end`, `next_interval_end`), the status and the failed intervals. `remaining` and the status are read from the position of the row. `completed`, `failed` and `running` are counted from the schedule execution rows and their workflow executions.
+
+### Retry
+
+`POST …/backfills/{id}/retry` and `cloacinactl backfill retry` create a new backfill from the failed intervals of an earlier one. The new row holds the list of fire times in `backfill.fire_times` and the id of the earlier backfill in `backfill.retry_of`. It runs those fire times only, oldest first, with the same expression, timezone and params.
+
+See [Load History with a Backfill](../../../how-to/service/load-history-with-a-backfill/) for the steps.
 
 ## Cron Expression Parsing
 

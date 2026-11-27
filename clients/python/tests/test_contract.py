@@ -225,6 +225,59 @@ def test_agent_pool_lifecycle(client: Client) -> None:
     assert exc.value.status == 404
 
 
+# ---- backfills (CLOACINA-T-1020) ----
+
+
+def test_backfill_lifecycle(client: Client) -> None:
+    """create → list → inspect → retry (409) → cancel; a bad range is a 400."""
+    workflow = f"py_backfill_{int(time.time() * 1000)}"
+
+    # A range in the future: the scheduler takes none of its intervals, so
+    # the progress is the same on each read.
+    created = client.create_backfill(
+        workflow,
+        "2099-01-01T00:00:00Z",
+        "2099-01-01T04:00:00Z",
+        cron="0 * * * *",
+        max_active_runs=2,
+        params={"region": "eu"},
+    )
+    assert created.workflow_name == workflow
+    assert created.status == "running"
+    assert created.max_active_runs == 2
+    assert created.progress.total == 5
+    assert created.progress.remaining == 5
+
+    page = client.list_backfills(workflow, limit=10, offset=0)
+    assert created.id in [b.id for b in page.items]
+
+    detail = client.get_backfill(workflow, created.id)
+    assert detail.backfill.id == created.id
+    assert detail.failed_intervals == []
+    assert detail.failed_intervals_truncated is False
+
+    # A retry needs a failed interval.
+    with pytest.raises(CloacinaApiError) as exc:
+        client.retry_backfill(workflow, created.id)
+    assert exc.value.status == 409
+
+    cancelled = client.cancel_backfill(workflow, created.id)
+    assert cancelled.status == "cancelled"
+
+    with pytest.raises(CloacinaApiError) as exc:
+        client.create_backfill(
+            workflow,
+            "2099-01-02T00:00:00Z",
+            "2099-01-01T00:00:00Z",
+            cron="0 * * * *",
+        )
+    assert exc.value.status == 400
+
+    with pytest.raises(CloacinaApiError) as exc:
+        client.get_backfill(workflow, "00000000-0000-4000-8000-000000000000")
+    assert exc.value.status == 404
+
+
 # ---- workflows ----
 
 

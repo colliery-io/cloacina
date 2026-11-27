@@ -3974,6 +3974,542 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills": {
+      "get": {
+        "tags": [
+          "backfills"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name/backfills — the backfills of a\nworkflow, newest first, each with its progress.",
+        "operationId": "list_backfills",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backfills of this workflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantListResponse_BackfillSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "backfills"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/backfills — create a backfill.",
+        "description": "The backfill takes each fire time `F` of the cron expression with\n`start <= F <= end`, oldest first. It may cover fire times that the live\nschedule of the workflow ran or will run: nothing checks for overlap.",
+        "operationId": "create_backfill",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Backfill created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackfillSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid range, cron expression, timezone, limit or params",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}": {
+      "get": {
+        "tags": [
+          "backfills"
+        ],
+        "summary": "GET /tenants/:tenant_id/workflows/:name/backfills/:id — one backfill,\nwith its progress and its failed intervals.",
+        "operationId": "get_backfill",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Backfill id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backfill detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackfillDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid backfill id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Backfill not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel": {
+      "post": {
+        "tags": [
+          "backfills"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/backfills/:id/cancel — stop a\nbackfill.",
+        "description": "No new interval gets a run. The runs that are active end on their own.\nCancelling a backfill that is cancelled or completed changes nothing.",
+        "operationId": "cancel_backfill",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Backfill id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backfill as it is after the cancel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackfillSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid backfill id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Backfill not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry": {
+      "post": {
+        "tags": [
+          "backfills"
+        ],
+        "summary": "POST /tenants/:tenant_id/workflows/:name/backfills/:id/retry — run the\nfailed intervals of a backfill again.",
+        "description": "Creates a new backfill of the intervals that failed in backfill `id`, as\nthey are at the time of the call, with the same cron expression, timezone\nand params. The backfill `id` is not changed.",
+        "operationId": "retry_backfill",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workflow name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id of the backfill to retry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The new backfill",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackfillSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid backfill id or limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Backfill not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The backfill has no failed interval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/workflows/{name}/execute": {
       "post": {
         "tags": [
@@ -5516,6 +6052,184 @@
           }
         }
       },
+      "BackfillDetail": {
+        "type": "object",
+        "description": "Response of `GET /tenants/{tenant_id}/workflows/{name}/backfills/{id}`.",
+        "required": [
+          "backfill",
+          "failed_intervals",
+          "failed_intervals_truncated"
+        ],
+        "properties": {
+          "backfill": {
+            "$ref": "#/components/schemas/BackfillSummary"
+          },
+          "failed_intervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackfillFailedInterval"
+            },
+            "description": "The failed intervals, oldest first, at most 1000."
+          },
+          "failed_intervals_truncated": {
+            "type": "boolean",
+            "description": "True when the backfill has more failed intervals than the list holds."
+          }
+        }
+      },
+      "BackfillFailedInterval": {
+        "type": "object",
+        "description": "One failed interval of a backfill.",
+        "required": [
+          "interval_start",
+          "interval_end",
+          "status"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The workflow execution of the interval. Absent when no run started."
+          },
+          "interval_end": {
+            "type": "string",
+            "description": "RFC 3339 timestamp: the fire time of the interval."
+          },
+          "interval_start": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "status": {
+            "type": "string",
+            "description": "`Failed`, `Cancelled`, or `NotStarted` when no run could be started."
+          }
+        }
+      },
+      "BackfillProgress": {
+        "type": "object",
+        "description": "How far a backfill is.",
+        "required": [
+          "total",
+          "completed",
+          "failed",
+          "running",
+          "remaining"
+        ],
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Intervals whose run ended `Completed`. Counted from the run history:\na run that the retention job deleted is not counted.",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Intervals whose run ended `Failed` or `Cancelled`, or could not be\nstarted. Counted from the run history, like `completed`.",
+            "minimum": 0
+          },
+          "last_interval_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The position: the end of the last interval that got a run. RFC 3339.\nAbsent before the first run."
+          },
+          "next_interval_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The end of the next interval to get a run. RFC 3339. Absent when no\ninterval remains."
+          },
+          "remaining": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Intervals with no run yet.",
+            "minimum": 0
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Intervals whose run has not ended.",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Intervals in the backfill.",
+            "minimum": 0
+          }
+        }
+      },
+      "BackfillSummary": {
+        "type": "object",
+        "description": "One backfill: a row in the list, and the response of create, cancel and\nretry.",
+        "required": [
+          "id",
+          "workflow_name",
+          "cron_expression",
+          "timezone",
+          "start",
+          "end",
+          "max_active_runs",
+          "status",
+          "progress",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "cron_expression": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string",
+            "description": "End of the range, RFC 3339."
+          },
+          "id": {
+            "type": "string",
+            "description": "Backfill id (a UUID). Each run has it in its context as `backfill_id`."
+          },
+          "max_active_runs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The limit on active runs of this backfill.",
+            "minimum": 0
+          },
+          "params": {
+            "description": "Parameter values for each run, as stored."
+          },
+          "progress": {
+            "$ref": "#/components/schemas/BackfillProgress"
+          },
+          "retry_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the backfill whose failed intervals this one runs again."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start of the range, RFC 3339."
+          },
+          "status": {
+            "type": "string",
+            "description": "`running`, `paused`, `completed` or `cancelled`. `completed` means\neach interval got a run and each run ended; see `progress.failed`\nfor the runs that failed."
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
       "CompilerStatus": {
         "type": "object",
         "description": "Build-pipeline state, derived from the build queue in the database — the\nsame rows the compiler's own `/v1/status` reports. The server reads them\ndirectly, so this needs no HTTP coupling to the compiler service.",
@@ -5583,6 +6297,50 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "CreateBackfillRequest": {
+        "type": "object",
+        "description": "Body for `POST /tenants/{tenant_id}/workflows/{name}/backfills`.",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "cron": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cron expression that gives the intervals. When omitted: the\nexpression and timezone of the cron schedule of the workflow, when it\nhas exactly one."
+          },
+          "end": {
+            "type": "string",
+            "description": "End of the range, an RFC 3339 timestamp. For one interval, set\n`start` and `end` to its fire time."
+          },
+          "max_active_runs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The most runs of this backfill that may be active at once, 1 or more.\nDefaults to 1. The limit is apart from the limit of any other\nschedule of the workflow.",
+            "minimum": 1
+          },
+          "params": {
+            "description": "Parameter values for each run, validated against the workflow's\ndeclared `params(...)` slots."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start of the range, an RFC 3339 timestamp. The backfill takes each\nfire time `F` of the expression with `start <= F <= end`."
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IANA timezone for `cron`. Defaults to `UTC` when `cron` is given."
           }
         }
       },
@@ -7265,6 +8023,21 @@
           }
         }
       },
+      "RetryBackfillRequest": {
+        "type": "object",
+        "description": "Body for `POST /tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry`.",
+        "properties": {
+          "max_active_runs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The limit on active runs of the new backfill. Defaults to the limit\nof the backfill that is retried.",
+            "minimum": 1
+          }
+        }
+      },
       "RotateSecretRequest": {
         "type": "object",
         "description": "Request body for `PUT|POST /v1/tenants/{tenant_id}/secrets/{name}` — rotate.\n\nReplaces the secret's field map in place (D-8/OQ-5: in-place, no versioning).",
@@ -7434,6 +8207,93 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "TenantListResponse_BackfillSummary": {
+        "type": "object",
+        "description": "List envelope variant that retains a top-level `tenant_id`, used by\ntenant-scoped list endpoints for backward compatibility with operator\ndashboards that key off it.",
+        "required": [
+          "tenant_id",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One backfill: a row in the list, and the response of create, cancel and\nretry.",
+              "required": [
+                "id",
+                "workflow_name",
+                "cron_expression",
+                "timezone",
+                "start",
+                "end",
+                "max_active_runs",
+                "status",
+                "progress",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339 timestamp."
+                },
+                "cron_expression": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string",
+                  "description": "End of the range, RFC 3339."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Backfill id (a UUID). Each run has it in its context as `backfill_id`."
+                },
+                "max_active_runs": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "The limit on active runs of this backfill.",
+                  "minimum": 0
+                },
+                "params": {
+                  "description": "Parameter values for each run, as stored."
+                },
+                "progress": {
+                  "$ref": "#/components/schemas/BackfillProgress"
+                },
+                "retry_of": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The id of the backfill whose failed intervals this one runs again."
+                },
+                "start": {
+                  "type": "string",
+                  "description": "Start of the range, RFC 3339."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "`running`, `paused`, `completed` or `cancelled`. `completed` means\neach interval got a run and each run ended; see `progress.failed`\nfor the runs that failed."
+                },
+                "timezone": {
+                  "type": "string"
+                },
+                "workflow_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

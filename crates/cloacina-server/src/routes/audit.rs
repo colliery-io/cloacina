@@ -77,6 +77,10 @@ pub mod actions {
     pub const TRIGGER_FIRE: Action = action("trigger.fire", "trigger");
     pub const INSTANCE_CREATE: Action = action("instance.create", "instance");
     pub const INSTANCE_DELETE: Action = action("instance.delete", "instance");
+    // Backfills (CLOACINA-T-1020).
+    pub const BACKFILL_CREATE: Action = action("backfill.create", "backfill");
+    pub const BACKFILL_CANCEL: Action = action("backfill.cancel", "backfill");
+    pub const BACKFILL_RETRY: Action = action("backfill.retry", "backfill");
     pub const KEY_CREATE: Action = action("key.create", "key");
     pub const KEY_REVOKE: Action = action("key.revoke", "key");
     pub const TENANT_CREATE: Action = action("tenant.create", "tenant");
@@ -184,6 +188,10 @@ pub fn action_for_route(method: &Method, path: &str) -> Option<Action> {
         ("POST", "/tenants/{tenant_id}/triggers/{name}/fire") => TRIGGER_FIRE,
         ("POST", "/tenants/{tenant_id}/workflows/{name}/instances") => INSTANCE_CREATE,
         ("DELETE", "/tenants/{tenant_id}/workflows/{name}/instances/{instance}") => INSTANCE_DELETE,
+        // Backfills (CLOACINA-T-1020).
+        ("POST", "/tenants/{tenant_id}/workflows/{name}/backfills") => BACKFILL_CREATE,
+        ("POST", "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel") => BACKFILL_CANCEL,
+        ("POST", "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry") => BACKFILL_RETRY,
         ("POST", "/auth/keys") | ("POST", "/tenants/{tenant_id}/keys") => KEY_CREATE,
         ("DELETE", "/auth/keys/{key_id}") | ("DELETE", "/tenants/{tenant_id}/keys/{key_id}") => {
             KEY_REVOKE
@@ -438,8 +446,8 @@ mod tests {
                 assert_ne!(method, Method::GET, "a read is not audited: {path}");
             }
         }
-        // 27 actions; key create and key revoke each have two routes.
-        assert_eq!(audited, 29);
+        // 30 actions; key create and key revoke each have two routes.
+        assert_eq!(audited, 32);
     }
 
     #[test]
@@ -488,6 +496,37 @@ mod tests {
             None
         );
         assert_eq!(action_for_route(&Method::POST, "/auth/refresh"), None);
+        // Backfills (CLOACINA-T-1020): create, cancel and retry are audited;
+        // list and inspect are reads.
+        assert_eq!(
+            action_for_route(
+                &Method::POST,
+                "/tenants/{tenant_id}/workflows/{name}/backfills"
+            ),
+            Some(actions::BACKFILL_CREATE)
+        );
+        assert_eq!(
+            action_for_route(
+                &Method::POST,
+                "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/cancel"
+            ),
+            Some(actions::BACKFILL_CANCEL)
+        );
+        assert_eq!(
+            action_for_route(
+                &Method::POST,
+                "/tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry"
+            ),
+            Some(actions::BACKFILL_RETRY)
+        );
+        assert_eq!(actions::BACKFILL_RETRY.target_kind, "backfill");
+        assert_eq!(
+            action_for_route(
+                &Method::GET,
+                "/tenants/{tenant_id}/workflows/{name}/backfills/{id}"
+            ),
+            None
+        );
     }
 
     #[test]

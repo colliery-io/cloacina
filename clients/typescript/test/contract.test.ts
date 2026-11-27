@@ -242,6 +242,60 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect((gone as CloacinaApiError).status).toBe(404);
   });
 
+  // ---- backfills (CLOACINA-T-1020) ----
+
+  it("backfill lifecycle: create → list → inspect → retry (409) → cancel", async () => {
+    const workflow = `ts_backfill_${Date.now().toString(36)}`;
+
+    // A range in the future: the scheduler takes none of its intervals, so
+    // the progress is the same on each read.
+    const created = await client.createBackfill(workflow, {
+      cron: "0 * * * *",
+      start: "2099-01-01T00:00:00Z",
+      end: "2099-01-01T04:00:00Z",
+      max_active_runs: 2,
+      params: { region: "eu" },
+    });
+    expect(created.workflow_name).toBe(workflow);
+    expect(created.status).toBe("running");
+    expect(created.max_active_runs).toBe(2);
+    expect(created.progress.total).toBe(5);
+    expect(created.progress.remaining).toBe(5);
+
+    const page = await client.listBackfills(workflow, { limit: 10, offset: 0 });
+    expect(page.items.map((b) => b.id)).toContain(created.id);
+
+    const detail = await client.getBackfill(workflow, created.id);
+    expect(detail.backfill.id).toBe(created.id);
+    expect(detail.failed_intervals).toEqual([]);
+    expect(detail.failed_intervals_truncated).toBe(false);
+
+    // A retry needs a failed interval.
+    const noRetry = await client.retryBackfill(workflow, created.id).catch((e) => e);
+    expect(noRetry).toBeInstanceOf(CloacinaApiError);
+    expect((noRetry as CloacinaApiError).status).toBe(409);
+
+    const cancelled = await client.cancelBackfill(workflow, created.id);
+    expect(cancelled.status).toBe("cancelled");
+
+    // The end is before the start: a 400 at the API.
+    const bad = await client
+      .createBackfill(workflow, {
+        cron: "0 * * * *",
+        start: "2099-01-02T00:00:00Z",
+        end: "2099-01-01T00:00:00Z",
+      })
+      .catch((e) => e);
+    expect(bad).toBeInstanceOf(CloacinaApiError);
+    expect((bad as CloacinaApiError).status).toBe(400);
+
+    const gone = await client
+      .getBackfill(workflow, "00000000-0000-4000-8000-000000000000")
+      .catch((e) => e);
+    expect(gone).toBeInstanceOf(CloacinaApiError);
+    expect((gone as CloacinaApiError).status).toBe(404);
+  });
+
   // ---- workflows ----
 
   it("POST /v1/tenants/{t}/workflows rejects a garbage package with the documented error shape", async () => {

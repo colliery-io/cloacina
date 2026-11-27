@@ -174,7 +174,7 @@ impl InstanceCmd {
 ///
 /// The file provides the base object and explicit `--param` flags override it,
 /// so a shared params file can be reused with a couple of per-instance tweaks.
-fn merge_params(
+pub(crate) fn merge_params(
     pairs: &[String],
     file: Option<&str>,
 ) -> Result<serde_json::Map<String, serde_json::Value>, CliError> {
