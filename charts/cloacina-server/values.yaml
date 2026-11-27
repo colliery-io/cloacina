@@ -226,8 +226,11 @@ packages:
 #                 RBAC is a ClusterRole: it creates namespaces, Secrets,
 #                 Deployments, ServiceAccounts and NetworkPolicies.
 #
-# The Docker actuator (CLOACINA_FLEET_ACTUATOR=docker) is a dev-only substrate
-# and is not offered through this chart.
+# The Docker actuator (CLOACINA_FLEET_ACTUATOR=docker) is not offered through
+# this chart. It is for one user on one machine (a laptop, development), not
+# for several teams on one server: every tenant's containers share one Docker
+# host and one network, with no namespaces, no network policies and no
+# hardened pods.
 # ---------------------------------------------------------------------------
 fleet:
   actuator: none

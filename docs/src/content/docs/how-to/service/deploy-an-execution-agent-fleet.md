@@ -459,10 +459,20 @@ pod template, so the pool's agents are rolled. Setting a ServiceAccount's
 annotations alone does not restart pods: a webhook acts when a pod is created,
 so change something in the pod template too, or delete the pods.
 
-### Docker actuator (local dev)
+### Docker actuator (one user)
 
-For a single-host dev loop, the Docker actuator spawns/stops `cloacina-agent`
-**containers** to match each tenant's `desired_count`:
+The Docker actuator is for one user: a laptop, a single machine, development.
+It is not for several teams on one server. Every tenant's containers run on one
+Docker host and join one network, with no namespaces, no network policies and
+no hardened pods, so nothing at the host or network level keeps one tenant's
+containers from another's.
+For several teams, use the
+[Kubernetes actuator](#kubernetes-actuator-production). At start, the server
+logs a warning when the actuator is `docker` and more than one tenant exists
+(`public` counts as one).
+
+The Docker actuator spawns/stops `cloacina-agent` **containers** to match each
+tenant's `desired_count`:
 
 ```bash
 CLOACINA_FLEET_ACTUATOR=docker \
@@ -479,9 +489,11 @@ is **fail-closed**: `docker` refuses to start if it detects Kubernetes or finds
 no Docker socket. Of a pool's settings it applies the image, the memory and CPU
 limits and the max concurrency, and replaces the containers of a pool whose
 settings changed; resource requests, the service account and the egress rules
-have no Docker counterpart and are ignored. It is **dev-only** — for production use the
+have no Docker counterpart and are ignored. For production and for several
+tenants use the
 [Kubernetes actuator](../deploying-to-kubernetes/#fleet-actuator-kubernetes--rbac),
-which scales a per-tenant agent Deployment with least-privilege RBAC.
+which scales a per-tenant agent Deployment in the tenant's own namespace, with
+least-privilege RBAC and a per-tenant network policy.
 
 ### Kubernetes actuator (production)
 

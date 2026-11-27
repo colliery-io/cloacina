@@ -1467,6 +1467,28 @@ pub async fn run(
              that register themselves, for example from the cloacina-agent chart"
         );
     }
+    // CLOACINA-T-1133: the Docker actuator is for one user only. With more
+    // than one tenant (`public` and the tenant schemas) the start logs a
+    // warning; the server still starts.
+    if fleet_actuator.kind() == "docker" {
+        match cloacina::database::DatabaseAdmin::new(runner.database().clone())
+            .list_migrated_tenant_schemas()
+            .await
+        {
+            Ok(schemas) => {
+                if let Some(warning) = crate::actuator::guard::docker_single_user_warning(
+                    fleet_actuator.kind(),
+                    schemas.len() + 1,
+                ) {
+                    warn!("{warning}");
+                }
+            }
+            Err(e) => warn!(
+                error = %e,
+                "the Docker fleet actuator is for one user only; the tenant count could not be read"
+            ),
+        }
+    }
 
     // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
     // the key cache of this one when the notice arrives.
