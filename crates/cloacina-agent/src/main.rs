@@ -2590,6 +2590,8 @@ mod tests {
                 "aarch64-apple-darwin",
                 &[],
                 Vec::new(),
+                None,
+                None,
             )
             .await
             .expect_err("the register fails")

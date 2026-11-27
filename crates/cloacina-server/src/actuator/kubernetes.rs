@@ -2542,6 +2542,8 @@ mod tests {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: Some("key-1".to_string()),
             resources: config().resources,
+            cpu_total: None,
+            memory_total: None,
         };
         let m = agent_deployment_manifest(&spec);
         // The actuator's value wins over a pool annotation of the same name.

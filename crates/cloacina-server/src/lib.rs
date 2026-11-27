@@ -3586,6 +3586,8 @@ mod tests {
                     target_triple: "aarch64-apple-darwin".to_string(),
                     capabilities: vec![],
                     max_concurrency: 1,
+                    cpu_millis: None,
+                    memory_bytes: None,
                 },
                 cloacina::security::ServerKeyPool::new(),
                 &crate::routes::agent::principal_of(&auth),

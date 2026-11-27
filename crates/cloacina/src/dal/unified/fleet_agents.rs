@@ -432,18 +432,21 @@ mod tests {
         let dal_b = DAL::new(Database::new(&url, "", 5));
         let gi: u64 = 1 << 30;
 
-        let mut sized = reg("sized", Some("acme"), 8);
+        let owner = key(Some("acme"));
+        let mut sized = reg("sized", 8);
         sized.cpu_millis = Some(4000);
         sized.memory_bytes = Some(32 * gi);
         dal_a
             .fleet_agents()
-            .upsert_registration(sized)
+            .register(sized, &owner)
             .await
+            .unwrap()
             .unwrap();
         dal_a
             .fleet_agents()
-            .upsert_registration(reg("by-hand", Some("acme"), 4))
+            .register(reg("by-hand", 4), &owner)
             .await
+            .unwrap()
             .unwrap();
 
         let live = dal_b
@@ -477,8 +480,9 @@ mod tests {
         // The agent comes back with no totals (started by hand this time).
         dal_a
             .fleet_agents()
-            .upsert_registration(reg("sized", Some("acme"), 8))
+            .register(reg("sized", 8), &owner)
             .await
+            .unwrap()
             .unwrap();
         let live = dal_a
             .fleet_agents()
