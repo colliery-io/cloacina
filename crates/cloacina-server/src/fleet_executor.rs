@@ -200,6 +200,65 @@ fn cancel_row(
     })
 }
 
+/// Tell the agent that has a packet to stop its work: a task dispatch or a
+/// graph firing the server gave up on (CLOACINA-T-1028, CLOACINA-T-1125).
+///
+/// The message goes to the agent that has the packet now: the packet's
+/// outbox row says which, and a dead agent's rows move to a live one. A
+/// packet that is acked needs no cancel: its work ended. Best effort: a
+/// failure here is logged, and the work then ends at its time limit, by the
+/// agent's own kill. `id` is the task execution id or the firing id, for
+/// the log; `dispatch_id` is what the agent stops (a firing's is its id).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn send_cancel(
+    outbox_dal: &cloacina::dal::DAL,
+    delivery_wake: &cloacina::delivery::WakeHandle,
+    id: &str,
+    packet_row_id: Option<i64>,
+    agent_id: &str,
+    tenant_id: Option<String>,
+    dispatch_id: &str,
+    reason: &str,
+) {
+    let mut recipient = format!("{AGENT_RECIPIENT_PREFIX}{agent_id}");
+    if let Some(row_id) = packet_row_id {
+        match outbox_dal.delivery_outbox().get(row_id).await {
+            Ok(Some(row)) if row.acked_at.is_some() => return,
+            Ok(Some(row)) => recipient = row.recipient,
+            Ok(None) => return,
+            Err(e) => debug!(
+                task_id = %id,
+                error = %e,
+                "fleet: could not read the packet's outbox row; the cancel goes to the \
+                 agent the packet was sent to"
+            ),
+        }
+    }
+    let row = match cancel_row(recipient, tenant_id, id, dispatch_id, reason) {
+        Ok(row) => row,
+        Err(e) => {
+            warn!(task_id = %id, error = %e, "fleet: serialize CancelPacket");
+            return;
+        }
+    };
+    match outbox_dal.delivery_outbox().enqueue(row).await {
+        Ok(_) => {
+            metrics::counter!("cloacina_fleet_cancels_sent_total").increment(1);
+            delivery_wake.wake();
+            info!(
+                task_id = %id,
+                dispatch_id,
+                "fleet: cancel sent for the dispatch the server gave up on"
+            );
+        }
+        Err(e) => warn!(
+            task_id = %id,
+            error = %e,
+            "fleet: could not enqueue the cancel; the work ends at its time limit"
+        ),
+    }
+}
+
 /// How long a task waits before the next dispatch try when no agent could
 /// take it (CLOACINA-T-1012). Short enough that a freed slot or a new agent is
 /// used soon; long enough that a queue of waiting tasks does not read the
@@ -460,49 +519,17 @@ impl FleetExecutor {
         dispatch_id: &str,
         reason: &str,
     ) {
-        let mut recipient = format!("{AGENT_RECIPIENT_PREFIX}{agent_id}");
-        if let Some(id) = packet_row_id {
-            match self.outbox_dal.delivery_outbox().get(id).await {
-                Ok(Some(row)) if row.acked_at.is_some() => return,
-                Ok(Some(row)) => recipient = row.recipient,
-                Ok(None) => return,
-                Err(e) => debug!(
-                    task_id = %task_execution_id,
-                    error = %e,
-                    "fleet: could not read the packet's outbox row; the cancel goes to the \
-                     agent the packet was sent to"
-                ),
-            }
-        }
-        let row = match cancel_row(
-            recipient,
-            tenant_id,
+        send_cancel(
+            &self.outbox_dal,
+            &self.delivery_wake,
             &task_execution_id.0.to_string(),
+            packet_row_id,
+            agent_id,
+            tenant_id,
             dispatch_id,
             reason,
-        ) {
-            Ok(row) => row,
-            Err(e) => {
-                warn!(task_id = %task_execution_id, error = %e, "fleet: serialize CancelPacket");
-                return;
-            }
-        };
-        match self.outbox_dal.delivery_outbox().enqueue(row).await {
-            Ok(_) => {
-                metrics::counter!("cloacina_fleet_cancels_sent_total").increment(1);
-                self.delivery_wake.wake();
-                info!(
-                    task_id = %task_execution_id,
-                    dispatch_id,
-                    "fleet: cancel sent for the dispatch the server gave up on"
-                );
-            }
-            Err(e) => warn!(
-                task_id = %task_execution_id,
-                error = %e,
-                "fleet: could not enqueue the cancel; the attempt ends at its time limit"
-            ),
-        }
+        )
+        .await;
     }
 
     /// Put the task back in the queue for a later dispatch try, with no use of

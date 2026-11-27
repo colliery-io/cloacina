@@ -31,6 +31,11 @@
 //!   wait timed out — surface as a [`GraphResult`] error WITHOUT a local
 //!   re-run: the agent may have executed (or still be executing) the graph,
 //!   and double-running a firing is worse than reporting it failed.
+//!
+//! CLOACINA-T-1125: the agent runs each firing in a worker process, held to
+//! the memory share of a task with no request and to the packet's time
+//! limit. When the result wait ends with no report the server sends a cancel
+//! that names the firing id, and the agent kills that worker.
 
 use std::sync::Arc;
 
@@ -50,7 +55,7 @@ use tracing::{debug, info, warn};
 use crate::agent_registry::{AgentRegistry, FleetLoad, TaskDemand, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
-use crate::fleet_executor::{FleetTaskTimeLimits, TaskTimeLimit};
+use crate::fleet_executor::{FleetTaskTimeLimits, TaskTimeLimit, send_cancel};
 
 pub struct FleetGraphExecutor {
     dal: cloacina::dal::DAL,
@@ -112,6 +117,9 @@ fn graph_work_packet(
         // graph firing carries no secrets. AAD would use `firing_id`.
         wrapped_secrets: Vec::new(),
         secret_key_id: None,
+        // CLOACINA-T-1125: a graph has no inline mark, so every firing runs
+        // in a worker process on the agent.
+        inline: false,
     }
 }
 
@@ -290,13 +298,16 @@ impl FleetGraphExecutor {
             tenant_id: fire.tenant_id.clone(),
             payload,
         };
-        match self.outbox_dal.delivery_outbox().enqueue(row).await {
-            Ok(row) => self.coordinator.packet_enqueued(firing_id, row.id),
+        let packet_row_id = match self.outbox_dal.delivery_outbox().enqueue(row).await {
+            Ok(row) => {
+                self.coordinator.packet_enqueued(firing_id, row.id);
+                row.id
+            }
             Err(e) => {
                 self.coordinator.cancel(firing_id);
                 return Err(format!("delivery_outbox enqueue: {e}"));
             }
-        }
+        };
         self.delivery_wake.wake();
         debug!(
             graph = %fire.graph_name,
@@ -353,6 +364,21 @@ impl FleetGraphExecutor {
             ))),
             Err(_elapsed) => {
                 self.coordinator.cancel(firing_id);
+                // CLOACINA-T-1125: the server gives up on this firing. Ask the
+                // agent that has the packet to stop its worker; a firing's
+                // cancel names its firing id.
+                let firing = firing_id.0.to_string();
+                send_cancel(
+                    &self.outbox_dal,
+                    &self.delivery_wake,
+                    &firing,
+                    Some(packet_row_id),
+                    &agent_id,
+                    fire.tenant_id.clone(),
+                    &firing,
+                    "the server's wait for the graph firing's result ended",
+                )
+                .await;
                 Ok(GraphResult::error(GraphError::NodeExecution(format!(
                     "fleet graph result wait exceeded {}s (agent {}) — NOT re-running \
                      in-process to avoid a double execution",
