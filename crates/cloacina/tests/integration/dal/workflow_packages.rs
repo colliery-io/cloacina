@@ -798,3 +798,162 @@ async fn test_provider_rows_are_triple_scoped_and_selected_per_target() {
         "unknown arch falls back to the PRIMARY build"
     );
 }
+
+/// CLOACINA-T-1130, Postgres: a delete of a version that has counted no
+/// pin, and a dispatch that pins the version at that moment. They cannot
+/// interleave: the execution is not left pinned to a deleted version.
+///
+/// A second connection holds a row lock on the version's artifact, so the
+/// delete stops after its count, at the artifact delete; the pin is written
+/// then, and the lock is released.
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn test_a_pin_cannot_land_between_the_in_use_check_and_the_delete() {
+    use cloacina::models::workflow_execution::NewWorkflowExecution;
+    use diesel::{Connection, RunQueryDsl};
+
+    let fixture = crate::fixtures::get_or_init_postgres_fixture().await;
+    let mut fixture = fixture
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    fixture.initialize().await;
+    fixture.reset_database().await;
+
+    let url = fixture.get_database_url();
+    let schema = fixture.get_schema();
+    let dal = fixture.get_dal();
+    let wp = dal.workflow_packages();
+
+    // A built version: a stored row with its build state set by a plain update.
+    let package_id = wp
+        .store_package_metadata(
+            &uuid::Uuid::new_v4().to_string(),
+            &PackageMetadata {
+                package_name: "t1130".to_string(),
+                workflow_name: "t1130".to_string(),
+                version: "1.0.0".to_string(),
+                description: Some("A test package".to_string()),
+                author: Some("test-author".to_string()),
+                tasks: vec![cloacina::registry::loader::package_loader::TaskMetadata {
+                    index: 0,
+                    local_id: "task1".to_string(),
+                    namespaced_id_template: "{tenant}.{package}.{workflow}.task1".to_string(),
+                    dependencies: vec![],
+                    description: "test task".to_string(),
+                    source_location: "test.rs:1".to_string(),
+                    doc_what: None,
+                    doc_why: None,
+                }],
+                graph_data: None,
+                architecture: "x86_64".to_string(),
+                symbols: vec![],
+                workflow_triggers: vec![],
+                declared_params: vec![],
+                declared_surfaces: vec![],
+                task_docs: Default::default(),
+                python_platforms: None,
+            },
+            StorageType::Database,
+            None,
+        )
+        .await
+        .unwrap();
+    {
+        let mut conn = diesel::PgConnection::establish(&url).expect("connect");
+        diesel::sql_query(format!("SET search_path TO {schema}"))
+            .execute(&mut conn)
+            .expect("search path");
+        diesel::sql_query(
+            "UPDATE workflow_packages SET build_status = 'success', content_hash = $1, \
+             compiled_data = $2 WHERE id = $3::uuid",
+        )
+        .bind::<diesel::sql_types::Text, _>("digest-t1130")
+        .bind::<diesel::sql_types::Binary, _>(vec![9u8])
+        .bind::<diesel::sql_types::Text, _>(package_id.to_string())
+        .execute(&mut conn)
+        .expect("set build state");
+    }
+    wp.upsert_artifact(
+        "t1130",
+        "1.0.0",
+        None,
+        "aarch64-unknown-linux-gnu",
+        "digest-t1130-lib",
+        vec![1],
+    )
+    .await
+    .unwrap();
+    let exec = dal
+        .workflow_execution()
+        .create(NewWorkflowExecution {
+            workflow_name: "t1130".into(),
+            workflow_version: "1.0".into(),
+            status: "Running".into(),
+            context_id: None,
+        })
+        .await
+        .unwrap()
+        .id;
+
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let held_url = url.clone();
+    let held_schema = schema.clone();
+    let holder = std::thread::spawn(move || {
+        let mut conn = diesel::PgConnection::establish(&held_url).expect("connect");
+        diesel::sql_query(format!("SET search_path TO {held_schema}"))
+            .execute(&mut conn)
+            .expect("search path");
+        diesel::sql_query("BEGIN")
+            .execute(&mut conn)
+            .expect("begin");
+        diesel::sql_query(
+            "SELECT 1 FROM package_artifacts WHERE package_name = 't1130' FOR UPDATE",
+        )
+        .execute(&mut conn)
+        .expect("lock");
+        locked_tx.send(()).expect("tell");
+        let _ = release_rx.recv();
+        diesel::sql_query("COMMIT")
+            .execute(&mut conn)
+            .expect("commit");
+    });
+    locked_rx.recv().expect("the artifact row is locked");
+
+    let delete_dal = dal.clone();
+    let delete = tokio::spawn(async move {
+        delete_dal
+            .workflow_packages()
+            .delete_package_metadata("t1130", "1.0.0")
+            .await
+    });
+    // The delete has counted no pin and waits on the artifact row.
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let pin_dal = dal.clone();
+    let pin = tokio::spawn(async move {
+        pin_dal
+            .workflow_packages()
+            .resolve_dispatch_for_execution(exec, "t1130", None)
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    release_tx.send(()).expect("release");
+    holder.join().expect("holder");
+    let deleted = delete.await.expect("delete task");
+    let pinned = pin.await.expect("pin task");
+
+    let pin_left = wp.get_execution_pin(exec, "t1130").await.unwrap();
+    let versions_left = wp
+        .list_all_packages()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|p| p.package_name == "t1130")
+        .count();
+
+    assert!(
+        !(pin_left.is_some() && versions_left == 0),
+        "a running execution is pinned to a deleted version: delete {deleted:?}, pin {:?}",
+        pinned.map(|p| p.map(|d| d.package_id))
+    );
+}
