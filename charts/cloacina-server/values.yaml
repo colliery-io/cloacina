@@ -135,6 +135,16 @@ server:
   requireSignatures: false
   # Trusted org UUID for signature verification — required if requireSignatures.
   verificationOrgId: ""
+  # Format of the server's log lines on stderr: text or json (one JSON object
+  # per line, for a log stack). --log-format (CLOACINA-T-1024).
+  logFormat: text
+  # Template of the URL of a task's logs in your log stack. The placeholders
+  # {tenant}, {execution_id}, {task} and {attempt} are filled in for each
+  # task, and the UI shows the result as a link on the task. Must start with
+  # http:// or https://. Empty = no link. Example:
+  #   https://logs.example.com/search?tenant={tenant}&run={execution_id}&task={task}&attempt={attempt}
+  # --task-log-url-template (CLOACINA-T-1024).
+  taskLogUrlTemplate: ""
   # Warning limit on per-tenant DefaultRunner instances; none is stopped at it.
   tenantRunnerCacheSize: 256
   # Drain timeout (seconds) for in-flight workflows during tenant deletion.

@@ -23,6 +23,7 @@ day-2 operations.
 - [Production Deployment](production-deployment/)
 - [Back Up and Restore](backup-and-restore/)
 - [Alert on a Failed Run](alert-on-a-failed-run/)
+- [Find a Task's Logs](find-a-tasks-logs/)
 - [Configure PostgreSQL Schema-Based Multi-Tenancy](multi-tenant-setup/)
 - [Performance Tuning](performance-tuning/)
 - [Security](security/)

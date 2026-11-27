@@ -50,6 +50,8 @@ The chart fails fast if you don't configure exactly one of:
 | `apiKeySecretRef.name` | `""` | Secret for `CLOACINA_BOOTSTRAP_KEY` |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
 | `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant runners; none is stopped at the limit |
+| `server.logFormat` | `text` | Format of the server's log lines on stderr: `text` or `json` (`--log-format`) |
+| `server.taskLogUrlTemplate` | `""` | URL of a task's logs in your log stack, with `{tenant}`, `{execution_id}`, `{task}`, `{attempt}`; the UI shows it as a link on each task; empty = no link (`--task-log-url-template`) |
 | `service.type` | `ClusterIP` | Service type |
 | `ingress.enabled` | `false` | Provision an Ingress |
 | `serviceMonitor.enabled` | `false` | Emit a Prometheus operator `ServiceMonitor` |

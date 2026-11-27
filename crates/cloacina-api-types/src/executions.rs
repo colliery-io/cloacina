@@ -131,8 +131,12 @@ pub struct TaskExecutionDetail {
     pub sub_status: Option<String>,
     /// Last error message for the most recent failed attempt, when present.
     pub last_error: Option<String>,
-    /// Structured error details, when present.
+    /// Details of the task's end, when present: the traceback of a failed
+    /// Python task, the reason of a skipped or abandoned task.
     pub error_details: Option<String>,
+    /// URL of this attempt's logs in the operator's log stack, when the
+    /// server has a log URL template (`--task-log-url-template`).
+    pub log_url: Option<String>,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}/tasks` response.

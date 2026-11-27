@@ -35,6 +35,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::Semaphore;
+use tracing::Instrument;
 
 use super::slot_token::SlotToken;
 use super::task_handle::{TaskHandle, with_task_handle};
@@ -602,6 +603,16 @@ impl TaskExecutor for ThreadTaskExecutor {
         // increment/decrement here because a panic between the two would
         // leak the gauge permanently. CLOACI-T-0589 / mirrors T-0534.
 
+        // CLOACINA-T-1024: the span around the task call. A log line written
+        // while the task runs carries the ids of this attempt.
+        let task_span = crate::task_logs::task_span(
+            self.dal.tenant_label(),
+            &event.task_name,
+            &event.workflow_execution_id.to_string(),
+            event.attempt,
+            None,
+        );
+
         // Execute the task — if it requires a handle, wrap execution with
         // task-local storage so the macro-generated code can access it.
         let execution_result = if task.requires_handle() {
@@ -640,7 +651,8 @@ impl TaskExecutor for ThreadTaskExecutor {
 
             let (result, _returned_handle) = with_task_handle(
                 handle,
-                self.execute_with_cancellation(task.as_ref(), context, cancel_rx.clone()),
+                self.execute_with_cancellation(task.as_ref(), context, cancel_rx.clone())
+                    .instrument(task_span),
             )
             .await;
 
@@ -669,6 +681,7 @@ impl TaskExecutor for ThreadTaskExecutor {
             // No handle needed — permit is held as _permit for the duration.
             let _permit = permit;
             self.execute_with_cancellation(task.as_ref(), context, cancel_rx.clone())
+                .instrument(task_span)
                 .await
         };
         // Drop the local cancel sender so that, once the heartbeat task's
@@ -1074,6 +1087,109 @@ mod tests {
             };
             let result = exec.execute_with_timeout(&task, Context::new()).await;
             assert!(matches!(result, Err(ExecutorError::TaskTimeout)));
+        }
+
+        // -----------------------------------------------------------------------
+        // CLOACINA-T-1024: the span around the task call
+        // -----------------------------------------------------------------------
+
+        /// A task that writes one log line.
+        struct LoggingTask;
+
+        #[async_trait]
+        impl Task for LoggingTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, crate::error::TaskError> {
+                tracing::warn!("line from the task body");
+                Ok(context)
+            }
+            fn id(&self) -> &str {
+                "log_task"
+            }
+            fn dependencies(&self) -> &[crate::task::TaskNamespace] {
+                &[]
+            }
+        }
+
+        #[tokio::test]
+        async fn a_line_logged_by_a_task_carries_the_ids_of_the_attempt() {
+            use crate::models::task_execution::NewTaskExecution;
+            use crate::models::workflow_execution::NewWorkflowExecution;
+            use crate::task_logs::test_support::LogCapture;
+
+            let url = format!(
+                "file:executor_span_{}?mode=memory&cache=shared",
+                uuid::Uuid::new_v4()
+            );
+            let db = Database::new(&url, "", 5);
+            db.run_migrations().await.expect("migrations");
+            let dal = DAL::new(db.clone());
+
+            let task_name = "public::embedded::span_wf::log_task";
+            let runtime = Arc::new(Runtime::empty());
+            runtime.register_task(parse_namespace(task_name).unwrap(), || {
+                Arc::new(LoggingTask)
+            });
+            let exec = ThreadTaskExecutor::with_runtime_and_registry(
+                db,
+                Arc::new(TaskRegistry::new()),
+                runtime,
+                ExecutorConfig {
+                    enable_claiming: false,
+                    ..ExecutorConfig::default()
+                },
+            );
+
+            let run = dal
+                .workflow_execution()
+                .create(NewWorkflowExecution {
+                    workflow_name: "span_wf".into(),
+                    workflow_version: "1.0".into(),
+                    status: "Running".into(),
+                    context_id: None,
+                })
+                .await
+                .unwrap();
+            let task = dal
+                .task_execution()
+                .create(NewTaskExecution {
+                    workflow_execution_id: run.id,
+                    task_name: task_name.into(),
+                    status: "Ready".into(),
+                    attempt: 2,
+                    max_attempts: 3,
+                    trigger_rules: r#"{"type":"Always"}"#.into(),
+                    task_configuration: "{}".into(),
+                })
+                .await
+                .unwrap();
+
+            // The test runs on one thread, so the subscriber of this thread
+            // sees what the task future logs.
+            let capture = LogCapture::default();
+            let guard = tracing::subscriber::set_default(capture.subscriber(tracing::Level::WARN));
+            let result = TaskExecutor::execute(
+                &exec,
+                TaskReadyEvent::new(task.id, run.id, task_name.to_string(), 2),
+            )
+            .await
+            .unwrap();
+            drop(guard);
+
+            assert_eq!(result.status, crate::dispatcher::ExecutionStatus::Completed);
+            let out = capture.text();
+            let line = out
+                .lines()
+                .find(|l| l.contains("line from the task body"))
+                .unwrap_or_else(|| panic!("the task's line is in the log: {out}"));
+            let ids = format!(
+                "task{{tenant=public workflow=span_wf execution_id={} \
+                 task=public::embedded::span_wf::log_task attempt=2}}: ",
+                run.id
+            );
+            assert!(line.contains(&ids), "{line}");
         }
     } // mod sqlite_tests
 

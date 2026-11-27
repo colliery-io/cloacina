@@ -555,10 +555,16 @@ pub async fn get_execution_tasks(
         .await
     {
         Ok(tasks) => {
+            // CLOACINA-T-1024: the link to the task's logs, when the server
+            // has a log URL template.
+            let log_urls = crate::task_logs::url_template();
             let items: Vec<TaskExecutionDetail> = tasks
                 .into_iter()
                 .map(|t| TaskExecutionDetail {
                     id: t.id.0.to_string(),
+                    log_url: log_urls.map(|template| {
+                        template.render(&tenant_id, &id.to_string(), &t.task_name, t.attempt)
+                    }),
                     task_name: t.task_name,
                     status: t.status,
                     started_at: t.started_at.map(|ts| ts.0.to_rfc3339()),

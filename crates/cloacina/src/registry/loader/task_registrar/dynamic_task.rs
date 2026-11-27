@@ -277,18 +277,25 @@ impl Task for DynamicLibraryTask {
         let plugin = self.plugin.clone();
         let task_name = self.task_name.clone();
 
-        let result = tokio::task::spawn_blocking(move || plugin.execute_task(request))
-            .await
-            .map_err(|e| TaskError::ExecutionFailed {
-                task_id: task_name.clone(),
-                message: format!("spawn_blocking panicked: {}", e),
-                timestamp: Utc::now(),
-            })?
-            .map_err(|e| TaskError::ExecutionFailed {
-                task_id: task_name.clone(),
-                message: format!("Plugin call failed for task '{}': {}", task_name, e),
-                timestamp: Utc::now(),
-            })?;
+        // The blocking thread does not inherit the caller's span: enter it
+        // there, so host lines logged during the call keep the task's ids
+        // (CLOACINA-T-1024).
+        let span = tracing::Span::current();
+        let result = tokio::task::spawn_blocking(move || {
+            let _entered = span.enter();
+            plugin.execute_task(request)
+        })
+        .await
+        .map_err(|e| TaskError::ExecutionFailed {
+            task_id: task_name.clone(),
+            message: format!("spawn_blocking panicked: {}", e),
+            timestamp: Utc::now(),
+        })?
+        .map_err(|e| TaskError::ExecutionFailed {
+            task_id: task_name.clone(),
+            message: format!("Plugin call failed for task '{}': {}", task_name, e),
+            timestamp: Utc::now(),
+        })?;
 
         if result.success {
             let mut result_context = context;

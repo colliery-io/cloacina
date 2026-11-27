@@ -28,11 +28,13 @@ pub async fn run(
     globals: &GlobalOpts,
     bind: SocketAddr,
     metrics_bind: Option<SocketAddr>,
+    task_log_url_template: Option<String>,
     database_url: Option<String>,
     bootstrap_key: Option<String>,
     require_signatures: bool,
     default_executor: Option<String>,
 ) -> Result<()> {
+    #![allow(clippy::too_many_arguments)]
     let config_path = globals.home.join("config.toml");
     let db_url = config::resolve_database_url(database_url.as_deref(), &config_path)?;
     // CLOACI-T-0640: config.toml `[server].default_executor` is the preferred
@@ -49,6 +51,7 @@ pub async fn run(
         &globals.home,
         bind,
         metrics_bind,
+        task_log_url_template,
         &db_url,
         bootstrap_key,
         require_signatures,
@@ -64,10 +67,12 @@ pub async fn run(
 }
 
 /// The `cloacina-server` command line for the resolved settings.
+#[allow(clippy::too_many_arguments)]
 fn server_command(
     home: &Path,
     bind: SocketAddr,
     metrics_bind: Option<SocketAddr>,
+    task_log_url_template: Option<String>,
     db_url: &str,
     bootstrap_key: Option<String>,
     require_signatures: bool,
@@ -87,6 +92,10 @@ fn server_command(
     if let Some(addr) = metrics_bind {
         cmd.arg("--metrics-bind").arg(addr.to_string());
     }
+    // CLOACINA-T-1024: passed on only when set; not set = no log link.
+    if let Some(template) = task_log_url_template.filter(|t| !t.trim().is_empty()) {
+        cmd.arg("--task-log-url-template").arg(template);
+    }
     if let Some(key) = bootstrap_key {
         cmd.arg("--bootstrap-key").arg(key);
     }
@@ -105,10 +114,15 @@ mod tests {
     use super::*;
 
     fn args(metrics_bind: Option<SocketAddr>) -> Vec<String> {
+        args_with(metrics_bind, None)
+    }
+
+    fn args_with(metrics_bind: Option<SocketAddr>, log_url: Option<&str>) -> Vec<String> {
         server_command(
             Path::new("/tmp/cloacina-home"),
             "127.0.0.1:8080".parse().unwrap(),
             metrics_bind,
+            log_url.map(str::to_string),
             "postgres://u:p@h:5432/d",
             None,
             false,
@@ -124,6 +138,25 @@ mod tests {
         let args = args(Some("127.0.0.1:9090".parse().unwrap()));
         let at = args.iter().position(|a| a == "--metrics-bind").unwrap();
         assert_eq!(args[at + 1], "127.0.0.1:9090");
+    }
+
+    #[test]
+    fn task_log_url_template_is_passed_to_the_server_only_when_set() {
+        let template = "https://logs.example.com/?run={execution_id}&task={task}";
+        let args = args_with(None, Some(template));
+        let at = args
+            .iter()
+            .position(|a| a == "--task-log-url-template")
+            .unwrap();
+        assert_eq!(args[at + 1], template);
+
+        for unset in [None, Some(""), Some("  ")] {
+            assert!(
+                !args_with(None, unset)
+                    .iter()
+                    .any(|a| a == "--task-log-url-template")
+            );
+        }
     }
 
     #[test]

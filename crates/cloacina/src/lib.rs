@@ -550,6 +550,7 @@ pub use inventory;
 pub use serde_json;
 pub mod security;
 pub mod task;
+pub mod task_logs;
 pub mod tenant_scope;
 pub mod trigger;
 pub mod var;
