@@ -52,10 +52,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 
-# Linux-only: setrlimit on the cargo subprocess via pre_exec. Closes
-# CLOACI-T-0575 / SEC-06 (kernel-bounded resource ceiling).
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-
 [dev-dependencies]
 serial_test = "4"

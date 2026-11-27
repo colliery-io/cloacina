@@ -47,6 +47,16 @@ def unit(filter=None, backend=None):
         print(f"cloacina-workflow unit tests failed with error: {e}", file=sys.stderr)
         raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
 
+    # Doc tests of cloacina-workflow (CLOACINA-T-1038). `--doc` cannot be
+    # combined with `--lib`, so it is its own run. No other lane runs them.
+    if not filter:
+        print("Running cloacina-workflow doc tests...")
+        try:
+            subprocess.run(["cargo", "test", "-p", "cloacina-workflow", "--doc"], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"cloacina-workflow doc tests failed with error: {e}", file=sys.stderr)
+            raise RuntimeError(f"Doc tests failed with return code {e.returncode}")
+
     # Run cloacina unit tests
     print("Running cloacina unit tests...")
     cmd = ["cargo", "test", "-p", "cloacina", "--lib", "--features", "postgres,sqlite,macros"]
