@@ -599,6 +599,20 @@ impl FleetActuator for DockerActuator {
         Ok(())
     }
 
+    /// Tenant removal (CLOACINA-T-1095): stop every managed container of the
+    /// tenant, in every pool, and revoke its key. The list is by label, so a
+    /// second call finds none and succeeds.
+    async fn remove_agents(&self, tenant_id: &str) -> Result<(), ActuatorError> {
+        let managed = self.ops.list_managed(tenant_id).await?;
+        for c in &managed {
+            self.stop_and_revoke(c).await?;
+        }
+        if !managed.is_empty() {
+            info!(tenant = %tenant_id, stopped = managed.len(), "fleet actuator removed the tenant's agents (docker)");
+        }
+        Ok(())
+    }
+
     async fn reconcile_compiler(
         &self,
         tenant_id: &str,
@@ -1180,6 +1194,22 @@ mod tests {
         act.remove_pool("acme", "big").await.unwrap();
         assert_eq!(ops.stops.lock().unwrap().as_slice(), &["b-1".to_string()]);
         assert!(act.remove_pool("acme", "default").await.is_err());
+    }
+
+    /// CLOACINA-T-1095: tenant removal stops the containers of every pool.
+    #[tokio::test]
+    async fn remove_agents_stops_every_pool() {
+        let ops = Arc::new(MockOps::with_containers(vec![
+            container("d-1", "default", ""),
+            container("b-1", "big", ""),
+        ]));
+        let act = actuator(ops.clone(), minter());
+        act.remove_agents("acme").await.unwrap();
+        assert_eq!(
+            ops.stops.lock().unwrap().as_slice(),
+            &["d-1".to_string(), "b-1".to_string()]
+        );
+        assert_eq!(ops.spawns.load(Ordering::SeqCst), 0);
     }
 
     /// The role the actuator mints is the one role that may act as an agent.

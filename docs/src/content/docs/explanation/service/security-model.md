@@ -60,17 +60,19 @@ The cache is small and short-lived deliberately: it shaves the per-request DB hi
 
 #### The 30-second cross-replica revocation window
 
-The cache is **per replica, and only the replica that served the revocation clears it.** There is no cache-invalidation broadcast between replicas. So in a multi-replica deployment:
+The cache is **per replica, and only the replica that served the revocation clears it**, with one exception: tenant delete. So in a multi-replica deployment:
 
 > A revoked API key may continue to be accepted by *other* replicas for **up to 30 seconds** after revocation. On the replica that handled the `DELETE`, revocation is immediate.
 
 The same bound applies to every other reason a key stops being valid mid-flight — expiry of a minted login key, the rotation half of `POST /v1/auth/refresh`, and the key revocation performed by `POST /v1/auth/logout`. Each is enforced immediately on the acting replica and within the cache TTL everywhere else.
 
+Tenant delete (`DELETE /v1/tenants/{name}`, CLOACINA-T-1095) also sends a revocation notice (Postgres `NOTIFY cloacina_api_keys_revoked`). Every server listens and clears its whole key cache when a notice arrives, and again each time its listener connects. A key of a deleted tenant then fails on another replica as soon as the notice arrives. The TTL stays the bound: a replica whose listener is down refuses the key after at most 30 seconds, as before, so a broken channel does not widen the window.
+
 This is a deliberate trade, not an oversight:
 
 - The window is **short and fixed**. It cannot grow with load, replica count, or clock skew between replicas — the TTL is measured from the moment each replica cached the entry.
 - The alternative — validating every request against the database — puts the auth path on the DB for every call on the hottest code path in the server, for a difference of at most 30 seconds in a scenario (compromised key *and* an attacker actively using it in the same half-minute) where the attacker has already had unbounded time before you noticed.
-- A cross-replica invalidation channel (pub/sub, LISTEN/NOTIFY) would buy a smaller window at the cost of a new failure mode: if the channel breaks, revocation silently stops propagating and the window becomes unbounded rather than 30 seconds. A TTL fails safe; a broadcast fails open.
+- A cross-replica invalidation channel (pub/sub, LISTEN/NOTIFY) used in place of the TTL would buy a smaller window at the cost of a new failure mode: if the channel breaks, revocation silently stops propagating and the window becomes unbounded rather than 30 seconds. A TTL fails safe; a broadcast alone fails open. The notice of tenant delete is sent in addition to the TTL, never in place of it.
 
 Operationally: when you revoke a key in response to a *confirmed* compromise and need a hard cut-off, wait 30 seconds before declaring the key dead, or restart the replicas (a fresh process has an empty cache). Do not treat revocation as instantaneous across the fleet.
 
@@ -516,7 +518,7 @@ CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier ser
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
 - **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
-- **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Before the schema is dropped, the fleet actuator removes the tenant's compiler, when it runs one. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
+- **Teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581, CLOACINA-T-1095): revoke keys and send the revocation notice → evict runner cache → evict DB cache → remove the compiler, the agents and their rows under the fleet lock → delete the tenant's admin-schema rows and drop schema and user in one transaction. A tenant made again with the same name gets no account, key, trusted key, pool or agent of the removed one; the audit rows stay, and the new tenant's own audit reads begin after the `tenant.removed` row. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
 
 - **Computation graphs carry their tenant.** The server stamps every graph, reactor and accumulator with the tenant of the runner that loads it: `public` for the packages of the `public` tenant, the tenant's name for the others. The server refuses to load a graph with no tenant. A key sees, injects into, fires and pauses the graphs of its own tenant only; a key of another tenant cannot reach the graphs of `public`. Reactor ownership and the owner-address table use the same `(tenant, name)` pair. Graphs with no tenant, open to every caller, exist in embedded use only (a `ComputationGraphScheduler` in your own process, no server, no tenants).
 

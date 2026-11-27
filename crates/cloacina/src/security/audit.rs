@@ -86,6 +86,8 @@ pub mod events {
     pub const TENANT_TEARDOWN_KEYS_REVOKED: &str = "tenant.teardown.keys_revoked";
     pub const TENANT_TEARDOWN_RUNNER_EVICTED: &str = "tenant.teardown.runner_evicted";
     pub const TENANT_TEARDOWN_DB_CACHE_EVICTED: &str = "tenant.teardown.db_cache_evicted";
+    /// The tenant's compiler, agents and fleet rows are removed (CLOACINA-T-1095).
+    pub const TENANT_TEARDOWN_FLEET_REMOVED: &str = "tenant.teardown.fleet_removed";
     pub const TENANT_TEARDOWN_SCHEMA_DROPPED: &str = "tenant.teardown.schema_dropped";
     pub const TENANT_TEARDOWN_COMPLETED: &str = "tenant.teardown.completed";
     pub const TENANT_TEARDOWN_FAILED: &str = "tenant.teardown.failed";

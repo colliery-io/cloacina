@@ -301,15 +301,25 @@ mod postgres_impl {
             })
         }
 
-        /// Remove a tenant (schema + user)
+        /// Remove a tenant: its rows in the admin schema, its schema and its
+        /// user.
         ///
         /// WARNING: This will permanently delete all data in the tenant's schema.
         ///
-        /// The schema and the user go in one transaction, so a failure leaves
-        /// both as they were and the error reaches the caller
-        /// (CLOACINA-T-1068). Each statement is `IF EXISTS`: a second call
-        /// after a failure finishes the removal, and a call for a tenant that
-        /// is gone answers `Ok`.
+        /// Everything goes in one transaction, so a failure leaves the tenant
+        /// as it was and the error reaches the caller (CLOACINA-T-1068). Each
+        /// statement can run again: a second call after a failure finishes
+        /// the removal, and a call for a tenant that is gone answers `Ok`.
+        ///
+        /// The admin-schema rows of the tenant (`schema_name`) are deleted
+        /// first, see [`TENANT_ROWS`] (CLOACINA-T-1095): its API keys and
+        /// their sessions, accounts, agent limits, pools and rows, signing
+        /// keys and the rest. A table the admin schema does not have is
+        /// skipped. The audit rows stay; while the schema exists, one row
+        /// `tenant.removed` is added for the tenant, and the tenant's own audit
+        /// reads give only rows after it. Each lock wait is bounded by
+        /// [`REMOVE_LOCK_TIMEOUT`]: a lock held in the schema ends the call
+        /// with an error, not a wait with no end.
         pub async fn remove_tenant(
             &self,
             schema_name: &str,
@@ -326,10 +336,25 @@ mod postgres_impl {
                 .map_err(|e| AdminError::Pool(e.to_string()))?;
             let schema_name = schema_name.to_string();
             let username = username.to_string();
+            let org_id = crate::security::tenant_org_id(&schema_name).0;
 
             let txn_result = conn
                 .interact(move |conn| {
                     conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                        let sql = format!(
+                            "SET LOCAL lock_timeout = '{}ms'",
+                            REMOVE_LOCK_TIMEOUT.as_millis()
+                        );
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to set the lock timeout: {}", e),
+                            }
+                        })?;
+
+                        // 0. The tenant's rows in the admin schema
+                        // (CLOACINA-T-1095), and the audit boundary.
+                        remove_tenant_rows(conn, &schema_name, org_id)?;
+
                         // 1. Drop schema (with CASCADE to remove all objects).
                         // The schema goes first: its grants and the default
                         // privileges that `create_tenant` gave the user go
@@ -552,6 +577,152 @@ mod postgres_impl {
     struct SchemaName {
         #[diesel(sql_type = diesel::sql_types::Text)]
         nspname: String,
+    }
+
+    /// The longest wait for one lock in [`DatabaseAdmin::remove_tenant`]. A
+    /// connection that holds a lock in the tenant's schema (a runner on
+    /// another server) makes the removal fail after this time; a retry
+    /// finishes it once the lock is gone.
+    pub const REMOVE_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// What [`DatabaseAdmin::remove_tenant`] deletes in the admin schema
+    /// (CLOACINA-T-1095), in this order, then the rows of
+    /// [`TENANT_FLEET_ROWS`]: the table, and the `WHERE` of the delete. `$1` is the tenant (the schema name), `$2` the tenant's org
+    /// (`tenant_org_id`). The sessions go before the keys they name.
+    ///
+    /// Kept: `audit_events` (the record), `login_throttle` (counters that
+    /// expire and grant nothing), `execution_events` and `fleet_result_inbox`
+    /// (written in the tenant schema or with no tenant column, removed by age).
+    pub const TENANT_ROWS: &[(&str, &str)] = &[
+        (
+            "oidc_sessions",
+            "key_id IN (SELECT id FROM api_keys WHERE tenant_id = $1)",
+        ),
+        ("api_keys", "tenant_id = $1"),
+        ("ws_tickets", "tenant_id = $1"),
+        ("local_accounts", "tenant_id = $1"),
+        ("delivery_outbox", "tenant_id = $1"),
+        ("reactor_firings", "tenant_id = $1"),
+        ("reactor_trigger_subscriptions", "tenant_id = $1"),
+        ("reactor_owner_addresses", "tenant_id = $1"),
+        ("trusted_keys", "org_id = $2::uuid"),
+        ("signing_keys", "org_id = $2::uuid"),
+        ("package_signatures", "org_id = $2::uuid"),
+        (
+            "key_trust_acls",
+            "parent_org_id = $2::uuid OR child_org_id = $2::uuid",
+        ),
+        ("secrets", "org_id = $2::uuid"),
+        ("tenant_data_keys", "org_id = $2::uuid"),
+    ];
+
+    #[derive(diesel::QueryableByName)]
+    struct Present {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        present: bool,
+    }
+
+    /// Whether the admin schema (the connection's search path) has `table`.
+    fn has_table(conn: &mut diesel::PgConnection, table: &str) -> Result<bool, AdminError> {
+        diesel::sql_query("SELECT to_regclass($1) IS NOT NULL AS present")
+            .bind::<diesel::sql_types::Text, _>(table)
+            .get_result::<Present>(conn)
+            .map(|r| r.present)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to look up table '{}': {}", table, e),
+            })
+    }
+
+    /// The rows that make the fleet loop run agents for a tenant: its limit,
+    /// its desired count, its pools and its agents. Tenant removal deletes
+    /// them before it drops the schema (`remove_tenant_fleet_rows`), so a
+    /// removal that stops later leaves nothing for the loop to start again.
+    pub const TENANT_FLEET_ROWS: &[(&str, &str)] = &[
+        ("agent_capacity_limits", "tenant_id = $1"),
+        ("agent_desired_counts", "tenant_id = $1"),
+        ("agent_pools", "tenant_id = $1"),
+        ("fleet_agents", "tenant_id = $1"),
+    ];
+
+    impl DatabaseAdmin {
+        /// Delete the tenant's rows of [`TENANT_FLEET_ROWS`] in one
+        /// transaction (CLOACINA-T-1095). Safe to run again. The server calls
+        /// it during tenant removal, after the actuator has removed the
+        /// tenant's agents and before [`DatabaseAdmin::remove_tenant`].
+        pub async fn remove_tenant_fleet_rows(&self, schema_name: &str) -> Result<(), AdminError> {
+            validate_schema_name(schema_name)?;
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            let tenant = schema_name.to_string();
+            conn.interact(move |conn| {
+                conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                    delete_rows(conn, &tenant, "", TENANT_FLEET_ROWS)
+                })
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
+    }
+
+    /// Delete the rows of `rows` (table, filter) for `tenant` and `org`.
+    /// A table the admin schema does not have is skipped.
+    fn delete_rows(
+        conn: &mut diesel::PgConnection,
+        tenant: &str,
+        org: &str,
+        rows: &[(&str, &str)],
+    ) -> Result<(), AdminError> {
+        for (table, filter) in rows {
+            if !has_table(conn, table)? {
+                continue;
+            }
+            let sql = format!("DELETE FROM {} WHERE {}", table, filter);
+            diesel::sql_query(&sql)
+                .bind::<diesel::sql_types::Text, _>(tenant)
+                .bind::<diesel::sql_types::Text, _>(org)
+                .execute(conn)
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Failed to delete the tenant's rows of '{}': {}", table, e),
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Delete the tenant's rows of [`TENANT_ROWS`] and, while its schema
+    /// exists, add the `tenant.removed` audit row. Runs inside the
+    /// transaction of `remove_tenant`. Safe to run again: a second run finds
+    /// nothing to delete and, with the schema gone, adds no audit row.
+    fn remove_tenant_rows(
+        conn: &mut diesel::PgConnection,
+        tenant: &str,
+        org_id: uuid::Uuid,
+    ) -> Result<(), AdminError> {
+        delete_rows(conn, tenant, &org_id.to_string(), TENANT_ROWS)?;
+        delete_rows(conn, tenant, "", TENANT_FLEET_ROWS)?;
+        if has_table(conn, "audit_events")? {
+            diesel::sql_query(
+                "INSERT INTO audit_events \
+                 (created_at, tenant_id, actor_key_id, actor_key_name, action, target_kind, \
+                  target, outcome, detail) \
+                 SELECT now() AT TIME ZONE 'UTC', $1, 'system', 'tenant-removal', $2, 'tenant', \
+                        $1, 'ok', '{}' \
+                 WHERE EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)",
+            )
+            .bind::<diesel::sql_types::Text, _>(tenant)
+            .bind::<diesel::sql_types::Text, _>(
+                crate::dal::unified::audit_events::ACTION_TENANT_REMOVED,
+            )
+            .execute(conn)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to write the tenant.removed audit row: {}", e),
+            })?;
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]

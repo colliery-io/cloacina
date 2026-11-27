@@ -510,22 +510,29 @@ List all tenant schemas.
 
 ### DELETE /v1/tenants/{schema_name}
 
-Remove a tenant via the **4-step teardown orchestration**. **Admin-only** (requires an `is_admin` key).
+Remove a tenant via the **teardown orchestration**. **Admin-only** (requires an `is_admin` key).
 
 The steps are top-down and each emits a structured audit event with
 duration:
 
-1. **Revoke API keys** for the tenant (closes the auth surface — new
-   requests against the tenant start failing immediately).
+1. **Revoke API keys** for the tenant and delete its WebSocket tickets
+   (closes the auth surface — new requests against the tenant start
+   failing immediately). Every server clears its key cache on the
+   revocation notice.
 2. **Evict the tenant's `DefaultRunner`** from `TenantRunnerCache`,
    awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`
    server flag, default 30s). Past the timeout the runner is
    **hard-evicted** — any task that ignored cooperative cancellation
-   will error on its next DB write once step 4 drops the schema.
+   will error on its next DB write once step 5 drops the schema.
 3. **Evict the tenant's `Database`** from `TenantDatabaseCache`
    (releases the per-tenant connection pool).
-4. **Drop the schema + user** via `DatabaseAdmin::remove_tenant`
-   (CASCADE).
+4. **Remove the tenant's compiler and agents** and delete its limit,
+   desired count, pools and agent rows, holding the fleet lock (waits
+   up to 30 s for it).
+5. **Delete the tenant's admin-schema rows and drop the schema + user**
+   via `DatabaseAdmin::remove_tenant` (CASCADE), in one transaction;
+   each lock wait is bounded to 5 s. The audit rows stay. See
+   [Decommission a tenant](../../how-to/service/decommission-a-tenant/#what-the-delete-removes-and-what-stays).
 
 Per-step failures bail out; earlier steps stay committed (each step
 is idempotent), so a retry resumes from the failure point. The

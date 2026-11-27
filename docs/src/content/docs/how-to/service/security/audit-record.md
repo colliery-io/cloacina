@@ -87,6 +87,7 @@ or an execution context. A secret action records the secret's name only.
 | `key.revoke` | `DELETE /v1/auth/keys/{id}`, `DELETE /v1/tenants/{t}/keys/{id}` | key id | — |
 | `tenant.create` | `POST /v1/tenants` | tenant name | — |
 | `tenant.delete` | `DELETE /v1/tenants/{name}` | tenant name | `revoked_keys` |
+| `tenant.removed` | written by the delete itself, in the transaction that drops the schema | tenant name | — |
 | `secret.create` | `POST /v1/tenants/{t}/secrets` | secret name | — |
 | `secret.rotate` | `PUT /v1/tenants/{t}/secrets/{name}` | secret name | — |
 | `secret.delete` | `DELETE /v1/tenants/{t}/secrets/{name}` | secret name | — |
@@ -140,6 +141,14 @@ before the audit record existed.
 
 So the rows of a deleted tenant stay readable by the platform admin with
 `GET /v1/audit?tenant=<name>`.
+
+A tenant is its name, so a tenant made again with a removed name would find
+the old rows under its name. The delete writes one row `tenant.removed`
+(`tenant_id` the name, actor `tenant-removal`) in the transaction that drops the
+schema, and `GET /v1/tenants/{t}/audit` and `uploaded_by` read only the rows
+after the newest `tenant.removed` of the tenant. The `tenant.delete` row of the
+route has no tenant (a platform row), so it is in `GET /v1/audit` only.
+(CLOACINA-T-1095)
 
 ## Failed writes
 

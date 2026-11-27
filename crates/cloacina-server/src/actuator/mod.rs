@@ -133,6 +133,15 @@ pub trait FleetActuator: Send + Sync {
         Ok(())
     }
 
+    /// Remove every agent the actuator made for a tenant, in each pool, and
+    /// the objects that hold its agent key (CLOACINA-T-1095). Called when the
+    /// tenant is removed, before its pool rows are deleted. Idempotent: a
+    /// second call, or a call for a tenant with no agents, succeeds and makes
+    /// nothing. The default does nothing: an actuator that runs no agents.
+    async fn remove_agents(&self, _tenant_id: &str) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+
     /// Move the tenant's compiler toward `want` (CLOACINA-T-1034): one
     /// compiler while the tenant's build queue has work, none after the queue
     /// has been empty for the cooldown. Idempotent. The default does nothing:
