@@ -177,11 +177,12 @@ Every workflow run writes rows that stay after it finishes: one
 started it, and per task one `task_executions` row, one
 `task_execution_metadata` row and one `contexts` row with the full context
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
-row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
+row. A run of a packaged workflow adds one `workflow_execution_package_pins`
+row per package, the version it runs on. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
-| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions and any event push still waiting in `delivery_outbox`. `0` = off. |
+| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
