@@ -19,14 +19,18 @@
 
 mod build;
 mod config;
+mod describe;
 mod doc_parse;
 mod health;
 mod loopp;
 mod param_parse;
 mod python;
 
+pub use build::{BuildOutcome, execute_build};
 pub use cloacina_workflow_plugin::python_vendor::WheelSource;
-pub use config::{BuildRlimits, CompilerConfig};
+pub use config::{BuildRlimits, CompilerConfig, DEFAULT_DESCRIBE_TIMEOUT_S};
+pub use describe::{DESCRIBE_MODE, run_child as run_describe_child};
+pub use loopp::describe_pass;
 pub use python::PythonVendorConfig;
 
 use std::sync::Arc;
@@ -177,6 +181,12 @@ fn register_compiler_metrics() {
         "Stale builds reset to `pending` by the sweeper — one increment \
          per row reclaimed (paired with T-0522). Sustained non-zero \
          rate indicates worker crashes or hung builds."
+    );
+    metrics::describe_counter!(
+        "cloacina_compiler_describes_total",
+        "Describes of packages that were built before the metadata document \
+         existed, from their stored build. `status` ∈ `ok`, `failed`. A \
+         failed describe is recorded on the package (`describe_error`)."
     );
     metrics::describe_counter!(
         "cloacina_compiler_heartbeat_failures_total",

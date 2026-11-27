@@ -608,6 +608,13 @@ pub struct UnifiedWorkflowPackage {
     /// workflow regardless of source. In-flight executions are unaffected.
     pub paused: UniversalBool,
     pub paused_at: Option<UniversalTimestamp>,
+    /// CLOACINA-T-1074: the full metadata document (JSON) that a describe
+    /// child of the compiler wrote. `None`: not described yet.
+    pub metadata_document: Option<String>,
+    /// The format version of the last describe, set also when it failed.
+    pub metadata_document_version: Option<i32>,
+    /// Why the last describe failed.
+    pub describe_error: Option<String>,
 }
 
 #[derive(Debug, Insertable)]

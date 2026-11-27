@@ -25,7 +25,8 @@ pub mod filesystem;
 mod package;
 
 pub use database::{
-    BuildQueueStats, PackageVersionDelete, ReconcilerStats, build_queue_stats, reconciler_stats,
+    BuildQueueStats, PackageVersionDelete, ReconcilerStats, StoredDescription, UndescribedPackage,
+    build_queue_stats, reconciler_stats,
 };
 
 use async_trait::async_trait;

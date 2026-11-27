@@ -38,6 +38,12 @@ class WorkflowDetail:
                 the
                 workflow accepts at execute time. Empty when undeclared. Lets the UI
                 render a typed execute form and the server validate context.
+            describe_error (None | str | Unset): Why the compiler could not write the metadata document of this built
+                package (CLOACINA-T-1074). Set for a package that was built before the
+                document existed and cannot be described from its stored build.
+                Absent when the package is described, or has not been tried yet. A
+                package whose describe fails during a build has `build_status`
+                `failed` and the reason in `build_error`.
             description (None | str | Unset):
             paused (bool | Unset): Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
                 new executions until resumed.
@@ -59,6 +65,7 @@ class WorkflowDetail:
     workflow_name: str
     build_error: None | str | Unset = UNSET
     declared_params: list[InputSlot] | Unset = UNSET
+    describe_error: None | str | Unset = UNSET
     description: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
     task_graph: list[WorkflowTaskNode] | Unset = UNSET
@@ -94,6 +101,12 @@ class WorkflowDetail:
             for declared_params_item_data in self.declared_params:
                 declared_params_item = declared_params_item_data.to_dict()
                 declared_params.append(declared_params_item)
+
+        describe_error: None | str | Unset
+        if isinstance(self.describe_error, Unset):
+            describe_error = UNSET
+        else:
+            describe_error = self.describe_error
 
         description: None | str | Unset
         if isinstance(self.description, Unset):
@@ -134,6 +147,8 @@ class WorkflowDetail:
             field_dict["build_error"] = build_error
         if declared_params is not UNSET:
             field_dict["declared_params"] = declared_params
+        if describe_error is not UNSET:
+            field_dict["describe_error"] = describe_error
         if description is not UNSET:
             field_dict["description"] = description
         if paused is not UNSET:
@@ -185,6 +200,15 @@ class WorkflowDetail:
 
                 declared_params.append(declared_params_item)
 
+        def _parse_describe_error(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        describe_error = _parse_describe_error(d.pop("describe_error", UNSET))
+
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -225,6 +249,7 @@ class WorkflowDetail:
             workflow_name=workflow_name,
             build_error=build_error,
             declared_params=declared_params,
+            describe_error=describe_error,
             description=description,
             paused=paused,
             task_graph=task_graph,

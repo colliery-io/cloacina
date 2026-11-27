@@ -23,7 +23,9 @@
 //!
 //! - the fleet loop reads each tenant's queue on every tick
 //!   ([`run_compiler_pass`]) and decides with [`compiler_want`];
-//! - a queue with a `pending` or `building` row starts the compiler;
+//! - a queue with a `pending` or `building` row starts the compiler, and so
+//!   does a package in service that has no metadata document yet
+//!   (CLOACINA-T-1074: the compiler describes it from its stored build);
 //! - a queue that has been empty for the cooldown stops it (0 replicas);
 //! - a tenant whose queue was never filled gets nothing at all.
 //!
@@ -127,6 +129,10 @@ pub struct BuildQueue {
     pub pending: u64,
     /// Rows `building`, not superseded.
     pub building: u64,
+    /// Packages in service with no metadata document of the current format
+    /// (CLOACINA-T-1074). The compiler describes them from the stored build,
+    /// so a tenant with such a package and no upload still gets a compiler.
+    pub undescribed: u64,
     /// The newest of: last successful build, last failed build, last
     /// heartbeat. `None`: the queue never held a build.
     pub last_activity: Option<DateTime<Utc>>,
@@ -135,7 +141,7 @@ pub struct BuildQueue {
 impl BuildQueue {
     /// Whether a compiler has something to do.
     pub fn has_work(&self) -> bool {
-        self.pending > 0 || self.building > 0
+        self.pending > 0 || self.building > 0 || self.undescribed > 0
     }
 }
 
@@ -144,6 +150,7 @@ impl From<&cloacina::registry::workflow_registry::BuildQueueStats> for BuildQueu
         Self {
             pending: s.pending,
             building: s.building,
+            undescribed: s.undescribed,
             last_activity: [s.last_success_at, s.last_failure_at, s.heartbeat_at]
                 .into_iter()
                 .flatten()
@@ -1967,6 +1974,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(compiler_want(&building, at(0), COOLDOWN), CompilerWant::Run);
+        // CLOACINA-T-1074: a package in service with no metadata document is
+        // work too, also long after the last build.
+        let undescribed = BuildQueue {
+            undescribed: 1,
+            last_activity: Some(at(-10_000)),
+            ..Default::default()
+        };
+        assert_eq!(
+            compiler_want(&undescribed, at(0), COOLDOWN),
+            CompilerWant::Run
+        );
     }
 
     #[test]
@@ -1997,12 +2015,14 @@ mod tests {
         let stats = cloacina::registry::workflow_registry::BuildQueueStats {
             pending: 2,
             building: 1,
+            undescribed: 3,
             last_success_at: Some(at(10)),
             last_failure_at: Some(at(30)),
             heartbeat_at: Some(at(20)),
         };
         let queue = BuildQueue::from(&stats);
         assert_eq!((queue.pending, queue.building), (2, 1));
+        assert_eq!(queue.undescribed, 3);
         assert_eq!(queue.last_activity, Some(at(30)));
     }
 
@@ -3191,6 +3211,7 @@ mod tests {
             BuildQueue {
                 pending,
                 building: 0,
+                undescribed: 0,
                 last_activity,
             },
         )]

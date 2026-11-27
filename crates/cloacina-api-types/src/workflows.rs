@@ -149,6 +149,14 @@ pub struct WorkflowDetail {
     pub created_at: String,
     pub build_status: String,
     pub build_error: Option<String>,
+    /// Why the compiler could not write the metadata document of this built
+    /// package (CLOACINA-T-1074). Set for a package that was built before the
+    /// document existed and cannot be described from its stored build.
+    /// Absent when the package is described, or has not been tried yet. A
+    /// package whose describe fails during a build has `build_status`
+    /// `failed` and the reason in `build_error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub describe_error: Option<String>,
     /// Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
     /// new executions until resumed.
     #[serde(default)]
@@ -200,6 +208,11 @@ pub struct WorkflowVersionSummary {
     pub build_status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build_error: Option<String>,
+    /// Why the compiler could not write the metadata document of this built
+    /// version (CLOACINA-T-1074). Absent when the version is described, or
+    /// has not been tried yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub describe_error: Option<String>,
     /// SHA-256 of the uploaded archive.
     pub content_hash: String,
     /// Upload time (RFC 3339).

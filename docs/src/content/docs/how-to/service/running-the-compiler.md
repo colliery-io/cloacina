@@ -12,6 +12,8 @@ compiles user-supplied package source into `.so` / `.dylib`
 artifacts, and writes them back for runner instances to load.
 For a Python package it vendors the dependencies of the package's
 lock file: see [Python packages](#python-packages-vendoring-dependencies).
+For every package it reads the metadata in a child process and stores it
+as one document: see [The describe step](#the-describe-step).
 
 This is the **service** path. For laptop / CI use of
 `cloacinactl package build` + `pack`, see
@@ -31,10 +33,10 @@ Cloacina's isolation boundary is the **tenant**: run one compiler per
 tenant (`--tenant-schema`) so a tenant's source, build logs, and artifacts
 never mix with another's, and size the deployment so a hostile build only
 burns that tenant's compiler. Within a compiler, every child process of a
-build (`cargo fetch`, the build, and the provider bundling steps: `cargo
-metadata`, the provider crate's build and its manifest binary) gets a
-cleared environment, kernel `setrlimit` ceilings (see below) and the
-wall-clock timeout. The child inherits only `PATH`, `HOME`, `CARGO_HOME`,
+build (`cargo fetch`, the build, the provider bundling steps: `cargo
+metadata`, the provider crate's build and its manifest binary, and the
+describe child) gets a cleared environment, kernel `setrlimit` ceilings
+(see below) and a wall-clock timeout. The child inherits only `PATH`, `HOME`, `CARGO_HOME`,
 `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `TMPDIR`, `TERM` and
 `CARGO_PROFILE_DEV_DEBUG`; `cargo fetch` and `cargo metadata` also inherit
 the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`
@@ -347,6 +349,75 @@ The pods also get what the tenant's agent policy allows: DNS and the server.
 a build may use (see [The `cargo vendor` workflow](#the-cargo-vendor-workflow)).
 With a mirror inside the network, list its CIDR in `egressCidrs` instead.
 
+## The describe step
+
+After a build the compiler reads the package's metadata and stores it as one
+JSON document in `workflow_packages.metadata_document`. The document holds:
+
+- each task: id, dependencies, trigger rules, retry policy, time limit,
+  placement (pool, CPU, memory, inline), docs;
+- the workflow name, its graph and the triggers it subscribes to;
+- each trigger: poll interval, or cron expression with timezone, catch-up
+  policy and the limit on active runs;
+- reactors with their accumulators, the reactor-bound graph, trigger-less
+  graphs and constructor nodes;
+- declared params, declared secrets and declared surfaces;
+- for a Python package: the entry module, `requires_python` and the Python
+  version that imported it;
+- `format_version`, the version of the document format.
+
+Reading the metadata runs the package's code: opening a Rust library runs its
+load-time code, and importing a Python package runs the module. The compiler
+process does neither. It starts a child:
+
+```
+cloacina-compiler describe --library <file> --out <file>
+cloacina-compiler describe --python-archive <file> [--vendored-set <file>]
+  [--providers-dir <dir>] --out <file>
+```
+
+- **The child is the compiler binary**, started again in describe mode: the
+  same fidius version and the same build profile as the compiler.
+- **A build child like `cargo`.** It gets the cleared environment (no
+  `DATABASE_URL`), its own process group and the `--build-rlimit-*` limits.
+  Its time limit is `--describe-timeout-s`, 120 seconds by default.
+- **A Python package is imported** with the dependencies of the compiler's own
+  platform: the `vendor/` folder of the package, or the set the compiler
+  vendored for that platform. A compiler that vendors must have its own
+  platform in `--python-platform`: a package with locked dependencies and no
+  set for the compiler's platform fails to build. The Python that imports the
+  package is the one the compiler binary links; it must be the Python of
+  `--python-version`.
+- **The compiler binary links the Python interpreter.** The host or the image
+  needs the Python shared library (`libpython3.11` on Debian 12).
+  `docker/Dockerfile.compiler` installs it.
+
+A describe that fails, or passes its time limit, fails the build: the package
+gets `build_status` `failed` and the reason in `build_error`. A describe that
+passes its time limit is not retried.
+
+### Packages built before the document existed
+
+A package built by an earlier version has no document. The compiler describes
+it from its stored build: the stored library, or for a Python package the
+stored archive. No build runs, nothing is uploaded again and the package stays
+in service. The compiler looks for such packages on each sweep tick
+(`--sweep-interval-s`) and describes up to five per tick.
+
+- A package it can describe gets its document.
+- A package it cannot describe keeps `build_status` `success` and gets the
+  reason in `describe_error`. `GET /v1/tenants/{tenant}/workflows/{name}` and
+  the versions list return `describe_error`, and `cloacinactl package inspect`
+  prints it. The compiler does not try that package again until the package is
+  built again or the document format changes. An upload of the same archive
+  starts no build: to get a document, publish a changed archive.
+
+A per-target compiler (`--build-target`) does not describe.
+
+With the server's tenant compilers, a tenant that has a package with no
+document gets its compiler started, as for a pending build. The compiler's
+`/v1/status` reports the count as `undescribed`.
+
 ## Python packages: vendoring dependencies
 
 A Python package has nothing to compile. Its build step is its dependencies.
@@ -594,6 +665,7 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 | Flag | Env | Default |
 |---|---|---|
 | `--build-timeout-s` | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | 600 |
+| `--describe-timeout-s` | `CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S` | 120 |
 | `--vendor-dir` | `CLOACINA_COMPILER_VENDOR_DIR` | unset (cargo `~/.cargo`) |
 | `--cargo-flag` (repeatable) | — | appends to `build --release --lib --frozen --offline` |
 | `--cargo-flags-replace` (repeatable) | — | unset (full override of the default flag list) |

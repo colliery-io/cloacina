@@ -1642,11 +1642,6 @@ impl RegistryReconciler {
         pre_graph_names: &std::collections::HashSet<String>,
         accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
     ) -> PackageLoadView {
-        use cloacina_workflow_plugin::{
-            GraphPackageMetadata, ReactorPackageMetadata, TriggerPackageMetadata,
-            types::AccumulatorDeclarationEntry,
-        };
-
         let runtime = match self.runtime.as_ref() {
             Some(rt) => rt,
             None => {
@@ -1658,130 +1653,20 @@ impl RegistryReconciler {
             }
         };
 
-        // Reactors: diff vs. pre-snapshot, then walk each runtime
-        // ReactorRegistration into wire-format with manifest accumulator
-        // overrides folded in.
-        let mut reactors: Vec<ReactorPackageMetadata> = Vec::new();
-        for name in runtime.reactor_names() {
-            if pre_reactor_names.contains(&name) {
-                continue;
-            }
-            let Some(reg) = runtime.get_reactor(&name) else {
-                continue;
-            };
-            let accumulators: Vec<AccumulatorDeclarationEntry> = reg
-                .accumulator_names
-                .iter()
-                .map(|acc_name| {
-                    // CLOACI-T-0839 precedence: manifest override (deployment
-                    // wins) → authored spec carried on the registration (e.g.
-                    // Python's `@cloaca.state_accumulator`) → passthrough.
-                    // Before the authored-spec fallback existed, packaged
-                    // Python state/stream accumulators silently degraded to
-                    // passthrough here.
-                    let (accumulator_type, config) = accumulator_overrides
-                        .iter()
-                        .find(|cfg| &cfg.name == acc_name)
-                        .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
-                        .or_else(|| {
-                            reg.accumulator_specs
-                                .iter()
-                                .find(|spec| &spec.name == acc_name)
-                                .map(|spec| (spec.accumulator_type.clone(), spec.config.clone()))
-                        })
-                        .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
-                    AccumulatorDeclarationEntry {
-                        name: acc_name.clone(),
-                        accumulator_type,
-                        config,
-                    }
-                })
-                .collect();
-            let reaction_mode = match reg.reaction_mode {
-                cloacina_computation_graph::ReactionMode::WhenAll => "when_all".to_string(),
-                _ => "when_any".to_string(),
-            };
-            reactors.push(ReactorPackageMetadata {
-                name: reg.name,
-                package_name: package_name.to_string(),
-                reaction_mode,
-                accumulators,
-            });
-        }
-
-        // Custom-poll triggers: the Python load path doesn't currently
-        // register cron triggers via this surface (cron runs through the
-        // daemon's separate path). Walk each runtime trigger and emit
-        // wire-format with cron_expression carried through.
-        let mut triggers: Vec<TriggerPackageMetadata> = Vec::new();
-        for name in runtime.trigger_names() {
-            if pre_trigger_names.contains(&name) {
-                continue;
-            }
-            let Some(impl_) = runtime.get_trigger(&name) else {
-                continue;
-            };
-            triggers.push(TriggerPackageMetadata {
-                name: impl_.name().to_string(),
-                workflow_name: impl_.workflow_name().to_string(),
-                package_name: package_name.to_string(),
-                poll_interval: format!("{}s", impl_.poll_interval().as_secs()),
-                cron_expression: impl_.cron_expression(),
-                allow_concurrent: impl_.allow_concurrent(),
-                timezone: impl_.cron_timezone(),
-                catchup_policy: impl_.cron_catchup_policy(),
-                max_active_runs: impl_.cron_max_active_runs(),
-            });
-        }
-
-        // Computation graph: Python packages declare at most one CG per
-        // package today. Pull the first non-pre-snapshot graph name and
-        // shape it into wire-format. trigger_reactor / accumulators come
-        // from the runtime registration directly.
-        let graph: Option<GraphPackageMetadata> = runtime
-            .computation_graph_names()
-            .into_iter()
-            .find(|n| !pre_graph_names.contains(n))
-            .and_then(|graph_name| {
-                let reg = runtime.get_computation_graph(&graph_name)?;
-                let accumulators: Vec<AccumulatorDeclarationEntry> = reg
-                    .accumulator_names
-                    .iter()
-                    .map(|acc_name| {
-                        let (accumulator_type, config) = accumulator_overrides
-                            .iter()
-                            .find(|cfg| &cfg.name == acc_name)
-                            .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
-                            .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
-                        AccumulatorDeclarationEntry {
-                            name: acc_name.clone(),
-                            accumulator_type,
-                            config,
-                        }
-                    })
-                    .collect();
-                Some(GraphPackageMetadata {
-                    graph_name,
-                    package_name: package_name.to_string(),
-                    reaction_mode: reg.reaction_mode.clone(),
-                    // Wire-format default only (CLOACI-T-0918): the Python
-                    // CG's REAL strategy travels on the declaration built by
-                    // `load_cg_package`, not this view; and the Rust path's
-                    // manifest override happens in
-                    // `step_load_reactor_bound_cgs`.
-                    input_strategy: "latest".to_string(),
-                    accumulators,
-                    trigger_reactor: reg.trigger_reactor.clone(),
-                    // Python CG topology threading is a follow-up — the runtime
-                    // registration carries no node/edge graph yet. (CLOACI-T-0673)
-                    graph_data_json: None,
-                })
-            });
-
+        // CLOACINA-T-1074: the walk of the runtime is one shared function, so
+        // the compiler's describe child reads a Python package the same way.
+        let view = crate::registry::package_description::python_load_view(
+            runtime,
+            package_name,
+            pre_reactor_names,
+            pre_trigger_names,
+            pre_graph_names,
+            accumulator_overrides,
+        );
         PackageLoadView {
-            triggers,
-            reactors,
-            graph,
+            triggers: view.triggers,
+            reactors: view.reactors,
+            graph: view.graph,
         }
     }
 
