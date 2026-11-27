@@ -270,11 +270,16 @@ def fleet_full_agent():
             f"task starts: {len(starts)}, task ends: {len(ends)}"
         )
 
+        # The server counts the slots it has given to an agent (CLOACINA-T-1027),
+        # so it holds the second task and sends no packet for the agent to
+        # refuse. A refusal now needs a stale count (a second replica, a
+        # restart); that path is covered by the `refusals` tests of
+        # `fleet_executor.rs`. Both ways the outcome below must hold.
         if refused == 0:
+            print("  the server held the second task: no packet was sent to the full agent")
+        elif waits == 0:
             raise AssertionError(
-                "the agent refused no packet, so this run did not test the refusal. "
-                "A heartbeat fell between the two dispatches, or the server now "
-                "counts the slot itself."
+                f"the agent refused {refused} packet(s) and the server logged no wait for capacity"
             )
         for execution_id, status in statuses.items():
             if status != "Completed":
@@ -289,6 +294,6 @@ def fleet_full_agent():
             raise AssertionError(
                 f"each task must run one time: {len(starts)} starts, {len(ends)} ends"
             )
-        print("  ok: the refused task waited as Ready and both ran on attempt 1")
+        print("  ok: the second task waited as Ready and both ran on attempt 1")
 
     print_final_success("cloacina fleet full-agent e2e")
