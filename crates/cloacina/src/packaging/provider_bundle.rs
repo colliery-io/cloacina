@@ -39,13 +39,13 @@
 //! wasmtime (only the *loader* does).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use cloacina_constructor_contract::ProviderManifest;
 
+use super::build_child::{ChildPolicy, ChildStep, build_child_command, run_build_child};
 use super::constructor_provider::{
     PROVIDER_MANIFEST_FILE, ProviderPackageError, ProviderPackageOptions,
-    package_constructor_provider,
+    package_constructor_provider, package_constructor_provider_with,
 };
 
 /// The subdirectory (inside a package / bundle) that holds unpacked provider
@@ -160,11 +160,22 @@ pub fn resolve_provider_crate(
     consumer_dir: &Path,
     provider: &ProviderRef,
 ) -> Result<PathBuf, ProviderBundleError> {
-    let out = Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
-        .current_dir(consumer_dir)
-        .output()
-        .map_err(|e| ProviderBundleError::Metadata(format!("spawn cargo metadata: {e}")))?;
+    resolve_provider_crate_with(consumer_dir, provider, &ChildPolicy::inherit())
+}
+
+/// [`resolve_provider_crate`] with the `cargo metadata` child held by `policy`
+/// (CLOACINA-T-1054). `cargo metadata` runs no package code, but it downloads
+/// what the consumer names, so it is a [`ChildStep::Resolve`] child.
+pub fn resolve_provider_crate_with(
+    consumer_dir: &Path,
+    provider: &ProviderRef,
+    policy: &ChildPolicy,
+) -> Result<PathBuf, ProviderBundleError> {
+    let mut cmd = build_child_command("cargo", policy, ChildStep::Resolve);
+    cmd.args(["metadata", "--format-version", "1"])
+        .current_dir(consumer_dir);
+    let out = run_build_child(cmd, policy, true)
+        .map_err(|e| ProviderBundleError::Metadata(format!("cargo metadata: {e}")))?;
     if !out.status.success() {
         return Err(ProviderBundleError::Metadata(
             String::from_utf8_lossy(&out.stderr).trim().to_string(),
@@ -348,10 +359,29 @@ pub struct PackedProvider {
 /// (the compiler-side variant of [`bundle_providers`]: same resolve/build, but the
 /// output is bytes for the `package_providers` store rather than an unpacked
 /// `providers/` tree). Duplicate `from` names are built once.
+///
+/// The cargo children get the caller's environment and no limit. A service
+/// that bundles for another party uses [`pack_providers_with`].
 pub fn pack_providers(
     consumer_dir: &Path,
     provider_refs: &[ProviderRef],
     release: bool,
+) -> Result<Vec<PackedProvider>, ProviderBundleError> {
+    pack_providers_with(
+        consumer_dir,
+        provider_refs,
+        release,
+        &ChildPolicy::inherit(),
+    )
+}
+
+/// [`pack_providers`] with every cargo child held by `policy`
+/// (CLOACINA-T-1054): the compiler service's entry.
+pub fn pack_providers_with(
+    consumer_dir: &Path,
+    provider_refs: &[ProviderRef],
+    release: bool,
+    policy: &ChildPolicy,
 ) -> Result<Vec<PackedProvider>, ProviderBundleError> {
     let mut seen: Vec<String> = Vec::new();
     let mut packed: Vec<PackedProvider> = Vec::new();
@@ -362,7 +392,7 @@ pub fn pack_providers(
         }
         seen.push(provider.name.clone());
 
-        let crate_dir = resolve_provider_crate(consumer_dir, provider)?;
+        let crate_dir = resolve_provider_crate_with(consumer_dir, provider, policy)?;
 
         let staging = tempfile::TempDir::new()
             .map_err(|e| ProviderBundleError::Io(format!("create staging dir: {e}")))?;
@@ -377,7 +407,7 @@ pub fn pack_providers(
             // CLOACI-T-0907: honor the provider's own runtime marker.
             runtime,
         };
-        let result = package_constructor_provider(&opts)?;
+        let result = package_constructor_provider_with(&opts, policy)?;
 
         let archive = std::fs::read(&archive_path).map_err(|e| {
             ProviderBundleError::Io(format!(
@@ -406,9 +436,22 @@ pub fn pack_providers(
 /// `[providers]` section (e.g. `"0.1"`, `{ path = "/abs" }`, `{ git = "…" }`),
 /// embedded VERBATIM into a synthesized scratch Cargo project so version, path,
 /// and git providers resolve uniformly through cargo.
+///
+/// The cargo children get the caller's environment and no limit. A service
+/// that bundles for another party uses [`pack_providers_from_specs_with`].
 pub fn pack_providers_from_specs(
     specs: &[(String, String)],
     release: bool,
+) -> Result<Vec<PackedProvider>, ProviderBundleError> {
+    pack_providers_from_specs_with(specs, release, &ChildPolicy::inherit())
+}
+
+/// [`pack_providers_from_specs`] with every cargo child held by `policy`
+/// (CLOACINA-T-1054): the compiler service's entry.
+pub fn pack_providers_from_specs_with(
+    specs: &[(String, String)],
+    release: bool,
+    policy: &ChildPolicy,
 ) -> Result<Vec<PackedProvider>, ProviderBundleError> {
     if specs.is_empty() {
         return Ok(Vec::new());
@@ -448,7 +491,7 @@ pub fn pack_providers_from_specs(
             version: None, // pinning is expressed in the dep spec itself
         })
         .collect();
-    pack_providers(scratch.path(), &refs, release)
+    pack_providers_with(scratch.path(), &refs, release, policy)
 }
 
 /// Discover the provider references a consumer's SOURCE declares: scan `.rs` files

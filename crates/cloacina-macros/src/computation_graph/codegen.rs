@@ -64,17 +64,17 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
 
     // Validation: every function in the module must appear in the graph (no orphans)
     for fn_name in &function_names {
-        if !node_names.contains(fn_name) {
-            if let Some(func) = functions.get(fn_name) {
-                return Err(syn::Error::new(
-                    func.sig.ident.span(),
-                    format!(
-                        "function '{}' exists in the module but is not referenced in the graph topology. \
+        if !node_names.contains(fn_name)
+            && let Some(func) = functions.get(fn_name)
+        {
+            return Err(syn::Error::new(
+                func.sig.ident.span(),
+                format!(
+                    "function '{}' exists in the module but is not referenced in the graph topology. \
                          All functions in a computation_graph module must appear in the graph declaration.",
-                        fn_name
-                    ),
-                ));
-            }
+                    fn_name
+                ),
+            ));
         }
     }
 
@@ -555,12 +555,11 @@ fn extract_source_boundary_types(
 /// Find a fn parameter by its binding name and return its declared type.
 fn param_type_by_name(func: &ItemFn, name: &str) -> Option<syn::Type> {
     for arg in &func.sig.inputs {
-        if let syn::FnArg::Typed(pt) = arg {
-            if let syn::Pat::Ident(pi) = &*pt.pat {
-                if pi.ident == name {
-                    return Some((*pt.ty).clone());
-                }
-            }
+        if let syn::FnArg::Typed(pt) = arg
+            && let syn::Pat::Ident(pi) = &*pt.pat
+            && pi.ident == name
+        {
+            return Some((*pt.ty).clone());
         }
     }
     None
@@ -572,14 +571,12 @@ fn boundary_inner_type(ty: &syn::Type) -> syn::Type {
     match ty {
         syn::Type::Reference(r) => boundary_inner_type(&r.elem),
         syn::Type::Path(p) => {
-            if let Some(seg) = p.path.segments.last() {
-                if seg.ident == "Option" {
-                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                        if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                            return boundary_inner_type(inner);
-                        }
-                    }
-                }
+            if let Some(seg) = p.path.segments.last()
+                && seg.ident == "Option"
+                && let syn::PathArguments::AngleBracketed(args) = &seg.arguments
+                && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+            {
+                return boundary_inner_type(inner);
             }
             ty.clone()
         }
@@ -620,10 +617,10 @@ fn build_input_interface_fn(sources: &[(String, syn::Type)], prefix: &TokenStrea
 /// Check if a function has `#[node(blocking)]` attribute.
 fn has_blocking_attr(func: &ItemFn) -> bool {
     func.attrs.iter().any(|attr| {
-        if attr.path().is_ident("node") {
-            if let Ok(meta) = attr.parse_args::<Ident>() {
-                return meta == "blocking";
-            }
+        if attr.path().is_ident("node")
+            && let Ok(meta) = attr.parse_args::<Ident>()
+        {
+            return meta == "blocking";
         }
         false
     })
