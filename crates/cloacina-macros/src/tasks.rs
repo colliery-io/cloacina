@@ -711,26 +711,23 @@ pub fn to_pascal_case(s: &str) -> String {
 /// anything else (already two-arg `Result<T, E>`, `-> ()`, no return, etc.) is
 /// emitted verbatim, so this is purely additive.
 fn normalize_task_return_type(output: &ReturnType) -> TokenStream2 {
-    if let ReturnType::Type(arrow, ty) = output {
-        if let Type::Path(type_path) = &**ty {
-            if let Some(seg) = type_path.path.segments.last() {
-                if seg.ident == "Result" {
-                    if let PathArguments::AngleBracketed(args) = &seg.arguments {
-                        // Count only type arguments (ignore lifetimes etc.).
-                        let type_args: Vec<&GenericArgument> = args
-                            .args
-                            .iter()
-                            .filter(|a| matches!(a, GenericArgument::Type(_)))
-                            .collect();
-                        if type_args.len() == 1 {
-                            let ok_ty = type_args[0];
-                            return quote! {
-                                #arrow ::std::result::Result<#ok_ty, ::cloacina_workflow::TaskError>
-                            };
-                        }
-                    }
-                }
-            }
+    if let ReturnType::Type(arrow, ty) = output
+        && let Type::Path(type_path) = &**ty
+        && let Some(seg) = type_path.path.segments.last()
+        && seg.ident == "Result"
+        && let PathArguments::AngleBracketed(args) = &seg.arguments
+    {
+        // Count only type arguments (ignore lifetimes etc.).
+        let type_args: Vec<&GenericArgument> = args
+            .args
+            .iter()
+            .filter(|a| matches!(a, GenericArgument::Type(_)))
+            .collect();
+        if type_args.len() == 1 {
+            let ok_ty = type_args[0];
+            return quote! {
+                #arrow ::std::result::Result<#ok_ty, ::cloacina_workflow::TaskError>
+            };
         }
     }
     quote! { #output }
@@ -751,15 +748,15 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
     // Extract context parameter
     let context_param = fn_inputs.iter().find_map(|arg| {
-        if let FnArg::Typed(pat_type) = arg {
-            if let Pat::Ident(pat_ident) = &*pat_type.pat {
-                let param_name = pat_ident.ident.to_string();
-                if param_name == "context"
-                    || param_name == "_context"
-                    || param_name.starts_with("context")
-                {
-                    return Some(&*pat_type.ty);
-                }
+        if let FnArg::Typed(pat_type) = arg
+            && let Pat::Ident(pat_ident) = &*pat_type.pat
+        {
+            let param_name = pat_ident.ident.to_string();
+            if param_name == "context"
+                || param_name == "_context"
+                || param_name.starts_with("context")
+            {
+                return Some(&*pat_type.ty);
             }
         }
         None
@@ -774,11 +771,11 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
     // Detect optional TaskHandle parameter (second parameter named "handle" or "task_handle")
     let has_handle_param = fn_inputs.iter().any(|arg| {
-        if let FnArg::Typed(pat_type) = arg {
-            if let Pat::Ident(pat_ident) = &*pat_type.pat {
-                let param_name = pat_ident.ident.to_string();
-                return param_name == "handle" || param_name == "task_handle";
-            }
+        if let FnArg::Typed(pat_type) = arg
+            && let Pat::Ident(pat_ident) = &*pat_type.pat
+        {
+            let param_name = pat_ident.ident.to_string();
+            return param_name == "handle" || param_name == "task_handle";
         }
         false
     });

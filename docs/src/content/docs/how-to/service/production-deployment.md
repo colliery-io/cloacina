@@ -163,7 +163,7 @@ the guide that covers it in depth.
 - [ ] Run history retention period chosen. It is off by default: run history is kept for ever, and the database grows with each run, until you set a period. See [Run history retention](#run-history-retention).
 
 **Supply chain**
-- [ ] In low-trust / multi-tenant deployments, package signing required so unsigned packages are refused — otherwise a compromised or untrusted uploader could get arbitrary code compiled and run in your build sandbox. See [Require Signed Packages](../require-signed-packages/).
+- [ ] In low-trust / multi-tenant deployments, package signing required so unsigned packages are refused — otherwise a compromised or untrusted uploader could get arbitrary code compiled and run by your compiler, which has no process sandbox. See [Require Signed Packages](../require-signed-packages/).
 
 **Operations**
 - [ ] Load-balancer health checks wired to `GET /health` (liveness) and `GET /ready` (readiness — confirms the DB pool is reachable and no computation graph has crashed).

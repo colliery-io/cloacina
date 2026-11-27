@@ -61,7 +61,8 @@
 //! (`registry::loader::constructor_loader::load_task_constructor_from_package`).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use super::build_child::{ChildPolicy, ChildStep, build_child_command, run_build_child};
 
 use ed25519_dalek::{Signer, SigningKey};
 
@@ -178,8 +179,23 @@ pub enum ProviderPackageError {
 /// 4. If `sign_key` is set, write a `package.sig` (Ed25519 over the package
 ///    digest) reusing fidius's signing scheme.
 /// 5. [`fidius_core::package::pack_package`] → the `.cloacina` archive.
+///
+/// The cargo children get the caller's environment and no limit: this is the
+/// entry for an author's own machine. A service that builds another party's
+/// crate uses [`package_constructor_provider_with`].
 pub fn package_constructor_provider(
     opts: &ProviderPackageOptions,
+) -> Result<ProviderPackageResult, ProviderPackageError> {
+    package_constructor_provider_with(opts, &ChildPolicy::inherit())
+}
+
+/// [`package_constructor_provider`] with the cargo children held by `policy`
+/// (CLOACINA-T-1054): the compiler service passes a confined policy, so the
+/// provider crate's build scripts and its manifest binary get a cleared
+/// environment, a time limit and resource limits.
+pub fn package_constructor_provider_with(
+    opts: &ProviderPackageOptions,
+    policy: &ChildPolicy,
 ) -> Result<ProviderPackageResult, ProviderPackageError> {
     let crate_dir = &opts.crate_dir;
     if !crate_dir.join("Cargo.toml").exists() {
@@ -193,12 +209,12 @@ pub fn package_constructor_provider(
     //    (NATIVE, CLOACI-T-0903). Both yield the file staged into the package +
     //    named in the manifest's `component`.
     let component = match opts.runtime {
-        ProviderRuntime::Wasm => build_wasm_component(crate_dir, opts.release)?,
-        ProviderRuntime::Native => build_native_cdylib(crate_dir, opts.release)?,
+        ProviderRuntime::Wasm => build_wasm_component(crate_dir, opts.release, policy)?,
+        ProviderRuntime::Native => build_native_cdylib(crate_dir, opts.release, policy)?,
     };
 
     // 2. Emit + parse the provider manifest.
-    let manifest_json = emit_manifest_json(crate_dir, &opts.manifest_bin, opts.runtime)?;
+    let manifest_json = emit_manifest_json(crate_dir, &opts.manifest_bin, opts.runtime, policy)?;
     let mut provider = ProviderManifest::from_json(&manifest_json)
         .map_err(|e| ProviderPackageError::Manifest(e.to_string()))?;
 
@@ -359,8 +375,12 @@ fn primitive_kind_str(kind: PrimitiveKind) -> &'static str {
 /// cargo): environments like the compiler service set a SHARED target dir, so the
 /// artifact does NOT land under `<crate>/target` there — caught live by the first
 /// in-container provider bundle (CLOACI-T-0836).
-fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, ProviderPackageError> {
-    let mut cmd = Command::new("cargo");
+fn build_wasm_component(
+    crate_dir: &Path,
+    release: bool,
+    policy: &ChildPolicy,
+) -> Result<PathBuf, ProviderPackageError> {
+    let mut cmd = build_child_command("cargo", policy, ChildStep::Build);
     cmd.arg("build")
         .arg("--lib")
         .arg("--target")
@@ -373,18 +393,19 @@ fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, Prov
         "debug"
     };
 
-    let status = cmd
-        .status()
-        .map_err(|e| ProviderPackageError::Build(format!("spawn cargo build: {e}")))?;
+    let status = run_build_child(cmd, policy, false)
+        .map_err(|e| ProviderPackageError::Build(format!("cargo build: {e}")))?
+        .status;
     if !status.success() {
         return Err(ProviderPackageError::Build(format!(
             "cargo build --target wasm32-wasip2 failed with status {status}"
         )));
     }
 
-    // Where cargo actually wrote the artifact: CARGO_TARGET_DIR if set (relative →
-    // against the build cwd, i.e. `crate_dir`), else `<crate>/target`.
-    let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
+    // Where cargo actually wrote the artifact: the CARGO_TARGET_DIR the child
+    // had, if any (relative → against the build cwd, i.e. `crate_dir`), else
+    // `<crate>/target`.
+    let target_root = match policy.env_value("CARGO_TARGET_DIR") {
         Some(dir) if !dir.is_empty() => {
             let p = PathBuf::from(dir);
             if p.is_absolute() {
@@ -436,8 +457,12 @@ fn build_wasm_component(crate_dir: &Path, release: bool) -> Result<PathBuf, Prov
 /// the fixture Cargo.toml). Host artifacts land in `<target>/<profile>/` (no
 /// target-triple subdir); the platform dylib is `lib<crate>.{dylib|so}` or
 /// `<crate>.dll`. Honors `CARGO_TARGET_DIR` like the wasm path.
-fn build_native_cdylib(crate_dir: &Path, release: bool) -> Result<PathBuf, ProviderPackageError> {
-    let mut cmd = Command::new("cargo");
+fn build_native_cdylib(
+    crate_dir: &Path,
+    release: bool,
+    policy: &ChildPolicy,
+) -> Result<PathBuf, ProviderPackageError> {
+    let mut cmd = build_child_command("cargo", policy, ChildStep::Build);
     cmd.arg("build")
         .arg("--lib")
         .args(["--features", "native"])
@@ -449,16 +474,16 @@ fn build_native_cdylib(crate_dir: &Path, release: bool) -> Result<PathBuf, Provi
         "debug"
     };
 
-    let status = cmd
-        .status()
-        .map_err(|e| ProviderPackageError::Build(format!("spawn cargo build (native): {e}")))?;
+    let status = run_build_child(cmd, policy, false)
+        .map_err(|e| ProviderPackageError::Build(format!("cargo build (native): {e}")))?
+        .status;
     if !status.success() {
         return Err(ProviderPackageError::Build(format!(
             "cargo build --lib --features native failed with status {status}"
         )));
     }
 
-    let target_root = match std::env::var_os("CARGO_TARGET_DIR") {
+    let target_root = match policy.env_value("CARGO_TARGET_DIR") {
         Some(dir) if !dir.is_empty() => {
             let p = PathBuf::from(dir);
             if p.is_absolute() {
@@ -530,15 +555,16 @@ fn emit_manifest_json(
     crate_dir: &Path,
     manifest_bin: &str,
     runtime: ProviderRuntime,
+    policy: &ChildPolicy,
 ) -> Result<String, ProviderPackageError> {
-    let mut cmd = Command::new("cargo");
+    let mut cmd = build_child_command("cargo", policy, ChildStep::Build);
     cmd.args(["run", "--quiet", "--bin", manifest_bin]);
     if runtime == ProviderRuntime::Native {
         cmd.args(["--features", "native"]);
     }
-    let out = cmd.current_dir(crate_dir).output().map_err(|e| {
-        ProviderPackageError::Build(format!("spawn cargo run --bin {manifest_bin}: {e}"))
-    })?;
+    cmd.current_dir(crate_dir);
+    let out = run_build_child(cmd, policy, true)
+        .map_err(|e| ProviderPackageError::Build(format!("cargo run --bin {manifest_bin}: {e}")))?;
     if !out.status.success() {
         return Err(ProviderPackageError::Build(format!(
             "`cargo run --bin {manifest_bin}` failed: {}",

@@ -20,6 +20,9 @@
 //! into distributable fidius source archives. These functions can be used by CLI
 //! tools, tests, or other applications that need to package workflows.
 
+/// The one place that makes a child process for a package build, with the
+/// environment, time limit and resource limits of its policy (CLOACINA-T-1054).
+pub mod build_child;
 /// Constructor **provider package** assembly + packing (CLOACI-T-0827).
 /// Default-OFF behind the `constructor-packaging` feature (serde-only contract
 /// crate; no wasm runtime).
