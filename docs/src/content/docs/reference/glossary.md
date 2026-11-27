@@ -15,7 +15,7 @@ A long-lived component that connects to an external data source, receives events
 
 ### ApiError
 
-The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "machine_code"}` regardless of HTTP status; the `code` is a stable lowercase snake_case string tied to the failure class (`unauthorized`, `tenant_access_denied`, `signature_not_found`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope](../api-error-envelope/).
+The standardized error response envelope returned by every `/v1/...` HTTP route. Per CLOACI-I-0107, all error responses share the shape `{"error": "human-readable message", "code": "machine_code"}` regardless of HTTP status; the `code` is a stable lowercase snake_case string tied to the failure class (`unauthorized`, `tenant_access_denied`, `signature_required`, etc.) so clients can branch on it without parsing the message. See [API Error Envelope](../api-error-envelope/).
 
 ### Backoff Strategy
 

@@ -81,16 +81,27 @@ database-backed implementation.
 
 | Method | Signature | Description |
 |---|---|---|
-| `sign_package_with_db_key` | `(package_path, org_id, key_id, master_key: &[u8], store_signature: bool) -> PackageSignatureInfo` | Sign a package with a database-stored key; optionally persist the signature. The key must belong to `org_id`; a key of another org gives `PackageSignError::KeyNotFound`. `async`. |
+| `sign_package_with_db_key` | `(package_path, org_id, key_id, master_key: &[u8], store_signature: bool) -> PackageSignatureInfo` | Sign a package with a database-stored key; with `store_signature`, persist the signature for `org_id`. The key must belong to `org_id`; a key of another org gives `PackageSignError::KeyNotFound`. `async`. |
 | `sign_package_with_raw_key` | `(package_path, private_key: &[u8], public_key: &[u8]) -> PackageSignatureInfo` | Offline signing with raw key bytes. |
 | `sign_package_data` | `(package_data: &[u8], private_key: &[u8], public_key: &[u8]) -> PackageSignatureInfo` | Sign in-memory package bytes. |
-| `store_signature` | `(&PackageSignatureInfo) -> UniversalUuid` | Persist a signature. `async`. |
+| `store_signature` | `(&PackageSignatureInfo) -> UniversalUuid` | Persist a signature with no org. A check that filters on the org (the load check of a runner) does not count such a row. `async`. |
 | `find_signature` | `(package_hash: &str) -> Option<PackageSignatureInfo>` | Look up a stored signature by package hash. `async`. |
 | `find_signatures` | `(package_hash: &str) -> Vec<PackageSignatureInfo>` | All stored signatures for a package hash. `async`. |
 | `verify_package` | `(package_path, org_id) -> PackageSignatureInfo` | Verify against a stored signature using `org_id`'s trusted keys. `async`. |
 | `verify_package_with_detached_signature` | `(package_path, &DetachedSignature, public_key: &[u8]) -> ()` | Verify against a detached `.sig` file and an explicit public key. |
 
 Signing/verification methods return `Result<_, PackageSignError>`.
+
+`DbPackageSigner` also has two methods that are not on the trait:
+
+| Method | Signature | Description |
+|---|---|---|
+| `store_signature_for_org` | `(org_id, &PackageSignatureInfo) -> UniversalUuid` | Persist a signature with the org whose trusted keys accepted its signer. A row for the same package hash and key is replaced. The server's upload route stores with this, in the tenant's schema. `async`. |
+| `find_signatures_for_orgs` | `(package_hash: &str, org_ids: &[UniversalUuid]) -> Vec<(PackageSignatureInfo, UniversalUuid)>` | The signatures of a package hash that were stored for one of `org_ids`, each with its org. A row with no org is left out. `async`. |
+
+`package_signatures` holds one row for a package hash and a key
+(`UNIQUE(package_hash, key_fingerprint)`), with a nullable `org_id`. On a
+server each tenant's rows are in the tenant's own schema.
 
 ## Free functions
 
@@ -100,6 +111,35 @@ Signing/verification methods return `Result<_, PackageSignError>`.
 | `verify_package_offline(package_path, signature_path, public_key: &[u8])` | Verify with only a detached signature file and a public key — no database. |
 | `verify_package_bytes(package_data, org_id, SignatureSource, &package_signer, &key_manager)` | Verify in-memory package bytes against the trusted keys of one org. `async`. |
 | `verify_package_bytes_for_orgs(package_data, org_ids: &[UniversalUuid], SignatureSource, &package_signer, &key_manager)` | Verify in-memory package bytes, with the signer looked up in each org of `org_ids` in order. Returns the result and the id of the org that trusted the key. An empty list trusts no key. `async`. |
+| `verify_detached_signature_for_orgs(package_data, &DetachedSignature, org_ids: &[UniversalUuid], &key_manager)` | Verify a signature that came with the bytes (the `signature` field of an upload). No signature store is read. The signer is looked up in each org of `org_ids` in order. Returns the result and the id of the org that trusted the key. `async`. |
+| `verify_stored_signature_for_orgs(package_data, org_ids: &[UniversalUuid], &package_signer, &key_manager)` | The load check: verify the signature rows stored for one of `org_ids`. `package_signer` reads the rows, `key_manager` the trusted keys; the two can be on different databases. The package passes when one row passes. `async`. |
+
+In the `cloacina::crypto` module:
+
+| Function | Description |
+|---|---|
+| `decode_private_key_pem(pem: &str) -> Vec<u8>` | The 32-byte seed of an unencrypted Ed25519 private key in PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`), as `openssl genpkey -algorithm ed25519` writes it. |
+| `encode_private_key_pem(private_key: &[u8]) -> String` | The same PEM from a 32-byte seed. |
+| `public_key_of(private_key: &[u8]) -> Vec<u8>` | The 32-byte public key of a 32-byte seed. |
+
+## The load check of a runner
+
+A runner with `require_signatures(true)` verifies each package when its
+reconciler loads it, through `WorkflowRegistry::verify_package_signature`.
+
+| `DefaultRunnerConfig` builder method | Meaning |
+|---|---|
+| `require_signatures(bool)` | Turn the check on. |
+| `verification_org_id(Option<UniversalUuid>)` | The server-wide org, asked after the org of the runner's tenant. |
+| `signature_trust_database(Option<Database>)` | The database that holds the trusted keys, when it is not the runner's own. `cloacina-server` gives each tenant's runner the admin database. |
+
+The orgs that count are `tenant_org_id(<the runner's tenant>)`, then
+`verification_org_id` if set. A package loads when a row of
+`package_signatures` for its bytes has one of them as `org_id`, the signer is a
+live trusted key of one of them, and the signature verifies. A package that
+does not pass is not loaded; the load error and the `package.load.failure`
+audit event carry one of `missing_signature`, `untrusted_signer`,
+`revoked_signer`, `invalid_signature`.
 
 ## Types
 
@@ -113,12 +153,17 @@ Signing/verification methods return `Result<_, PackageSignError>`.
 - **`PackageSignatureInfo`** — carries `package_hash` and `key_fingerprint`, among
   other fields.
 - **`DetachedSignature`** — serializable `.sig` sidecar; `from_signature_info`,
-  `write_to_file`, `read_from_file`.
+  `write_to_file`, `read_from_file`, `from_json`, `to_json`.
+  `DetachedSignature::sign(package_data, private_key)` signs in-memory bytes
+  with a 32-byte seed and needs no database. `is_for(package_data)` says
+  whether the signature was made for these bytes. `to_signature_info()` gives
+  the row to store.
 
 ## Detached signature file format
 
-`DetachedSignature::write_to_file` produces a JSON sidecar (conventionally
-`<package>.sig`):
+`DetachedSignature::write_to_file` produces a JSON sidecar, `<package>.sig`
+(for `demo.cloacina`: `demo.cloacina.sig`). `cloacinactl package pack --sign`
+writes this file, and its text is the `signature` field of an upload:
 
 ```json
 {
@@ -151,10 +196,16 @@ fields such as `org_id`, `package_path`, `package_hash`, `signer_fingerprint`, a
 | Error | Meaning |
 |-------|---------|
 | `TamperedPackage` | Package content doesn't match the signature hash. |
-| `UntrustedSigner` | Signature from a key not trusted by this organization. |
+| `UntrustedSigner` | Signature from a key that no organization that was asked knows. |
+| `RevokedSigner` | Signature from a key that an organization that was asked holds revoked, and none holds live. |
 | `InvalidSignature` | Cryptographic verification failed. |
 | `SignatureNotFound` | No signature found for this package. |
-| `MalformedSignature` | Signature file is corrupt or an invalid format. |
+| `MalformedSignature` | Signature file is corrupt, or in a version or an algorithm this build does not know. |
+
+The upload route of `cloacina-server` answers them as `package_tampered`,
+`untrusted_signer`, `signer_revoked`, `invalid_signature` (403) and
+`malformed_signature` (400); an upload with no signature on a server that
+requires one is `signature_required` (403).
 
 Key-management operations return `KeyError` (`NotFound`, `Revoked`,
 `DuplicateName`, `InvalidFormat`, `InvalidPem`, `Encryption`, `Decryption`,

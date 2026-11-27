@@ -54,6 +54,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `reactor_input_invalid` | `POST /v1/health/reactors/{name}/fire` | The injected event doesn't match the reactor's declared input interface. (CLOACI-T-0758) |
 | `accumulator_input_invalid` | `POST /v1/health/accumulators/{name}/inject` | The injected event doesn't match the accumulator's declared input interface. (CLOACI-T-0759) |
 | `invalid_callback` | `GET /v1/auth/callback` | The OIDC callback is missing `code` or `state`. |
+| `malformed_signature` | `POST /v1/tenants/{tenant_id}/workflows` | The `signature` field of the upload is not a detached signature, is larger than 16 KiB, or names a version or an algorithm the server does not know. |
 | `invalid_public_key` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The PEM is not an Ed25519 public key, or `public_key` is not 64 hexadecimal characters. |
 
 ### 401 Unauthorized
@@ -71,10 +72,11 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `insufficient_permissions` | Tenant-scoped write routes (`execute_workflow`, package upload, etc.) | Authenticated key can read the tenant but lacks write/admin role. |
 | `identity_not_mapped` | `GET /v1/auth/callback` | A validated OIDC identity matched no rule in the god-owned tenant allowlist (`CLOACINA_OIDC_MAP`). (CLOACI-I-0118) |
 | `signature_verification_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Generic verification failure that doesn't match a more specific code below. |
-| `untrusted_signer` | `POST /v1/tenants/{tenant_id}/workflows` | The signer's key is not a live trusted key of the tenant, nor of the server-wide org if one is set: unknown, or revoked. |
+| `signature_required` | `POST /v1/tenants/{tenant_id}/workflows` | The upload has no `signature` field and the server requires signed packages. Sign the package and send its signature. |
+| `untrusted_signer` | `POST /v1/tenants/{tenant_id}/workflows` | The signer's key is not known to the tenant, nor to the server-wide org if one is set. A key that only another tenant trusts gets this answer too. |
+| `signer_revoked` | `POST /v1/tenants/{tenant_id}/workflows` | The signer's key is a revoked trusted key of the tenant or of the server-wide org, and neither holds it live. |
 | `invalid_signature` | `POST /v1/tenants/{tenant_id}/workflows` | Cryptographic signature check failed against the trusted key. |
 | `package_tampered` | `POST /v1/tenants/{tenant_id}/workflows` | The uploaded bytes do not match the hash the signature was made for. |
-| `signature_not_found` | `POST /v1/tenants/{tenant_id}/workflows` | No signature row found for this package in the trust database. Operator must sign before upload. |
 | `signature_verification_error` | `POST /v1/tenants/{tenant_id}/workflows` | Verification path hit an unexpected error (DAL failure, key-lookup error). Treat as transient; retry with backoff. |
 | (custom WS reasons) | `GET /v1/ws/accumulator/{name}`, `GET /v1/ws/reactor/{name}` | WebSocket upgrade rejected; the message names the specific reason (`tenant_mismatch`, `not_authorized`, `ticket_expired`, etc., aligned with the `cloacina_ws_auth_failures_total` metric labels). |
 
@@ -115,7 +117,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | 400 | `invalid_request`, `invalid_pagination`, `tenant_creation_failed` | **No.** Fix the request and retry only after correction. |
 | 401 `unauthorized` | (same) | **No.** Rotate or refresh credentials; the request is broken without new auth material. |
 | 403 (admin/tenant/permissions) | `admin_required`, `tenant_access_denied`, `insufficient_permissions` | **No.** The key lacks the role; talk to your operator. |
-| 403 (signature) | `invalid_signature`, `untrusted_signer`, `package_tampered`, `signature_not_found` | **No.** Fix the signing pipeline; the package will fail identically on retry. |
+| 403 (signature) | `signature_required`, `invalid_signature`, `untrusted_signer`, `signer_revoked`, `package_tampered` | **No.** Fix the signing pipeline; the package will fail identically on retry. |
 | 403 `signature_verification_error` | | **Yes, with backoff.** Indicates a transient DAL/key-lookup error. |
 | 404 | `*_not_found` | **No.** Verify the resource exists at the path you requested; check tenant scoping. |
 | 500 `internal_error` | | **Yes, with exponential backoff** (start 500ms, max 30s, give up after ~5 attempts). Log the `x-request-id` on every retry. |
