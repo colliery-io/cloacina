@@ -3570,9 +3570,10 @@ mod tests {
         let auth = crate::routes::auth::AuthenticatedKey {
             key_id: uuid::Uuid::new_v4(),
             name: "t1015-agent".to_string(),
-            permissions: "admin".to_string(),
-            tenant_id: None,
-            is_admin: true,
+            permissions: "agent".to_string(),
+            // CLOACINA-T-1118: an agent registers with a key of a tenant.
+            tenant_id: Some("public".to_string()),
+            is_admin: false,
         };
         // CLOACINA-T-1050: a report is taken only from a registered agent
         // that the caller key holds, so the agent registers first (through
@@ -3600,7 +3601,7 @@ mod tests {
         let rx = replica_a.fleet_coordinator.register_dispatch(
             task_id,
             cloacina::security::ownership::DispatchTarget {
-                tenant_id: None,
+                tenant_id: Some("public".to_string()),
                 agent_id: agent_id.clone(),
                 dispatch_id: Some("dispatch-1".to_string()),
             },

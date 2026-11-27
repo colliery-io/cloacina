@@ -76,6 +76,7 @@ pub async fn create_key(
     is_admin: bool,
     role: &str,
 ) -> Result<ApiKeyInfo, ValidationError> {
+    super::check_key_scope(tenant_id, role)?;
     let conn = dal
         .database
         .get_postgres_connection()
@@ -133,6 +134,7 @@ pub async fn mint_key(
     expires_at: chrono::DateTime<Utc>,
     issued_via: &str,
 ) -> Result<ApiKeyInfo, ValidationError> {
+    super::check_key_scope(tenant_id, role)?;
     let conn = dal
         .database
         .get_postgres_connection()

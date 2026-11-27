@@ -110,7 +110,7 @@ A local account and an OIDC mapping rule take `read`, `write` or `admin`. `agent
 | `POST /v1/auth/ws-ticket` (the ticket carries the same scope) | inject into an accumulator; fire, pause or resume a reactor, over REST or WebSocket |
 | | open the delivery WebSocket: `403`, so no operations stream (`ops_metrics:global`) and no execution events |
 
-Its role (`read` / `write` / `admin`) does not change this. The agent routes (`/v1/agent/*`) take the tenant from the key: an agent registered with such a key has no tenant and is given no tenant's work, and the package fetch routes refuse the key.
+Its role (`read` / `write` / `admin`) does not change this. The agent routes (`/v1/agent/*`) need the role `agent`, so such a key gets `403` there. No route makes a key of role `agent` with no tenant: the server refuses to write one. A key row with no tenant and the role `agent` written straight into the database gets `403` `agent_no_tenant` from `POST /v1/agent/register`.
 
 On the delivery WebSocket a connection belongs to the key's tenant. Only an `is_admin` key connects with no tenant, and only that connection receives the all-tenant operations snapshot.
 

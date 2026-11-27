@@ -179,6 +179,20 @@ pub async fn register_agent(
         )
         .await
         .map_err(|e| ApiError::internal_logged("agent registration persist failed", &e))?;
+    // CLOACINA-T-1118: a key with no tenant registers no agent, whatever its
+    // role. No route makes an `agent` key with no tenant; this is the check
+    // for a key row written some other way.
+    if let Err(Refusal::NoTenant) = registered {
+        warn!(
+            agent_id = %agent_id,
+            api_key = %auth.name,
+            "agent register refused: the key has no tenant"
+        );
+        return Err(ApiError::forbidden(
+            "agent_no_tenant",
+            "an agent registers with a key of a tenant; this key has no tenant",
+        ));
+    }
     if let Err(why) = registered {
         warn!(
             agent_id = %agent_id,

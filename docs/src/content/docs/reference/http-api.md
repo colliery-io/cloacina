@@ -2087,7 +2087,7 @@ handlers scope work to the caller's tenant.
 An agent belongs to the key that registered it. `POST /v1/agent/register`
 with an `agent_id` that another tenant or another key holds answers
 `409 agent_id_taken`; with no `agent_id` the server assigns a new one.
-`heartbeat`, `keys` and `result` answer `404 agent_not_registered` for an
+A key with no tenant registers no agent: `403 agent_no_tenant`. `heartbeat`, `keys` and `result` answer `404 agent_not_registered` for an
 agent id that is not registered and `403 agent_access_denied` for an agent
 that another key holds. A result changes task state only when it comes from
 the agent the work packet is addressed to and carries the packet's
