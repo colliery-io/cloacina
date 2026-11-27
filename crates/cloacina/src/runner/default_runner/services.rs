@@ -291,6 +291,10 @@ impl DefaultRunner {
         let sweeper_config = StaleClaimSweeperConfig {
             sweep_interval: self.config.stale_claim_sweep_interval(),
             stale_threshold: self.config.stale_claim_threshold(),
+            // CLOACINA-T-1084: a runner that sends its tasks to the fleet has
+            // the fleet executor, which takes over the stale fleet dispatches
+            // itself (`cloacina-server`). Any other runner sweeps them all.
+            leave_fleet_dispatches: self.config.default_executor() == "fleet",
             ..StaleClaimSweeperConfig::default()
         };
 

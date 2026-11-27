@@ -1011,6 +1011,8 @@ mod tests {
             cpu_request_millis: None,
             memory_request_bytes: None,
             fleet_agent_id: None,
+            fleet_dispatch_id: None,
+            fleet_packet_row_id: None,
             created_at: at(0),
             updated_at: at(90),
         }

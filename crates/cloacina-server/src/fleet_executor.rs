@@ -262,6 +262,81 @@ const MIN_ADVERTISED_CAPACITY: usize = 0;
 /// long-running fleet task isn't reclaimed mid-flight and re-dispatched.
 const FLEET_CLAIM_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 
+/// How old the claim heartbeat of a fleet dispatch must be before another
+/// replica takes over its wait (CLOACINA-T-1084). The stale claim sweeper's
+/// default threshold: three missed heartbeats of
+/// [`FLEET_CLAIM_HEARTBEAT_INTERVAL`].
+pub const TAKEOVER_STALE_AFTER: Duration = Duration::from_secs(60);
+
+/// How often each fleet executor looks for fleet dispatches whose replica
+/// stopped (CLOACINA-T-1084). A takeover so comes 60 to 75 s after the
+/// replica stops.
+pub const TAKEOVER_INTERVAL: Duration = Duration::from_secs(15);
+
+/// A spawned task that is stopped when this guard is dropped. The claim
+/// heartbeat of a dispatch must end with the dispatch: a dropped `execute`
+/// future that left its heartbeat beating would hold the claim for ever, and
+/// no replica could take the dispatch over (CLOACINA-T-1084).
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl AbortOnDrop {
+    fn abort(&self) {
+        self.0.abort();
+    }
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Heartbeat the claim of `runner_id` on a task every
+/// [`FLEET_CLAIM_HEARTBEAT_INTERVAL`], until the guard is dropped.
+fn spawn_claim_heartbeat(
+    dal: cloacina::dal::DAL,
+    task_execution_id: UniversalUuid,
+    runner_id: UniversalUuid,
+) -> AbortOnDrop {
+    AbortOnDrop(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(FLEET_CLAIM_HEARTBEAT_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            if let Err(e) = dal
+                .task_execution()
+                .heartbeat(task_execution_id, runner_id)
+                .await
+            {
+                warn!(task_id = %task_execution_id, error = %e, "fleet: claim heartbeat error");
+            }
+        }
+    }))
+}
+
+/// What a fleet executor did with one dispatch whose replica stopped
+/// ([`FleetExecutor::take_over_stale_dispatches`], CLOACINA-T-1084).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Takeover {
+    /// The packet is still open: this replica waits for the report.
+    Waiting,
+    /// The agent's report is stored: this replica takes it.
+    StoredReport,
+    /// No report comes (the packet is acked and no report is stored, or the
+    /// row is gone): the row goes back to the stale claim sweeper.
+    Lost,
+}
+
+impl Takeover {
+    fn as_str(self) -> &'static str {
+        match self {
+            Takeover::Waiting => "waiting",
+            Takeover::StoredReport => "stored_report",
+            Takeover::Lost => "lost",
+        }
+    }
+}
+
 /// CLOACI-T-0861 / I-0133 (D-2/D-5) — builds the grant-gated secret resolver a
 /// fleet dispatch uses to resolve + HPKE-wrap a task's secrets.
 ///
@@ -748,23 +823,13 @@ impl TaskExecutor for FleetExecutor {
         // Heartbeat the claim for the lifetime of the dispatch so the stale-claim
         // sweeper (60s) doesn't reclaim a task while the agent is still running it
         // (the result wait is the task's time limit plus RESULT_WAIT_GRACE).
+        // CLOACINA-T-1084: the heartbeat stops when this future is dropped.
         let heartbeat = if claimed {
-            let dal = self.dal.clone();
-            let runner_id = self.instance_id;
-            Some(tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(FLEET_CLAIM_HEARTBEAT_INTERVAL);
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    ticker.tick().await;
-                    if let Err(e) = dal
-                        .task_execution()
-                        .heartbeat(task_execution_id, runner_id)
-                        .await
-                    {
-                        warn!(task_id = %task_execution_id, error = %e, "fleet: claim heartbeat error");
-                    }
-                }
-            }))
+            Some(spawn_claim_heartbeat(
+                self.dal.clone(),
+                task_execution_id,
+                self.instance_id,
+            ))
         } else {
             None
         };
@@ -1311,17 +1376,53 @@ impl TaskExecutor for FleetExecutor {
                     (None, None)
                 }
             };
-            if let Err(e) = self
-                .dal
-                .task_execution()
-                .mark_started(event.task_execution_id)
-                .await
-            {
-                warn!(
-                    task_id = %event.task_execution_id,
-                    error = %e,
-                    "fleet: failed to stamp task started_at"
-                );
+            // CLOACINA-T-1084: the same write records the dispatch on the
+            // task row, so that another replica can take over this wait if
+            // this one stops. (The packet row is known here unless the agent
+            // already reported and ended the wait.) A dropped write leaves the
+            // dispatch with no record: try again on an error before giving up.
+            let mut tries = 0;
+            loop {
+                tries += 1;
+                let started = match self.coordinator.packet_row(event.task_execution_id) {
+                    Some(packet_row_id) => self
+                        .dal
+                        .task_execution()
+                        .mark_started_in_fleet_dispatch(
+                            event.task_execution_id,
+                            self.instance_id,
+                            &dispatch_id,
+                            packet_row_id,
+                        )
+                        .await
+                        .map(|_| ()),
+                    None => {
+                        self.dal
+                            .task_execution()
+                            .mark_started(event.task_execution_id)
+                            .await
+                    }
+                };
+                match started {
+                    Ok(()) => break,
+                    Err(e) if tries < 5 => {
+                        debug!(
+                            task_id = %event.task_execution_id,
+                            error = %e,
+                            tries,
+                            "fleet: could not stamp the start; trying again"
+                        );
+                        tokio::time::sleep(Duration::from_millis(100 * tries)).await;
+                    }
+                    Err(e) => {
+                        warn!(
+                            task_id = %event.task_execution_id,
+                            error = %e,
+                            "fleet: failed to stamp task started_at"
+                        );
+                        break;
+                    }
+                }
             }
             debug!(
                 task_id = %event.task_execution_id,
@@ -1385,142 +1486,18 @@ impl TaskExecutor for FleetExecutor {
                 }
             };
 
-            // ── 8. Map AgentOutcome → Result<Context, ExecutorError>.
-            // CLOACI-T-0780: a refusal is an expected fail-closed reschedule, not a
-            // failure — keep its reconcile log quiet (debug), unlike a real failure.
-            // CLOACINA-T-1012: `Shutdown` is the agent's "I am full or going
-            // away" refusal. The task did not run: wait for capacity, with no
-            // use of a retry attempt. CLOACINA-T-1043: the start was stamped
-            // in step 6, so the deferral undoes it.
-            if matches!(
-                result_req.outcome,
-                AgentOutcome::Refused {
-                    reason: cloacina::fleet::RefusalReason::Shutdown,
-                    ..
-                }
-            ) {
-                return Ok(self
-                    .defer_refused_for_capacity(&event, waiting_before)
-                    .await);
-            }
-            // CLOACINA-T-1064: `ArtifactFetchFailed` is "I could not fetch the
-            // package". The task did not run, and the cause can pass (a
-            // server that restarts, an artifact still on its way): the task
-            // waits and is dispatched again, with no use of a retry attempt.
-            // The wait has a limit per attempt, counted from the first such
-            // refusal, which the task row records. At or past the limit the
-            // refusal is a failed attempt, below, with an error that says so.
-            let mut fetch_gave_up_after = None;
-            if matches!(
-                result_req.outcome,
-                AgentOutcome::Refused {
-                    reason: cloacina::fleet::RefusalReason::ArtifactFetchFailed,
-                    ..
-                }
-            ) {
-                metrics::counter!("cloacina_fleet_artifact_fetch_refusals_total").increment(1);
-                let now = chrono::Utc::now();
-                let since = fetch_wait_before.map(|at| at.0).unwrap_or(now);
-                let waited = (now - since).to_std().unwrap_or_default();
-                if waited < self.artifact_fetch_wait {
-                    let delay = artifact_fetch_retry_delay(waited, self.artifact_fetch_wait);
-                    info!(
-                        task_id = %event.task_execution_id,
-                        agent_id = %agent_id,
-                        waited_s = waited.as_secs(),
-                        limit_s = self.artifact_fetch_wait.as_secs(),
-                        retry_in_ms = delay.as_millis() as u64,
-                        "fleet: the agent could not fetch the package artifact; the task \
-                         waits and keeps its attempt"
-                    );
-                    return Ok(self
-                        .defer_refused(
-                            &event,
-                            waiting_before,
-                            delay,
-                            Some(cloacina::database::universal_types::UniversalTimestamp(
-                                since,
-                            )),
-                            "the agent could not fetch the package artifact",
-                        )
-                        .await);
-                }
-                warn!(
-                    task_id = %event.task_execution_id,
-                    agent_id = %agent_id,
-                    waited_s = waited.as_secs(),
-                    limit_s = self.artifact_fetch_wait.as_secs(),
-                    "fleet: the package artifact could not be fetched within the wait; \
-                     the attempt fails"
-                );
-                fetch_gave_up_after = Some(waited);
-            }
-            let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
-            let outcome: Result<Context<serde_json::Value>, ExecutorError> =
-                match result_req.outcome {
-                    AgentOutcome::Success { context } => match value_to_context(context) {
-                        Ok(c) => Ok(c),
-                        Err(e) => Err(ExecutorError::TaskExecution(TaskError::ExecutionFailed {
-                            message: format!("invalid Success.context from agent: {}", e),
-                            task_id: event.task_name.clone(),
-                            timestamp: chrono::Utc::now(),
-                        })),
-                    },
-                    AgentOutcome::Failure {
-                        message,
-                        classification,
-                    } => Err(agent_failure_error(
-                        &event.task_name,
-                        &message,
-                        classification,
-                    )),
-                    AgentOutcome::Refused { reason, message } => {
-                        // The other refusals (target-triple mismatch, runtime
-                        // load failure) and an artifact fetch refusal past its
-                        // wait. Map onto TaskExecution; the retry policy
-                        // decides whether to retry.
-                        let message = match fetch_gave_up_after {
-                            Some(waited) => artifact_fetch_gave_up_message(
-                                &message,
-                                waited,
-                                self.artifact_fetch_wait,
-                            ),
-                            None => format!("agent refused ({:?}): {}", reason, message),
-                        };
-                        Err(ExecutorError::TaskExecution(TaskError::ExecutionFailed {
-                            message,
-                            task_id: event.task_name.clone(),
-                            timestamp: chrono::Utc::now(),
-                        }))
-                    }
-                };
-
-            // ── 9. Reconcile through the shared handler (T-0630). This is the
-            //       whole point of the fleet design: agent and thread paths
-            //       converge here so state writes / retry / context-persist are
-            //       identical by construction.
-            if was_refused {
-                tracing::debug!(
-                    task_id = %event.task_execution_id,
-                    agent_id = %agent_id,
-                    "fleet: agent refused; rescheduling (fail-closed guard)"
-                );
-            } else {
-                info!(
-                    task_id = %event.task_execution_id,
-                    agent_id = %agent_id,
-                    ok = outcome.is_ok(),
-                    "fleet: agent reported; reconciling via shared TaskResultHandler"
-                );
-            }
+            // ── 8 and 9. Map the report and reconcile it (CLOACINA-T-1084:
+            //       shared with a wait taken over from a stopped replica).
             Ok(self
-                .result_handler
-                .handle_outcome(
+                .reconcile_report(
                     &event,
                     &claimed_task,
-                    outcome,
                     &retry_policy,
-                    start.elapsed(),
+                    start,
+                    &agent_id,
+                    waiting_before,
+                    fetch_wait_before,
+                    result_req,
                 )
                 .await)
         }
@@ -1569,6 +1546,452 @@ impl TaskExecutor for FleetExecutor {
 
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+impl FleetExecutor {
+    /// Take over the fleet dispatches of this executor's schema whose server
+    /// replica stopped (CLOACINA-T-1084).
+    ///
+    /// A dispatch whose claim heartbeat is older than
+    /// [`TAKEOVER_STALE_AFTER`] lost its wait: the replica that held it
+    /// stopped. Its agent can still run the task. For each one:
+    ///
+    /// - the packet's outbox row is still open, or the agent's report of this
+    ///   dispatch is stored: this executor takes the claim (a compare and
+    ///   set: of two replicas one wins) and waits for the report in the
+    ///   dispatch's place, up to the start time plus the task's time limit
+    ///   plus the grace. The report then has the same effect as on the first
+    ///   wait. [`Takeover::Waiting`] or [`Takeover::StoredReport`].
+    /// - else no report comes: the row goes back to the stale claim sweeper,
+    ///   which makes the task `Ready` with its recovery count. The task runs
+    ///   again, once. [`Takeover::Lost`].
+    ///
+    /// The outbox row is read before the stored reports: an agent stores its
+    /// report before it acks, so an acked row with no stored report has no
+    /// report to come. Returns what was done, per task.
+    pub async fn take_over_stale_dispatches(self: &Arc<Self>) -> Vec<(UniversalUuid, Takeover)> {
+        let stale = match self
+            .dal
+            .task_execution()
+            .find_stale_fleet_dispatches(TAKEOVER_STALE_AFTER)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(error = %e, "fleet: could not read the dispatches whose replica stopped");
+                return Vec::new();
+            }
+        };
+        let mut done = Vec::new();
+        for task in stale {
+            let task_id = task.id;
+            match self.take_over(task).await {
+                Ok(Some(how)) => {
+                    metrics::counter!(
+                        "cloacina_fleet_dispatches_taken_over_total",
+                        "outcome" => how.as_str()
+                    )
+                    .increment(1);
+                    done.push((task_id, how));
+                }
+                Ok(None) => {}
+                Err(e) => warn!(
+                    task_id = %task_id,
+                    error = %e,
+                    "fleet: could not take over a dispatch whose replica stopped; the next \
+                     pass tries again"
+                ),
+            }
+        }
+        done
+    }
+
+    /// Take over one stale dispatch. `Ok(None)`: another replica was first,
+    /// or the runner came back.
+    async fn take_over(
+        self: &Arc<Self>,
+        task: cloacina::models::task_execution::TaskExecution,
+    ) -> Result<Option<Takeover>, String> {
+        let (Some(old_runner), Some(dispatch_id)) =
+            (task.claimed_by, task.fleet_dispatch_id.clone())
+        else {
+            return Ok(None);
+        };
+        let namespace = cloacina::parse_namespace(&task.task_name).ok();
+        let how = match (&namespace, &task.fleet_agent_id) {
+            (Some(_), Some(_)) => self.judge_stale_dispatch(&task, &dispatch_id).await?,
+            // Not a dispatch this executor can wait for.
+            _ => Takeover::Lost,
+        };
+        let tasks = self.dal.task_execution();
+        if how == Takeover::Lost {
+            let handed = tasks
+                .hand_back_lost_fleet_dispatch(task.id, old_runner, TAKEOVER_STALE_AFTER)
+                .await
+                .map_err(|e| format!("give the dispatch back to the sweeper: {e}"))?;
+            if handed {
+                info!(
+                    task_id = %task.id,
+                    dispatch_id = %dispatch_id,
+                    "fleet: the replica of this dispatch stopped and no report comes; the \
+                     stale claim sweeper sends the task again"
+                );
+                return Ok(Some(how));
+            }
+            return Ok(None);
+        }
+        let (Some(namespace), Some(agent_id)) = (namespace, task.fleet_agent_id.clone()) else {
+            return Ok(None);
+        };
+        let taken = tasks
+            .take_over_stale_claim(task.id, old_runner, self.instance_id, TAKEOVER_STALE_AFTER)
+            .await
+            .map_err(|e| format!("take the claim: {e}"))?;
+        if !taken {
+            return Ok(None);
+        }
+        info!(
+            task_id = %task.id,
+            agent_id = %agent_id,
+            dispatch_id = %dispatch_id,
+            stored_report = how == Takeover::StoredReport,
+            "fleet: took over the wait of a dispatch whose replica stopped"
+        );
+        // The wait exists before this returns, so a report that arrives from
+        // now on reaches it.
+        let rx = self.coordinator.register_dispatch(
+            task.id,
+            cloacina::security::ownership::DispatchTarget {
+                tenant_id: Some(namespace.tenant_id.clone()),
+                agent_id: agent_id.clone(),
+                dispatch_id: Some(dispatch_id),
+            },
+        );
+        if let Some(row_id) = task.fleet_packet_row_id {
+            self.coordinator.packet_enqueued(task.id, row_id);
+        }
+        let me = self.clone();
+        tokio::spawn(async move { me.finish_taken_over(task, namespace, agent_id, rx).await });
+        Ok(Some(how))
+    }
+
+    /// Whether a report can still come for a stale dispatch.
+    async fn judge_stale_dispatch(
+        &self,
+        task: &cloacina::models::task_execution::TaskExecution,
+        dispatch_id: &str,
+    ) -> Result<Takeover, String> {
+        if let Some(row_id) = task.fleet_packet_row_id {
+            let row = self
+                .outbox_dal
+                .delivery_outbox()
+                .get(row_id)
+                .await
+                .map_err(|e| format!("read the packet row: {e}"))?;
+            let acked = cloacina::models::delivery_outbox::DeliveryState::Acked.as_str();
+            if row.is_some_and(|row| row.delivery_state != acked) {
+                return Ok(Takeover::Waiting);
+            }
+        }
+        let stored = self
+            .outbox_dal
+            .fleet_result_inbox()
+            .list_for(&[task.id])
+            .await
+            .map_err(|e| format!("read the stored reports: {e}"))?;
+        if stored
+            .iter()
+            .any(|row| row.dispatch_id.as_deref() == Some(dispatch_id))
+        {
+            Ok(Takeover::StoredReport)
+        } else {
+            Ok(Takeover::Lost)
+        }
+    }
+
+    /// The wait of a dispatch taken over from a replica that stopped, under
+    /// this executor's claim: the same end as the wait of `execute` (steps 7
+    /// to 9), and the claim is released after.
+    async fn finish_taken_over(
+        self: Arc<Self>,
+        task: cloacina::models::task_execution::TaskExecution,
+        namespace: TaskNamespace,
+        agent_id: String,
+        rx: tokio::sync::oneshot::Receiver<AgentResultRequest>,
+    ) {
+        let task_id = task.id;
+        let heartbeat = spawn_claim_heartbeat(self.dal.clone(), task_id, self.instance_id);
+        let event = TaskReadyEvent::new(
+            task_id,
+            task.workflow_execution_id,
+            task.task_name.clone(),
+            task.attempt,
+        );
+        let claimed_task = ClaimedTask {
+            task_execution_id: task_id,
+            workflow_execution_id: task.workflow_execution_id,
+            task_name: task.task_name.clone(),
+            attempt: task.attempt,
+        };
+        let loaded_task = self.runtime.get_task(&namespace);
+        let retry_policy = loaded_task
+            .as_ref()
+            .map(|t| t.retry_policy())
+            .unwrap_or_default();
+        let time_limit = self
+            .time_limits
+            .limit_for(loaded_task.as_ref().and_then(|t| t.timeout()));
+
+        // A report stored before this wait existed.
+        if let Err(e) = self.coordinator.collect_stored(&self.outbox_dal).await {
+            debug!(
+                task_id = %task_id,
+                error = %e,
+                "fleet: could not read the stored reports; the inbox loop reads them again"
+            );
+        }
+
+        // The wait ends when the first wait would have: the start plus the
+        // task's time limit plus the grace.
+        let elapsed = task
+            .started_at
+            .map(|at| (chrono::Utc::now() - at.0).to_std().unwrap_or_default())
+            .unwrap_or_default();
+        let start = Instant::now()
+            .checked_sub(elapsed)
+            .unwrap_or_else(Instant::now);
+        let left = time_limit.result_wait().saturating_sub(elapsed);
+        match tokio::time::timeout(left, rx).await {
+            Ok(Ok(report)) => {
+                self.reconcile_report(
+                    &event,
+                    &claimed_task,
+                    &retry_policy,
+                    start,
+                    &agent_id,
+                    None,
+                    task.artifact_fetch_wait_since,
+                    report,
+                )
+                .await;
+            }
+            Ok(Err(_)) => {
+                self.reconcile_error(
+                    &event,
+                    &claimed_task,
+                    &retry_policy,
+                    start.elapsed(),
+                    "fleet result rendezvous canceled".to_string(),
+                )
+                .await;
+            }
+            Err(_) => {
+                self.coordinator.cancel(task_id);
+                warn!(
+                    task_id = %task_id,
+                    agent_id = %agent_id,
+                    "fleet: agent result wait exceeded server-side timeout (taken over)"
+                );
+                self.result_handler
+                    .handle_outcome(
+                        &event,
+                        &claimed_task,
+                        Err(ExecutorError::TaskTimeout),
+                        &retry_policy,
+                        start.elapsed(),
+                    )
+                    .await;
+            }
+        }
+        drop(heartbeat);
+        if let Err(e) = self
+            .dal
+            .task_execution()
+            .release_runner_claim(task_id)
+            .await
+        {
+            warn!(task_id = %task_id, error = %e, "fleet: release claim failed");
+        }
+    }
+
+    /// Run [`take_over_stale_dispatches`](Self::take_over_stale_dispatches)
+    /// at start and every [`TAKEOVER_INTERVAL`] (CLOACINA-T-1084), until
+    /// `shutdown` flips to `true` or the executor is dropped (its runner
+    /// ended).
+    pub fn spawn_takeover_loop(
+        self: &Arc<Self>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> tokio::task::JoinHandle<()> {
+        let executor = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(TAKEOVER_INTERVAL);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = tick.tick() => {}
+                    res = shutdown.changed() => {
+                        if res.is_err() || *shutdown.borrow() {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+                let Some(executor) = executor.upgrade() else {
+                    break;
+                };
+                executor.take_over_stale_dispatches().await;
+            }
+            debug!("fleet: takeover loop stopped");
+        })
+    }
+
+    /// Map an agent's report of a dispatch to the task's outcome, and write
+    /// it through the shared result handler (steps 8 and 9 of `execute`).
+    ///
+    /// Used by the wait of `execute` and by a wait taken over from a replica
+    /// that stopped ([`take_over_stale_dispatches`](Self::take_over_stale_dispatches),
+    /// CLOACINA-T-1084), so a report has the same effect on either.
+    /// `waiting_before` and `fetch_wait_before` are what the task row had
+    /// before the start (for a refusal that puts the task back).
+    #[allow(clippy::too_many_arguments)]
+    async fn reconcile_report(
+        &self,
+        event: &TaskReadyEvent,
+        claimed_task: &ClaimedTask,
+        retry_policy: &RetryPolicy,
+        start: Instant,
+        agent_id: &str,
+        waiting_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
+        fetch_wait_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
+        result_req: AgentResultRequest,
+    ) -> ExecutionResult {
+        // ── 8. Map AgentOutcome → Result<Context, ExecutorError>.
+        // CLOACI-T-0780: a refusal is an expected fail-closed reschedule, not a
+        // failure — keep its reconcile log quiet (debug), unlike a real failure.
+        // CLOACINA-T-1012: `Shutdown` is the agent's "I am full or going
+        // away" refusal. The task did not run: wait for capacity, with no
+        // use of a retry attempt. CLOACINA-T-1043: the start was stamped
+        // in step 6, so the deferral undoes it.
+        if matches!(
+            result_req.outcome,
+            AgentOutcome::Refused {
+                reason: cloacina::fleet::RefusalReason::Shutdown,
+                ..
+            }
+        ) {
+            return self.defer_refused_for_capacity(event, waiting_before).await;
+        }
+        // CLOACINA-T-1064: `ArtifactFetchFailed` is "I could not fetch the
+        // package". The task did not run, and the cause can pass (a
+        // server that restarts, an artifact still on its way): the task
+        // waits and is dispatched again, with no use of a retry attempt.
+        // The wait has a limit per attempt, counted from the first such
+        // refusal, which the task row records. At or past the limit the
+        // refusal is a failed attempt, below, with an error that says so.
+        let mut fetch_gave_up_after = None;
+        if matches!(
+            result_req.outcome,
+            AgentOutcome::Refused {
+                reason: cloacina::fleet::RefusalReason::ArtifactFetchFailed,
+                ..
+            }
+        ) {
+            metrics::counter!("cloacina_fleet_artifact_fetch_refusals_total").increment(1);
+            let now = chrono::Utc::now();
+            let since = fetch_wait_before.map(|at| at.0).unwrap_or(now);
+            let waited = (now - since).to_std().unwrap_or_default();
+            if waited < self.artifact_fetch_wait {
+                let delay = artifact_fetch_retry_delay(waited, self.artifact_fetch_wait);
+                info!(
+                    task_id = %event.task_execution_id,
+                    agent_id = %agent_id,
+                    waited_s = waited.as_secs(),
+                    limit_s = self.artifact_fetch_wait.as_secs(),
+                    retry_in_ms = delay.as_millis() as u64,
+                    "fleet: the agent could not fetch the package artifact; the task \
+                     waits and keeps its attempt"
+                );
+                return self
+                    .defer_refused(
+                        event,
+                        waiting_before,
+                        delay,
+                        Some(cloacina::database::universal_types::UniversalTimestamp(
+                            since,
+                        )),
+                        "the agent could not fetch the package artifact",
+                    )
+                    .await;
+            }
+            warn!(
+                task_id = %event.task_execution_id,
+                agent_id = %agent_id,
+                waited_s = waited.as_secs(),
+                limit_s = self.artifact_fetch_wait.as_secs(),
+                "fleet: the package artifact could not be fetched within the wait; \
+                 the attempt fails"
+            );
+            fetch_gave_up_after = Some(waited);
+        }
+        let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
+        let outcome: Result<Context<serde_json::Value>, ExecutorError> = match result_req.outcome {
+            AgentOutcome::Success { context } => match value_to_context(context) {
+                Ok(c) => Ok(c),
+                Err(e) => Err(ExecutorError::TaskExecution(TaskError::ExecutionFailed {
+                    message: format!("invalid Success.context from agent: {}", e),
+                    task_id: event.task_name.clone(),
+                    timestamp: chrono::Utc::now(),
+                })),
+            },
+            AgentOutcome::Failure {
+                message,
+                classification,
+            } => Err(agent_failure_error(
+                &event.task_name,
+                &message,
+                classification,
+            )),
+            AgentOutcome::Refused { reason, message } => {
+                // The other refusals (target-triple mismatch, runtime
+                // load failure) and an artifact fetch refusal past its
+                // wait. Map onto TaskExecution; the retry policy
+                // decides whether to retry.
+                let message = match fetch_gave_up_after {
+                    Some(waited) => {
+                        artifact_fetch_gave_up_message(&message, waited, self.artifact_fetch_wait)
+                    }
+                    None => format!("agent refused ({:?}): {}", reason, message),
+                };
+                Err(ExecutorError::TaskExecution(TaskError::ExecutionFailed {
+                    message,
+                    task_id: event.task_name.clone(),
+                    timestamp: chrono::Utc::now(),
+                }))
+            }
+        };
+
+        // ── 9. Reconcile through the shared handler (T-0630). This is the
+        //       whole point of the fleet design: agent and thread paths
+        //       converge here so state writes / retry / context-persist are
+        //       identical by construction.
+        if was_refused {
+            tracing::debug!(
+                task_id = %event.task_execution_id,
+                agent_id = %agent_id,
+                "fleet: agent refused; rescheduling (fail-closed guard)"
+            );
+        } else {
+            info!(
+                task_id = %event.task_execution_id,
+                agent_id = %agent_id,
+                ok = outcome.is_ok(),
+                "fleet: agent reported; reconciling via shared TaskResultHandler"
+            );
+        }
+        self.result_handler
+            .handle_outcome(event, claimed_task, outcome, retry_policy, start.elapsed())
+            .await
     }
 }
 
@@ -2002,6 +2425,41 @@ mod tests {
             dal: DAL,
             coordinator: Arc<FleetCoordinator>,
             executor: Arc<FleetExecutor>,
+            /// CLOACINA-T-1084: what another replica on the same database
+            /// needs ([`another_replica`]).
+            db: Database,
+            runtime: Arc<cloacina::Runtime>,
+        }
+
+        /// CLOACINA-T-1084: a second server replica over the database of
+        /// `stack`: its own coordinator and executor (its own runner id), the
+        /// same roster and the same loaded task.
+        fn another_replica(stack: &Stack) -> Stack {
+            let coordinator = Arc::new(FleetCoordinator::new());
+            let executor = Arc::new(FleetExecutor::new(
+                stack.dal.clone(),
+                stack.dal.clone(),
+                Arc::new(AgentRegistry::new(
+                    stack.db.clone(),
+                    Duration::from_secs(60),
+                )),
+                coordinator.clone(),
+                cloacina::delivery::WakeHandle::default(),
+                TaskResultHandler::new(
+                    stack.dal.clone(),
+                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                    None,
+                ),
+                stack.runtime.clone(),
+            ));
+            Stack {
+                dal: stack.dal.clone(),
+                coordinator,
+                executor,
+                db: stack.db.clone(),
+                runtime: stack.runtime.clone(),
+            }
         }
 
         /// A server with one live agent of capacity 1 in tenant `public`, and
@@ -2063,7 +2521,7 @@ mod tests {
                 });
             assert_eq!(built.unwrap(), 1);
 
-            let registry = Arc::new(AgentRegistry::new(db, Duration::from_secs(60)));
+            let registry = Arc::new(AgentRegistry::new(db.clone(), Duration::from_secs(60)));
             registry
                 .register(
                     FleetAgentRegistration {
@@ -2107,7 +2565,7 @@ mod tests {
                         Arc::new(std::sync::atomic::AtomicU64::new(0)),
                         None,
                     ),
-                    runtime,
+                    runtime.clone(),
                 )
                 .with_artifact_fetch_wait(fetch_wait),
             );
@@ -2115,6 +2573,8 @@ mod tests {
                 dal,
                 coordinator,
                 executor,
+                db,
+                runtime,
             }
         }
 
@@ -2623,6 +3083,414 @@ mod tests {
                     .last_error
                     .is_some_and(|e| e.contains("agent refused (RuntimeLoadFailed)"))
             );
+        }
+
+        // ── CLOACINA-T-1084: the replica that sent a task stops ─────────────
+        //
+        // Two replicas are two stacks over one database. Replica A dispatches
+        // and stops: its `execute` future is dropped and its claim heartbeat
+        // is made two minutes old. Replica B runs the stale claim sweeper and
+        // the scheduler, as every replica does, and the agent's report of
+        // the first dispatch reaches B.
+        mod takeover {
+            use super::*;
+            use cloacina::execution_planner::stale_claim_sweeper::{
+                StaleClaimSweeper, StaleClaimSweeperConfig,
+            };
+
+            /// The open work packets of the task, oldest first.
+            async fn packets(stack: &Stack, event: &TaskReadyEvent) -> Vec<(i64, WorkPacket)> {
+                let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT);
+                let mut found = Vec::new();
+                for push in stack
+                    .dal
+                    .delivery_outbox()
+                    .list_open_for_recipient(&recipient, 100)
+                    .await
+                    .unwrap_or_default()
+                {
+                    let packet: WorkPacket = serde_json::from_slice(&push.payload).unwrap();
+                    if packet.task_execution_id == event.task_execution_id.0.to_string() {
+                        found.push((push.id, packet));
+                    }
+                }
+                found.sort_by_key(|(id, _)| *id);
+                found
+            }
+
+            /// Replica A dispatches the task; the agent has the packet and the
+            /// start is stamped. Then A stops. Returns the packet's row and
+            /// the packet.
+            async fn dispatched_then_replica_stops(
+                a: &Stack,
+                event: &TaskReadyEvent,
+            ) -> (i64, WorkPacket) {
+                let executor = a.executor.clone();
+                let dispatched = event.clone();
+                let run = tokio::spawn(async move { executor.execute(dispatched).await });
+                let mut sent = None;
+                for _ in 0..400 {
+                    if let Some(first) = packets(a, event).await.into_iter().next()
+                        && row(&a.dal, event).await.started_at.is_some()
+                    {
+                        sent = Some(first);
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                let sent = sent.expect("replica A sends the packet and stamps the start");
+                // Replica A stops: its wait and its claim heartbeat end.
+                run.abort();
+                let _ = run.await;
+                age_claim(&a.dal, event, 120).await;
+                sent
+            }
+
+            /// Make the claim's heartbeat `seconds` old.
+            async fn age_claim(dal: &DAL, event: &TaskReadyEvent, seconds: i64) {
+                use cloacina::database::schema::unified::task_executions;
+                use diesel::prelude::*;
+
+                let task_id = event.task_execution_id;
+                let at =
+                    UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(seconds));
+                let aged: Result<usize, diesel::result::Error> =
+                    cloacina::interact_on_backend!(dal, |conn| {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set(task_executions::heartbeat_at.eq(Some(at)))
+                            .execute(conn)
+                    });
+                assert_eq!(aged.unwrap(), 1);
+            }
+
+            /// One pass of the stale claim sweeper of a runner whose default
+            /// executor is the fleet, past its start grace.
+            async fn sweep(dal: &DAL) {
+                let (_tx, rx) = tokio::sync::watch::channel(false);
+                let sweeper = StaleClaimSweeper::new(
+                    Arc::new(dal.clone()),
+                    StaleClaimSweeperConfig {
+                        stale_threshold: Duration::from_millis(50),
+                        leave_fleet_dispatches: true,
+                        ..StaleClaimSweeperConfig::default()
+                    },
+                    rx,
+                );
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                sweeper.sweep().await;
+            }
+
+            /// One scheduler tick of `replica`: it dispatches the task if the
+            /// task is in its read of ready tasks.
+            async fn scheduler_tick(replica: &Stack, event: &TaskReadyEvent) {
+                let ready = replica
+                    .dal
+                    .task_execution()
+                    .get_ready_for_retry()
+                    .await
+                    .unwrap();
+                if ready.iter().any(|task| task.id == event.task_execution_id) {
+                    let executor = replica.executor.clone();
+                    let dispatched = event.clone();
+                    tokio::spawn(async move { executor.execute(dispatched).await });
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                }
+            }
+
+            /// The agent's report of `packet`, as the result route hands it in.
+            fn report(
+                packet: &WorkPacket,
+                outcome: AgentOutcome,
+            ) -> crate::fleet_coordinator::CheckedReport {
+                crate::fleet_coordinator::CheckedReport {
+                    agent_tenant: Some("public".to_string()),
+                    report: AgentResultRequest {
+                        protocol_version: AGENT_PROTOCOL_VERSION,
+                        agent_id: AGENT.to_string(),
+                        task_execution_id: packet.task_execution_id.clone(),
+                        attempt: packet.attempt,
+                        dispatch_id: packet.dispatch_id.clone(),
+                        duration_ms: 0,
+                        outcome,
+                    },
+                }
+            }
+
+            fn done() -> AgentOutcome {
+                AgentOutcome::Success {
+                    context: serde_json::json!({"done": true}),
+                }
+            }
+
+            /// Wait until the task row has `status` and its claim is released.
+            async fn until_status(
+                dal: &DAL,
+                event: &TaskReadyEvent,
+                status: &str,
+            ) -> TaskExecution {
+                for _ in 0..500 {
+                    let task = row(dal, event).await;
+                    if task.status == status && task.claimed_by.is_none() {
+                        return task;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                row(dal, event).await
+            }
+
+            #[tokio::test]
+            async fn a_task_whose_replica_stopped_is_sent_once_and_finishes_once() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+
+                let (_, first) = dispatched_then_replica_stops(&a, &event).await;
+
+                // What every replica runs.
+                sweep(&b.dal).await;
+                assert_eq!(
+                    b.executor.take_over_stale_dispatches().await,
+                    vec![(event.task_execution_id, Takeover::Waiting)]
+                );
+                scheduler_tick(&b, &event).await;
+
+                let sent = packets(&b, &event).await;
+                assert_eq!(
+                    sent.len(),
+                    1,
+                    "the task was sent again while its agent still runs it: dispatch ids {:?}",
+                    sent.iter()
+                        .map(|(_, p)| p.dispatch_id.clone())
+                        .collect::<Vec<_>>()
+                );
+
+                // The agent finishes the first dispatch and reports to B.
+                b.coordinator
+                    .accept(&b.dal, event.task_execution_id, report(&first, done()))
+                    .await
+                    .unwrap();
+                b.coordinator.collect_stored(&b.dal).await.unwrap();
+
+                let after = until_status(&b.dal, &event, "Completed").await;
+                assert_eq!(
+                    after.status, "Completed",
+                    "the report of the first dispatch resolves the task"
+                );
+                assert_eq!(after.attempt, 1);
+                assert_eq!(after.recovery_attempts, 0, "not recovered: taken over");
+                assert_eq!(after.claimed_by, None);
+                assert_eq!(after.fleet_dispatch_id, None);
+                assert_eq!(packets(&b, &event).await.len(), 1);
+            }
+
+            #[tokio::test]
+            async fn the_sweeper_of_a_fleet_runner_leaves_the_dispatch_in_flight() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let event = waiting_task(&a.dal).await;
+                let (row_id, first) = dispatched_then_replica_stops(&a, &event).await;
+
+                let before = row(&a.dal, &event).await;
+                assert_eq!(before.fleet_dispatch_id, first.dispatch_id);
+                assert_eq!(before.fleet_packet_row_id, Some(row_id));
+
+                sweep(&a.dal).await;
+                let after = row(&a.dal, &event).await;
+                assert_eq!(after.status, "Running");
+                assert_eq!(after.claimed_by, before.claimed_by);
+                assert_eq!(after.recovery_attempts, 0);
+            }
+
+            /// A runner whose default executor is not the fleet has no
+            /// takeover: its sweeper recovers the row as before.
+            #[tokio::test]
+            async fn the_sweeper_of_another_runner_still_recovers_a_stale_fleet_dispatch() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let event = waiting_task(&a.dal).await;
+                dispatched_then_replica_stops(&a, &event).await;
+
+                let (_tx, rx) = tokio::sync::watch::channel(false);
+                let sweeper = StaleClaimSweeper::new(
+                    Arc::new(a.dal.clone()),
+                    StaleClaimSweeperConfig {
+                        stale_threshold: Duration::from_millis(50),
+                        ..StaleClaimSweeperConfig::default()
+                    },
+                    rx,
+                );
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                sweeper.sweep().await;
+
+                let after = row(&a.dal, &event).await;
+                assert_eq!(after.status, "Ready");
+                assert_eq!(after.recovery_attempts, 1);
+                assert_eq!(after.fleet_dispatch_id, None);
+            }
+
+            /// The agent finished while no replica waited: its report reached
+            /// a third replica, which stored it, and the agent acked the
+            /// packet. The replica that takes over takes the report.
+            #[tokio::test]
+            async fn a_report_stored_while_nobody_waited_resolves_the_task_on_takeover() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let c = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+                let (row_id, first) = dispatched_then_replica_stops(&a, &event).await;
+
+                assert_eq!(
+                    c.coordinator
+                        .accept(&c.dal, event.task_execution_id, report(&first, done()))
+                        .await,
+                    Ok(crate::fleet_coordinator::Accepted::Stored)
+                );
+                assert!(
+                    a.dal
+                        .delivery_outbox()
+                        .mark_acked_for(
+                            row_id,
+                            &format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT),
+                            Some("public")
+                        )
+                        .await
+                        .unwrap()
+                );
+
+                sweep(&b.dal).await;
+                assert_eq!(
+                    b.executor.take_over_stale_dispatches().await,
+                    vec![(event.task_execution_id, Takeover::StoredReport)]
+                );
+                scheduler_tick(&b, &event).await;
+
+                let after = until_status(&b.dal, &event, "Completed").await;
+                assert_eq!(after.status, "Completed");
+                assert_eq!(after.attempt, 1);
+                assert_eq!(after.recovery_attempts, 0);
+                assert!(packets(&b, &event).await.is_empty(), "no second packet");
+            }
+
+            /// The agent died during the restart and the dead-agent reclaim
+            /// moved its packet to another agent. The wait taken over takes
+            /// the report of that agent.
+            #[tokio::test]
+            async fn a_packet_moved_to_another_agent_is_reported_by_it_and_finishes_once() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+                let (_, first) = dispatched_then_replica_stops(&a, &event).await;
+                let moved = a
+                    .dal
+                    .delivery_outbox()
+                    .reassign_open_rows(
+                        &format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT),
+                        &format!("{}agent-2", AGENT_RECIPIENT_PREFIX),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(moved, 1);
+
+                sweep(&b.dal).await;
+                assert_eq!(
+                    b.executor.take_over_stale_dispatches().await,
+                    vec![(event.task_execution_id, Takeover::Waiting)]
+                );
+                scheduler_tick(&b, &event).await;
+
+                let mut from_agent_2 = report(&first, done());
+                from_agent_2.report.agent_id = "agent-2".to_string();
+                assert_eq!(
+                    b.coordinator
+                        .accept(&b.dal, event.task_execution_id, from_agent_2)
+                        .await,
+                    Ok(crate::fleet_coordinator::Accepted::Local)
+                );
+                let after = until_status(&b.dal, &event, "Completed").await;
+                assert_eq!(after.status, "Completed");
+                assert_eq!(after.attempt, 1);
+            }
+
+            /// No report comes: the packet is acked and nothing is stored.
+            /// The row goes back to the sweeper and the task is sent again,
+            /// once.
+            #[tokio::test]
+            async fn a_lost_dispatch_is_sent_again_once() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+                let (row_id, _) = dispatched_then_replica_stops(&a, &event).await;
+                assert!(
+                    a.dal
+                        .delivery_outbox()
+                        .mark_acked_for(
+                            row_id,
+                            &format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT),
+                            Some("public")
+                        )
+                        .await
+                        .unwrap()
+                );
+
+                assert_eq!(
+                    b.executor.take_over_stale_dispatches().await,
+                    vec![(event.task_execution_id, Takeover::Lost)]
+                );
+                sweep(&b.dal).await;
+                let swept = row(&b.dal, &event).await;
+                assert_eq!(swept.status, "Ready");
+                assert_eq!(swept.recovery_attempts, 1);
+
+                scheduler_tick(&b, &event).await;
+                let sent = packets(&b, &event).await;
+                assert_eq!(sent.len(), 1, "one new dispatch");
+                assert_ne!(sent[0].0, row_id);
+                // A second pass finds nothing to take over: the new dispatch
+                // is live.
+                assert!(b.executor.take_over_stale_dispatches().await.is_empty());
+
+                let (_, second) = &sent[0];
+                b.coordinator
+                    .accept(&b.dal, event.task_execution_id, report(second, done()))
+                    .await
+                    .unwrap();
+                let after = until_status(&b.dal, &event, "Completed").await;
+                assert_eq!(after.status, "Completed");
+            }
+
+            #[tokio::test]
+            async fn of_two_replicas_one_takes_over_the_dispatch() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let c = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+                let (_, first) = dispatched_then_replica_stops(&a, &event).await;
+
+                let (by_b, by_c) = tokio::join!(
+                    b.executor.take_over_stale_dispatches(),
+                    c.executor.take_over_stale_dispatches()
+                );
+                assert_eq!(by_b.len() + by_c.len(), 1, "{by_b:?} {by_c:?}");
+                let (winner, other) = if by_b.is_empty() { (&c, &b) } else { (&b, &c) };
+                assert_eq!(winner.coordinator.pending_count(), 1);
+                assert_eq!(other.coordinator.pending_count(), 0);
+
+                // The report reaches the other replica: stored, then taken by
+                // the winner's wait.
+                assert_eq!(
+                    other
+                        .coordinator
+                        .accept(&other.dal, event.task_execution_id, report(&first, done()))
+                        .await,
+                    Ok(crate::fleet_coordinator::Accepted::Stored)
+                );
+                winner
+                    .coordinator
+                    .collect_stored(&winner.dal)
+                    .await
+                    .unwrap();
+                let after = until_status(&a.dal, &event, "Completed").await;
+                assert_eq!(after.status, "Completed");
+                assert_eq!(packets(&a, &event).await.len(), 1);
+            }
         }
     }
 

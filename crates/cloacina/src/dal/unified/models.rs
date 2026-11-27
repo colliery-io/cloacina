@@ -122,6 +122,8 @@ pub struct UnifiedTaskExecution {
     pub cpu_request_millis: Option<i64>,
     pub memory_request_bytes: Option<i64>,
     pub fleet_agent_id: Option<String>,
+    pub fleet_dispatch_id: Option<String>,
+    pub fleet_packet_row_id: Option<i64>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -947,6 +949,8 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             cpu_request_millis: u.cpu_request_millis,
             memory_request_bytes: u.memory_request_bytes,
             fleet_agent_id: u.fleet_agent_id,
+            fleet_dispatch_id: u.fleet_dispatch_id,
+            fleet_packet_row_id: u.fleet_packet_row_id,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

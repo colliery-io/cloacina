@@ -207,6 +207,14 @@ impl FleetCoordinator {
         }
     }
 
+    /// The outbox row of the packet the wait for `id` is for, once
+    /// [`packet_enqueued`](Self::packet_enqueued) named it. `None` with no
+    /// wait for `id` on this replica.
+    pub fn packet_row(&self, id: UniversalUuid) -> Option<i64> {
+        let g = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        g.get(&id).and_then(|p| p.packet_row)
+    }
+
     /// Whether a wait on this replica takes `report`. Reads the outbox row
     /// of the packet when the report comes from another agent than the one
     /// the packet was enqueued for. `Err`: that read failed, so there is no
