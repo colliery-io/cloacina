@@ -7619,15 +7619,15 @@ mod tests {
     #[test]
     fn tenant_runner_config_carries_the_signature_requirement() {
         let org = uuid::Uuid::new_v4();
-        let on = runner_config_for_tenant_cache(None, "default", true, Some(org), Default::default());
+        let on =
+            runner_config_for_tenant_cache(None, "default", true, Some(org), Default::default());
         assert!(on.require_signatures());
         assert_eq!(
             on.verification_org_id(),
             Some(cloacina::UniversalUuid::from(org))
         );
 
-        let off =
-            runner_config_for_tenant_cache(None, "default", false, None, Default::default());
+        let off = runner_config_for_tenant_cache(None, "default", false, None, Default::default());
         assert!(!off.require_signatures());
         assert_eq!(off.verification_org_id(), None);
     }

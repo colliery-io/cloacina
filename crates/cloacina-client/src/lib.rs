@@ -60,8 +60,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AddTrustedKeyRequest, AgentInfo, AgentPoolInfo, AgentPoolSettings, BackfillDetail,
-    BackfillSummary, CompilerStatus, CreateBackfillRequest, CreateInstanceRequest,
+    AccumulatorStatus, AddTrustedKeyRequest, AgentInfo, AgentPoolInfo, AgentPoolSettings,
+    BackfillDetail, BackfillSummary, CompilerStatus, CreateBackfillRequest, CreateInstanceRequest,
     CreateKeyRequest, CreateSecretRequest, CreateTenantRequest, DeclaredSurface, ExecuteRequest,
     ExecuteResponse, ExecutionDetail, ExecutionEventsResponse, ExecutionSummary,
     ExecutionTasksResponse, FireReactorRequest, FireReactorResponse, FireTriggerRequest,
@@ -70,9 +70,10 @@ use cloacina_api_types::{
     ReactorFireTimeseries, ReactorStatus, RetryBackfillRequest, RotateSecretRequest,
     SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse, TenantListResponse,
     TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerPauseResponse,
-    TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary,
-    WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
-    WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
+    TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse,
+    WorkflowSummary, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
+    WorkflowVersionSummary, WsTicketResponse,
 };
 
 /// Builder for [`Client`].

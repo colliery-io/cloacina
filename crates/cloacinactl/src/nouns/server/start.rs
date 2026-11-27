@@ -519,7 +519,8 @@ public_base_url = "https://cloacina.example.com"
     #[test]
     fn task_log_url_template_is_passed_to_the_server_only_when_set() {
         let template = "https://logs.example.com/?run={execution_id}&task={task}";
-        let from_config = "[server]\ntask_log_url_template = \"https://other.example.com/{task}\"\n";
+        let from_config =
+            "[server]\ntask_log_url_template = \"https://other.example.com/{task}\"\n";
         let forwarded = |flag: Option<&str>, config: &ServerSection| {
             let cli = ServerSettingArgs {
                 task_log_url_template: flag.map(str::to_string),
