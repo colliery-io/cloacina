@@ -24,13 +24,16 @@ use std::time::Duration;
 
 use cloacina::UniversalUuid;
 use cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
+use cloacina::packaging::build_child::{
+    ChildPolicy, ChildRlimits, ChildStep, build_child_command, kill_child_group,
+};
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::security::audit;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tracing::{debug, info, warn};
 
-use crate::config::{BuildRlimits, CompilerConfig};
+use crate::config::CompilerConfig;
 
 /// Result of a single build attempt.
 pub enum BuildOutcome {
@@ -351,8 +354,15 @@ async fn run_build(
                             "bundling constructor providers referenced by the package"
                         );
                         let src = source_dir.clone();
+                        // CLOACINA-T-1054: the provider crate is the package's
+                        // choice, and bundling builds it and runs its manifest
+                        // binary. Those children get the same cleared
+                        // environment and limits as the build.
+                        let policy = provider_child_policy(config);
                         tokio::task::spawn_blocking(move || {
-                            cloacina::packaging::provider_bundle::pack_providers(&src, &refs, true)
+                            cloacina::packaging::provider_bundle::pack_providers_with(
+                                &src, &refs, true, &policy,
+                            )
                         })
                         .await
                         .map_err(|e| BuildError::internal(format!("provider bundle join: {e}")))?
@@ -373,9 +383,10 @@ async fn run_build(
                         providers = ?specs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
                         "bundling [metadata.providers] declared by the package"
                     );
+                    let policy = provider_child_policy(config);
                     let from_specs = tokio::task::spawn_blocking(move || {
-                        cloacina::packaging::provider_bundle::pack_providers_from_specs(
-                            &specs, true,
+                        cloacina::packaging::provider_bundle::pack_providers_from_specs_with(
+                            &specs, true, &policy,
                         )
                     })
                     .await
@@ -755,8 +766,10 @@ fn inject_dev_patch(source_dir: &Path, workspace: &Path) {
 
 /// Phase 1 of the two-phase build (CLOACI-T-0887): `cargo fetch`. Fetch only
 /// resolves the dependency graph and downloads crates — no build scripts or
-/// proc-macros execute — so it may safely use the network and a writable
-/// `CARGO_HOME`. Phase 2 (`cargo build --offline`) is where package code
+/// proc-macros execute. It needs the network and a writable `CARGO_HOME`, so
+/// it is a `ChildStep::Resolve` child: the cleared environment of every build
+/// child plus the proxy, certificate and cargo network variables, by name
+/// (CLOACINA-T-1054). Phase 2 (`cargo build --offline`) is where package code
 /// (build.rs / proc-macros) runs. There is no process sandbox around phase 2
 /// (the I-0105 bwrap/landlock sandbox was excised 2026-07-11; tenant-level
 /// isolation is the security boundary) — but `--offline` keeps cargo itself
@@ -772,24 +785,31 @@ async fn run_cargo_fetch(
         package_id = %package_id,
         "two-phase build: cargo fetch (no package code runs in this phase)"
     );
-    let mut cmd = tokio::process::Command::new("cargo");
+    let mut cmd = cargo_child(&child_policy(config), ChildStep::Resolve);
     cmd.arg("fetch")
         .current_dir(source_dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    if let Some(vendor) = &config.vendor_dir {
-        cmd.env("CARGO_HOME", vendor);
-    }
-    let out = tokio::time::timeout(config.build_timeout, cmd.output())
-        .await
-        .map_err(|_| {
-            BuildError::internal(format!(
+        .stderr(Stdio::piped());
+    let child = cmd
+        .spawn()
+        .map_err(|e| BuildError::internal(format!("failed to spawn cargo fetch: {e}")))?;
+    let pid = child.id();
+    let out = match tokio::time::timeout(config.build_timeout, child.wait_with_output()).await {
+        Ok(out) => {
+            out.map_err(|e| BuildError::internal(format!("cargo fetch wait failed: {e}")))?
+        }
+        Err(_) => {
+            // Dropping the wait kills cargo (kill_on_drop); the group kill
+            // takes what cargo started (a git or credential helper) with it.
+            if let Some(pid) = pid {
+                kill_child_group(pid);
+            }
+            return Err(BuildError::internal(format!(
                 "cargo fetch timed out after {:?}",
                 config.build_timeout
-            ))
-        })?
-        .map_err(|e| BuildError::internal(format!("failed to spawn cargo fetch: {e}")))?;
+            )));
+        }
+    };
     if !out.status.success() {
         let mut err = String::from_utf8_lossy(&out.stderr).to_string();
         if err.len() > MAX_ERR {
@@ -839,12 +859,13 @@ async fn cargo_build(
     // if needed. The build runs cargo directly.
     tracing::info!(package_id = %package_id, "spawning build");
 
-    let mut cmd = tokio::process::Command::new("cargo");
     // CLOACI-T-0918: untrusted build.rs / proc-macro code runs in this child,
     // so it must NOT inherit the compiler's ambient environment (which holds
-    // DATABASE_URL among other secrets). Clear it and pass only the allowlist;
-    // the deliberate build-wiring vars are re-injected explicitly below.
-    apply_compile_env(&mut cmd);
+    // DATABASE_URL among other secrets). `cargo_child` clears it and passes
+    // only the allowlist, with the rlimits (CLOACI-T-0575) and, through the
+    // policy, the `--vendor-dir` CARGO_HOME (CLOACI-T-0574); the deliberate
+    // build-wiring vars are injected explicitly below.
+    let mut cmd = cargo_child(&child_policy(config), ChildStep::Build);
     cmd.args(&config.cargo_flags);
     if !operator_offline {
         // Phase 2 of the two-phase build: the fetch above resolved + pinned
@@ -853,12 +874,7 @@ async fn cargo_build(
     }
     cmd.current_dir(source_dir)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        // Belt-and-suspenders: if the awaited future is dropped (e.g. parent
-        // task is cancelled), tokio will SIGKILL the cargo child rather than
-        // leak it. We also kill explicitly on timeout, but this protects
-        // against unexpected cancellation paths.
-        .kill_on_drop(true);
+        .stderr(Stdio::piped());
     // Share a cargo target cache across builds so transitive deps
     // (cloacina-workflow, cloacina-macros, tokio, …) compile once and are
     // reused by every subsequent package. Without this, every build is a
@@ -883,18 +899,6 @@ async fn cargo_build(
     if std::env::var_os("CARGO_PROFILE_DEV_DEBUG").is_none() {
         cmd.env("CARGO_PROFILE_DEV_DEBUG", "line-tables-only");
     }
-    // CARGO_HOME override (CLOACI-T-0574). When the operator has pointed
-    // --vendor-dir at a curated cargo home (output of `cargo vendor`), the
-    // cargo subprocess sees only that registry. Combined with
-    // `--frozen --offline` in the default cargo_flags, this gates which
-    // dependencies a package build can resolve.
-    if let Some(vendor) = &config.vendor_dir {
-        cmd.env("CARGO_HOME", vendor);
-    }
-    // setrlimit hook (CLOACI-T-0575). Linux-only: the kernel enforces the
-    // resource ceiling before cargo even starts, so a malicious build.rs
-    // cannot exhaust CPU, address space, file descriptors, or proc slots.
-    apply_rlimits(&mut cmd, &config.build_rlimits);
 
     let mut child = cmd
         .spawn()
@@ -942,6 +946,11 @@ async fn cargo_build(
                     "cargo build exceeded build_timeout; killing subprocess. \
                      Build row will be left for stale-build sweeper to reset."
                 );
+                // The group kill takes rustc and a running build script with
+                // cargo (CLOACINA-T-1054); `child.kill()` then reaps cargo.
+                if let Some(pid) = child.id() {
+                    kill_child_group(pid);
+                }
                 if let Err(e) = child.kill().await {
                     warn!(%package_id, %e, "failed to SIGKILL timed-out cargo child");
                 }
@@ -1063,101 +1072,57 @@ fn read_cargo_package_name(source_dir: &Path) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
-// CLOACI-T-0918: cleared environment + allowlist for the compile-phase child
+// CLOACINA-T-1054: one policy and one command for every child of a build
 // ---------------------------------------------------------------------------
 
-/// Environment variables the compile-phase cargo child may inherit from the
-/// compiler process. Everything else is dropped via `env_clear` — with the
-/// I-0105 process sandbox excised (2026-07-11), untrusted `build.rs` /
-/// proc-macro code runs with the compiler's own OS privileges, so the ambient
-/// environment (`DATABASE_URL`, credentials, etc.) must never reach it.
+/// The policy for every child process the compiler starts for a package:
+/// `cargo fetch`, the build, and the provider bundling children (`cargo
+/// metadata`, the provider crate's builds, its manifest binary).
 ///
-/// Deliberate build-wiring vars (`CARGO_TARGET_DIR`, `CARGO_HOME` via
-/// `--vendor-dir`, `CARGO_PROFILE_DEV_DEBUG`) are injected explicitly by
-/// `cargo_build` after this allowlist is applied.
-const COMPILE_ENV_ALLOWLIST: &[&str] = &[
-    // Locate cargo/rustc/cc and friends.
-    "PATH",
-    // cargo/rustup fall back to ~/.cargo and ~/.rustup via HOME.
-    "HOME",
-    // Operator-pinned toolchain/registry locations.
-    "CARGO_HOME",
-    "RUSTUP_HOME",
-    "RUSTUP_TOOLCHAIN",
-    // Scratch space + terminal niceties.
-    "TMPDIR",
-    "TERM",
-    // Operator override for debuginfo level (see the line-tables-only
-    // default below — the is_none() check reads the parent env, so the
-    // parent's value must also pass through when set).
-    "CARGO_PROFILE_DEV_DEBUG",
-];
+/// With the I-0105 process sandbox excised (2026-07-11), a package's
+/// `build.rs`, its proc-macros and a provider crate it names run with the
+/// compiler's own OS privileges. So no child inherits the compiler's
+/// environment (`DATABASE_URL`, credentials): the environment is cleared to
+/// `cloacina::packaging::build_child::CHILD_ENV_ALLOWLIST` (CLOACI-T-0918),
+/// the wall-clock limit is `--build-timeout-s` (CLOACI-T-0573) and the
+/// rlimits are `--build-rlimit-*` (CLOACI-T-0575, Linux).
+///
+/// `--vendor-dir` sets `CARGO_HOME` for all of them (CLOACI-T-0574), so no
+/// child resolves from a registry the operator did not curate.
+fn child_policy(config: &CompilerConfig) -> ChildPolicy {
+    let rlimits = ChildRlimits {
+        cpu_s: config.build_rlimits.cpu_s,
+        mem_bytes: config.build_rlimits.mem_bytes,
+        files: config.build_rlimits.files,
+        procs: config.build_rlimits.procs,
+    };
+    let mut policy = ChildPolicy::confined(config.build_timeout, rlimits);
+    if let Some(vendor) = &config.vendor_dir {
+        policy = policy.env("CARGO_HOME", vendor);
+    }
+    policy
+}
 
-/// Apply the cleared-env + allowlist posture to a cargo child `Command`.
-/// Factored out of `cargo_build` so tests can assert the resulting child
-/// environment (e.g. that `DATABASE_URL` is absent).
-fn apply_compile_env(cmd: &mut tokio::process::Command) {
-    cmd.env_clear();
-    for key in COMPILE_ENV_ALLOWLIST {
-        if let Some(val) = std::env::var_os(key) {
-            cmd.env(key, val);
-        }
+/// [`child_policy`] for provider bundling. The provider children keep writing
+/// where they wrote before the environment was cleared: the `CARGO_TARGET_DIR`
+/// of the compiler's own environment when set (the compiler image sets it to
+/// its warm cache), else the provider crate's own `target/`. The value is
+/// passed by name; the bundler reads it back to find the artifact.
+fn provider_child_policy(config: &CompilerConfig) -> ChildPolicy {
+    let policy = child_policy(config);
+    match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) if !dir.is_empty() => policy.env("CARGO_TARGET_DIR", dir),
+        _ => policy,
     }
 }
 
-// ---------------------------------------------------------------------------
-// CLOACI-T-0575: setrlimit hook on the cargo subprocess (Linux only)
-// ---------------------------------------------------------------------------
-
-/// Install a `pre_exec` hook on the cargo `Command` that calls `setrlimit`
-/// for each configured limit. On Linux this is kernel-enforced; on other
-/// targets this is a no-op (operator's deployment posture is Linux per
-/// CLOACI-A-0005, but the codebase still builds on macOS for dev).
-///
-/// The `pre_exec` closure runs after fork but before exec. It must only
-/// call async-signal-safe functions — `setrlimit` qualifies. No
-/// allocation, no panics; on failure we `libc::_exit(1)` so the parent
-/// observes the child died before doing useful work.
-#[cfg(target_os = "linux")]
-fn apply_rlimits(cmd: &mut tokio::process::Command, rlimits: &BuildRlimits) {
-    use std::os::unix::process::CommandExt;
-
-    let cpu_s = rlimits.cpu_s;
-    let mem_bytes = rlimits.mem_bytes;
-    let files = rlimits.files;
-    let procs = rlimits.procs;
-
-    // SAFETY: the closure runs post-fork, pre-exec. It calls only
-    // `libc::setrlimit` and `libc::_exit`, both async-signal-safe per
-    // POSIX. No allocation, no locks, no Rust-side panic paths.
-    unsafe {
-        cmd.pre_exec(move || {
-            let set = |resource: libc::__rlimit_resource_t, val: u64| -> std::io::Result<()> {
-                let rlim = libc::rlimit {
-                    rlim_cur: val,
-                    rlim_max: val,
-                };
-                if libc::setrlimit(resource, &rlim) != 0 {
-                    Err(std::io::Error::last_os_error())
-                } else {
-                    Ok(())
-                }
-            };
-            set(libc::RLIMIT_CPU, cpu_s)?;
-            set(libc::RLIMIT_AS, mem_bytes)?;
-            set(libc::RLIMIT_NOFILE, files)?;
-            set(libc::RLIMIT_NPROC, procs)?;
-            Ok(())
-        });
-    }
-}
-
-/// Non-Linux fallback: rlimits stored on `CompilerConfig` but not applied.
-/// macOS/Windows are dev-host only per CLOACI-A-0005.
-#[cfg(not(target_os = "linux"))]
-fn apply_rlimits(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits) {
-    // No-op. The non-Linux startup warning is emitted once from `run()`
-    // (lib.rs); per-build logging here would be noisy.
+/// A `cargo` child of the async build path, made by the one function that
+/// makes build children. `kill_on_drop`: if the awaited future is dropped
+/// (the parent task is cancelled), tokio SIGKILLs cargo rather than leak it.
+fn cargo_child(policy: &ChildPolicy, step: ChildStep) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::from(build_child_command("cargo", policy, step));
+    cmd.kill_on_drop(true);
+    cmd
 }
 
 // ---------------------------------------------------------------------------
@@ -1167,6 +1132,7 @@ fn apply_rlimits(_cmd: &mut tokio::process::Command, _rlimits: &BuildRlimits) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::BuildRlimits;
     use std::net::SocketAddr;
     use std::time::Instant;
 
@@ -1266,7 +1232,10 @@ mod tests {
     /// the timeout fires during cargo's startup, during `build.rs` compile,
     /// or while `build.rs` is sleeping, the contract is the same: cargo is
     /// SIGKILL'd, drains complete, and `TimedOut` surfaces — bounded.
+    ///
+    /// Serial: another test of this module puts a stand-in `cargo` on `PATH`.
     #[tokio::test]
+    #[serial_test::serial]
     async fn cargo_build_returns_timed_out_when_build_rs_sleeps_past_timeout() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let package = synthetic_sleeper_package(tmp.path(), 60);
@@ -1299,35 +1268,80 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // CLOACI-T-0918: compile-phase env_clear + allowlist
+    // CLOACI-T-0918 / CLOACINA-T-1054: every child's environment and limits
     // -----------------------------------------------------------------------
 
-    /// The compile-phase child must not see ambient secrets: `env_clear` +
-    /// allowlist means `DATABASE_URL` set in the compiler's own environment
-    /// never reaches the spawned process, while `PATH` still passes through.
-    #[tokio::test]
-    #[serial_test::serial]
-    async fn compile_env_clears_ambient_database_url() {
-        // FIXME: Audit that the environment access only happens in single-threaded code.
-        unsafe { std::env::set_var("DATABASE_URL", "postgres://user:secret@host/db") };
-
-        let mut cmd = tokio::process::Command::new("env");
-        apply_compile_env(&mut cmd);
+    /// Print the environment of a child made the way the build path makes
+    /// its cargo children, with `env` in place of `cargo`.
+    async fn child_env(policy: &ChildPolicy, step: ChildStep) -> String {
+        let mut cmd = tokio::process::Command::from(build_child_command("env", policy, step));
         let out = cmd.output().await.expect("spawn `env`");
         assert!(out.status.success(), "`env` exited nonzero");
-        let printed = String::from_utf8_lossy(&out.stdout);
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
 
-        assert!(
-            !printed.contains("DATABASE_URL"),
-            "DATABASE_URL leaked into the compile-phase child env:\n{printed}"
-        );
-        assert!(
-            printed.lines().any(|l| l.starts_with("PATH=")),
-            "PATH must pass through the allowlist:\n{printed}"
-        );
+    fn has_var(printed: &str, key: &str) -> bool {
+        let prefix = format!("{key}=");
+        printed.lines().any(|l| l.starts_with(&prefix))
+    }
 
-        // FIXME: Audit that the environment access only happens in single-threaded code.
-        unsafe { std::env::remove_var("DATABASE_URL") };
+    /// No child of a build sees the compiler's own variables: not the fetch,
+    /// not the build, not the provider bundling children. `PATH` passes.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn no_build_child_sees_the_compiler_environment() {
+        let secrets = [
+            ("DATABASE_URL", "postgres://user:secret@host/db"),
+            ("CLOACINA_DATABASE_URL", "postgres://user:secret@host/db"),
+            ("CLOACINA_T_1054_MARKER", "compiler-only"),
+        ];
+        for (k, v) in secrets {
+            // SAFETY: serial test; no other thread of this test reads the env.
+            unsafe { std::env::set_var(k, v) };
+        }
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = test_config(tmp.path(), Duration::from_secs(30));
+        config.database_url = "postgres://user:config-secret@host/db".to_string();
+        let children = [
+            ("cargo fetch", child_policy(&config), ChildStep::Resolve),
+            ("cargo build", child_policy(&config), ChildStep::Build),
+            (
+                "cargo metadata (providers)",
+                provider_child_policy(&config),
+                ChildStep::Resolve,
+            ),
+            (
+                "provider build and manifest binary",
+                provider_child_policy(&config),
+                ChildStep::Build,
+            ),
+        ];
+        for (what, policy, step) in &children {
+            let printed = child_env(policy, *step).await;
+            for (k, _) in secrets {
+                assert!(!has_var(&printed, k), "{k} reached {what}:\n{printed}");
+            }
+            assert!(
+                !printed.contains("secret"),
+                "a secret value reached {what}:\n{printed}"
+            );
+            assert!(
+                has_var(&printed, "PATH"),
+                "PATH must pass through to {what}:\n{printed}"
+            );
+            assert!(policy.is_confined(), "{what} must be confined");
+            assert_eq!(
+                policy.timeout(),
+                Some(config.build_timeout),
+                "{what} must carry the build time limit"
+            );
+        }
+
+        for (k, _) in secrets {
+            // SAFETY: as above.
+            unsafe { std::env::remove_var(k) };
+        }
     }
 
     /// Allowlisted vars present in the parent env pass through unchanged.
@@ -1337,10 +1351,9 @@ mod tests {
         // FIXME: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::set_var("CARGO_PROFILE_DEV_DEBUG", "0") };
 
-        let mut cmd = tokio::process::Command::new("env");
-        apply_compile_env(&mut cmd);
-        let out = cmd.output().await.expect("spawn `env`");
-        let printed = String::from_utf8_lossy(&out.stdout);
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = test_config(tmp.path(), Duration::from_secs(30));
+        let printed = child_env(&child_policy(&config), ChildStep::Build).await;
         assert!(
             printed.lines().any(|l| l == "CARGO_PROFILE_DEV_DEBUG=0"),
             "allowlisted CARGO_PROFILE_DEV_DEBUG must pass through:\n{printed}"
@@ -1348,6 +1361,159 @@ mod tests {
 
         // FIXME: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var("CARGO_PROFILE_DEV_DEBUG") };
+    }
+
+    /// `--vendor-dir` reaches every child as `CARGO_HOME`, and the provider
+    /// children get the compiler's own `CARGO_TARGET_DIR` by name.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn vendor_dir_and_target_dir_reach_children_by_name() {
+        // SAFETY: serial test; no other thread of this test reads the env.
+        unsafe { std::env::set_var("CARGO_TARGET_DIR", "/compiler/target") };
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = test_config(tmp.path(), Duration::from_secs(30));
+        config.vendor_dir = Some(PathBuf::from("/curated/cargo-home"));
+
+        let build = child_env(&child_policy(&config), ChildStep::Build).await;
+        let provider = child_env(&provider_child_policy(&config), ChildStep::Build).await;
+        // SAFETY: as above.
+        unsafe { std::env::remove_var("CARGO_TARGET_DIR") };
+
+        for printed in [&build, &provider] {
+            assert!(
+                printed
+                    .lines()
+                    .any(|l| l == "CARGO_HOME=/curated/cargo-home"),
+                "{printed}"
+            );
+        }
+        assert!(!has_var(&build, "CARGO_TARGET_DIR"), "{build}");
+        assert!(
+            provider
+                .lines()
+                .any(|l| l == "CARGO_TARGET_DIR=/compiler/target"),
+            "{provider}"
+        );
+    }
+
+    /// CLOACINA-T-1054: the compiler starts no process except through
+    /// `build_child_command`, in its own source and in the packaging code it
+    /// calls; and it calls no bundling entry that lets a child inherit the
+    /// compiler's environment. A new call site fails this test.
+    #[test]
+    fn compiler_starts_no_process_outside_the_one_function() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let compiler_src = manifest.join("src");
+        let packaging = manifest.join("../cloacina/src/packaging");
+
+        let spawn = ["Command", "::", "new"].concat();
+        let mut hits = source_lines_with(&compiler_src, &[spawn.as_str()], &[]);
+        hits.extend(source_lines_with(
+            &packaging,
+            &[spawn.as_str()],
+            &["build_child.rs"],
+        ));
+        assert!(
+            hits.is_empty(),
+            "process started outside packaging/build_child.rs:\n{}",
+            hits.join("\n")
+        );
+
+        // The entries below give their children the caller's whole environment.
+        let open_entries: Vec<String> = [
+            ["ChildPolicy::", "inherit"].concat(),
+            ["pack_providers", "("].concat(),
+            ["pack_providers_from_specs", "("].concat(),
+            ["bundle_providers", "("].concat(),
+            ["resolve_provider_crate", "("].concat(),
+            ["package_constructor_provider", "("].concat(),
+        ]
+        .into_iter()
+        .collect();
+        let needles: Vec<&str> = open_entries.iter().map(String::as_str).collect();
+        let hits = source_lines_with(&compiler_src, &needles, &[]);
+        assert!(
+            hits.is_empty(),
+            "the compiler calls a bundling entry with an inherited environment:\n{}",
+            hits.join("\n")
+        );
+    }
+
+    /// Lines of the `.rs` files under `dir` (recursive) that hold one of
+    /// `needles`. Comment lines do not count. Files named in `skip` are not
+    /// read.
+    fn source_lines_with(dir: &Path, needles: &[&str], skip: &[&str]) -> Vec<String> {
+        let mut hits = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        let mut files = 0;
+        while let Some(d) = stack.pop() {
+            let entries =
+                std::fs::read_dir(&d).unwrap_or_else(|e| panic!("read dir {}: {e}", d.display()));
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if !name.ends_with(".rs") || skip.contains(&name) {
+                    continue;
+                }
+                files += 1;
+                let text = std::fs::read_to_string(&path).expect("read source");
+                for (i, line) in text.lines().enumerate() {
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    if needles.iter().any(|n| line.contains(n)) {
+                        hits.push(format!("{}:{}: {}", path.display(), i + 1, line.trim()));
+                    }
+                }
+            }
+        }
+        assert!(files > 0, "no source read under {}", dir.display());
+        hits
+    }
+
+    /// A `cargo fetch` that outlives `--build-timeout-s` is killed and the
+    /// build fails. The "cargo" here is a script that sleeps: the fetch child
+    /// finds it first on `PATH`, which the allowlist passes.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn cargo_fetch_past_the_time_limit_is_killed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let bin = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin).expect("mkdir bin");
+        let fake = bin.join("cargo");
+        std::fs::write(&fake, "#!/bin/sh\nsleep 30\n").expect("write fake cargo");
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+        let old_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![bin.clone()];
+        paths.extend(std::env::split_paths(&old_path));
+        // SAFETY: serial test; no other thread of this test reads the env.
+        unsafe { std::env::set_var("PATH", std::env::join_paths(paths).expect("join PATH")) };
+
+        let config = test_config(tmp.path(), Duration::from_secs(1));
+        let started = Instant::now();
+        let result = run_cargo_fetch(uuid::Uuid::new_v4(), tmp.path(), &config).await;
+        let elapsed = started.elapsed();
+
+        // SAFETY: as above.
+        unsafe { std::env::set_var("PATH", old_path) };
+
+        let err = result.expect_err("a sleeping fetch must fail");
+        assert!(
+            format!("{err:?}").contains("timed out"),
+            "expected a time-out, got {err:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(15),
+            "the kill took {elapsed:?}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1479,8 +1645,11 @@ Caused by:\n  attempting to make an HTTP request, but --offline was specified\n"
     /// We squeeze RLIMIT_AS to 128 MiB. The build script attempts an 8 GiB
     /// allocation; on Linux the kernel refuses, glibc aborts, cargo exits
     /// non-zero.
+    ///
+    /// Serial: another test of this module puts a stand-in `cargo` on `PATH`.
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    #[serial_test::serial]
     async fn cargo_build_fails_when_build_rs_overshoots_rlimit_as() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let package = synthetic_memory_hog_package(tmp.path());

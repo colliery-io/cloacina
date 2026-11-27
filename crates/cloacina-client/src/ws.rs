@@ -174,6 +174,12 @@ fn ws_base(server: &str) -> Result<String, ClientError> {
     }
 }
 
+/// The URL with its query removed, for error text: the query of the delivery
+/// WebSocket URL is `?token=<ticket>`, a credential (CLOACINA-T-1040).
+fn without_query(url: &str) -> &str {
+    url.split_once('?').map_or(url, |(base, _)| base)
+}
+
 pub(crate) fn subscribe_delivery(
     client: Client,
     recipient: String,
@@ -195,7 +201,9 @@ pub(crate) fn subscribe_delivery(
 
             let mut socket = socket::Socket::connect(&url)
                 .await
-                .map_err(|e| ClientError::Ws(format!("connect failed for {url}: {e}")))?;
+                .map_err(|e| {
+                    ClientError::Ws(format!("connect failed for {}: {e}", without_query(&url)))
+                })?;
 
             // Declare our protocol version; an incompatible server closes
             // with 4426, which we surface as a terminal error below.
@@ -294,5 +302,25 @@ pub(crate) fn follow_execution_events(
                 .map_err(|e| ClientError::Ws(format!("push payload is not JSON: {e}")))?;
             yield event;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_query;
+
+    #[test]
+    fn without_query_removes_the_ticket() {
+        let url = "wss://api.example.com/v1/ws/delivery/exec_events%3Aabc?token=tk-secret";
+        let shown = without_query(url);
+        assert_eq!(
+            shown,
+            "wss://api.example.com/v1/ws/delivery/exec_events%3Aabc"
+        );
+        assert!(!shown.contains("tk-secret"));
+        assert_eq!(
+            without_query("ws://localhost:8080/x"),
+            "ws://localhost:8080/x"
+        );
     }
 }
