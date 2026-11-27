@@ -110,7 +110,16 @@ pub struct AuditEventFilter {
     /// Page size; `None` is [`DEFAULT_LIST_LIMIT`]. Capped at
     /// [`MAX_LIST_LIMIT`].
     pub limit: Option<i64>,
+    /// With `tenant_id`: only rows after the newest [`ACTION_TENANT_REMOVED`]
+    /// row of that tenant, so a tenant made again with a removed name reads
+    /// none of the old tenant's rows (CLOACINA-T-1095).
+    pub current_tenant_only: bool,
 }
+
+/// The action of the row that tenant removal writes inside its transaction
+/// (`DatabaseAdmin::remove_tenant`): the rows of the tenant before it belong
+/// to a tenant that was removed.
+pub const ACTION_TENANT_REMOVED: &str = "tenant.removed";
 
 fn to_domain(r: UnifiedAuditEvent) -> AuditEvent {
     AuditEvent {
@@ -170,9 +179,20 @@ impl<'a> AuditEventDAL<'a> {
             .unwrap_or(DEFAULT_LIST_LIMIT)
             .clamp(1, MAX_LIST_LIMIT);
         let rows: Vec<UnifiedAuditEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            let floor: Option<i64> = match (&filter.tenant_id, filter.current_tenant_only) {
+                (Some(t), true) => audit_events::table
+                    .filter(audit_events::tenant_id.eq(t.clone()))
+                    .filter(audit_events::action.eq(ACTION_TENANT_REMOVED))
+                    .select(diesel::dsl::max(audit_events::id))
+                    .first(conn)?,
+                _ => None,
+            };
             let mut q = audit_events::table.into_boxed();
             if let Some(t) = &filter.tenant_id {
                 q = q.filter(audit_events::tenant_id.eq(t.clone()));
+            }
+            if let Some(floor) = floor {
+                q = q.filter(audit_events::id.gt(floor));
             }
             if let Some(a) = &filter.action {
                 q = q.filter(audit_events::action.eq(a.clone()));
@@ -206,7 +226,9 @@ impl<'a> AuditEventDAL<'a> {
     /// first `package.upload` row with outcome `ok` whose target is the
     /// package id. An upload of the same content again returns the same
     /// package id and writes a new row; the first uploader stays the answer.
-    /// A package with no such row is absent from the map.
+    /// A package with no such row is absent from the map. Rows of a removed
+    /// tenant of the same name (before its [`ACTION_TENANT_REMOVED`] row) are
+    /// not read.
     pub async fn package_uploaders(
         &self,
         tenant_id: &str,
@@ -217,7 +239,13 @@ impl<'a> AuditEventDAL<'a> {
         }
         let tenant = tenant_id.to_string();
         let rows: Vec<UnifiedAuditEvent> = crate::interact_on_backend!(self.dal, |conn| {
+            let floor: Option<i64> = audit_events::table
+                .filter(audit_events::tenant_id.eq(&tenant))
+                .filter(audit_events::action.eq(ACTION_TENANT_REMOVED))
+                .select(diesel::dsl::max(audit_events::id))
+                .first(conn)?;
             audit_events::table
+                .filter(audit_events::id.gt(floor.unwrap_or(0)))
                 .filter(audit_events::tenant_id.eq(&tenant))
                 .filter(audit_events::action.eq(ACTION_PACKAGE_UPLOAD))
                 .filter(audit_events::outcome.eq(OUTCOME_OK))
