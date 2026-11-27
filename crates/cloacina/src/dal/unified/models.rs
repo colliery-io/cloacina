@@ -389,6 +389,7 @@ pub struct UnifiedFleetAgent {
     pub available_capacity: i32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+    pub owner_key_id: Option<UniversalUuid>,
 }
 
 #[derive(Debug, Clone, Insertable, AsChangeset)]
@@ -404,6 +405,7 @@ pub struct NewUnifiedFleetAgent {
     pub available_capacity: i32,
     pub registered_at: UniversalTimestamp,
     pub last_heartbeat_at: UniversalTimestamp,
+    pub owner_key_id: Option<UniversalUuid>,
 }
 
 /// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;

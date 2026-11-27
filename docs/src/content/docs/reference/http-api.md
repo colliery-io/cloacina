@@ -1879,6 +1879,16 @@ limit/provision surface that decides how many agents a tenant runs, see
 All of these require an authenticated key (any role); the roster/liveness
 handlers scope work to the caller's tenant.
 
+An agent belongs to the key that registered it. `POST /v1/agent/register`
+with an `agent_id` that another tenant or another key holds answers
+`409 agent_id_taken`; with no `agent_id` the server assigns a new one.
+`heartbeat`, `keys` and `result` answer `404 agent_not_registered` for an
+agent id that is not registered and `403 agent_access_denied` for an agent
+that another key holds. A result changes task state only when it comes from
+the agent the work packet is addressed to and carries the packet's
+`dispatch_id`; see
+[who may act as an agent](../../explanation/service/execution-agent-fleet/#who-may-act-as-an-agent).
+
 See [Execution-Agent Fleet](../../explanation/service/execution-agent-fleet/)
 for how the fleet coordinates, and [Deploy an Execution-Agent Fleet](../../how-to/service/deploy-an-execution-agent-fleet/) to run one.
 

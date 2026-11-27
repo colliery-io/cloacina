@@ -102,8 +102,8 @@ On the agent:
    A POST that fails for a reason that can pass (a network error, a time
    limit, a 5xx) is sent again with a backoff of 1 s, doubled up to 15 s, at
    most 12 times, and not past the point where the server stops waiting. A
-   4xx that rejects the report itself (protocol mismatch, a key of another
-   tenant) is not sent again.
+   4xx that rejects the report itself (protocol mismatch, an agent id that is
+   not registered, an agent that another key holds) is not sent again.
    It acks the work packet only after that, when the work has ended and the
    report is delivered or given up: until then the open `delivery_outbox` row
    marks the work as in flight (see
@@ -137,6 +137,39 @@ about 15 minutes and counted in `cloacina_fleet_orphan_results_total`.
 
 What this does not cover: a replica that stops takes its waits with it. The
 task is then picked up by the stale-claim sweep and runs again, as before.
+
+### Who may act as an agent
+
+An agent row has an owner: the tenant and the API key that registered it.
+
+- **Register.** With no `agent_id` in the request the server assigns a new
+  id. A caller-chosen id is checked: if another tenant or another key holds
+  it, the register is refused with `409 agent_id_taken` and the holder's row
+  and one-time keys stay as they are. The key that holds an id may register
+  it again, which is what an agent does when it restarts or reconnects.
+- **Heartbeat, result, key top-up.** The server accepts these only from the
+  key that holds the agent. An agent id that is not registered gets
+  `404 agent_not_registered`; an agent that another key holds gets
+  `403 agent_access_denied`.
+- **Result.** The wait of step 5 knows the tenant, the agent and the
+  `dispatch_id` of its packet. A report resolves it only when it comes from
+  that tenant and from the agent the packet is addressed to, and carries that
+  `dispatch_id`. A report for a task dispatch with no `dispatch_id` resolves
+  nothing. A report from another agent, for a wait this replica holds, is
+  refused, logged, and counted in `cloacina_fleet_refused_results_total`;
+  the agent still gets a 200, and no state changes. A graph firing is keyed
+  by its firing id and has no `dispatch_id`; the tenant and agent check is
+  the same.
+- **Delivery socket.** `agent:<agent_id>` is open only to the key that holds
+  the agent, and an `ack` applies only to a row addressed to that agent in
+  its tenant.
+
+An agent keeps one id for the life of its process: the id of its first
+register, which it registers again at each reconnect. A task that is still
+running when the socket drops reports under that id.
+
+Agents that share one API key are one owner and can act as each other. The
+Kubernetes actuator gives every agent of a tenant the same key.
 
 > **Wire format is always bincode.** fidius serializes with bincode in every
 > build profile — there is no debug/JSON split, so agents and packages don't
@@ -211,9 +244,14 @@ Each dispatch of a task has its own `dispatch_id`, which the agent returns with
 the result. The server accepts a result only for the dispatch it waits on, so a
 report for an older dispatch of the same task cannot end a newer wait.
 
-Because the work keeps its original `task_execution_id`, the executor invocation
-still awaiting that rendezvous receives the new agent's result unchanged — the
-task completes on a survivor with no workflow-level failure. If no live agent is
+Because the work keeps its original `task_execution_id` and `dispatch_id`, the
+executor invocation still awaiting that rendezvous receives the new agent's
+result — the task completes on a survivor with no workflow-level failure. The
+re-targeted `delivery_outbox` row is the record of where the packet went: the
+wait reads it, on any replica, and accepts the result of the agent the row is
+now addressed to. An evicted agent is no longer registered, so a result it
+posts after the eviction is refused with `404`, and its `ack` of the
+re-targeted row changes nothing. If no live agent is
 available, the rows stay put and the executor's own result-wait timeout drives a
 retry (degraded, not lost).
 

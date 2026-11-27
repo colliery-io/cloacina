@@ -46,6 +46,7 @@ use cloacina::dal::unified::{FleetAgent, FleetAgentRegistration};
 use cloacina::error::ValidationError;
 use cloacina::fleet::EphemeralKeyEntry;
 use cloacina::security::ServerKeyPool;
+use cloacina::security::ownership::{AgentOwner, Principal, Refusal};
 
 pub struct AgentRegistry {
     /// Admin (public-schema) database — the roster is server-global, like the
@@ -77,22 +78,26 @@ impl AgentRegistry {
 
     // ── roster (DB-backed, multi-replica) ──────────────────────────────────
 
-    /// Insert or overwrite an agent's registration (overwrite handles clean
-    /// re-registration after an agent restart with the same `agent_id`), and
-    /// seed this replica's one-time key pool for it wholesale.
+    /// Register an agent for the key `by`, and seed this replica's one-time
+    /// key pool for it wholesale. The key becomes the owner of the row
+    /// (CLOACINA-T-1051). `Ok(Err(_))`: another tenant or another key holds
+    /// the id; nothing is written and the key pool of the holder is kept.
     pub async fn register(
         &self,
         reg: FleetAgentRegistration,
         key_pool: ServerKeyPool,
-    ) -> Result<(), ValidationError> {
+        by: &Principal,
+    ) -> Result<Result<(), Refusal>, ValidationError> {
         let agent_id = reg.agent_id.clone();
-        self.dal.fleet_agents().upsert_registration(reg).await?;
+        if let Err(refusal) = self.dal.fleet_agents().register(reg, by).await? {
+            return Ok(Err(refusal));
+        }
         {
             let mut pools = self.key_pools.lock().unwrap_or_else(|e| e.into_inner());
             pools.insert(agent_id, key_pool);
         }
         self.refresh_cache().await;
-        Ok(())
+        Ok(Ok(()))
     }
 
     /// Record a heartbeat (capacity + recency). Returns `true` iff the agent
@@ -114,15 +119,12 @@ impl AgentRegistry {
         Ok(known)
     }
 
-    /// The tenant an agent registered under, if it's in the roster (on any
-    /// replica). `Some(tenant)` when registered (the tenant may itself be
-    /// `None` for a global agent); `None` when the agent is unknown. Backs the
-    /// caller-tenant guard on `heartbeat` / `result` (CLOACI-T-0785).
-    pub async fn agent_tenant(
-        &self,
-        agent_id: &str,
-    ) -> Result<Option<Option<String>>, ValidationError> {
-        self.dal.fleet_agents().agent_tenant(agent_id).await
+    /// Who holds an agent id: the tenant and the owner key of its roster
+    /// row, read from the shared table (so the answer is the same on every
+    /// replica). `None` when the agent is unknown. Backs the ownership checks
+    /// of the agent routes and of the delivery socket.
+    pub async fn agent_owner(&self, agent_id: &str) -> Result<Option<AgentOwner>, ValidationError> {
+        self.dal.fleet_agents().agent_owner(agent_id).await
     }
 
     /// The live fleet (heartbeat within `liveness_timeout`), read from the
@@ -280,6 +282,7 @@ pub(crate) fn test_fleet_agent(id: &str, cap: u32, tenant: Option<&str>) -> Flee
         available_capacity: cap,
         registered_at: cloacina::database::universal_types::UniversalTimestamp::now(),
         last_heartbeat_at: cloacina::database::universal_types::UniversalTimestamp::now(),
+        owner_key_id: None,
     }
 }
 

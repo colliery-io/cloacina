@@ -826,9 +826,16 @@ impl TaskExecutor for FleetExecutor {
 
             // ── 5. Register the rendezvous BEFORE enqueueing so a fast agent
             //       reporting back can't race past the receiver.
-            let rx = self
-                .coordinator
-                .register_dispatch(event.task_execution_id, dispatch_id);
+            // CLOACINA-T-1050: the wait knows where the packet goes, so only
+            // a report from this tenant and this agent resolves it.
+            let rx = self.coordinator.register_dispatch(
+                event.task_execution_id,
+                cloacina::security::ownership::DispatchTarget {
+                    tenant_id: tenant_id.clone(),
+                    agent_id: agent_id.clone(),
+                    dispatch_id: Some(dispatch_id),
+                },
+            );
 
             // ── 6. Enqueue into the substrate outbox + wake the relay.
             let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, agent_id);
@@ -838,23 +845,31 @@ impl TaskExecutor for FleetExecutor {
                 tenant_id: tenant_id.clone(),
                 payload: payload_bytes,
             };
-            if let Err(e) = self.outbox_dal.delivery_outbox().enqueue(row).await {
-                self.coordinator.cancel(event.task_execution_id);
-                warn!(
-                    task_id = %event.task_execution_id,
-                    agent_id = %agent_id,
-                    error = %e,
-                    "fleet: delivery_outbox enqueue failed"
-                );
-                return Ok(self
-                    .reconcile_error(
-                        &event,
-                        &claimed_task,
-                        &retry_policy,
-                        start.elapsed(),
-                        format!("delivery_outbox enqueue: {}", e),
-                    )
-                    .await);
+            match self.outbox_dal.delivery_outbox().enqueue(row).await {
+                // The outbox row is the record of where the packet goes. If
+                // the agent is evicted the row is re-targeted, and the wait
+                // reads it to accept the report of the new agent.
+                Ok(row) => self
+                    .coordinator
+                    .packet_enqueued(event.task_execution_id, row.id),
+                Err(e) => {
+                    self.coordinator.cancel(event.task_execution_id);
+                    warn!(
+                        task_id = %event.task_execution_id,
+                        agent_id = %agent_id,
+                        error = %e,
+                        "fleet: delivery_outbox enqueue failed"
+                    );
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!("delivery_outbox enqueue: {}", e),
+                        )
+                        .await);
+                }
             }
             self.delivery_wake.wake();
 

@@ -27,6 +27,7 @@ pub mod audit;
 mod db_key_manager;
 pub mod fleet_secret;
 mod key_manager;
+pub mod ownership;
 mod package_signer;
 mod secret_resolver;
 mod secret_store;
