@@ -228,3 +228,64 @@ fn test_workflow_execution_levels() {
     // Level 1: task_c (depends on both task_a and task_b)
     assert_eq!(execution_levels[1].len(), 1);
 }
+
+// CLOACINA-T-1027: a task inside a `#[workflow]` module is wrapped by the
+// workflow macro. The wrapper must pass `Task::placement()` on, for the task
+// in the workflow and for the task the inventory entry builds (the one a
+// package reads its metadata from).
+#[workflow(name = "placement_workflow")]
+pub mod placement_workflow {
+    use super::*;
+
+    #[task(id = "small", dependencies = [])]
+    pub async fn small(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+
+    #[task(
+        id = "big",
+        dependencies = ["small"],
+        pool = "large",
+        cpu = "4",
+        memory = "24Gi"
+    )]
+    pub async fn big(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_workflow_tasks_keep_their_placement() {
+    let runtime = cloacina::Runtime::new();
+    let wf = runtime
+        .get_workflow("placement_workflow")
+        .expect("placement_workflow should be auto-registered");
+    let in_workflow = |id: &str| {
+        let ns = wf
+            .get_task_ids()
+            .into_iter()
+            .find(|ns| ns.task_id == id)
+            .unwrap_or_else(|| panic!("task {id} is in the workflow"));
+        wf.get_task(&ns).expect("the task is in the workflow")
+    };
+    let in_inventory = |id: &str| {
+        inventory::iter::<cloacina::TaskEntry>
+            .into_iter()
+            .find(|entry| {
+                let ns = (entry.namespace)();
+                ns.workflow_id == "placement_workflow" && ns.task_id == id
+            })
+            .map(|entry| (entry.constructor)())
+            .unwrap_or_else(|| panic!("task {id} is in the inventory"))
+    };
+
+    for big in [in_workflow("big"), in_inventory("big")] {
+        let placement = big.placement();
+        assert_eq!(placement.pool_name(), "large");
+        assert_eq!(placement.cpu_millis(), Some(4000));
+        assert_eq!(placement.memory_bytes(), Some(24 << 30));
+    }
+    for small in [in_workflow("small"), in_inventory("small")] {
+        assert!(small.placement().is_default());
+    }
+}

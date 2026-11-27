@@ -2081,6 +2081,10 @@ impl Task for ConstructorNode {
     fn timeout(&self) -> Option<std::time::Duration> {
         self.inner.timeout()
     }
+
+    fn placement(&self) -> cloacina_workflow::TaskPlacement {
+        self.inner.placement()
+    }
 }
 
 /// A single `#[config]` value resolved from a `constructor!(config = { … })`
