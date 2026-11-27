@@ -60,17 +60,18 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use cloacina_api_types::{
-    AccumulatorStatus, AgentInfo, AgentPoolInfo, AgentPoolSettings, CompilerStatus,
-    CreateInstanceRequest, CreateKeyRequest, CreateSecretRequest, CreateTenantRequest,
-    DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, FireReactorRequest, FireReactorResponse,
-    FireTriggerRequest, FireTriggerResponse, GraphStatus, InjectAccumulatorRequest,
-    InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
-    ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, RotateSecretRequest,
-    SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerPauseResponse,
-    TriggerScheduleSummary, WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary,
-    WorkflowPauseResponse, WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
+    AccumulatorStatus, AddTrustedKeyRequest, AgentInfo, AgentPoolInfo, AgentPoolSettings,
+    CompilerStatus, CreateInstanceRequest, CreateKeyRequest, CreateSecretRequest,
+    CreateTenantRequest, DeclaredSurface, ExecuteRequest, ExecuteResponse, ExecutionDetail,
+    ExecutionEventsResponse, ExecutionSummary, ExecutionTasksResponse, FireReactorRequest,
+    FireReactorResponse, FireTriggerRequest, FireTriggerResponse, GraphStatus,
+    InjectAccumulatorRequest, InjectAccumulatorResponse, KeyCreatedResponse, KeyInfo,
+    KeyRevokedResponse, KeyRole, ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus,
+    RotateSecretRequest, SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse,
+    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
+    TriggerPauseResponse, TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse,
+    WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
     WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
 };
 
@@ -605,6 +606,51 @@ impl Client {
         let t = self.tenant_of(tenant);
         let response = self
             .request(Method::DELETE, &format!("/v1/tenants/{t}/secrets/{name}"))
+            .send()
+            .await
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
+    // ---- trusted keys of package signing (CLOACINA-A-0018) ----
+    //
+    // The keys a tenant trusts. A tenant admin manages its own tenant's keys;
+    // a platform admin names the tenant.
+
+    /// List the tenant's trusted keys. A revoked key stays in the list.
+    pub async fn list_trusted_keys(
+        &self,
+        tenant: Option<&str>,
+    ) -> Result<ListResponse<TrustedKeySummary>, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.get_json(&format!("/v1/tenants/{t}/trusted-keys"))
+            .await
+    }
+
+    /// Add an Ed25519 public key (PEM, or the raw key as hex) to the tenant's
+    /// trusted keys.
+    pub async fn add_trusted_key(
+        &self,
+        request: &AddTrustedKeyRequest,
+        tenant: Option<&str>,
+    ) -> Result<TrustedKeySummary, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.post_json(&format!("/v1/tenants/{t}/trusted-keys"), request)
+            .await
+    }
+
+    /// Revoke a trusted key of the tenant, by its id.
+    pub async fn revoke_trusted_key(
+        &self,
+        key_id: &str,
+        tenant: Option<&str>,
+    ) -> Result<TrustedKeyRevokedResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        let response = self
+            .request(
+                Method::DELETE,
+                &format!("/v1/tenants/{t}/trusted-keys/{key_id}"),
+            )
             .send()
             .await
             .map_err(ClientError::from_reqwest)?;

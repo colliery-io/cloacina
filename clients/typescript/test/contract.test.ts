@@ -199,6 +199,41 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect(deleted.name).toBe(name);
   });
 
+  it("trusted keys lifecycle: add → list → revoke, a revoked key stays listed", async () => {
+    const publicKey = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const name = `ts-contract-key-${Date.now()}`;
+
+    const added = await client.addTrustedKey({ name, public_key: publicKey });
+    expect(added.name).toBe(name);
+    expect(added.fingerprint).toHaveLength(64);
+    expect(added.revoked).toBe(false);
+
+    const page = await client.listTrustedKeys();
+    expect(page.items.map((k) => k.id)).toContain(added.id);
+
+    // The tenant holds a key once.
+    const again = await client
+      .addTrustedKey({ public_key: publicKey })
+      .catch((e) => e);
+    expect(again).toBeInstanceOf(CloacinaApiError);
+    expect((again as CloacinaApiError).status).toBe(409);
+
+    const revoked = await client.revokeTrustedKey(added.id);
+    expect(revoked.status).toBe("revoked");
+    expect(revoked.id).toBe(added.id);
+
+    const after = await client.listTrustedKeys();
+    expect(after.items.find((k) => k.id === added.id)?.revoked).toBe(true);
+
+    const missing = await client
+      .revokeTrustedKey("00000000-0000-4000-8000-000000000000")
+      .catch((e) => e);
+    expect(missing).toBeInstanceOf(CloacinaApiError);
+    expect((missing as CloacinaApiError).status).toBe(404);
+  });
+
   // ---- agent pools (CLOACINA-T-1021) ----
 
   it("agent pool lifecycle: list → put → get → replace → delete", async () => {

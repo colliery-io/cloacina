@@ -34,7 +34,7 @@ use shared::error::CliError;
 
 use nouns::{
     accumulator, audit, compiler, constructor, daemon, execution, graph, instance, key, package,
-    reactor, secret, server, tenant, trigger, workflow,
+    reactor, secret, server, tenant, trigger, trusted_key, workflow,
 };
 
 /// cloacinactl — Cloacina task orchestration engine
@@ -151,6 +151,9 @@ enum Commands {
 
     /// Secret — tenant secrets (encrypted; metadata-only reads)
     Secret(secret::SecretCmd),
+
+    /// Trusted key — the keys a tenant trusts for package signing
+    TrustedKey(trusted_key::TrustedKeyCmd),
 
     /// Instance — named, param-bound workflow instances
     Instance(instance::InstanceCmd),
@@ -299,6 +302,7 @@ async fn run() -> std::result::Result<(), CliError> {
         Commands::Tenant(cmd) => return cmd.run(&cli.globals).await,
         Commands::Key(cmd) => return cmd.run(&cli.globals).await,
         Commands::Secret(cmd) => return cmd.run(&cli.globals).await,
+        Commands::TrustedKey(cmd) => return cmd.run(&cli.globals).await,
         Commands::Instance(cmd) => return cmd.run(&cli.globals).await,
         Commands::Trigger(cmd) => return cmd.run(&cli.globals).await,
         Commands::Status => nouns::top_level_status(&cli.globals).await,

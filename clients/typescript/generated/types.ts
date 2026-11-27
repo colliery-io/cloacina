@@ -972,6 +972,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/trusted-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /v1/tenants/{tenant_id}/trusted-keys` — the tenant's trusted keys,
+         *     the revoked ones included and marked.
+         */
+        get: operations["list_trusted_keys"];
+        put?: never;
+        /**
+         * `POST /v1/tenants/{tenant_id}/trusted-keys` — add a public key to the
+         *     tenant's trusted keys.
+         */
+        post: operations["add_trusted_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/trusted-keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * `DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` — revoke a trusted
+         *     key of the tenant. The key of another tenant is not found, and is not
+         *     revoked.
+         */
+        delete: operations["revoke_trusted_key"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/workflows": {
         parameters: {
             query?: never;
@@ -1293,6 +1338,22 @@ export interface components {
             status: unknown;
             /** @description Owning tenant, or `None` for untagged single-tenant graphs. */
             tenant_id?: string | null;
+        };
+        /**
+         * @description Request body for `POST /v1/tenants/{tenant_id}/trusted-keys`.
+         *
+         *     Give the key in exactly one of the two forms.
+         */
+        AddTrustedKeyRequest: {
+            /** @description A name for the key, to tell the keys of the list apart. */
+            name?: string | null;
+            /** @description The raw 32-byte Ed25519 public key as 64 hexadecimal characters. */
+            public_key?: string | null;
+            /**
+             * @description The public key as PEM (`-----BEGIN PUBLIC KEY-----`, Ed25519
+             *     SubjectPublicKeyInfo).
+             */
+            public_key_pem?: string | null;
         };
         /** @description One port of an [`AgentEgressRule`]. */
         AgentEgressPort: {
@@ -2239,6 +2300,31 @@ export interface components {
             total: number;
         };
         /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
+        ListResponse_TrustedKeySummary: {
+            items: {
+                /**
+                 * @description SHA-256 of the public key, as hexadecimal. A signature names its
+                 *     signer by this value.
+                 */
+                fingerprint: string;
+                /** @description Key UUID: the id a revoke takes. */
+                id: string;
+                /** @description The name given at the add, if any. */
+                name?: string | null;
+                /** @description True when the key was revoked: no upload passes with it. */
+                revoked: boolean;
+                /** @description RFC 3339 timestamp of the revoke; `null` for a live key. */
+                revoked_at?: string | null;
+                /** @description RFC 3339 timestamp. */
+                trusted_at: string;
+            }[];
+            total: number;
+        };
+        /**
          * @description A local-login attempt. `tenant` selects which tenant's account namespace to
          *     authenticate against (`None` = a global account).
          */
@@ -2695,6 +2781,31 @@ export interface components {
             schedule_type: string;
             trigger_name?: string | null;
             workflow_name: string;
+        };
+        /** @description `DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` response. */
+        TrustedKeyRevokedResponse: {
+            /** @description The id of the revoked key. */
+            id: string;
+            /** @description Always `"revoked"`. */
+            status: string;
+        };
+        /** @description One trusted key of a tenant. The body of the add, and one row of the list. */
+        TrustedKeySummary: {
+            /**
+             * @description SHA-256 of the public key, as hexadecimal. A signature names its
+             *     signer by this value.
+             */
+            fingerprint: string;
+            /** @description Key UUID: the id a revoke takes. */
+            id: string;
+            /** @description The name given at the add, if any. */
+            name?: string | null;
+            /** @description True when the key was revoked: no upload passes with it. */
+            revoked: boolean;
+            /** @description RFC 3339 timestamp of the revoke; `null` for a live key. */
+            revoked_at?: string | null;
+            /** @description RFC 3339 timestamp. */
+            trusted_at: string;
         };
         /**
          * @description The caller's own identity + role (CLOACI-T-0803) — lets the UI gate
@@ -5657,6 +5768,171 @@ export interface operations {
             };
             /** @description Internal error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_trusted_keys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's trusted keys, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_TrustedKeySummary"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    add_trusted_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTrustedKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustedKeySummary"];
+                };
+            };
+            /** @description No key, two keys, or a key that is not Ed25519 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The tenant already has this key, live or revoked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    revoke_trusted_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Trusted key UUID */
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Key revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustedKeyRevokedResponse"];
+                };
+            };
+            /** @description Invalid key ID format */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such trusted key in this tenant */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
