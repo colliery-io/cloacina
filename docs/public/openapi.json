@@ -5765,7 +5765,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Workflow unregistered. Idempotent: also returned when no matching package existed",
+            "description": "The package version was removed, in any build state but `building`: its rows and stored archives",
             "content": {
               "application/json": {
                 "schema": {
@@ -5795,7 +5795,17 @@
             }
           },
           "404": {
-            "description": "Registry lookup failed",
+            "description": "`workflow_not_found`: no package of this name and version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`package_building`: the compiler is building the package; nothing was removed",
             "content": {
               "application/json": {
                 "schema": {

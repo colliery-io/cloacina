@@ -173,12 +173,12 @@ async fn full_rest_surface_contract() {
     let missing = client.get_workflow("does-not-exist", None).await;
     assert!(matches!(missing, Err(ClientError::NotFound(_))));
 
-    // Documented contract decision (T-0645): unregister is idempotent.
+    // CLOACINA-T-1122: a delete of a package that does not exist is a 404
+    // (it was an idempotent 200 under T-0645).
     let deleted = client
         .delete_workflow("does-not-exist", "0.0.0", None)
-        .await
-        .expect("idempotent delete");
-    assert_eq!(deleted.status, "deleted");
+        .await;
+    assert!(matches!(deleted, Err(ClientError::NotFound(_))));
 
     // CLOACINA-T-1018: a package with no version is a 404 on both routes.
     let no_versions = client.list_workflow_versions("does-not-exist", None).await;

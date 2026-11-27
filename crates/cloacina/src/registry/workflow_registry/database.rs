@@ -48,6 +48,21 @@ pub struct PackageVersion {
     pub compiled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// What a delete of one package name and version did (CLOACINA-T-1122).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageVersionDelete {
+    /// The rows were removed, with their stored archives.
+    Removed {
+        package_ids: Vec<Uuid>,
+        registry_ids: Vec<Uuid>,
+    },
+    /// No row of the name and version is in service or waits for a build.
+    NotFound,
+    /// The compiler is building a row of the name and version; nothing was
+    /// removed.
+    Building,
+}
+
 /// Build the task dependency graph (one node per task, with its upstream
 /// dependencies) from the persisted package metadata's task list, so the API
 /// and UI can render the full DAG. (CLOACI-T-0663)
@@ -271,6 +286,124 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Delete every row of a package name and version, in any build state, in
+    /// one transaction (CLOACINA-T-1122).
+    ///
+    /// - No row of the name and version that is not superseded: `NotFound`,
+    ///   nothing is removed.
+    /// - One of those rows is `building`: `Building`, nothing is removed. The
+    ///   compiler holds that row.
+    /// - Else every row of the name and version is deleted (superseded ones
+    ///   too) and `Removed` names them. The caller deletes their archives.
+    ///
+    /// On Postgres the rows are read `FOR UPDATE`, so the compiler's claim
+    /// (`FOR UPDATE SKIP LOCKED`) cannot take a `pending` row between the
+    /// check and the delete. SQLite has one writer.
+    pub(super) async fn delete_version_rows(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<PackageVersionDelete, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        type Row = (UniversalUuid, UniversalUuid, String, UniversalBool);
+
+        fn decide(rows: &[Row]) -> Option<PackageVersionDelete> {
+            let live: Vec<&Row> = rows.iter().filter(|r| !r.3.is_true()).collect();
+            if live.is_empty() {
+                return Some(PackageVersionDelete::NotFound);
+            }
+            if live.iter().any(|r| r.2 == "building") {
+                return Some(PackageVersionDelete::Building);
+            }
+            None
+        }
+
+        fn removed(rows: Vec<Row>) -> PackageVersionDelete {
+            PackageVersionDelete::Removed {
+                package_ids: rows.iter().map(|r| r.0.0).collect(),
+                registry_ids: rows.iter().map(|r| r.1.0).collect(),
+            }
+        }
+
+        let package_name = package_name.to_string();
+        let version = version.to_string();
+        // Explicit twins: the Postgres read takes `FOR UPDATE`, which SQLite
+        // has not.
+        let outcome: Result<PackageVersionDelete, diesel::result::Error> = crate::dispatch_backend!(
+            self.database.backend(),
+            {
+                let conn = self
+                    .database
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.transaction::<_, diesel::result::Error, _>(|tx| {
+                        let rows: Vec<Row> = workflow_packages::table
+                            .filter(workflow_packages::package_name.eq(&package_name))
+                            .filter(workflow_packages::version.eq(&version))
+                            .select((
+                                workflow_packages::id,
+                                workflow_packages::registry_id,
+                                workflow_packages::build_status,
+                                workflow_packages::superseded,
+                            ))
+                            .for_update()
+                            .load(tx)?;
+                        if let Some(outcome) = decide(&rows) {
+                            return Ok(outcome);
+                        }
+                        diesel::delete(
+                            workflow_packages::table
+                                .filter(workflow_packages::package_name.eq(&package_name))
+                                .filter(workflow_packages::version.eq(&version)),
+                        )
+                        .execute(tx)?;
+                        Ok(removed(rows))
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+            },
+            {
+                let conn = self
+                    .database
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| RegistryError::Database(e.to_string()))?;
+                conn.interact(move |conn| {
+                    conn.immediate_transaction::<_, diesel::result::Error, _>(|tx| {
+                        let rows: Vec<Row> = workflow_packages::table
+                            .filter(workflow_packages::package_name.eq(&package_name))
+                            .filter(workflow_packages::version.eq(&version))
+                            .select((
+                                workflow_packages::id,
+                                workflow_packages::registry_id,
+                                workflow_packages::build_status,
+                                workflow_packages::superseded,
+                            ))
+                            .load(tx)?;
+                        if let Some(outcome) = decide(&rows) {
+                            return Ok(outcome);
+                        }
+                        diesel::delete(
+                            workflow_packages::table
+                                .filter(workflow_packages::package_name.eq(&package_name))
+                                .filter(workflow_packages::version.eq(&version)),
+                        )
+                        .execute(tx)?;
+                        Ok(removed(rows))
+                    })
+                })
+                .await
+                .map_err(|e| RegistryError::Database(e.to_string()))?
+            }
+        );
+        outcome.map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
     }
 
     /// Get package metadata + compiled artifact by ID for a successfully-built package.
@@ -2126,6 +2259,63 @@ mod tests {
         assert!(
             registry
                 .get_package_metadata("del-pkg", "1.0.0")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// CLOACINA-T-1122: the delete of a name and version in each build state.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn t1122_delete_version_rows_in_each_build_state() {
+        let registry = create_test_registry().await;
+
+        assert_eq!(
+            registry.delete_version_rows("none", "1.0.0").await.unwrap(),
+            PackageVersionDelete::NotFound
+        );
+
+        // Pending: removed.
+        let pending = registry
+            .store_package_metadata(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("pend", "1.0.0"),
+            )
+            .await
+            .unwrap();
+        match registry.delete_version_rows("pend", "1.0.0").await.unwrap() {
+            PackageVersionDelete::Removed { package_ids, .. } => {
+                assert_eq!(package_ids, vec![pending])
+            }
+            other => panic!("pending: {other:?}"),
+        }
+        assert_eq!(
+            registry.delete_version_rows("pend", "1.0.0").await.unwrap(),
+            PackageVersionDelete::NotFound
+        );
+
+        // Building: refused, the row stays; failed: removed.
+        let built = registry
+            .store_package_metadata(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("bld", "1.0.0"),
+            )
+            .await
+            .unwrap();
+        registry.claim_next_build().await.unwrap().expect("a claim");
+        assert_eq!(
+            registry.delete_version_rows("bld", "1.0.0").await.unwrap(),
+            PackageVersionDelete::Building
+        );
+        registry.mark_build_failed(built, "boom").await.unwrap();
+        assert!(matches!(
+            registry.delete_version_rows("bld", "1.0.0").await.unwrap(),
+            PackageVersionDelete::Removed { .. }
+        ));
+        assert!(
+            registry
+                .inspect_package_by_id(built)
                 .await
                 .unwrap()
                 .is_none()

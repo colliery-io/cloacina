@@ -26,7 +26,7 @@ use tracing::{info, warn};
 
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
-use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
+use cloacina::registry::workflow_registry::{PackageVersionDelete, WorkflowRegistryImpl};
 use cloacina::security::audit;
 use cloacina_api_types::{
     TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse,
@@ -592,10 +592,11 @@ fn detect_source_language(path: &str) -> Option<String> {
         ("version" = String, Path, description = "Package version"),
     ),
     responses(
-        (status = 200, description = "Workflow unregistered. Idempotent: also returned when no matching package existed", body = WorkflowDeletedResponse),
+        (status = 200, description = "The package version was removed, in any build state but `building`: its rows and stored archives", body = WorkflowDeletedResponse),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or role denied", body = cloacina_api_types::ErrorBody),
-        (status = 404, description = "Registry lookup failed", body = cloacina_api_types::ErrorBody),
+        (status = 404, description = "`workflow_not_found`: no package of this name and version", body = cloacina_api_types::ErrorBody),
+        (status = 409, description = "`package_building`: the compiler is building the package; nothing was removed", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
@@ -621,11 +622,22 @@ pub async fn delete_workflow(
         Err(e) => return ApiError::internal_logged("delete workflow failed", &e).into_response(),
     };
 
-    match registry
-        .unregister_workflow_package_by_name(&name, &version)
-        .await
-    {
-        Ok(()) => {
+    // CLOACINA-T-1122: the package is looked up in every build state, and
+    // the answer and the audit row follow what was removed.
+    match registry.delete_package_version(&name, &version).await {
+        Ok(PackageVersionDelete::NotFound) => ApiError::not_found(
+            "workflow_not_found",
+            format!("no package {name} version {version}"),
+        )
+        .into_response(),
+        Ok(PackageVersionDelete::Building) => ApiError::conflict(
+            "package_building",
+            format!(
+                "package {name} version {version} is being built; delete it when the build ends"
+            ),
+        )
+        .into_response(),
+        Ok(PackageVersionDelete::Removed { .. }) => {
             info!(
                 "Deleted workflow '{}' v{} for tenant '{}'",
                 name, version, tenant_id
@@ -647,7 +659,7 @@ pub async fn delete_workflow(
                 "Failed to delete workflow '{}' v{} for tenant '{}': {}",
                 name, version, tenant_id, e
             );
-            ApiError::not_found("workflow_not_found", format!("{}", e)).into_response()
+            ApiError::internal_logged("delete workflow failed", &e).into_response()
         }
     }
 }

@@ -3011,6 +3011,8 @@ mod tests {
     mod authz_routes;
     /// Router tests of backfills (CLOACINA-T-1020).
     mod backfill_routes;
+    /// The package delete in each build state (CLOACINA-T-1122).
+    mod package_delete;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     mod tenant_runner_start;
