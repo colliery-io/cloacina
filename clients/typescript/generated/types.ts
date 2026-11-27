@@ -110,8 +110,9 @@ export interface paths {
         put?: never;
         /**
          * POST /auth/keys — create a new API key.
-         * @description Requires admin role. Non-admin keys cannot create keys with higher
-         *     permissions than their own (prevents privilege escalation).
+         * @description Platform admin only (the route table). Without `platform_admin` the key
+         *     belongs to the tenant `public`. With `platform_admin: true` it is a
+         *     platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
          *     Returns the plaintext key exactly once. It cannot be retrieved again.
          */
         post: operations["create_key"];
@@ -1844,6 +1845,12 @@ export interface components {
         CreateKeyRequest: {
             name: string;
             /**
+             * @description `POST /auth/keys` only: make a platform admin key (no tenant, role
+             *     `admin`, the platform admin flag). Needs `role: admin`. The tenant
+             *     route refuses `true` with 400 (CLOACINA-T-1065).
+             */
+            platform_admin?: boolean;
+            /**
              * @description Required. A request with no role is refused with 400: the server does
              *     not choose a role for the caller.
              */
@@ -2187,7 +2194,10 @@ export interface components {
             created_at: string;
             /** @description Key UUID. */
             id: string;
-            /** @description God-mode flag — never granted via the create endpoints. */
+            /**
+             * @description Platform admin flag. Set only by `POST /auth/keys` with
+             *     `platform_admin: true`, and by the bootstrap.
+             */
             is_admin: boolean;
             /** @description One-time plaintext API key. */
             key: string;
@@ -3683,7 +3693,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin` with a role other than admin, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3701,7 +3711,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Admin role required */
+            /** @description Platform admin key required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3771,6 +3781,15 @@ export interface operations {
             };
             /** @description Key not found or already revoked */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The key is the last live platform admin key */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5189,7 +5208,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin: true`, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;

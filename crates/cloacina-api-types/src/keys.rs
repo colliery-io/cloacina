@@ -54,6 +54,11 @@ pub struct CreateKeyRequest {
     /// Required. A request with no role is refused with 400: the server does
     /// not choose a role for the caller.
     pub role: KeyRole,
+    /// `POST /auth/keys` only: make a platform admin key (no tenant, role
+    /// `admin`, the platform admin flag). Needs `role: admin`. The tenant
+    /// route refuses `true` with 400 (CLOACINA-T-1065).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub platform_admin: bool,
 }
 
 /// `201 Created` body for a new API key. The plaintext `key` is returned
@@ -70,7 +75,8 @@ pub struct KeyCreatedResponse {
     pub permissions: String,
     /// Tenant scope; `null` for global keys.
     pub tenant_id: Option<String>,
-    /// God-mode flag — never granted via the create endpoints.
+    /// Platform admin flag. Set only by `POST /auth/keys` with
+    /// `platform_admin: true`, and by the bootstrap.
     pub is_admin: bool,
     /// RFC 3339 timestamp.
     pub created_at: String,

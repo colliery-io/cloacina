@@ -200,14 +200,17 @@ for the identity-provider setup and claim-mapping policy.
 
 ### POST /v1/auth/keys
 
-Create a new API key. The plaintext key is returned exactly once and cannot be retrieved again. Requires admin role.
+Create a new API key. The plaintext key is returned exactly once and cannot be retrieved again. Requires a platform admin key.
+
+Without `platform_admin`, the key belongs to the tenant `public`. With `"platform_admin": true`, the key has no tenant, role `admin` and `is_admin = true`, like the bootstrap key, and no expiry. Use it to rotate the bootstrap key: make a new platform admin key, store it, revoke the old one.
 
 **Request:**
 
 ```json
 {
-  "name": "ci-deploy",
-  "role": "admin"
+  "name": "ops-admin",
+  "role": "admin",
+  "platform_admin": true
 }
 ```
 
@@ -215,6 +218,7 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
 | `role` | string | yes | Key role. Lowercase string: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. |
+| `platform_admin` | boolean | no | Default `false`. `true` makes a platform admin key; `role` must then be `"admin"`, else `400`. |
 
 > **Naming note:** the request field is `role`; the response field
 > is `permissions`. They carry the same value (e.g., `"admin"`).
@@ -227,21 +231,24 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 ```json
 {
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "name": "ci-deploy",
+  "name": "ops-admin",
   "key": "clk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
   "permissions": "admin",
   "tenant_id": null,
-  "is_admin": false,
+  "is_admin": true,
   "created_at": "2026-04-02T14:30:00+00:00"
 }
 ```
+
+The audit row of the call (`key.create`) names the caller and the new key's id; its detail carries `platform_admin`.
 
 **Errors:**
 
 | Status | Body | Cause |
 |---|---|---|
 | `400` | `{"error": "a key request needs a name and a role ...", "code": "invalid_request"}` | No `role`, an unknown role, or a body that is not a key request |
-| `403` | `{"error": "insufficient permissions"}` | Caller does not have admin role |
+| `400` | `{"code": "invalid_request"}` | `platform_admin` with a role other than `admin` |
+| `403` | `{"error": "insufficient permissions"}` | Caller is not a platform admin key |
 | `500` | `{"error": "failed to create API key"}` | Database error |
 
 ### POST /v1/auth/ws-ticket
@@ -322,6 +329,7 @@ Revoke an API key. The key is invalidated at once on every replica (each one cle
 |---|---|---|
 | `400` | `{"error": "invalid key ID format"}` | `key_id` is not a valid UUID |
 | `404` | `{"error": "key not found or already revoked"}` | Key does not exist or was already revoked |
+| `409` | `{"code": "last_platform_admin_key"}` | The key is the last live platform admin key. Make another one first. |
 | `500` | `{"error": "failed to revoke API key"}` | Database error |
 
 ### POST /v1/tenants/{tenant_id}/keys
@@ -347,6 +355,7 @@ Create an API key scoped to a specific tenant. Only `is_admin` (god-mode) keys c
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
 | `role` | string | yes | Key role: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. Give `"agent"` to the key of an execution agent. |
+| `platform_admin` | boolean | no | Must be absent or `false`: a tenant key is never a platform admin key. `true` answers `400`. |
 
 **Response:** `201 Created`
 
@@ -2315,14 +2324,18 @@ been removed.
 
 ### Bootstrap key
 
-- On first startup with no API keys in the database, the server
-  generates an admin key (or uses `--bootstrap-key` /
-  `CLOACINA_BOOTSTRAP_KEY` if supplied) and writes the plaintext to
-  `~/.cloacina/bootstrap-key` with mode `0600`. **The plaintext is
-  written exactly once and never logged.** Capture it from the file;
-  there is no way to retrieve it later.
-- On subsequent startups, the bootstrap path is skipped if any keys
-  exist. There is no automatic re-bootstrap.
+- At a start with no live platform admin key (unrevoked, unexpired,
+  `is_admin = true`) in the database, the server makes a platform
+  admin key (or uses `--bootstrap-key` / `CLOACINA_BOOTSTRAP_KEY` if
+  supplied) and writes the plaintext to `~/.cloacina/bootstrap-key`
+  with mode `0600`, over an older file. **The plaintext is never
+  logged.** Capture it from the file; there is no way to retrieve it
+  later.
+- While a live platform admin key exists, the bootstrap path is
+  skipped. Tenant keys do not count.
+- Rotate the bootstrap key with `POST /v1/auth/keys` and
+  `"platform_admin": true`, then revoke it. The server refuses to
+  revoke the last live platform admin key (`409`).
 
 ### Signature verification
 

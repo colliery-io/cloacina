@@ -121,8 +121,17 @@ Before this setting a chart install ran every task in the server process
 
 ## Pinning the bootstrap API key
 
-By default, `cloacina-server` generates a random admin API key on first
-start and prints it to stdout. To pin one:
+By default, `cloacina-server` generates a random platform admin API key
+on first start and writes it to `/home/cloacina/.cloacina/bootstrap-key`
+in the pod that logged `Bootstrap admin key written`. The key is not
+logged. The home is an `emptyDir`: the file is lost when the pod
+restarts, so read it at once:
+
+```sh
+kubectl exec <pod> -- cat /home/cloacina/.cloacina/bootstrap-key
+```
+
+To pin one instead:
 
 ```sh
 kubectl create secret generic cloacina-bootstrap \
@@ -137,6 +146,12 @@ helm upgrade --install cloacina \
 
 The chart wires the secret into the container as
 `CLOACINA_BOOTSTRAP_KEY`.
+
+Then rotate the key: make a second platform admin key with
+`cloacinactl key create <name> --platform-admin`, store it, revoke the
+bootstrap key, and drop `apiKeySecretRef` and the Secret. A revoked
+value cannot be used again: a later bootstrap with it fails the start.
+See [Configure a multi-tenant deployment](../configure-multi-tenant-deployment/#5-rotate-the-bootstrap-key).
 
 ## Ingress + TLS
 

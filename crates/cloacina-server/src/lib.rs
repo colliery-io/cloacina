@@ -3002,24 +3002,31 @@ async fn shutdown_signal() {
     }
 }
 
-/// Bootstrap: create an admin API key on first startup if none exist.
+/// Bootstrap: create a platform admin API key at a start with no live
+/// platform admin key (CLOACINA-T-1065). Tenant keys do not count, so an
+/// operator who lost every platform admin key revokes them in the database
+/// and restarts.
 ///
-/// Writes the plaintext key to `~/.cloacina/bootstrap-key` with mode 0600.
-/// The key is never logged.
+/// Writes the plaintext key to `<home>/bootstrap-key` with mode 0600, over
+/// an older file. The key is never logged.
 async fn bootstrap_admin_key(
     state: &AppState,
     home: &std::path::Path,
     provided_key: Option<&str>,
 ) -> Result<()> {
     let dal = cloacina::dal::DAL::new(state.database.clone());
-    let has_keys = dal.api_keys().has_any_keys().await.unwrap_or(false);
+    let has_admin = dal
+        .api_keys()
+        .has_live_platform_admin_key()
+        .await
+        .context("Failed to look for a live platform admin key")?;
 
-    if has_keys {
-        info!("API keys exist — skipping bootstrap");
+    if has_admin {
+        info!("A live platform admin key exists — skipping bootstrap");
         return Ok(());
     }
 
-    info!("No API keys found — creating bootstrap admin key");
+    info!("No live platform admin key found — creating bootstrap admin key");
 
     let (plaintext, hash) = if let Some(key) = provided_key {
         // Use provided key
@@ -3033,7 +3040,14 @@ async fn bootstrap_admin_key(
     dal.api_keys()
         .create_key(&hash, "bootstrap-admin", None, true, "admin")
         .await
-        .context("Failed to create bootstrap admin key")?;
+        .with_context(|| {
+            if provided_key.is_some() {
+                "Failed to create bootstrap admin key. A CLOACINA_BOOTSTRAP_KEY value that \
+                 was used before (and revoked) cannot be used again: set a new value"
+            } else {
+                "Failed to create bootstrap admin key"
+            }
+        })?;
 
     // Write plaintext to file (never log it)
     let key_path = home.join("bootstrap-key");
@@ -3276,6 +3290,9 @@ mod tests {
 
     /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
     mod key_revocation_notice;
+
+    /// Platform admin keys: make, refuse, rotate (CLOACINA-T-1065).
+    mod platform_admin_keys;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 

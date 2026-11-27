@@ -7,6 +7,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.key_role import KeyRole
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="CreateKeyRequest")
 
@@ -24,16 +25,22 @@ class CreateKeyRequest:
             - `admin`: `write`, plus keys, accounts, secrets, the audit record and the
               fleet size of its tenant.
             - `agent`: act as an execution agent, and nothing else.
+        platform_admin (bool | Unset): `POST /auth/keys` only: make a platform admin key (no tenant, role
+            `admin`, the platform admin flag). Needs `role: admin`. The tenant
+            route refuses `true` with 400 (CLOACINA-T-1065).
     """
 
     name: str
     role: KeyRole
+    platform_admin: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
 
         role = self.role.value
+
+        platform_admin = self.platform_admin
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -43,6 +50,8 @@ class CreateKeyRequest:
                 "role": role,
             }
         )
+        if platform_admin is not UNSET:
+            field_dict["platform_admin"] = platform_admin
 
         return field_dict
 
@@ -53,9 +62,12 @@ class CreateKeyRequest:
 
         role = KeyRole(d.pop("role"))
 
+        platform_admin = d.pop("platform_admin", UNSET)
+
         create_key_request = cls(
             name=name,
             role=role,
+            platform_admin=platform_admin,
         )
 
         create_key_request.additional_properties = d

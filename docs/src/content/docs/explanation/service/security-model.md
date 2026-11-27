@@ -117,7 +117,7 @@ A key carries two pieces of authority: a **role** inside one tenant, and the **p
   - `write`: `read`, plus upload packages, run workflows, operate triggers, fire and pause reactors, inject into accumulators.
   - `admin`: `write`, plus the keys, local accounts, secrets, audit record and fleet size of its tenant.
   - `agent`: act as an execution agent, and nothing else. It cannot read the tenant's workflows, executions or events.
-- The **platform admin flag** passes every tenant check and every platform route: create and delete tenants, the global key routes, agent limits, agent pools. It grants every permission except `agent.act`: a key with the flag cannot register as an agent or take an agent's stream. The bootstrap key made on first start has the flag. No route makes a second key with the flag.
+- The **platform admin flag** passes every tenant check and every platform route: create and delete tenants, the global key routes, agent limits, agent pools. It grants every permission except `agent.act`: a key with the flag cannot register as an agent or take an agent's stream. The bootstrap key made on first start has the flag. A platform admin makes another key with the flag through `POST /v1/auth/keys` with `"platform_admin": true` (`cloacinactl key create --platform-admin`): no tenant, role `admin`, no expiry. No other route makes one. The server refuses to revoke the last live platform admin key (`409`).
 
 A key's role string that is not one of the four holds no permission: the key authenticates and every route answers `403`. The server logs each such key at start.
 
@@ -383,11 +383,14 @@ Object- or workflow-level authorization *within* a tenant is a deliberate non-go
 
 ### Bootstrap key invariants
 
-The first server startup is a chicken-and-egg situation — there's no key yet, and you need a key to create one. Cloacina solves it by **generating an `is_admin` bootstrap key on first startup if no API keys exist in the database**, writing the plaintext to `~/.cloacina/bootstrap-key` (mode 0600) exactly once.
+The first server startup is a chicken-and-egg situation — there's no key yet, and you need a key to create one. Cloacina solves it by **making an `is_admin` bootstrap key at a start when no live platform admin key exists**: no unrevoked, unexpired key with `is_admin = true`. Tenant keys do not count. The server writes the plaintext to `bootstrap-key` in its home (`~/.cloacina/bootstrap-key`, mode 0600).
 
-The invariant: the file is written *exactly* once. If `~/.cloacina/bootstrap-key` already exists, the server refuses to overwrite it. This prevents the "I restarted the server and now I have a different admin key in the file" surprise that would otherwise be a confusing footgun. Operators who lose the file must read the existing key from the database directly.
+- The file is written at each bootstrap, over an older file. A start that finds a live platform admin key writes nothing.
+- The database holds only a hash of the key. A lost file cannot be read back from it.
+- With `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) the server uses that value for the key and writes it to the file as well. A value that was used before cannot be used again, even after a revoke: the start fails and says to set a new value.
+- In the Helm chart the home is an `emptyDir`: the file is lost when the pod restarts. Read it from the pod that logged `Bootstrap admin key written`, or pin the key in a Secret (`apiKeySecretRef`), then rotate it.
 
-In production, set `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) to pin the initial key from a secrets manager rather than relying on the auto-generated path — the file write is then skipped.
+Rotate the bootstrap key after the first start: make a second platform admin key, store it, and revoke the bootstrap key. No restart is needed. If every platform admin key is lost, revoke the admin rows in the database and restart: the bootstrap runs again and tenant keys keep working. [Configure a multi-tenant deployment](../../../how-to/service/configure-multi-tenant-deployment/#5-rotate-the-bootstrap-key) gives the steps.
 
 ## Package signature verification
 

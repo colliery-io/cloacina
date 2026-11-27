@@ -305,6 +305,24 @@ impl Client {
             &CreateKeyRequest {
                 name: name.to_string(),
                 role,
+                platform_admin: false,
+            },
+        )
+        .await
+    }
+
+    /// Make a platform admin key: no tenant, role `admin`, the platform
+    /// admin flag. Needs a platform admin key (CLOACINA-T-1065).
+    pub async fn create_platform_admin_key(
+        &self,
+        name: &str,
+    ) -> Result<KeyCreatedResponse, ClientError> {
+        self.post_json(
+            "/v1/auth/keys",
+            &CreateKeyRequest {
+                name: name.to_string(),
+                role: KeyRole::Admin,
+                platform_admin: true,
             },
         )
         .await
@@ -335,6 +353,7 @@ impl Client {
             &CreateKeyRequest {
                 name: name.to_string(),
                 role,
+                platform_admin: false,
             },
         )
         .await

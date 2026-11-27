@@ -82,8 +82,9 @@ def sync_detailed(
 ) -> Response[ErrorBody | KeyCreatedResponse]:
     """POST /auth/keys — create a new API key.
 
-     Requires admin role. Non-admin keys cannot create keys with higher
-    permissions than their own (prevents privilege escalation).
+     Platform admin only (the route table). Without `platform_admin` the key
+    belongs to the tenant `public`. With `platform_admin: true` it is a
+    platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
     Returns the plaintext key exactly once. It cannot be retrieved again.
 
     Args:
@@ -116,8 +117,9 @@ def sync(
 ) -> ErrorBody | KeyCreatedResponse | None:
     """POST /auth/keys — create a new API key.
 
-     Requires admin role. Non-admin keys cannot create keys with higher
-    permissions than their own (prevents privilege escalation).
+     Platform admin only (the route table). Without `platform_admin` the key
+    belongs to the tenant `public`. With `platform_admin: true` it is a
+    platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
     Returns the plaintext key exactly once. It cannot be retrieved again.
 
     Args:
@@ -145,8 +147,9 @@ async def asyncio_detailed(
 ) -> Response[ErrorBody | KeyCreatedResponse]:
     """POST /auth/keys — create a new API key.
 
-     Requires admin role. Non-admin keys cannot create keys with higher
-    permissions than their own (prevents privilege escalation).
+     Platform admin only (the route table). Without `platform_admin` the key
+    belongs to the tenant `public`. With `platform_admin: true` it is a
+    platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
     Returns the plaintext key exactly once. It cannot be retrieved again.
 
     Args:
@@ -177,8 +180,9 @@ async def asyncio(
 ) -> ErrorBody | KeyCreatedResponse | None:
     """POST /auth/keys — create a new API key.
 
-     Requires admin role. Non-admin keys cannot create keys with higher
-    permissions than their own (prevents privilege escalation).
+     Platform admin only (the route table). Without `platform_admin` the key
+    belongs to the tenant `public`. With `platform_admin: true` it is a
+    platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
     Returns the plaintext key exactly once. It cannot be retrieved again.
 
     Args:

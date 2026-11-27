@@ -19,7 +19,8 @@ class KeyCreatedResponse:
         Attributes:
             created_at (str): RFC 3339 timestamp.
             id (str): Key UUID.
-            is_admin (bool): God-mode flag — never granted via the create endpoints.
+            is_admin (bool): Platform admin flag. Set only by `POST /auth/keys` with
+                `platform_admin: true`, and by the bootstrap.
             key (str): One-time plaintext API key.
             name (str):
             permissions (str): Role string: `read` | `write` | `admin` | `agent`.

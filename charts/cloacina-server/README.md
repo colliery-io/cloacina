@@ -226,6 +226,15 @@ The deployment uses a `RollingUpdate` strategy with `maxSurge=1` /
 `maxUnavailable=0`, so the old pod stays serving until the new one is
 ready.
 
+### Upgrade note: the bootstrap key and `apiKeySecretRef`
+
+The bootstrap now runs at a start with no live platform admin key, even
+when tenant keys exist (CLOACINA-T-1065). Rotate the bootstrap key with
+`cloacinactl key create <name> --platform-admin`, revoke the old key, then
+drop `apiKeySecretRef` and its Secret, or put a new value in it. A value
+that was used before cannot be used again: a bootstrap with it fails the
+start.
+
 ### Upgrade note: `/metrics` moves off the API port
 
 `metrics.enabled` and `metrics.networkPolicy.enabled` are now `true` by

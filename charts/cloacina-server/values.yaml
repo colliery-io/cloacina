@@ -121,9 +121,13 @@ postgresql:
 # ---------------------------------------------------------------------------
 # API key bootstrap
 #
-# On first start cloacina-server generates an admin API key and prints it
-# to stdout. To pin a known value, store it in a Secret and reference it
-# here — the chart wires it as CLOACINA_BOOTSTRAP_KEY.
+# On first start cloacina-server makes a platform admin API key and writes
+# it to /home/cloacina/.cloacina/bootstrap-key in the pod. It is not logged.
+# The home is an emptyDir, so the file is lost when the pod restarts: read
+# it at once, or pin a known value. To pin one, store it in a Secret and
+# reference it here — the chart wires it as CLOACINA_BOOTSTRAP_KEY. After
+# the first start, make a second platform admin key, revoke this one, and
+# drop the Secret (a revoked value cannot be used again).
 # ---------------------------------------------------------------------------
 apiKeySecretRef:
   name: ""
