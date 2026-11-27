@@ -58,11 +58,63 @@ async fn audit_rows_of(state: &AppState, token: &str, actor: &str) -> Vec<serde_
     body["items"].as_array().cloned().unwrap_or_default()
 }
 
-async fn upload_python_fixture(state: &AppState, token: &str) -> String {
-    delete_workflow_if_exists(state, token, "test-fixture-python", "1.0.0").await;
-    let package_data =
-        std::fs::read(fixture_path("python-workflow.cloacina")).expect("fixture file not found");
-    let (boundary, body_bytes) = multipart_file_body(&package_data);
+/// The Python fixture packed again under a package name that no other test
+/// run has: the archive bytes and the name (CLOACINA-T-1094).
+///
+/// The test database is shared and keeps its rows. An upload of bytes that a
+/// live row already has returns that row's id, and a package that was never
+/// built is not removed by the delete route. So the fixture as it is gets the
+/// package id of an earlier run, and the audit rows of that id are not all
+/// from this run. New bytes get a new package id.
+fn python_fixture_of_this_run() -> (Vec<u8>, String) {
+    use cloacina::cloacina_workflow_plugin::{fidius_core, unpack_limit};
+
+    let name = format!("audit-fixture-{}", uuid::Uuid::new_v4().simple());
+    let work = tempfile::tempdir().expect("temp dir");
+    let source =
+        unpack_limit::unpack_package(&fixture_path("python-workflow.cloacina"), work.path())
+            .expect("unpack the fixture");
+    let manifest_path = source.join("package.toml");
+    let manifest = std::fs::read_to_string(&manifest_path).expect("read package.toml");
+    let old_name = "name = \"test-fixture-python\"";
+    assert!(manifest.contains(old_name), "manifest: {manifest}");
+    std::fs::write(
+        &manifest_path,
+        manifest.replace(old_name, &format!("name = \"{name}\"")),
+    )
+    .expect("write package.toml");
+    let archive = work.path().join("of-this-run.cloacina");
+    fidius_core::package::pack_package(&source, Some(&archive)).expect("pack the fixture");
+    (std::fs::read(&archive).expect("read the archive"), name)
+}
+
+/// Remove the package row of this run and its stored archive. The package was
+/// never built, so the delete route leaves it; without this each run would
+/// leave one more pending package in the shared database.
+async fn remove_package_row(state: &AppState, package_id: &str) {
+    use diesel::RunQueryDsl;
+
+    // Parsed, so the text put in the statement is a UUID and nothing else.
+    let id = uuid::Uuid::parse_str(package_id).expect("package id is a UUID");
+    let conn = state
+        .database
+        .get_postgres_connection()
+        .await
+        .expect("connection");
+    conn.interact(move |conn| {
+        diesel::sql_query(format!(
+            "WITH gone AS (DELETE FROM workflow_packages WHERE id = '{id}' RETURNING registry_id) \
+             DELETE FROM workflow_registry WHERE id IN (SELECT registry_id FROM gone)"
+        ))
+        .execute(conn)
+    })
+    .await
+    .expect("interact")
+    .expect("remove the package row");
+}
+
+async fn upload_package(state: &AppState, token: &str, package_data: &[u8]) -> String {
+    let (boundary, body_bytes) = multipart_file_body(package_data);
     let req = axum::http::Request::builder()
         .method("POST")
         .uri("/v1/tenants/public/workflows")
@@ -84,20 +136,25 @@ async fn test_audit_upload_writes_a_row_and_names_the_uploader() {
     let state = test_state().await;
     let (token, key_name) = audit_test_key(&state, "admin", true).await;
 
-    let package_id = upload_python_fixture(&state, &token).await;
+    // A package of this run: its id is new, so every audit row of the id is
+    // a row of this run (CLOACINA-T-1094).
+    let (package_data, package_name) = python_fixture_of_this_run();
+    let package_id = upload_package(&state, &token, &package_data).await;
 
     let rows = audit_rows_of(&state, &token, &key_name).await;
-    let upload = rows
+    let uploads: Vec<_> = rows
         .iter()
-        .find(|r| r["action"] == "package.upload")
-        .expect("a package.upload row");
+        .filter(|r| r["action"] == "package.upload")
+        .collect();
+    assert_eq!(uploads.len(), 1, "one upload, one row: {rows:?}");
+    let upload = uploads[0];
     assert_eq!(upload["tenant_id"], "public");
     assert_eq!(upload["target_kind"], "package");
     assert_eq!(upload["target"], package_id.as_str());
     assert_eq!(upload["outcome"], "ok");
     assert_eq!(upload["actor_key_name"], key_name.as_str());
     assert!(upload["actor_identity"].is_null(), "a manual key has none");
-    assert_eq!(upload["detail"]["package_name"], "test-fixture-python");
+    assert_eq!(upload["detail"]["package_name"], package_name.as_str());
     assert_eq!(upload["detail"]["version"], "1.0.0");
     assert_eq!(
         upload["detail"]["content_hash"].as_str().map(str::len),
@@ -106,7 +163,8 @@ async fn test_audit_upload_writes_a_row_and_names_the_uploader() {
     // The package bytes are not in the row.
     assert!(upload["detail"].get("file").is_none());
 
-    // The package detail names the uploader, read from the audit record.
+    // The package detail names the uploader, read from the audit record: the
+    // actor of the first `package.upload` row of the package id.
     let (status, detail) = send_request(
         build_router(state.clone()),
         authed(
@@ -120,14 +178,16 @@ async fn test_audit_upload_writes_a_row_and_names_the_uploader() {
     assert_eq!(detail["uploaded_by"], key_name.as_str());
 
     // The delete is recorded too, by name and version.
-    delete_workflow_if_exists(&state, &token, "test-fixture-python", "1.0.0").await;
+    delete_workflow_if_exists(&state, &token, &package_name, "1.0.0").await;
     let rows = audit_rows_of(&state, &token, &key_name).await;
     let delete = rows
         .iter()
         .find(|r| r["action"] == "package.delete")
         .expect("a package.delete row");
-    assert_eq!(delete["target"], "test-fixture-python");
+    assert_eq!(delete["target"], package_name.as_str());
     assert_eq!(delete["detail"]["version"], "1.0.0");
+
+    remove_package_row(&state, &package_id).await;
 }
 
 /// Pause and resume of a schedule. The target is a trigger schedule made
