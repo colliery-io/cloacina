@@ -79,6 +79,7 @@ pub enum Permission {
     KeysManage,
     AccountsManage,
     SecretsManage,
+    TrustedKeysManage,
     AuditRead,
     AgentAct,
     TenantsManage,
@@ -89,7 +90,7 @@ pub enum Permission {
 
 impl Permission {
     /// Every permission, in the order of the docs table.
-    pub const ALL: [Permission; 27] = [
+    pub const ALL: [Permission; 28] = [
         Permission::SessionSelf,
         Permission::WsTicket,
         Permission::WorkflowsRead,
@@ -111,6 +112,7 @@ impl Permission {
         Permission::KeysManage,
         Permission::AccountsManage,
         Permission::SecretsManage,
+        Permission::TrustedKeysManage,
         Permission::AuditRead,
         Permission::AgentAct,
         Permission::TenantsManage,
@@ -143,6 +145,7 @@ impl Permission {
             Permission::KeysManage => "keys.manage",
             Permission::AccountsManage => "accounts.manage",
             Permission::SecretsManage => "secrets.manage",
+            Permission::TrustedKeysManage => "trusted_keys.manage",
             Permission::AuditRead => "audit.read",
             Permission::AgentAct => "agent.act",
             Permission::TenantsManage => "tenants.manage",
@@ -186,6 +189,9 @@ impl Permission {
                 "Create, list and disable local accounts; reset a password"
             }
             Permission::SecretsManage => "Read secret metadata; create, rotate and delete secrets",
+            Permission::TrustedKeysManage => {
+                "Add, list and revoke the tenant's trusted package-signing keys"
+            }
             Permission::AuditRead => "Read the audit record",
             Permission::AgentAct => {
                 "Act as an agent: register, heartbeat, top up one-time keys, report a result, fetch packages; the `agent:<id>` stream"
@@ -259,6 +265,7 @@ const ADMIN: &[Permission] = &[
     Permission::KeysManage,
     Permission::AccountsManage,
     Permission::SecretsManage,
+    Permission::TrustedKeysManage,
     Permission::AuditRead,
 ];
 
@@ -887,6 +894,24 @@ pub fn build_authz_table() -> AuthzTable {
         delete.clone(),
         "/v1/tenants/{tenant_id}/secrets/{name}",
         Row::tenant(P::SecretsManage).audit(a::SECRET_DELETE, Some("name")),
+    );
+    // The keys a tenant trusts for package signing (CLOACINA-A-0018): the
+    // tenant admin manages them, and a platform admin for any tenant. The
+    // list needs the same permission as the writes, like API keys.
+    t.add(
+        post.clone(),
+        "/v1/tenants/{tenant_id}/trusted-keys",
+        Row::tenant(P::TrustedKeysManage).audit(a::TRUSTED_KEY_ADD, None),
+    );
+    t.add(
+        get.clone(),
+        "/v1/tenants/{tenant_id}/trusted-keys",
+        Row::tenant(P::TrustedKeysManage),
+    );
+    t.add(
+        delete.clone(),
+        "/v1/tenants/{tenant_id}/trusted-keys/{key_id}",
+        Row::tenant(P::TrustedKeysManage).audit(a::TRUSTED_KEY_REVOKE, Some("key_id")),
     );
     t.add(
         post.clone(),
@@ -2144,8 +2169,9 @@ mod tests {
         let table = build_authz_table();
         assert_eq!(table.faults(), Vec::<String>::new());
         // 76 rows before CLOACINA-T-1055, `POST /v1/agent/keys`, three
-        // WebSockets and seven public routes.
-        assert_eq!(table.len(), 87);
+        // WebSockets and seven public routes; the three trusted key routes
+        // of CLOACINA-T-1061.
+        assert_eq!(table.len(), 90);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()
@@ -2206,6 +2232,61 @@ mod tests {
         assert_eq!(table.get(&Method::GET, "/v1/totally/unknown"), None);
     }
 
+    /// CLOACINA-A-0018: the tenant admin manages the trusted keys of its
+    /// tenant, and a platform admin those of any tenant. No other role does.
+    #[test]
+    fn trusted_keys_are_for_the_tenant_admin_and_the_platform_admin() {
+        let p = Permission::TrustedKeysManage;
+        assert_eq!(p.name(), "trusted_keys.manage");
+        assert!(Role::Admin.grants(p));
+        for role in [Role::Read, Role::Write, Role::Agent] {
+            assert!(!role.grants(p), "{} holds {}", role.as_str(), p.name());
+        }
+
+        let table = build_authz_table();
+        for (method, path, audit) in [
+            (
+                Method::POST,
+                "/v1/tenants/{tenant_id}/trusted-keys",
+                Some(actions::TRUSTED_KEY_ADD),
+            ),
+            (Method::GET, "/v1/tenants/{tenant_id}/trusted-keys", None),
+            (
+                Method::DELETE,
+                "/v1/tenants/{tenant_id}/trusted-keys/{key_id}",
+                Some(actions::TRUSTED_KEY_REVOKE),
+            ),
+        ] {
+            let row = table
+                .get(&method, path)
+                .unwrap_or_else(|| panic!("{method} {path} has no row"));
+            assert_eq!(row.scope, Scope::TenantPath, "{method} {path}");
+            assert_eq!(row.need, Need::Permission(p), "{method} {path}");
+            assert_eq!(row.credential, Credential::Bearer, "{method} {path}");
+            match (row.audit, audit) {
+                (Audit::Action { action, .. }, Some(want)) => assert_eq!(action, want),
+                (Audit::Read, None) => {}
+                (got, _) => panic!("{method} {path}: audit {got:?}"),
+            }
+        }
+
+        // The path names the tenant `acme`.
+        let scope = ResolvedScope::Tenant("acme".into());
+        let permit = |role: &str, tenant: Option<&str>, flag: bool| {
+            evaluate(&principal(role, tenant, flag), &scope, p).is_permit()
+        };
+        assert!(permit("admin", Some("acme"), false));
+        // A platform admin, for any tenant, whatever its role string.
+        assert!(permit("admin", None, true));
+        assert!(permit("read", Some("other"), true));
+        // The admin of another tenant, and a key with no tenant.
+        assert!(!permit("admin", Some("other"), false));
+        assert!(!permit("admin", None, false));
+        for role in ["read", "write", "agent", "owner"] {
+            assert!(!permit(role, Some("acme"), false), "{role}");
+        }
+    }
+
     #[test]
     fn every_route_that_changes_state_names_its_audit_row() {
         let table = build_authz_table();
@@ -2223,8 +2304,9 @@ mod tests {
         }
         // 29 before CLOACINA-T-1055; plus reactor fire, accumulator inject,
         // the accumulator connect, agent register, agent key top-up, the two
-        // logins and logout.
-        assert_eq!(audited, 37);
+        // logins and logout; the add and the revoke of a trusted key
+        // (CLOACINA-T-1061).
+        assert_eq!(audited, 39);
         unaudited.sort();
         assert_eq!(
             unaudited,

@@ -47,6 +47,7 @@ pub mod reactor;
 pub mod secrets;
 pub mod tenants;
 pub mod triggers;
+pub mod trusted_keys;
 pub mod workflows;
 
 pub use audit::{AuditEventInfo, AuditListResponse, ListAuditQuery};
@@ -89,6 +90,7 @@ pub use triggers::{
     TriggerDetailResponse, TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo,
     TriggerScheduleSummary,
 };
+pub use trusted_keys::{AddTrustedKeyRequest, TrustedKeyRevokedResponse, TrustedKeySummary};
 pub use workflows::{
     WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
     WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,

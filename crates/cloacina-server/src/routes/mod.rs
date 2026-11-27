@@ -36,5 +36,6 @@ pub mod secrets;
 pub mod session;
 pub mod tenants;
 pub mod triggers;
+pub mod trusted_keys;
 pub mod workflows;
 pub mod ws;
