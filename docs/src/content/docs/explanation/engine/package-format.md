@@ -86,7 +86,9 @@ platform, and `vendor/<platform>/`. The uploaded archive is not changed. A
 server or an agent that loads the package gets the set of its own platform and
 unpacks it into `vendor/<platform>/`; it gets no set of another platform. The
 compiler refuses a package that has dependencies and no lock file, and a lock
-file that holds more than pinned versions with hashes.
+file that holds more than pinned versions with hashes. The server refuses such
+an upload with the same checks, before it stores anything (code
+`python_dependencies_not_locked`), and so does `cloacinactl package validate`.
 
 **The package ships `vendor/`.** `cloacinactl package build --vendor` also
 writes:

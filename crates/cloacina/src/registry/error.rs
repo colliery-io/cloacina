@@ -64,6 +64,15 @@ pub enum RegistryError {
         reason: String,
     },
 
+    /// A Python package declares dependencies that no valid lock file pins,
+    /// and ships no `vendor/` folder: the compiler cannot build it
+    /// (CLOACINA-T-1097). The reason is the text of the compiler's own check.
+    #[error("{reason}")]
+    PythonDependenciesNotLocked {
+        /// The check's error: names the missing lock file or the bad line
+        reason: String,
+    },
+
     /// Metadata extraction from package failed.
     #[error("Failed to extract metadata from package: {reason}")]
     MetadataExtractionError {
