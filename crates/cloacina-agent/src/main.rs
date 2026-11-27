@@ -349,10 +349,10 @@ async fn connect_and_serve(
             .await
             .context("mint WS ticket")?;
         let ws_url = ws_url_for(server_base, &agent_id, &ticket)?;
-        info!(ws_url = %ws_url, "connecting to substrate delivery WS");
+        info!(ws_url = %without_query(&ws_url), "connecting to substrate delivery WS");
         let (stream, _resp) = tokio_tungstenite::connect_async(&ws_url)
             .await
-            .with_context(|| format!("WS connect to {}", ws_url))?;
+            .with_context(|| format!("WS connect to {}", without_query(&ws_url)))?;
         info!(agent_id = %agent_id, "substrate WS connected");
         receive_loop(
             stream,
@@ -2200,6 +2200,12 @@ fn ws_url_for(server: &str, agent_id: &str, ticket: &str) -> Result<String> {
     ))
 }
 
+/// The URL with its query removed, for logs and error text: the query of the
+/// delivery WebSocket URL is `?token=<ticket>`, a credential (CLOACINA-T-1040).
+fn without_query(url: &str) -> &str {
+    url.split_once('?').map_or(url, |(base, _)| base)
+}
+
 fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max { s } else { &s[..max] }
 }
@@ -2640,6 +2646,23 @@ mod tests {
         assert_eq!(
             url,
             "ws://localhost:8080/v1/ws/delivery/agent%3Aabc?token=tk"
+        );
+    }
+
+    #[test]
+    fn without_query_removes_the_ticket_from_the_ws_url() {
+        let url = ws_url_for("https://api.example.com:8443", "abc-123", "tk-secret").unwrap();
+        let logged = without_query(&url);
+        assert_eq!(
+            logged,
+            "wss://api.example.com:8443/v1/ws/delivery/agent%3Aabc-123"
+        );
+        assert!(!logged.contains("token"));
+        assert!(!logged.contains("tk-secret"));
+        // A URL with no query is unchanged.
+        assert_eq!(
+            without_query("ws://localhost:8080/v1/x"),
+            "ws://localhost:8080/v1/x"
         );
     }
 

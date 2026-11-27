@@ -288,6 +288,9 @@ fn default_home() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // CLOACINA-T-1030: before any TLS client is built (kube, OIDC, webhook).
+    cloacina_server::install_default_crypto_provider();
+
     let cli = Cli::parse();
 
     if let Some(Command::EmitOpenapi) = cli.command {

@@ -541,16 +541,13 @@ pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
 
 /// Extract the inner type T from Vec<T>.
 fn extract_vec_inner(ty: &Type) -> syn::Result<Type> {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            if segment.ident == "Vec" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                        return Ok(inner.clone());
-                    }
-                }
-            }
-        }
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && segment.ident == "Vec"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return Ok(inner.clone());
     }
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
@@ -560,16 +557,13 @@ fn extract_vec_inner(ty: &Type) -> syn::Result<Type> {
 
 /// Extract the inner type T from Option<T>.
 fn extract_option_inner(ty: &Type) -> syn::Result<Type> {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            if segment.ident == "Option" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                        return Ok(inner.clone());
-                    }
-                }
-            }
-        }
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && segment.ident == "Option"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return Ok(inner.clone());
     }
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
@@ -677,16 +671,13 @@ pub fn state_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Res
 
 /// Extract the inner type T from VecDeque<T>.
 fn extract_vecdeque_inner(ty: &Type) -> syn::Result<Type> {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            if segment.ident == "VecDeque" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
-                        return Ok(inner.clone());
-                    }
-                }
-            }
-        }
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && segment.ident == "VecDeque"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return Ok(inner.clone());
     }
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
