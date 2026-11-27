@@ -866,6 +866,7 @@ name = "cloacina-compiler"
 version = "0.12.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "clap",
  "cloacina",

@@ -1014,4 +1014,307 @@ static T1074_MARK: extern "C" fn() = {{
         assert_eq!(registry.build_queue_stats().await.unwrap().undescribed, 0);
         assert_eq!(describe_pass(&registry, &config).await, 0);
     }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1075: the server loads from the document only
+    // -----------------------------------------------------------------------
+
+    use cloacina::registry::{
+        CronWorkflowRegistrar, PackageLoadMode, ReconcilerConfig, RegistryReconciler,
+    };
+
+    /// A cron registrar that records each schedule.
+    #[derive(Default)]
+    struct RecordedSchedules {
+        cron: std::sync::Mutex<Vec<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl CronWorkflowRegistrar for RecordedSchedules {
+        async fn register_cron_workflow(
+            &self,
+            workflow_name: &str,
+            cron_expression: &str,
+            _timezone: &str,
+        ) -> Result<String, String> {
+            let mut cron = self.cron.lock().unwrap();
+            cron.push((workflow_name.to_string(), cron_expression.to_string()));
+            Ok(format!("schedule-{}", cron.len()))
+        }
+        async fn unregister_cron_workflow(&self, _schedule_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    /// A reconciler of the tenant `public` over `registry`, in `mode`, with
+    /// its own empty runtime.
+    fn reconciler(
+        registry: Arc<Registry>,
+        mode: PackageLoadMode,
+        schedules: Arc<RecordedSchedules>,
+    ) -> (RegistryReconciler, Arc<Runtime>) {
+        let config = ReconcilerConfig {
+            default_tenant_id: "public".to_string(),
+            package_load_mode: mode,
+            ..ReconcilerConfig::default()
+        };
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let runtime = Arc::new(Runtime::empty());
+        let reconciler = RegistryReconciler::new(registry, config, rx)
+            .expect("create the reconciler")
+            .with_runtime(runtime.clone())
+            .with_cron_registrar(schedules);
+        (reconciler, runtime)
+    }
+
+    /// The process ids in a mark file. An absent file has none.
+    fn marks(path: &Path) -> Vec<u32> {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(|l| l.trim().parse().expect("a process id"))
+            .collect()
+    }
+
+    /// Build `archive` through the compiler (the describe child) and record
+    /// the build with its document.
+    async fn build_and_record(
+        registry: &mut Registry,
+        archive: Vec<u8>,
+        config: &CompilerConfig,
+    ) -> uuid::Uuid {
+        let id = register_and_claim(registry, archive).await;
+        let outcome = cloacina_compiler::execute_build(registry, id, config).await;
+        let BuildOutcome::Success {
+            artifact,
+            task_docs,
+            declared_params,
+            declared_surfaces,
+            document,
+        } = outcome
+        else {
+            match outcome {
+                BuildOutcome::Failed(reason) => panic!("the build failed: {reason}"),
+                _ => panic!("the build did not finish"),
+            }
+        };
+        let document = document.expect("the build gives a document");
+        registry
+            .mark_build_success_described(
+                id,
+                artifact,
+                &document,
+                task_docs,
+                declared_params,
+                declared_surfaces,
+            )
+            .await
+            .expect("record the build");
+        id
+    }
+
+    /// Copy a fixture folder of `examples/fixtures`, with `extra` added to the
+    /// end of the file `module` (a path in the fixture).
+    fn stage_fixture_with(fixture: &str, module: &str, extra: &str) -> tempfile::TempDir {
+        fn copy_dir(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for entry in std::fs::read_dir(from).unwrap() {
+                let entry = entry.unwrap();
+                let target = to.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    copy_dir(&entry.path(), &target);
+                } else {
+                    std::fs::copy(entry.path(), &target).unwrap();
+                }
+            }
+        }
+        let stage = tempfile::TempDir::new().unwrap();
+        copy_dir(
+            &workspace_root().join("examples/fixtures").join(fixture),
+            stage.path(),
+        );
+        let file = stage.path().join(module);
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.push_str(extra);
+        std::fs::write(&file, text).unwrap();
+        stage
+    }
+
+    /// With the metadata-only load, the reconciler in this process never
+    /// opens a tenant's library: a library whose load-time code appends the
+    /// process id holds the describe child's id and never this one. Its
+    /// tasks and workflow are registered from the document. With the
+    /// in-process load (single trust), the same package is opened here, as
+    /// today.
+    #[tokio::test]
+    #[serial]
+    async fn metadata_only_load_never_opens_the_library() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("opened-by.txt");
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, marking_package(&mark), &config).await;
+        let described_by = marks(&mark);
+        assert!(!described_by.is_empty(), "the describe child opened it");
+        assert!(!described_by.contains(&std::process::id()));
+        let registry = Arc::new(registry);
+
+        let (metadata_only, runtime) = reconciler(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            Arc::default(),
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process opened the tenant's library"
+        );
+        let ns = cloacina::TaskNamespace::new(
+            "public",
+            "compiler-happy-rust",
+            "compiler_happy_workflow",
+            "noop",
+        );
+        let task = runtime.get_task(&ns).expect("the task, from the document");
+        assert_eq!(task.retry_policy().max_attempts, 0);
+        assert!(runtime.get_workflow("compiler_happy_workflow").is_some());
+
+        // Single trust: today's in-process load opens it in this process.
+        let (in_process, runtime) =
+            reconciler(registry.clone(), PackageLoadMode::InProcess, Arc::default());
+        let result = in_process.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            marks(&mark).contains(&std::process::id()),
+            "the in-process load opens the library here"
+        );
+        assert!(runtime.get_task(&ns).is_some());
+    }
+
+    /// With the metadata-only load, the reconciler never imports a tenant's
+    /// Python package, also with a Python runtime in the process: a module
+    /// whose import appends the process id holds only the describe child's
+    /// id. The tasks, the workflow and the cron schedule come from the
+    /// document. With the in-process load the module is imported here.
+    #[tokio::test]
+    #[serial]
+    async fn metadata_only_load_never_imports_the_python_package() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("imported-by.txt");
+        let import_mark = format!(
+            "\n\nimport os as _t1075_os\nwith open({:?}, \"a\") as _t1075_f:\n    \
+             _t1075_f.write(f\"{{_t1075_os.getpid()}}\\n\")\n",
+            mark.display().to_string()
+        );
+        let stage = stage_fixture_with(
+            "demo-py-cron",
+            "workflow/demo_py_cron/tasks.py",
+            &import_mark,
+        );
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+        let described_by = marks(&mark);
+        assert!(!described_by.is_empty(), "the describe child imported it");
+        assert!(!described_by.contains(&std::process::id()));
+        let registry = Arc::new(registry);
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+
+        let schedules = Arc::new(RecordedSchedules::default());
+        let (metadata_only, runtime) = reconciler(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            schedules.clone(),
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process imported the tenant's package"
+        );
+        let workflow = runtime
+            .get_workflow("demo_py_cron_workflow")
+            .expect("the workflow, from the document");
+        assert_eq!(workflow.get_task_ids().len(), 4);
+        let audit = runtime
+            .get_task(&cloacina::TaskNamespace::new(
+                "public",
+                "demo-py-cron",
+                "demo_py_cron_workflow",
+                "py_audit",
+            ))
+            .expect("py_audit");
+        assert_ne!(audit.trigger_rules(), serde_json::json!({"type": "Always"}));
+        assert_eq!(
+            schedules.cron.lock().unwrap().as_slice(),
+            &[(
+                "demo_py_cron_workflow".to_string(),
+                "*/15 * * * * *".to_string()
+            )]
+        );
+
+        // Single trust: today's in-process load imports it in this process.
+        let (in_process, _runtime) =
+            reconciler(registry.clone(), PackageLoadMode::InProcess, Arc::default());
+        let result = in_process.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            marks(&mark).contains(&std::process::id()),
+            "the in-process load imports the package here"
+        );
+    }
+
+    /// A built package with no document (a build of a compiler before the
+    /// document) does not load in the metadata-only mode, and its row is not
+    /// changed; the in-process load still loads it.
+    #[tokio::test]
+    #[serial]
+    async fn a_package_with_no_document_does_not_load_from_metadata() {
+        let mut registry = sqlite_registry().await;
+        let id = register_and_claim(&mut registry, fixture_archive("demo-py-workflow")).await;
+        registry.mark_build_success(id, Vec::new()).await.unwrap();
+        let registry = Arc::new(registry);
+
+        let (metadata_only, runtime) = reconciler(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            Arc::default(),
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert!(result.packages_loaded.is_empty());
+        assert_eq!(result.packages_failed.len(), 1);
+        assert!(
+            result.packages_failed[0]
+                .1
+                .contains("no metadata document yet"),
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(runtime.task_namespaces().is_empty());
+        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
+        assert_eq!(inspected.build_status, "success");
+    }
 }
