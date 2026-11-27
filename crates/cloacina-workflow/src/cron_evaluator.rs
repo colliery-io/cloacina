@@ -23,7 +23,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use cloacina::cron_evaluator::CronEvaluator;
+//! use cloacina_workflow::cron_evaluator::CronEvaluator;
 //! use chrono::{DateTime, Utc};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -95,7 +95,7 @@ const PREVIOUS_SEARCH_MAX_WALK: usize = 10_000;
 /// # Examples
 ///
 /// ```rust
-/// use cloacina::cron_evaluator::CronEvaluator;
+/// use cloacina_workflow::cron_evaluator::CronEvaluator;
 /// use chrono::Utc;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -134,7 +134,7 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
-    /// use cloacina::cron_evaluator::CronEvaluator;
+    /// use cloacina_workflow::cron_evaluator::CronEvaluator;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// // Daily at 9 AM Eastern Time
@@ -178,7 +178,7 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
-    /// use cloacina::cron_evaluator::CronEvaluator;
+    /// use cloacina_workflow::cron_evaluator::CronEvaluator;
     /// use chrono::Utc;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -315,7 +315,7 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
-    /// use cloacina::cron_evaluator::CronEvaluator;
+    /// use cloacina_workflow::cron_evaluator::CronEvaluator;
     /// use chrono::Utc;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -365,7 +365,7 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
-    /// use cloacina::cron_evaluator::CronEvaluator;
+    /// use cloacina_workflow::cron_evaluator::CronEvaluator;
     /// use chrono::{Duration, Utc};
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -468,7 +468,7 @@ impl FromStr for CronEvaluator {
     /// # Examples
     ///
     /// ```rust
-    /// use cloacina::cron_evaluator::CronEvaluator;
+    /// use cloacina_workflow::cron_evaluator::CronEvaluator;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator: CronEvaluator = "0 9 * * *@America/New_York".parse()?;
