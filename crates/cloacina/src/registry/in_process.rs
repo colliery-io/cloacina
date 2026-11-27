@@ -199,7 +199,11 @@ pub fn refused_on_server(
     overrides: &[AccumulatorConfig],
 ) -> Vec<InProcessReason> {
     let mut merged = in_process_reasons(document, overrides);
-    for recorded in document.in_process.iter().filter(|r| r.kind != POLL_TRIGGER) {
+    for recorded in document
+        .in_process
+        .iter()
+        .filter(|r| r.kind != POLL_TRIGGER)
+    {
         match merged.iter_mut().find(|r| r.kind == recorded.kind) {
             Some(reason) => {
                 reason.names.extend(recorded.names.iter().cloned());
