@@ -385,6 +385,9 @@ The deployment uses `RollingUpdate` with `maxSurge=1` /
 `maxUnavailable=0`, so the existing pod stays serving until the new
 one is healthy. Database migrations run on container start; the
 startup probe gives the new pod up to 5 minutes (60 × 5s) to come up.
+Pods that start together run the migrations once: they run under a
+PostgreSQL advisory lock, and a pod that waited for the lock finds
+nothing left to do.
 
 ## Uninstall
 

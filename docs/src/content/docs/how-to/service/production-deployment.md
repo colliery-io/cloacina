@@ -214,13 +214,15 @@ upgrade like this:
 
 1. **Back up the database first.** Run a fresh backup ([Back Up and Restore](../backup-and-restore/)) so you can roll back if a migration misbehaves.
 2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.12.0`), never `:latest`, so the rollout is reproducible.
-3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed.
+3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed. The pending migrations run in one transaction under a PostgreSQL advisory lock: replicas that start together run them once (the others wait, then find nothing to do), and a migration that fails rolls back all of them and leaves the schema as it was. The start migrates the `public` schema; a tenant's schema gets its migrations when the tenant is created.
 4. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
 
 **Downtime note:** a single-replica server has a brief gap between stop and ready.
 For zero-downtime, run multiple replicas against one PostgreSQL database (see
 [Horizontal Scaling](../../../explanation/service/horizontal-scaling/)) and
 roll them one at a time behind the proxy.
+
+**Upgrade note, cron schedules:** migration 060 adds a unique index on cron schedules: one schedule per workflow, cron expression and timezone (named instances are not in it). Where a schema holds the same schedule more than once, the migration keeps the row with the latest `last_run_at`, moves the fire records (`schedule_executions`) of the other rows to it with one record per fire time, and deletes the other rows. Run history (`workflow_executions`) is not changed.
 
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore
