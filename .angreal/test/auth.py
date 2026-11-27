@@ -309,7 +309,7 @@ def auth_integration_test():
 
         # Create a tenant-scoped key via bootstrap (admin)
         s, body = api_request("POST", f"{base_url}/v1/tenants/public/keys", token=token,
-                              data={"name": "public-tenant-key"})
+                              data={"name": "public-tenant-key", "role": "admin"})
         check("create tenant-scoped key", s == 201, f"got {s}")
         tenant_key = body.get("key", "")
         if s == 201:
@@ -333,7 +333,7 @@ def auth_integration_test():
 
         # Create a key to revoke
         s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
-                              data={"name": "to-revoke"})
+                              data={"name": "to-revoke", "role": "read"})
         revoke_key_token = body.get("key", "")
         revoke_key_id = body.get("id", "")
 
@@ -401,7 +401,7 @@ def auth_integration_test():
             s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=tenant_key)
             check("LEAK FIX: tenant key → global GET /auth/keys → 403", s == 403, f"got {s}")
             s, _ = api_request("POST", f"{base_url}/v1/auth/keys", token=tenant_key,
-                               data={"name": "leak-attempt"})
+                               data={"name": "leak-attempt", "role": "admin"})
             check("LEAK FIX: tenant key → global POST /auth/keys → 403", s == 403, f"got {s}")
             # but it CAN manage its own tenant's keys
             s, _ = api_request("GET", f"{base_url}/v1/tenants/public/keys", token=tenant_key)

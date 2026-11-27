@@ -128,6 +128,8 @@ async fn test_an_agent_key_reaches_the_agent_routes_and_nothing_else() {
         ("GET", "/v1/tenants/public/fleet"),
         ("GET", "/v1/tenants/public/keys"),
         ("POST", "/v1/tenants/public/workflows/x/execute"),
+        ("GET", "/v1/tenants/public/workflows/x/backfills"),
+        ("POST", "/v1/tenants/public/workflows/x/backfills"),
         ("GET", "/v1/health/graphs"),
         ("POST", "/v1/health/reactors/x/fire"),
         ("POST", "/v1/health/accumulators/x/inject"),
@@ -209,6 +211,51 @@ async fn test_read_cannot_fire_inject_or_push_and_write_can() {
     // The refusals are in the audit record.
     let rows = audit_rows_of(&state, &admin, &reader_name).await;
     for action in ["reactor.fire", "accumulator.inject", "accumulator.connect"] {
+        let row = rows
+            .iter()
+            .find(|r| r["action"] == action)
+            .unwrap_or_else(|| panic!("no {action} row"));
+        assert_eq!(row["outcome"], "denied");
+        assert_eq!(row["detail"]["reason"], "insufficient_role");
+    }
+}
+
+/// Backfills (CLOACINA-T-1020): `read` lists and reads one; create, cancel
+/// and retry ask `workflows.run`, which `write` holds.
+#[tokio::test]
+#[serial]
+async fn test_read_cannot_create_cancel_or_retry_a_backfill_and_write_can() {
+    let state = test_state().await;
+    let (reader, reader_name) = key_of(&state, "read", Some("public"), false).await;
+    let (writer, _) = key_of(&state, "write", Some("public"), false).await;
+    let (admin, _) = key_of(&state, "admin", Some("public"), false).await;
+    let base = "/v1/tenants/public/workflows/no-such-workflow/backfills";
+    let id = uuid::Uuid::new_v4();
+
+    for uri in [
+        base.to_string(),
+        format!("{base}/{id}/cancel"),
+        format!("{base}/{id}/retry"),
+    ] {
+        let answer = answer_of(&state, "POST", &uri, &reader).await;
+        assert!(refused_for_role(&answer), "read: POST {uri}: {answer:?}");
+        let answer = answer_of(&state, "POST", &uri, &writer).await;
+        assert!(passed(&answer), "write: POST {uri}: {answer:?}");
+    }
+    // A reader lists and reads one (there is none under this id).
+    for uri in [base.to_string(), format!("{base}/{id}")] {
+        let answer = answer_of(&state, "GET", &uri, &reader).await;
+        assert!(passed(&answer), "read: GET {uri}: {answer:?}");
+    }
+    // A key of another tenant is refused for the tenant, whatever its role.
+    let (other, _) = key_of(&state, "admin", Some("acme"), false).await;
+    let answer = answer_of(&state, "POST", base, &other).await;
+    assert_eq!(answer.0, StatusCode::FORBIDDEN, "{answer:?}");
+    assert_eq!(answer.1["code"], "tenant_access_denied", "{answer:?}");
+
+    // The refusals are in the audit record.
+    let rows = audit_rows_of(&state, &admin, &reader_name).await;
+    for action in ["backfill.create", "backfill.cancel", "backfill.retry"] {
         let row = rows
             .iter()
             .find(|r| r["action"] == action)
