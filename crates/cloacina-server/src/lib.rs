@@ -949,6 +949,25 @@ pub async fn run(
             tracing::error!("{e}");
             anyhow::anyhow!(e)
         })?;
+    // CLOACINA-T-1071: rewrite stored secrets once in the form bound to their
+    // tenant and name. Without a KEK no secret can be read, so there is
+    // nothing to rewrite.
+    match cloacina::security::SecretStoreResolver::kek_from_env() {
+        Ok(kek) => {
+            startup_migrations::bind_secrets_at_start(
+                &admin_database,
+                &database_url,
+                startup_migrations::TenantSchemas::All,
+                &kek,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("{e}");
+                anyhow::anyhow!(e)
+            })?;
+        }
+        Err(e) => info!("stored secrets not checked for the bound form: {e}"),
+    }
     // CLOACINA-T-1027: each runner's reconciler asks this check when it loads
     // a package: a task that names an agent pool the tenant does not have, or
     // requests more than one agent of its pool can hold, refuses the package.
