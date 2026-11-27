@@ -256,6 +256,8 @@ roll them one at a time behind the proxy.
 - Rollback: the previous version cannot read rewritten secrets. Restore the pre-upgrade backup from step 1, or create the secrets again.
 - An embedded program that stores secrets with `SecretStore` calls `SecretStore::bind_stored_rows(org_id, kek)` once for each `org_id` it uses before it reads them.
 
+**Upgrade note, graph firings with the fleet:** with `--default-executor fleet`, a computation-graph firing that no agent takes now fails with its reason (no owning package, no agent with room in the tenant, a refusal of the agent, an enqueue error). Before, the server ran such a firing in its own process. A tenant with graphs and no live agent sees its firings fail, also during a short gap such as a roll of the agent pool; each failure is in the reactor's recent fires. A server that cannot build the fleet graph executor at start no longer starts.
+
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore
 the pre-upgrade backup from step 1.

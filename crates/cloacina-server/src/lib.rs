@@ -1659,8 +1659,10 @@ pub async fn run(
 
         // CLOACI-T-0722: computation-graph firings also dispatch to the fleet.
         // The scheduler's default in-process executor is swapped for the fleet
-        // one; every fire event still carries the compiled closure, so
-        // undispatched graphs (embedded, Python, no agent) fall back in-process.
+        // one. A firing no agent takes fails with its reason; the server does
+        // not run it (CLOACINA-T-1076). If the fleet graph executor cannot be
+        // built the server does not start, so firings never fall back to the
+        // in-process executor.
         let storage =
             cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage::new(
                 state.database.clone(),
@@ -1690,10 +1692,10 @@ pub async fn run(
                     .await;
                 info!("Fleet GRAPH executor installed on the CG scheduler (CLOACI-T-0722)");
             }
-            Err(e) => warn!(
-                "Fleet graph executor NOT installed (registry init failed: {}); \
-                 CG firings stay in-process",
-                e
+            Err(e) => anyhow::bail!(
+                "the fleet graph executor could not be built (registry init failed: {e}); \
+                 with --default-executor fleet the server does not run graph firings \
+                 in its process"
             ),
         }
     }
@@ -3313,6 +3315,10 @@ mod tests {
 
     /// Two tenants never share a Kubernetes namespace (CLOACINA-T-1070).
     mod tenant_namespace;
+
+    /// A graph firing with no agent fails; it does not run in the server
+    /// (CLOACINA-T-1076).
+    mod graph_firing_fallback;
 
     /// The build role of a tenant's compiler (CLOACINA-T-1063).
     mod build_role;
