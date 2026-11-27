@@ -35,10 +35,10 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, anyhow};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cloacina::cloacina_workflow::Trigger;
 use cloacina::fleet::{
     AgentOutcome, FailureClassification, PollWorkPacket, RefusalReason, WorkPacket, poll_outcome,
 };
-use cloacina::cloacina_workflow::Trigger;
 
 /// Read the packet of an `agent_poll` push.
 pub(crate) fn decode_poll_packet(env: &serde_json::Value) -> Result<PollWorkPacket> {
@@ -49,7 +49,8 @@ pub(crate) fn decode_poll_packet(env: &serde_json::Value) -> Result<PollWorkPack
     let bytes = BASE64
         .decode(b64)
         .with_context(|| "decode base64 payload")?;
-    serde_json::from_slice::<PollWorkPacket>(&bytes).with_context(|| "deserialize PollWorkPacket JSON")
+    serde_json::from_slice::<PollWorkPacket>(&bytes)
+        .with_context(|| "deserialize PollWorkPacket JSON")
 }
 
 /// What the agent does with a poll packet before it runs it.

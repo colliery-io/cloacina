@@ -1421,7 +1421,9 @@ pub async fn t1077_marking_poll() -> Result<cloacina_workflow::TriggerResult, cl
         let built = fixture_target_dir()
             .join("debug")
             .join(format!("libcompiler_happy_rust.{}", library_extension()));
-        let library = home.path().join(format!("agent-copy.{}", library_extension()));
+        let library = home
+            .path()
+            .join(format!("agent-copy.{}", library_extension()));
         std::fs::copy(&built, &library).expect("copy the built library");
         assert!(marks(&mark).is_empty(), "the describe child does not poll");
         let registry = Arc::new(registry);
@@ -1511,11 +1513,8 @@ pub async fn t1077_marking_poll() -> Result<cloacina_workflow::TriggerResult, cl
              return cloaca.TriggerResult.fire(cloaca.Context({{\"polled_by\": _t1077_os.getpid()}}))\n",
             mark = mark.display().to_string()
         );
-        let stage = stage_fixture_with(
-            "demo-py-cron",
-            "workflow/demo_py_cron/tasks.py",
-            &poll_code,
-        );
+        let stage =
+            stage_fixture_with("demo-py-cron", "workflow/demo_py_cron/tasks.py", &poll_code);
         let archive = pack_dir(stage.path());
         let config = test_config(home.path());
         let mut registry = sqlite_registry().await;

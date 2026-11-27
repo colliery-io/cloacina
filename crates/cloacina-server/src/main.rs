@@ -570,8 +570,7 @@ mod tests {
     fn the_poll_time_limit_defaults_to_30_seconds_and_refuses_0() {
         let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
         assert_eq!(cli.fleet_poll_timeout_s, 30);
-        let cli =
-            Cli::try_parse_from(["cloacina-server", "--fleet-poll-timeout-s", "5"]).unwrap();
+        let cli = Cli::try_parse_from(["cloacina-server", "--fleet-poll-timeout-s", "5"]).unwrap();
         assert_eq!(cli.fleet_poll_timeout_s, 5);
         assert!(cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(0).is_err());
     }

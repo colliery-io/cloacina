@@ -1087,7 +1087,8 @@ impl Scheduler {
             let err = TriggerError::TriggerNotFound {
                 name: trigger_name.to_string(),
             };
-            self.record_poll_error(schedule, Some(err.to_string())).await;
+            self.record_poll_error(schedule, Some(err.to_string()))
+                .await;
             metrics::counter!("cloacina_trigger_polls_total", "outcome" => "error").increment(1);
             return Err(err);
         };
@@ -2961,8 +2962,10 @@ mod tests {
             let schedule = poll_schedule(&runner, Duration::from_millis(100)).await;
 
             assert!(
-                wait_until(Duration::from_secs(15), || async { !contexts.lock().is_empty() })
-                    .await,
+                wait_until(Duration::from_secs(15), || async {
+                    !contexts.lock().is_empty()
+                })
+                .await,
                 "the workflow did not start (polls = {})",
                 stand_in.polls.load(Ordering::SeqCst)
             );
@@ -2978,7 +2981,12 @@ mod tests {
             let request = stand_in.requests.lock()[0].clone();
             assert_eq!(request.trigger_name, "watch_inbox");
             assert_eq!(request.package_name, "inbox-pkg");
-            let row = runner.dal().schedule().get_by_id(schedule.id).await.unwrap();
+            let row = runner
+                .dal()
+                .schedule()
+                .get_by_id(schedule.id)
+                .await
+                .unwrap();
             assert!(row.last_poll_error.is_none());
             runner.shutdown().await.expect("shutdown");
         }
@@ -3039,7 +3047,10 @@ mod tests {
                 .await
             );
             let reason = error_of(schedule.id).await.unwrap();
-            assert!(reason.contains("runs only on the tenant's agents"), "{reason}");
+            assert!(
+                reason.contains("runs only on the tenant's agents"),
+                "{reason}"
+            );
 
             // A fleet with no agent.
             let stand_in = StandIn::new(Answer::NoAgent);

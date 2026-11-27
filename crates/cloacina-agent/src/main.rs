@@ -917,10 +917,7 @@ async fn handle_text_frame(
                 guard.hand_over();
                 let cur = in_flight.load(Ordering::SeqCst);
                 if cur >= max_concurrency {
-                    warn!(
-                        in_flight = cur,
-                        max_concurrency, "saturated; refusing poll"
-                    );
+                    warn!(in_flight = cur, max_concurrency, "saturated; refusing poll");
                     spawn_poll_report(
                         http.clone(),
                         server.to_string(),
@@ -1542,7 +1539,9 @@ fn spawn_poll_worker(
         )
         .await;
         let outcome = match prepared {
-            poll::Prepared::Run(trigger) => Some(poll::run_poll(trigger, packet.timeout_seconds).await),
+            poll::Prepared::Run(trigger) => {
+                Some(poll::run_poll(trigger, packet.timeout_seconds).await)
+            }
             poll::Prepared::Answer(outcome) => Some(outcome),
             poll::Prepared::Late => None,
         };
@@ -1583,17 +1582,12 @@ fn spawn_poll_worker(
 /// Process-wide cache of the Rust poll triggers this agent opened, keyed by
 /// build digest and trigger name (CLOACINA-T-1077). The library is opened
 /// once per build, so a trigger keeps its state between polls on this agent.
-fn loaded_poll_triggers() -> &'static tokio::sync::Mutex<
+type PollTriggerCache = tokio::sync::Mutex<
     std::collections::HashMap<(String, String), Arc<dyn cloacina::cloacina_workflow::Trigger>>,
-> {
-    static CACHE: std::sync::OnceLock<
-        tokio::sync::Mutex<
-            std::collections::HashMap<
-                (String, String),
-                Arc<dyn cloacina::cloacina_workflow::Trigger>,
-            >,
-        >,
-    > = std::sync::OnceLock::new();
+>;
+
+fn loaded_poll_triggers() -> &'static PollTriggerCache {
+    static CACHE: std::sync::OnceLock<PollTriggerCache> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -1626,8 +1620,7 @@ async fn prepare_poll(
             } else {
                 let rt = Arc::new(cloacina::Runtime::new());
                 if let Err(out) =
-                    load_python_package(&load, &digest, http, server, api_key, cache_dir, &rt)
-                        .await
+                    load_python_package(&load, &digest, http, server, api_key, cache_dir, &rt).await
                 {
                     return poll::Prepared::Answer(out);
                 }
@@ -1646,17 +1639,16 @@ async fn prepare_poll(
     if let Some(trigger) = cache.get(&key) {
         return poll::Prepared::Run(trigger.clone());
     }
-    let path = match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir)
-        .await
-    {
-        Ok(path) => path,
-        Err(e) => {
-            return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
-                reason: RefusalReason::ArtifactFetchFailed,
-                message: format!("artifact fetch failed: {e}"),
-            });
-        }
-    };
+    let path =
+        match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir).await {
+            Ok(path) => path,
+            Err(e) => {
+                return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
+                    reason: RefusalReason::ArtifactFetchFailed,
+                    message: format!("artifact fetch failed: {e}"),
+                });
+            }
+        };
     let name = packet.trigger_name.clone();
     let opened = tokio::task::spawn_blocking(move || {
         cloacina::registry::loader::ffi_trigger::FfiTriggerImpl::open(

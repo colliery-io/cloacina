@@ -1705,7 +1705,8 @@ pub async fn run(
         let mut loop_shutdown = substrate_shutdown_rx.clone();
         // CLOACINA-T-1077: with packages loaded from their metadata, a poll
         // trigger runs on its tenant's agents, so such a tenant keeps one.
-        let loop_poll_floor = package_load_mode == cloacina::registry::PackageLoadMode::MetadataOnly;
+        let loop_poll_floor =
+            package_load_mode == cloacina::registry::PackageLoadMode::MetadataOnly;
         let loop_tenant_databases = state.tenant_databases.clone();
         let scale_cfg = crate::autoscaler::ScaleConfig::from_env();
         let autoscale_enabled = std::env::var("CLOACINA_AUTOSCALE")
