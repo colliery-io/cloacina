@@ -32,7 +32,6 @@ use super::*;
 
 use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::database::{DatabaseAdmin, POSTGRES_MIGRATIONS, TenantConfig, build_role_name};
-use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use diesel::connection::SimpleConnection;
 use diesel::migration::{Migration, MigrationSource};
