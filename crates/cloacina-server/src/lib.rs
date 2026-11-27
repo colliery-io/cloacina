@@ -2404,6 +2404,10 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
             axum::routing::post(crate::routes::agent::report_result),
         )
         .route(
+            "/agent/undecodable",
+            axum::routing::post(crate::routes::agent::report_undecodable),
+        )
+        .route(
             "/agent/artifact/{digest}",
             axum::routing::get(crate::routes::agent::fetch_artifact),
         )

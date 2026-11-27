@@ -54,7 +54,10 @@ use cloacina::dal::DAL;
 use cloacina::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use cloacina::delivery::WakeHandle;
 use cloacina::error::ValidationError;
-use cloacina::fleet::AgentResultRequest;
+use cloacina::fleet::{
+    AGENT_PROTOCOL_VERSION, AgentOutcome, AgentResultRequest, AgentUndecodableRequest,
+    FailureClassification, GRAPH_PACKET_KIND, WORK_PACKET_KIND,
+};
 use cloacina::security::ownership::{
     AgentOwner, DeliveryScope, DispatchTarget, Refusal, ReportCheck, ReportOrigin,
 };
@@ -441,6 +444,150 @@ fn refused(id: UniversalUuid, report: &CheckedReport, why: Refusal) {
         reason = %why,
         "agent result refused: the sender is not the agent this dispatch went to; no state changed"
     );
+}
+
+/// What became of an agent's "cannot decode" message
+/// ([`fail_undecodable_packet`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Undecodable {
+    /// The task or the firing of the packet got a failure report; this is
+    /// what [`FleetCoordinator::accept`] did with it.
+    Failed(Accepted),
+    /// The row is acked already: the work of the packet ended. Nothing
+    /// changed.
+    AlreadyAcked,
+    /// No row has the id. Nothing changed.
+    NoRow,
+    /// The row is addressed to another recipient or tenant than the agent
+    /// that sent the message. Nothing changed.
+    NotOwned,
+    /// The row is no work packet, or the server cannot read the ids of its
+    /// own packet. Nothing changed.
+    NotAPacket,
+}
+
+/// The ids a report needs, read from the payload of a packet row.
+fn packet_ids(kind: &str, payload: &[u8]) -> Option<(UniversalUuid, i32, Option<String>)> {
+    let packet: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let text = |key: &str| packet.get(key).and_then(|v| v.as_str());
+    if kind == WORK_PACKET_KIND {
+        let id = uuid::Uuid::parse_str(text("task_execution_id")?).ok()?;
+        let attempt = packet.get("attempt").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        Some((
+            UniversalUuid(id),
+            attempt,
+            text("dispatch_id").map(str::to_string),
+        ))
+    } else if kind == GRAPH_PACKET_KIND {
+        let id = uuid::Uuid::parse_str(text("firing_id")?).ok()?;
+        Some((UniversalUuid(id), 1, None))
+    } else {
+        None
+    }
+}
+
+/// The longest decode error of an agent that goes into the task's error.
+const UNDECODABLE_ERROR_MAX_CHARS: usize = 300;
+
+/// End the wait for a packet that its agent cannot decode (CLOACINA-T-1058).
+///
+/// The agent has no task id (it could not read the packet), so it names the
+/// delivery-outbox row. `agent` is the roster row the caller key was checked
+/// against. The row must be addressed to that agent in that agent's tenant
+/// ([`DeliveryScope::owns_row`]), as an ack must be (CLOACINA-T-1052): a
+/// message for any other row changes nothing, is logged, and is counted in
+/// `cloacina_fleet_refused_undecodable_total`.
+///
+/// For its own row the server reads the task or firing id from the packet
+/// it wrote, and hands [`FleetCoordinator::accept`] a failure report in the
+/// agent's name. So the rules of a report apply: only the dispatch the
+/// packet belongs to is resolved, on this replica or through the inbox. The
+/// failure is a task error: the task's retry policy decides the next run; a
+/// graph firing ends with the error. Each one is counted in
+/// `cloacina_fleet_undecodable_packets_total`.
+///
+/// `Err`: the row could not be read, or the report was neither forwarded
+/// nor stored. The agent sends the message again.
+pub async fn fail_undecodable_packet(
+    coordinator: &FleetCoordinator,
+    db: &DAL,
+    agent: &AgentOwner,
+    req: &AgentUndecodableRequest,
+) -> Result<Undecodable, String> {
+    let Some(row) = db
+        .delivery_outbox()
+        .get(req.push_id)
+        .await
+        .map_err(|e| format!("read the packet row: {e}"))?
+    else {
+        return Ok(Undecodable::NoRow);
+    };
+    let scope = DeliveryScope::of_agent(&req.agent_id, agent.tenant_id.clone());
+    if !scope.owns_row(&row.recipient, row.tenant_id.as_deref()) {
+        metrics::counter!("cloacina_fleet_refused_undecodable_total").increment(1);
+        warn!(
+            push_id = req.push_id,
+            agent_id = %req.agent_id,
+            agent_tenant = ?agent.tenant_id,
+            "undecodable-packet message refused: the row is not addressed to this agent; \
+             nothing changed"
+        );
+        return Ok(Undecodable::NotOwned);
+    }
+    if row.delivery_state == cloacina::models::delivery_outbox::DeliveryState::Acked.as_str() {
+        return Ok(Undecodable::AlreadyAcked);
+    }
+    let Some((id, attempt, dispatch_id)) = packet_ids(&row.kind, &row.payload) else {
+        warn!(
+            push_id = req.push_id,
+            agent_id = %req.agent_id,
+            kind = %row.kind,
+            "undecodable-packet message for a row that is no readable work packet; \
+             nothing changed"
+        );
+        return Ok(Undecodable::NotAPacket);
+    };
+    metrics::counter!("cloacina_fleet_undecodable_packets_total", "kind" => row.kind.clone())
+        .increment(1);
+    let agent_error: String = req
+        .error
+        .chars()
+        .take(UNDECODABLE_ERROR_MAX_CHARS)
+        .collect();
+    let message = format!(
+        "agent {} (version {}) could not decode the packet in delivery row {}: {}. \
+         The server (version {}) and the agent are probably different versions: \
+         run the same version on both.",
+        req.agent_id,
+        req.agent_version.as_deref().unwrap_or("unknown"),
+        req.push_id,
+        agent_error,
+        env!("CARGO_PKG_VERSION"),
+    );
+    warn!(
+        push_id = req.push_id,
+        task_id = %id,
+        agent_id = %req.agent_id,
+        kind = %row.kind,
+        error = %agent_error,
+        "agent could not decode a packet: failing its dispatch (version mismatch?)"
+    );
+    let report = AgentResultRequest {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        agent_id: req.agent_id.clone(),
+        task_execution_id: id.0.to_string(),
+        attempt,
+        dispatch_id,
+        duration_ms: 0,
+        outcome: AgentOutcome::Failure {
+            message,
+            classification: FailureClassification::TaskError,
+        },
+    };
+    coordinator
+        .accept(db, id, CheckedReport::new(agent, report))
+        .await
+        .map(Undecodable::Failed)
 }
 
 /// Delete the stored reports older than `retention`. Each one is a report
@@ -1159,6 +1306,228 @@ mod tests {
             .await
             .expect("the loop stops on shutdown")
             .unwrap();
+    }
+
+    // ── CLOACINA-T-1058: a packet its agent cannot decode ─────────────────
+
+    #[cfg(feature = "sqlite")]
+    fn owner(tenant: &str) -> AgentOwner {
+        AgentOwner {
+            tenant_id: Some(tenant.to_string()),
+            owner_key_id: Some(uuid::Uuid::new_v4()),
+        }
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn cannot_decode(agent: &str, push_id: i64) -> AgentUndecodableRequest {
+        AgentUndecodableRequest {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            agent_id: agent.to_string(),
+            push_id,
+            error: "deserialize WorkPacket JSON: missing field `artifact`".to_string(),
+            agent_version: Some("0.0.1".to_string()),
+        }
+    }
+
+    /// Enqueue a packet row of `kind` for [`AGENT`] in [`TENANT`].
+    #[cfg(feature = "sqlite")]
+    async fn enqueue_row(db: &DAL, kind: &str, payload: serde_json::Value) -> i64 {
+        db.delivery_outbox()
+            .enqueue(cloacina::models::delivery_outbox::NewDeliveryOutbox {
+                recipient: format!("{}{AGENT}", cloacina::fleet::AGENT_RECIPIENT_PREFIX),
+                kind: kind.to_string(),
+                tenant_id: Some(TENANT.to_string()),
+                payload: serde_json::to_vec(&payload).unwrap(),
+            })
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// The row of a task packet, as the executor writes it (the fields the
+    /// lookup reads).
+    #[cfg(feature = "sqlite")]
+    async fn enqueue_task_packet(db: &DAL, task_id: UniversalUuid, dispatch: &str) -> i64 {
+        enqueue_row(
+            db,
+            WORK_PACKET_KIND,
+            serde_json::json!({
+                "protocol_version": AGENT_PROTOCOL_VERSION,
+                "task_execution_id": task_id.0.to_string(),
+                "attempt": 3,
+                "dispatch_id": dispatch,
+            }),
+        )
+        .await
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn row_state(db: &DAL, id: i64) -> String {
+        db.delivery_outbox()
+            .get(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .delivery_state
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn an_undecodable_task_packet_fails_its_dispatch_with_a_version_error() {
+        let db = shared_db().await;
+        let coord = FleetCoordinator::new();
+        let task_id = UniversalUuid::new_v4();
+        let rx = coord.register_dispatch(task_id, task_target("d1"));
+        let row = enqueue_task_packet(&db, task_id, "d1").await;
+        coord.packet_enqueued(task_id, row);
+
+        let got =
+            fail_undecodable_packet(&coord, &db, &owner(TENANT), &cannot_decode(AGENT, row)).await;
+        assert_eq!(got, Ok(Undecodable::Failed(Accepted::Local)));
+
+        // The executor gets a report for the task found in the row.
+        let report = rx.await.expect("the wait is resolved at once");
+        assert_eq!(report.task_execution_id, task_id.0.to_string());
+        assert_eq!(report.attempt, 3);
+        assert_eq!(report.dispatch_id.as_deref(), Some("d1"));
+        assert_eq!(report.agent_id, AGENT);
+        match report.outcome {
+            AgentOutcome::Failure {
+                message,
+                classification,
+            } => {
+                // A task error: the retry policy of the task decides.
+                assert_eq!(classification, FailureClassification::TaskError);
+                assert!(message.contains("could not decode"), "{message}");
+                assert!(message.contains("different versions"), "{message}");
+                assert!(message.contains("missing field `artifact`"), "{message}");
+                assert!(message.contains("version 0.0.1"), "{message}");
+                assert!(
+                    message.contains(&format!("delivery row {row}")),
+                    "{message}"
+                );
+            }
+            other => panic!("expected a failure, got {other:?}"),
+        }
+        assert_eq!(coord.pending_count(), 0);
+        // The ack is the agent's: the message does not ack the row.
+        assert_eq!(row_state(&db, row).await, "pending");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn an_undecodable_graph_packet_ends_its_firing_with_the_error() {
+        let db = shared_db().await;
+        let coord = FleetCoordinator::new();
+        let firing_id = UniversalUuid::new_v4();
+        let rx = coord.register_dispatch(firing_id, firing_target());
+        let row = enqueue_row(
+            &db,
+            GRAPH_PACKET_KIND,
+            serde_json::json!({"firing_id": firing_id.0.to_string(), "graph_name": "g"}),
+        )
+        .await;
+        coord.packet_enqueued(firing_id, row);
+
+        let got =
+            fail_undecodable_packet(&coord, &db, &owner(TENANT), &cannot_decode(AGENT, row)).await;
+        assert_eq!(got, Ok(Undecodable::Failed(Accepted::Local)));
+        let report = rx.await.expect("the firing's wait is resolved at once");
+        assert_eq!(report.task_execution_id, firing_id.0.to_string());
+        assert_eq!(report.dispatch_id, None);
+        assert!(matches!(report.outcome, AgentOutcome::Failure { .. }));
+    }
+
+    /// The message reaches a replica that does not wait for the task: the
+    /// failure is stored, and the replica that dispatched the task takes it.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn an_undecodable_packet_fails_a_dispatch_of_another_replica() {
+        let db = shared_db().await;
+        let dispatcher = FleetCoordinator::new();
+        let other = FleetCoordinator::new();
+        let task_id = UniversalUuid::new_v4();
+        let rx = dispatcher.register_dispatch(task_id, task_target("d1"));
+        let row = enqueue_task_packet(&db, task_id, "d1").await;
+        dispatcher.packet_enqueued(task_id, row);
+
+        let got =
+            fail_undecodable_packet(&other, &db, &owner(TENANT), &cannot_decode(AGENT, row)).await;
+        assert_eq!(got, Ok(Undecodable::Failed(Accepted::Stored)));
+        assert_eq!(dispatcher.collect_stored(&db).await.unwrap(), 1);
+        assert!(matches!(
+            rx.await.unwrap().outcome,
+            AgentOutcome::Failure { .. }
+        ));
+    }
+
+    /// The owner check of an ack (CLOACINA-T-1052) holds for this message: an
+    /// agent of another tenant, another agent of the tenant, and the same
+    /// agent name in another tenant cannot fail the dispatch of a row that
+    /// is not theirs.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn an_undecodable_message_for_a_row_of_another_agent_changes_nothing() {
+        let db = shared_db().await;
+        let coord = FleetCoordinator::new();
+        let task_id = UniversalUuid::new_v4();
+        let mut rx = coord.register_dispatch(task_id, task_target("d1"));
+        let row = enqueue_task_packet(&db, task_id, "d1").await;
+        coord.packet_enqueued(task_id, row);
+
+        let no_tenant = AgentOwner {
+            tenant_id: None,
+            owner_key_id: Some(uuid::Uuid::new_v4()),
+        };
+        for (agent, agent_row) in [
+            ("agent-b", owner("tenant-b")),
+            ("agent-other", owner(TENANT)),
+            (AGENT, owner("tenant-b")),
+            (AGENT, no_tenant),
+        ] {
+            let got =
+                fail_undecodable_packet(&coord, &db, &agent_row, &cannot_decode(agent, row)).await;
+            assert_eq!(got, Ok(Undecodable::NotOwned), "{agent} {agent_row:?}");
+        }
+        assert_eq!(coord.pending_count(), 1);
+        assert!(rx.try_recv().is_err(), "the wait is not resolved");
+        assert_eq!(stored_rows(&db, task_id).await, 0, "nothing stored");
+        assert_eq!(row_state(&db, row).await, "pending");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn an_undecodable_message_for_no_packet_changes_nothing() {
+        let db = shared_db().await;
+        let coord = FleetCoordinator::new();
+        let agent_row = owner(TENANT);
+
+        // No row has the id.
+        let got =
+            fail_undecodable_packet(&coord, &db, &agent_row, &cannot_decode(AGENT, 9_999)).await;
+        assert_eq!(got, Ok(Undecodable::NoRow));
+
+        // The agent's own row, of a kind that is no work packet.
+        let other_kind = enqueue_row(&db, "work_packet", serde_json::json!({})).await;
+        let got =
+            fail_undecodable_packet(&coord, &db, &agent_row, &cannot_decode(AGENT, other_kind))
+                .await;
+        assert_eq!(got, Ok(Undecodable::NotAPacket));
+
+        // The agent's own packet, acked already: its work ended.
+        let task_id = UniversalUuid::new_v4();
+        let mut rx = coord.register_dispatch(task_id, task_target("d1"));
+        let acked = enqueue_task_packet(&db, task_id, "d1").await;
+        assert!(
+            db.delivery_outbox()
+                .mark_acked_for(acked, &format!("agent:{AGENT}"), Some(TENANT))
+                .await
+                .unwrap()
+        );
+        let got =
+            fail_undecodable_packet(&coord, &db, &agent_row, &cannot_decode(AGENT, acked)).await;
+        assert_eq!(got, Ok(Undecodable::AlreadyAcked));
+        assert!(rx.try_recv().is_err(), "the wait is not resolved");
     }
 
     #[test]

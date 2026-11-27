@@ -20,7 +20,9 @@
 //! the other router tests of this crate.
 
 use super::*;
-use crate::routes::agent::{heartbeat_agent, register_agent, replenish_keys, report_result};
+use crate::routes::agent::{
+    heartbeat_agent, register_agent, replenish_keys, report_result, report_undecodable,
+};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::delivery_ws::{AckOutcome, apply_client_ack, require_recipient};
 use axum::Extension;
@@ -29,7 +31,7 @@ use axum::extract::State;
 use axum::response::IntoResponse;
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AgentHeartbeatRequest, AgentKeyReplenishRequest, AgentOutcome,
-    AgentRegisterRequest, AgentResultRequest, EphemeralKeyEntry,
+    AgentRegisterRequest, AgentResultRequest, AgentUndecodableRequest, EphemeralKeyEntry,
 };
 use cloacina::security::ownership::{DeliveryScope, DispatchTarget};
 
@@ -548,5 +550,104 @@ async fn test_a_connection_acks_only_its_own_rows() {
     // Leave no open rows behind for the relay of other tests.
     for id in [same_tenant, other_tenant] {
         let _ = dal.delivery_outbox().mark_acked(id).await;
+    }
+}
+
+async fn cannot_decode(
+    state: &AppState,
+    key: &AuthenticatedKey,
+    agent_id: &str,
+    push_id: i64,
+) -> StatusCode {
+    let body = AgentUndecodableRequest {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        agent_id: agent_id.to_string(),
+        push_id,
+        error: "deserialize WorkPacket JSON".to_string(),
+        agent_version: None,
+    };
+    match report_undecodable(State(state.clone()), Extension(key.clone()), Json(body)).await {
+        Ok(_) => StatusCode::OK,
+        Err(e) => e.into_response().status(),
+    }
+}
+
+/// CLOACINA-T-1058: an agent that cannot decode a packet names its delivery
+/// row, and the dispatch of that packet fails at once. Only the agent the
+/// row is addressed to can do that: a key of another tenant and another
+/// agent of the tenant change nothing.
+#[tokio::test]
+#[serial]
+async fn test_only_the_agent_of_a_packet_row_can_report_it_undecodable() {
+    let state = test_state().await;
+    let db = cloacina::dal::DAL::new(state.database.clone());
+    let tenant_b = unique("own-b");
+    let key_b = tenant_key(&tenant_b);
+    let agent_b = register(&state, &key_b, None).await.expect("register");
+    let other_key_b = tenant_key(&tenant_b);
+    let other_agent_b = register(&state, &other_key_b, None)
+        .await
+        .expect("register");
+    let key_a = tenant_key(&unique("own-a"));
+    let agent_a = register(&state, &key_a, None).await.expect("register");
+
+    // Tenant B's task is dispatched to agent_b.
+    let task_id = cloacina::UniversalUuid::new_v4();
+    let mut rx = state.fleet_coordinator.register_dispatch(
+        task_id,
+        DispatchTarget {
+            tenant_id: Some(tenant_b.clone()),
+            agent_id: agent_b.clone(),
+            dispatch_id: Some("d1".to_string()),
+        },
+    );
+    let payload = serde_json::json!({
+        "task_execution_id": task_id.0.to_string(),
+        "attempt": 1,
+        "dispatch_id": "d1",
+    });
+    let packet = db
+        .delivery_outbox()
+        .enqueue(cloacina::models::delivery_outbox::NewDeliveryOutbox {
+            recipient: format!("agent:{agent_b}"),
+            kind: cloacina::fleet::WORK_PACKET_KIND.to_string(),
+            tenant_id: Some(tenant_b.clone()),
+            payload: serde_json::to_vec(&payload).unwrap(),
+        })
+        .await
+        .expect("enqueue");
+    state.fleet_coordinator.packet_enqueued(task_id, packet.id);
+
+    // Another tenant: its own agent with B's row id, then B's agent id.
+    assert_eq!(
+        cannot_decode(&state, &key_a, &agent_a, packet.id).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        cannot_decode(&state, &key_a, &agent_b, packet.id).await,
+        StatusCode::FORBIDDEN
+    );
+    // Another agent of tenant B, and a platform admin key.
+    assert_eq!(
+        cannot_decode(&state, &other_key_b, &other_agent_b, packet.id).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        cannot_decode(&state, &platform_admin_key(), &agent_b, packet.id).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(state.fleet_coordinator.pending_count(), 1);
+    assert!(rx.try_recv().is_err(), "nothing resolved tenant B's wait");
+
+    // The agent the row is addressed to.
+    assert_eq!(
+        cannot_decode(&state, &key_b, &agent_b, packet.id).await,
+        StatusCode::OK
+    );
+    let report = rx.try_recv().expect("the wait is resolved at once");
+    assert!(matches!(report.outcome, AgentOutcome::Failure { .. }));
+
+    for agent in [&agent_a, &agent_b, &other_agent_b] {
+        let _ = state.agent_registry.deregister(agent).await;
     }
 }

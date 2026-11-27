@@ -558,6 +558,7 @@ pub fn build_authz_table() -> AuthzTable {
     add(Method::POST, "/agent/register", Access::any(Level::Read));
     add(Method::POST, "/agent/heartbeat", Access::any(Level::Read));
     add(Method::POST, "/agent/result", Access::any(Level::Read));
+    add(Method::POST, "/agent/undecodable", Access::any(Level::Read));
     add(
         Method::GET,
         "/agent/artifact/{digest}",
@@ -1022,7 +1023,7 @@ mod tests {
         let t = build_authz_table();
         assert_eq!(
             t.len(),
-            76,
+            77,
             "authz table size changed — a route was added/removed without updating the table"
         );
 
