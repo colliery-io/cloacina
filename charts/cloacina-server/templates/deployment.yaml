@@ -144,6 +144,69 @@ spec:
             - name: CLOACINA_FLEET_DNS_NAMESPACE
               value: {{ .Values.fleet.networkPolicy.dnsNamespace | quote }}
             {{- end }}
+            {{- if .Values.fleet.compiler.enabled }}
+            # A compiler per tenant (CLOACINA-T-1034): the server makes it in
+            # the tenant's namespace and scales it with the tenant's build queue.
+            - name: CLOACINA_TENANT_COMPILERS
+              value: "true"
+            - name: CLOACINA_TENANT_COMPILER_IMAGE
+              value: {{ include "cloacina-server.tenantCompilerImage" . | quote }}
+            {{- if .Values.fleet.compiler.databaseUrlSecretRef.name }}
+            - name: CLOACINA_TENANT_COMPILER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.fleet.compiler.databaseUrlSecretRef.name }}
+                  key: {{ .Values.fleet.compiler.databaseUrlSecretRef.key }}
+            {{- else if .Values.postgresql.enabled }}
+            # The bundled database, by its full Service name: the compilers
+            # run in the tenant namespaces, where the short name the server
+            # uses does not resolve.
+            - name: CLOACINA_TENANT_COMPILER_DATABASE_URL
+              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ .Values.postgresql.auth.database }}"
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_CARGO_FLAGS
+              value: {{ join " " .Values.fleet.compiler.cargoFlags | quote }}
+            {{- with .Values.fleet.compiler.vendorDir }}
+            - name: CLOACINA_TENANT_COMPILER_VENDOR_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.fleet.compiler.devWorkspace }}
+            - name: CLOACINA_TENANT_COMPILER_DEV_WORKSPACE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_TARGET_DIR
+              value: {{ .Values.fleet.compiler.targetDir | quote }}
+            {{- if .Values.fleet.compiler.buildTimeoutSeconds }}
+            - name: CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S
+              value: {{ .Values.fleet.compiler.buildTimeoutSeconds | quote }}
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS
+              value: {{ .Values.fleet.compiler.pollIntervalMs | quote }}
+            - name: CLOACINA_TENANT_COMPILER_COOLDOWN_S
+              value: {{ .Values.fleet.compiler.cooldownSeconds | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_SIZE
+              value: {{ .Values.fleet.compiler.cacheSize | quote }}
+            - name: CLOACINA_TENANT_COMPILER_HARDENED
+              value: {{ .Values.fleet.compiler.hardened | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CPU_REQUEST
+              value: {{ .Values.fleet.compiler.resources.requests.cpu | quote }}
+            - name: CLOACINA_TENANT_COMPILER_MEMORY_REQUEST
+              value: {{ .Values.fleet.compiler.resources.requests.memory | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CPU_LIMIT
+              value: {{ .Values.fleet.compiler.resources.limits.cpu | quote }}
+            - name: CLOACINA_TENANT_COMPILER_MEMORY_LIMIT
+              value: {{ .Values.fleet.compiler.resources.limits.memory | quote }}
+            - name: CLOACINA_TENANT_COMPILER_EGRESS
+              value: {{ .Values.fleet.compiler.egress | quote }}
+            {{- with .Values.fleet.compiler.egressCidrs }}
+            - name: CLOACINA_TENANT_COMPILER_EGRESS_CIDRS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.fleet.compiler.databaseCidrs }}
+            - name: CLOACINA_TENANT_COMPILER_DATABASE_CIDRS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
             # Wait for the database at start (CLOACINA-T-1035).
             - name: CLOACINA_DATABASE_WAIT_TIMEOUT_S

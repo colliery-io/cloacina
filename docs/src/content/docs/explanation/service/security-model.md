@@ -434,6 +434,45 @@ The threat model the compiler does NOT address:
 - **CPU-side-channel attacks** between concurrent builds on the same host — not currently in scope.
 - **Operator-level account compromise** of the compiler service account — the operator is trusted; the package author is not.
 
+### What a tenant's build can reach
+
+Build code is a build script, a proc-macro, or a provider crate's build. It
+runs as the compiler's user, inside the compiler's container. What it can
+reach depends on which compiler builds the package.
+
+**A tenant compiler that the server made** (Kubernetes actuator,
+`fleet.compiler.enabled`; see
+[Run cloacina-compiler in Production](../../../how-to/service/running-the-compiler/#how-many-compilers-a-deployment-runs)):
+
+- **Other tenants' source and build output: no.** The compiler serves one
+  schema and runs in its own pod in the tenant's namespace. Its target
+  directory, cargo home and temp directories are the pod's own volumes, and
+  they are emptied each time the compiler starts.
+- **The database URL: yes.** The URL is the pod's `DATABASE_URL` environment
+  variable, from a Secret. It is not on the command line. Build code has the
+  compiler's uid, so it can read `/proc/<compiler pid>/environ`.
+- **What that URL opens.** By default it is the server's own URL, which
+  reaches every tenant's schema. With
+  `fleet.compiler.databaseUrlSecretRef` it is the URL of the role the operator
+  made for builds, and reaches what that role is granted.
+- **The network.** The compiler pods' NetworkPolicy allows DNS, the database
+  port and, by default, TCP 443 to public IPv4 addresses. The tenant's agent
+  policy adds the server. No ingress is allowed. With
+  `fleet.compiler.egress=none` a build reaches DNS, the database port, the
+  server and the listed CIDR blocks only. The policy binds on a CNI that
+  enforces NetworkPolicy.
+- **The Kubernetes API: no token.** The pod mounts no service account token.
+- **The node and the container's root filesystem.** The pod runs as uid
+  `10001` with a read-only root filesystem, no capabilities and the
+  `RuntimeDefault` seccomp profile.
+- **The compiler process.** Build code has its uid: it can signal it, and it
+  can leave a process behind that outlives the build until the pod stops.
+
+**A compiler shared by tenants, or the `public` compiler:** as above for the
+database URL and the process. Its target directory, cargo home and temp
+directories are shared by every package it builds, and the chart writes no
+egress rule for it.
+
 If package authors are not trusted, do not let them upload to a compiler that other tenants share, and do not give that compiler a database role that reaches other tenants. For closed-org deployments (single-team, vetted package authors), the limits above are the bound.
 
 ## Multi-tenant isolation
@@ -443,7 +482,7 @@ CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier ser
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
 - **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
-- **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
+- **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Before the schema is dropped, the fleet actuator removes the tenant's compiler, when it runs one. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
 
 - **Computation graphs carry their tenant.** The server stamps every graph, reactor and accumulator with the tenant of the runner that loads it: `public` for the packages of the `public` tenant, the tenant's name for the others. The server refuses to load a graph with no tenant. A key sees, injects into, fires and pauses the graphs of its own tenant only; a key of another tenant cannot reach the graphs of `public`. Reactor ownership and the owner-address table use the same `(tenant, name)` pair. Graphs with no tenant, open to every caller, exist in embedded use only (a `ComputationGraphScheduler` in your own process, no server, no tenants).
 

@@ -209,6 +209,9 @@ pub async fn create_tenant(
 ///   3. Evict the tenant's `Database` from `TenantDatabaseCache`.
 ///   4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
 ///
+/// Before step 4 the fleet actuator removes the tenant's compiler, when it
+/// runs one (CLOACINA-T-1034).
+///
 /// Each step emits a structured audit event with duration. Per-step
 /// failures bail out — but earlier steps stay committed, so a retry
 /// picks up where the failure occurred. Each step is idempotent.
@@ -291,6 +294,24 @@ pub async fn remove_tenant(
         if db_evicted { 1 } else { 0 },
         step_started.elapsed().as_millis() as u64,
     );
+
+    // CLOACINA-T-1034: the tenant's compiler goes with the tenant, before its
+    // schema: a compiler left behind would hold a database credential and poll
+    // a schema that is gone. Nothing to do when the actuator runs none. A
+    // failure stops the teardown here; a retry is safe.
+    if let Err(e) = state.fleet_actuator.remove_compiler(&schema_name).await {
+        warn!(
+            tenant_id = %schema_name,
+            error = %e,
+            "tenant teardown: removing the tenant's compiler failed"
+        );
+        audit::log_tenant_teardown_outcome(
+            &schema_name,
+            false,
+            teardown_started.elapsed().as_millis() as u64,
+        );
+        return ApiError::internal_logged("remove tenant compiler failed", &e).into_response();
+    }
 
     // Step 4: drop schema + user.
     let step_started = Instant::now();

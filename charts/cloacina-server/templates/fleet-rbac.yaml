@@ -13,6 +13,11 @@
 #     `cloacina-agent-<pool>` for another), one Secret (the agent key), one
 #     NetworkPolicy for the tenant and one per pool, and the ServiceAccount a
 #     pool names. It patches each Deployment's replica count.
+#   - With fleet.compiler.enabled it also manages the tenant's compiler
+#     (CLOACINA-T-1034): one Deployment `cloacina-compiler`, one Secret
+#     `cloacina-compiler-db` (the compiler's database URL) and one
+#     NetworkPolicy `cloacina-compiler`. These need no verb that the rules
+#     below do not have already.
 #
 # NO cluster-admin. NO wildcard ("*") verbs or resources. Every rule below is
 # enumerated and justified.
@@ -51,7 +56,9 @@ rules:
   # for the removal of a pool (CLOACINA-T-1021): the server deletes the pool's
   # Deployment by name, and only after it checked that the pool has no agents.
   # A tenant's deprovision still scales to zero and deletes nothing. No `list`
-  # (addressed by name).
+  # (addressed by name). The tenant's compiler Deployment (CLOACINA-T-1034)
+  # uses the same four: applied, read for its replica count, scaled, and
+  # deleted when the tenant is removed.
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["create", "delete", "get", "patch"]
@@ -67,7 +74,9 @@ rules:
   # The per-tenant agent key, delivered to agent pods as CLOACINA_API_KEY. Also
   # ensured via server-side apply → `create` + `patch`. No `get`/`list` (apply
   # doesn't read; addressed by its known name), no `update` (apply is a patch),
-  # no `delete`.
+  # no `delete`. The compiler's database URL (CLOACINA-T-1034) is a second
+  # Secret, written the same way; with no `delete`, the server writes an empty
+  # value over it when the tenant is removed.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "patch"]
@@ -75,7 +84,8 @@ rules:
   # default-deny ingress, egress to DNS + the server only; and one NetworkPolicy
   # per pool with the pool's extra egress rules (CLOACINA-T-1021). Ensured via
   # server-side apply → `create` + `patch`. `delete` for the removal of a pool
-  # (its own policy, by name). No `get`/`list`. Rendered
+  # (its own policy, by name), and of a removed tenant's compiler policy
+  # (CLOACINA-T-1034). No `get`/`list`. Rendered
   # regardless of fleet.networkPolicy.enabled so toggling the policy on later
   # never requires re-granting RBAC (the actuator simply stops calling
   # ensure_network_policy when disabled).

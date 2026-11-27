@@ -530,6 +530,9 @@ export interface paths {
          *       3. Evict the tenant's `Database` from `TenantDatabaseCache`.
          *       4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
          *
+         *     Before step 4 the fleet actuator removes the tenant's compiler, when it
+         *     runs one (CLOACINA-T-1034).
+         *
          *     Each step emits a structured audit event with duration. Per-step
          *     failures bail out — but earlier steps stay committed, so a retry
          *     picks up where the failure occurred. Each step is idempotent.
