@@ -183,7 +183,7 @@ The pair is **fail-fast** — if `--require-signatures` is set but `--verificati
 
 It's optional because the threat models diverge:
 
-- **Single-org deployments** where all package authors are trusted operators don't need it. The compiler-build path (CLOACI-I-0104) already enforces sandboxing.
+- **Single-org deployments** where all package authors are trusted operators don't need it. The compiler has no process sandbox: a package's build code runs with the compiler's OS privileges (see [The compiler threat model](#the-compiler-threat-model)), so this holds only while every author is trusted.
 - **Multi-org deployments** where tenants upload their own packages need it. Without signature verification, a tenant-write key (which can upload packages) becomes equivalent to a code-execution capability on the server host.
 
 Reach for `--require-signatures` whenever the package author is not the server operator.
@@ -212,34 +212,40 @@ trusts; it does not inspect what the package does. See the next section.
 
 ### What it doesn't protect against
 
-Signature verification proves *who* signed the package, not *what's in the package*. A signed malicious package still runs malicious code; signatures don't sandbox. The sandboxing is the compiler's job (see below). Use both together.
+Signature verification proves *who* signed the package, not *what's in the package*. A signed malicious package still runs malicious code; signatures don't sandbox. The compiler does not sandbox either: it bounds the environment, the time and the resources of a build (see below). Use signatures together with a compiler per tenant.
 
 ## The compiler threat model
 
-`cloacina-compiler` runs `cargo build` on packages submitted by — possibly untrusted — package authors. This is the most dangerous code path in the entire system: arbitrary Rust code is being compiled, which means arbitrary build scripts (`build.rs`) and arbitrary proc-macro code can run with the compiler's privileges.
+`cloacina-compiler` runs `cargo build` on packages submitted by — possibly untrusted — package authors. This is the most dangerous code path in the entire system: arbitrary Rust code is being compiled, which means arbitrary build scripts (`build.rs`) and arbitrary proc-macro code can run with the compiler's privileges. A package can also name a constructor provider crate (a Cargo dependency, or a `[metadata.providers]` entry with a registry, path or git source); the compiler builds that crate and runs its manifest binary.
 
-CLOACI-I-0104 (Phase 1 hardening) added defenses:
+There is no process sandbox around any of this. The compiler starts these child processes for a package: `cargo fetch`, the build, and for provider bundling `cargo metadata`, the provider crate's build and its manifest binary. Every one of them gets:
 
-- **Configurable build timeout** (`--build-timeout-s`) bounds the worst-case wall-clock cost of any single build. Past timeout, the build is marked `timed_out` and the stale-build sweeper reclaims the row.
-- **`--frozen --offline` defaults.** Cargo runs against a curated, pre-vendored registry; no network access during build. This blocks the dominant exfiltration / dependency-substitution vector.
-- **`setrlimit` per-build resource caps** (CPU, memory, file descriptors, processes). Linux only.
-- **Interim deployment posture documented:** unprivileged UID, no outbound network beyond the curated vendor paths, no admin credentials beyond the build-claim DB user.
+- **A cleared environment.** The child inherits only `PATH`, `HOME`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `TMPDIR`, `TERM` and `CARGO_PROFILE_DEV_DEBUG`, plus the build wiring the compiler sets by name (`CARGO_TARGET_DIR`, the `--vendor-dir` `CARGO_HOME`). The two steps that download and run no package code (`cargo fetch`, `cargo metadata`) also inherit the proxy, certificate and cargo network variables. `DATABASE_URL` and the rest of the compiler's environment are not passed.
+- **The build timeout** (`--build-timeout-s`). Past it, the child and its process group are killed. A timed-out `cargo build` is marked `timed_out` and the stale-build sweeper reclaims the row; a timed-out fetch or provider step fails the build.
+- **`setrlimit` resource caps** (CPU, memory, file descriptors, processes). Linux only.
 
-CLOACI-I-0105 (Phase 2) will add process-level sandboxing (Linux namespaces); until then, the operational posture in [Running the Compiler](../../../how-to/service/running-the-compiler/) is your bound.
+Network and dependency resolution depend on the cargo flags:
+
+- **The binary's default flags are `build --release --lib --frozen --offline`.** Cargo resolves the package only against the cargo home the operator curated (`--vendor-dir`) and downloads nothing for it.
+- **With `--frozen`/`--offline` dropped** (`--cargo-flags-replace`; the Helm chart's default is `build --lib`), the build has two phases: `cargo fetch` downloads the dependency graph from the network, then the build runs with `--offline` appended.
+- **`--offline` binds cargo, not the code cargo runs.** A build script, a proc-macro or a provider's manifest binary can open any connection the host allows. Provider bundling does not use the cargo flags: its cargo steps can download.
 
 The threat model the compiler addresses:
 
-- **Resource exhaustion** by malicious or pathological builds — bounded by timeouts + rlimits.
-- **Network exfiltration** during build — blocked by `--offline` + vendored registry.
-- **Compiler-time data exposure** via shared filesystem — bounded by per-build `tmp_root` directories that get cleaned up post-build.
+- **Resource exhaustion** by malicious or pathological builds — bounded by the timeout and the rlimits.
+- **The compiler's environment variables** — not inherited by any child.
+- **Dependency substitution** — bounded by `--frozen --offline` with a curated cargo home, when the operator keeps those flags.
 
-The threat model the compiler does NOT address (Phase 2 work):
+The threat model the compiler does NOT address:
 
-- **Kernel exploits** from malicious build scripts — no namespace isolation yet.
+- **Network access from build code** — the compiler does not block it. Block it outside the compiler (a firewall or a NetworkPolicy on the compiler's egress).
+- **The compiler's files** — build code has the compiler's user id. It can read and write the shared cargo target directory, the cargo home, the temp directories and other packages' sources and build outputs in them. On Linux it can read the compiler's command line and environment through `/proc`, so the compiler's database URL is in its reach: give the compiler a database role with the least rights (see [Running the Compiler](../../../how-to/service/running-the-compiler/)).
+- **Other tenants' builds in the same compiler** — run one compiler per tenant (`--tenant-schema`) to separate them.
+- **Kernel exploits** from malicious build scripts — no namespace isolation.
 - **CPU-side-channel attacks** between concurrent builds on the same host — not currently in scope.
 - **Operator-level account compromise** of the compiler service account — the operator is trusted; the package author is not.
 
-If the threat model includes nation-state actors targeting the compiler host, do not run the public-package-upload flow until I-0105 lands. For closed-org deployments (single-team, vetted package authors), Phase 1 is sufficient.
+If package authors are not trusted, do not let them upload to a compiler that other tenants share, and do not give that compiler a database role that reaches other tenants. For closed-org deployments (single-team, vetted package authors), the limits above are the bound.
 
 ## Multi-tenant isolation
 
