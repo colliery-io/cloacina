@@ -379,6 +379,7 @@ pub async fn get_workflow(
                     created_at: ins.metadata.created_at.to_rfc3339(),
                     build_status: ins.build_status,
                     build_error: ins.build_error,
+                    describe_error: ins.describe_error,
                     paused: ins.metadata.paused,
                     declared_params: ins.metadata.declared_params.clone(),
                 })
@@ -436,6 +437,7 @@ pub async fn get_workflow(
                             created_at: ins.metadata.created_at.to_rfc3339(),
                             build_status: ins.build_status,
                             build_error: ins.build_error,
+                            describe_error: ins.describe_error,
                             paused: ins.metadata.paused,
                             declared_params: ins.metadata.declared_params.clone(),
                         })
@@ -843,6 +845,7 @@ pub async fn list_workflow_versions(
                     superseded: v.superseded,
                     build_status: v.build_status,
                     build_error: v.build_error,
+                    describe_error: v.describe_error,
                     content_hash: v.content_hash,
                     created_at: v.created_at.to_rfc3339(),
                     compiled_at: v.compiled_at.map(|t| t.to_rfc3339()),

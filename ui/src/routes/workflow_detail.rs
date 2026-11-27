@@ -685,6 +685,16 @@ pub fn WorkflowDetail() -> impl IntoView {
                         </Alert>
                     </Show>
 
+                    // CLOACINA-T-1074: the compiler could not write the
+                    // metadata document of this built package.
+                    <Show when=move || data.get().and_then(|d| d.describe_error).is_some()>
+                        <Alert title="Describe error" color=token::BAD>
+                            <span class="app-prewrap">
+                                {move || data.get().and_then(|d| d.describe_error).unwrap_or_default()}
+                            </span>
+                        </Alert>
+                    </Show>
+
                     // Dual views (UAT round 1, T-0938): the current execution
                     // is the default; operational history is the second tab.
                     <Tabs

@@ -9054,6 +9054,13 @@
                   "type": "string",
                   "description": "Upload time (RFC 3339)."
                 },
+                "describe_error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the compiler could not write the metadata document of this built\nversion (CLOACINA-T-1074). Absent when the version is described, or\nhas not been tried yet."
+                },
                 "id": {
                   "type": "string",
                   "description": "Package UUID of this version."
@@ -9494,6 +9501,13 @@
             },
             "description": "CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the\nworkflow accepts at execute time. Empty when undeclared. Lets the UI\nrender a typed execute form and the server validate context."
           },
+          "describe_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the compiler could not write the metadata document of this built\npackage (CLOACINA-T-1074). Set for a package that was built before the\ndocument existed and cannot be described from its stored build.\nAbsent when the package is described, or has not been tried yet. A\npackage whose describe fails during a build has `build_status`\n`failed` and the reason in `build_error`."
+          },
           "description": {
             "type": [
               "string",
@@ -9905,6 +9919,13 @@
           "created_at": {
             "type": "string",
             "description": "Upload time (RFC 3339)."
+          },
+          "describe_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the compiler could not write the metadata document of this built\nversion (CLOACINA-T-1074). Absent when the version is described, or\nhas not been tried yet."
           },
           "id": {
             "type": "string",

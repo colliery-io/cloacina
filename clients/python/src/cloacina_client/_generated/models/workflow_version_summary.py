@@ -29,6 +29,9 @@ class WorkflowVersionSummary:
             version (str):
             build_error (None | str | Unset):
             compiled_at (None | str | Unset): Time the build succeeded (RFC 3339).
+            describe_error (None | str | Unset): Why the compiler could not write the metadata document of this built
+                version (CLOACINA-T-1074). Absent when the version is described, or
+                has not been tried yet.
     """
 
     active: bool
@@ -41,6 +44,7 @@ class WorkflowVersionSummary:
     version: str
     build_error: None | str | Unset = UNSET
     compiled_at: None | str | Unset = UNSET
+    describe_error: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -72,6 +76,12 @@ class WorkflowVersionSummary:
         else:
             compiled_at = self.compiled_at
 
+        describe_error: None | str | Unset
+        if isinstance(self.describe_error, Unset):
+            describe_error = UNSET
+        else:
+            describe_error = self.describe_error
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -90,6 +100,8 @@ class WorkflowVersionSummary:
             field_dict["build_error"] = build_error
         if compiled_at is not UNSET:
             field_dict["compiled_at"] = compiled_at
+        if describe_error is not UNSET:
+            field_dict["describe_error"] = describe_error
 
         return field_dict
 
@@ -130,6 +142,15 @@ class WorkflowVersionSummary:
 
         compiled_at = _parse_compiled_at(d.pop("compiled_at", UNSET))
 
+        def _parse_describe_error(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        describe_error = _parse_describe_error(d.pop("describe_error", UNSET))
+
         workflow_version_summary = cls(
             active=active,
             build_status=build_status,
@@ -141,6 +162,7 @@ class WorkflowVersionSummary:
             version=version,
             build_error=build_error,
             compiled_at=compiled_at,
+            describe_error=describe_error,
         )
 
         workflow_version_summary.additional_properties = d

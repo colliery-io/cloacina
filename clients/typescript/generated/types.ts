@@ -2949,6 +2949,12 @@ export interface components {
                 content_hash: string;
                 /** @description Upload time (RFC 3339). */
                 created_at: string;
+                /**
+                 * @description Why the compiler could not write the metadata document of this built
+                 *     version (CLOACINA-T-1074). Absent when the version is described, or
+                 *     has not been tried yet.
+                 */
+                describe_error?: string | null;
                 /** @description Package UUID of this version. */
                 id: string;
                 package_name: string;
@@ -3124,6 +3130,15 @@ export interface components {
              *     render a typed execute form and the server validate context.
              */
             declared_params?: components["schemas"]["InputSlot"][];
+            /**
+             * @description Why the compiler could not write the metadata document of this built
+             *     package (CLOACINA-T-1074). Set for a package that was built before the
+             *     document existed and cannot be described from its stored build.
+             *     Absent when the package is described, or has not been tried yet. A
+             *     package whose describe fails during a build has `build_status`
+             *     `failed` and the reason in `build_error`.
+             */
+            describe_error?: string | null;
             description?: string | null;
             /** @description Package UUID. */
             id: string;
@@ -3330,6 +3345,12 @@ export interface components {
             content_hash: string;
             /** @description Upload time (RFC 3339). */
             created_at: string;
+            /**
+             * @description Why the compiler could not write the metadata document of this built
+             *     version (CLOACINA-T-1074). Absent when the version is described, or
+             *     has not been tried yet.
+             */
+            describe_error?: string | null;
             /** @description Package UUID of this version. */
             id: string;
             package_name: string;
