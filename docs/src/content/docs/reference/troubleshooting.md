@@ -1310,7 +1310,7 @@ A `.cloacina` archive contains **source**, not a compiled library. Rust packages
 
 **Symptom:**
 
-The server runs with `--default-executor fleet`, workflows accept executions, but nothing ever runs. Executions sit in Pending/Running with no task progress and no errors.
+The server runs with the fleet executor (the default, or `--default-executor fleet`), workflows accept executions, but nothing ever runs. Executions sit in Pending/Running with no task progress and no errors.
 
 **Cause:**
 
@@ -1323,7 +1323,21 @@ The fleet executor dispatches **only to live agents registered under the same te
    ```bash
    cloacina-agent --server http://localhost:8080 --api-key <tenant-scoped-key>
    ```
-3. **Or fall back to in-process execution** by starting the server with `--default-executor default`.
+3. **Or run tasks in the server process**, on a server whose every tenant is trusted as much as the server: start it with `--single-trust`. Tenant code then runs in the server process (see [Tenant code and the server process](../../explanation/service/security-model/#tenant-code-and-the-server-process)).
+
+---
+
+### Server does not start: `--default-executor 'default' needs --single-trust`
+
+**Cause:** the in-process executor runs tenant tasks in the server process. Without single trust the server runs no tenant code (CLOACINA-T-1075).
+
+**Solution:** leave `--default-executor` unset, or set it to `fleet`, and run agents for each tenant. On a server whose every tenant is trusted as much as the server, add `--single-trust` (`CLOACINA_SINGLE_TRUST=true`, chart `server.singleTrust=true`).
+
+### A workflow is not loaded: `not_loaded_reason`, or `build_error` says "is refused"
+
+**Cause:** without single trust the server loads a package from the metadata document its compiler stored. `not_loaded_reason` on the workflow detail says the document is not there yet (the compiler describes the package on its next pass) or could not be written. `build_status` `failed` with "is refused" in `build_error` names what the package uses that would run its code in the server: a poll trigger, a native provider, or Python reactive code (reactors, accumulators, a graph).
+
+**Solution:** for `not_loaded_reason`, check that the tenant's compiler runs, and is of the server's version. For a refusal, remove what the reason names, or run the server with `--single-trust` and publish a new version of the package.
 
 ---
 

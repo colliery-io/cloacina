@@ -13,14 +13,16 @@ CLOACI-I-0111 / T-0605.
 helm install cloacina \
   oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
-  --set database.url=postgres://user:pass@host:5432/cloacina
+  --set database.url=postgres://user:pass@host:5432/cloacina \
+  --set fleet.actuator=kubernetes
 ```
 
 ### From a local clone
 
 ```sh
 helm install cloacina ./charts/cloacina-server \
-  --set database.url=postgres://user:pass@host:5432/cloacina
+  --set database.url=postgres://user:pass@host:5432/cloacina \
+  --set fleet.actuator=kubernetes
 ```
 
 ### With bundled Postgres (demo / dev only)
@@ -29,13 +31,35 @@ helm install cloacina ./charts/cloacina-server \
 helm dependency update ./charts/cloacina-server
 helm install cloacina ./charts/cloacina-server \
   --set postgresql.enabled=true \
-  --set postgresql.auth.password=$(openssl rand -hex 16)
+  --set postgresql.auth.password=$(openssl rand -hex 16) \
+  --set fleet.actuator=kubernetes
 ```
 
 The chart fails fast if you don't configure exactly one of:
 - `database.url`
 - `databaseUrlSecretRef.name`
 - `postgresql.enabled=true`
+
+It also fails unless the install says where tenant tasks run (CLOACINA-T-1075):
+- `fleet.actuator=kubernetes`: the server makes each tenant's agents;
+- `fleet.externalAgents=true`: you run the agents, for example with the
+  `cloacina-agent` chart;
+- `server.singleTrust=true`: tenant code runs in the server process.
+
+## Where tenant tasks run
+
+By default the server runs no tenant code in its own process. It loads each
+package from the metadata document its compiler stored, opens no tenant
+library and imports no tenant Python module, and sends every task to an agent
+of the tenant. A task waits until such an agent can take it. A package that
+uses a poll trigger, a native provider or Python reactive code does not load;
+its `build_error` names what it uses.
+
+`server.singleTrust=true` (`--single-trust`) is for a server whose every
+tenant is trusted as much as the server. The server then loads packages and
+runs tasks in its own process, where each tenant's code reaches the database,
+the secrets key and the other tenants' data. The server logs a warning at
+start.
 
 ## Common values
 
@@ -49,6 +73,9 @@ The chart fails fast if you don't configure exactly one of:
 | `postgresql.enabled` | `false` | Install Bitnami's Postgres in-cluster |
 | `apiKeySecretRef.name` | `""` | Secret for `CLOACINA_BOOTSTRAP_KEY` |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
+| `server.singleTrust` | `false` | Tenant code runs in the server process: packages load in process and tasks may run there (`--single-trust`) |
+| `fleet.actuator` | `none` | `kubernetes`: the server makes each tenant's agents |
+| `fleet.externalAgents` | `false` | `true`: you run the agents; with `fleet.actuator=none` the server makes none |
 | `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant runners; none is stopped at the limit |
 | `context.warnBytes` | `1048576` | Size in bytes above which a task context is logged as a warning and counted (`0` = off) |
 | `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
@@ -203,6 +230,23 @@ default (CLOACINA-T-1032). After an upgrade with default values:
 - The server image must have `--metrics-bind`: a release after 0.12.0.
   With an older image, set `metrics.enabled=false`.
 - To keep the old behaviour, set `metrics.enabled=false`.
+
+### Upgrade note: tenant tasks need agents, or single trust
+
+Before `server.singleTrust` a default install ran every tenant's tasks in the
+server process. After an upgrade with the old values:
+
+- The chart fails at render until `fleet.actuator=kubernetes`,
+  `fleet.externalAgents=true` or `server.singleTrust=true` is set.
+- To keep running tasks in the server, set `server.singleTrust=true`.
+- Without single trust, the server loads a package only once its compiler
+  has stored the package's metadata document; upgrade the compiler with the
+  server. A package with a poll trigger, a native provider or Python reactive
+  code is refused at its first load (`build_status` `failed`), and stays
+  refused if the setting is turned on later: set `server.singleTrust=true`
+  before the upgrade to keep such packages in service.
+- `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv` stops the server
+  at start without `server.singleTrust=true`.
 
 ## Uninstall
 

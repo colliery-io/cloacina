@@ -81,7 +81,8 @@ distinguish failure modes:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `server start` | If set, enables OpenTelemetry tracing to the named gRPC collector. |
 | `OTEL_SERVICE_NAME` | `server start` | Service name in OpenTelemetry spans. Default: `cloacina`. |
 | `CLOACINA_VAR_<NAME>` | Workflow context | Read by `cloacina::var("NAME")` / `var_or` in Rust and `cloaca.var("NAME")` in Python; the `CLOACINA_VAR_` prefix is mandatory. |
-| `CLOACINA_DEFAULT_EXECUTOR` | `server start` | Executor key for dispatch (`default` or `fleet`). Overridden by `--default-executor`; overrides `[server].default_executor`. |
+| `CLOACINA_DEFAULT_EXECUTOR` | `server start` | Executor key for dispatch (`fleet`, or `default` with single trust). Overridden by `--default-executor`; overrides `[server].default_executor`. |
+| `CLOACINA_SINGLE_TRUST` | `server start` | `true`: single trust, tenant code runs in the server process. Same as `--single-trust`. |
 
 ---
 
@@ -185,7 +186,7 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--tenant-runner-cache-size <N>]
                         [--tenant-deletion-drain-timeout-s <N>]
                         [--log-retention-days <N>]
-                        [--default-executor <KEY>]
+                        [--default-executor <KEY>] [--single-trust]
                         [--database-wait-timeout-s <N>]
                         [--run-history-retention-days <N>]
                         [--outbox-acked-retention-s <N>]
@@ -251,13 +252,20 @@ invoke `cloacina-server` directly.
 Execution topology is a single deployment knob (CLOACI-T-0640). The
 preferred way to set it is `[server].default_executor` in `config.toml`;
 `cloacinactl server start` reads it and forwards `--default-executor` to
-`cloacina-server`. The flag/env below override the config value for ad-hoc
-runs. The key is hard-matched against the registered executors at startup —
-an unknown key fails fast.
+`cloacina-server` when it is set. The flag/env below override the config value
+for ad-hoc runs. The key is hard-matched against the registered executors at
+startup — an unknown key fails fast.
+
+Without single trust the server runs no tenant code in its process
+(CLOACINA-T-1075): it loads each package from the metadata document its
+compiler stored, and every task goes to the fleet. `--default-executor
+default` then stops the start with an error that names `--single-trust`. See
+[Tenant code and the server process](../../explanation/service/security-model/#tenant-code-and-the-server-process).
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Forwarded by `cloacinactl server start`; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `fleet`; `default` with `--single-trust` | Executor every task is dispatched to. `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/); `default` runs all work on the in-process thread executor and needs `--single-trust`. Forwarded by `cloacinactl server start` when set; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+| `--single-trust` | `CLOACINA_SINGLE_TRUST` | off | Every tenant is trusted as much as the server: packages load in the server process (libraries opened, Python modules imported) and `--default-executor default` is allowed. The server logs a warning at start. `cloacinactl server start` forwards it, also from `[server].single_trust = true`. |
 
 ### Task logs (`cloacina-server`)
 
@@ -848,8 +856,9 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 
 # Server settings read by `cloacinactl server start`.
 [server]
-default_executor = "default"        # "default" (in-process) or "fleet"
 # Optional. A key that is not set is not forwarded: the server default applies.
+# default_executor = "fleet"        # "fleet", or "default" (in-process) with single_trust
+# single_trust = false              # true: tenant code runs in the server process
 # database_wait_timeout_s = 60
 # run_history_retention_days = 30   # 0 keeps run history for ever
 # outbox_acked_retention_s = 3600

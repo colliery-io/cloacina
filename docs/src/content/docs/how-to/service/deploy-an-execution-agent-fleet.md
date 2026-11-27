@@ -27,8 +27,10 @@ explanation; this is the operational path.
 
 Execution topology is a single server-level knob: the **default executor** key.
 Every task is dispatched to that one executor — there is no per-task matching.
-The default is `default` (the in-process thread executor); set it to `fleet` to
-send all work to the agent fleet.
+The default is `fleet`: the server sends all work to the agent fleet and runs
+no tenant code in its own process (CLOACINA-T-1075). `default` (the in-process
+thread executor) needs `--single-trust`; see
+[Tenant code and the server process](../../../explanation/service/security-model/#tenant-code-and-the-server-process).
 
 The preferred surface is a `[server]` section in `~/.cloacina/config.toml`, which
 `cloacinactl server start` reads and forwards to the `cloacina-server` binary:
@@ -39,7 +41,8 @@ default_executor = "fleet"
 ```
 
 For ad-hoc or direct runs you can override it on the binary or via the
-environment (precedence: explicit CLI/env > `config.toml` > built-in `default`):
+environment (precedence: explicit CLI/env > `config.toml` > the server's
+default, `fleet`):
 
 ```bash
 # All three forms are equivalent overrides:
