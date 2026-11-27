@@ -80,10 +80,12 @@ docker compose -f deploy/docker-compose/cloacina.yml up -d
 docker compose -f deploy/docker-compose/cloacina-sqlite.yml up -d
 ```
 
-Images are published to `ghcr.io/colliery-io/cloacina-server` and
-`ghcr.io/colliery-io/cloacina-compiler` on every release tag (per
-I-0111). Pin to a concrete tag in real deployments — `:latest` is
-a maintenance hazard, not a contract.
+Images are published to `ghcr.io/colliery-io/cloacina-server`,
+`ghcr.io/colliery-io/cloacina-compiler` and
+`ghcr.io/colliery-io/cloacina-agent` on every release tag, for
+linux/amd64 and linux/arm64, tagged `X.Y.Z`, `X.Y` and `latest`. Pin to
+a concrete tag in real deployments — `:latest` is a maintenance hazard,
+not a contract.
 
 Dockerfiles used by those images:
 
@@ -91,8 +93,15 @@ Dockerfiles used by those images:
   Rust toolchain, the web UI embedded. Includes the `rdkafka` build deps
   (T-0609) so Kafka stream accumulators work in containerized server
   deployments.
-- `deploy/docker/compiler.Dockerfile` — `rust:1.99.0-bookworm` (toolchain
-  included).
+- `deploy/docker/compiler.Dockerfile` — the compiler:
+  `rust:1.99.0-bookworm` with the toolchain, the `wasm32-wasip2` target
+  and the C build chain that package builds link against. It holds no
+  cloacina source.
+- `docker/Dockerfile.agent` — the agent: debian-slim runtime with the
+  shared libraries that compiled packages link.
+
+`docker/Dockerfile.compiler` is a development image: it bakes the
+workspace for `--dev-workspace` and is not published.
 
 ## Kubernetes
 

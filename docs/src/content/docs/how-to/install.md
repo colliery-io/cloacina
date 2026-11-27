@@ -135,12 +135,21 @@ support CPython 3.9+. See the
 
 ## Docker
 
-The server is published as a multi-arch container image (linux/amd64 +
-linux/arm64) on every release, tagged `X.Y.Z`, `X.Y`, and `latest`:
+Every release publishes three multi-arch container images (linux/amd64 +
+linux/arm64), each tagged `X.Y.Z`, `X.Y`, and `latest`:
+
+| Image | What it runs |
+|-------|--------------|
+| `ghcr.io/colliery-io/cloacina-server` | The HTTP API server, with the web UI |
+| `ghcr.io/colliery-io/cloacina-agent` | An execution agent of the fleet |
+| `ghcr.io/colliery-io/cloacina-compiler` | The build service for uploaded packages |
 
 ```sh
 docker pull ghcr.io/colliery-io/cloacina-server:0.12.0
 ```
+
+Run the three at the same version. The agent and compiler images are
+published from the first release after 0.12.0.
 
 See [Running the server image](../service/running-the-server-image/) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.
 

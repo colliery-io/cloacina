@@ -67,8 +67,9 @@ cloacina-agent \
   --max-concurrency 4
 ```
 
-Or with the published image / Kubernetes — run N replicas, all pointed at the
-server, with the key from a secret:
+Or with the published image, `ghcr.io/colliery-io/cloacina-agent:X.Y.Z` (the
+same version as the server), on Kubernetes — run N replicas, all pointed at
+the server, with the key from a secret:
 
 ```yaml
 env:
