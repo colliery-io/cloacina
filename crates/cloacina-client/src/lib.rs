@@ -305,6 +305,7 @@ impl Client {
             &CreateKeyRequest {
                 name: name.to_string(),
                 role,
+                expires_at: None,
             },
         )
         .await
@@ -335,6 +336,7 @@ impl Client {
             &CreateKeyRequest {
                 name: name.to_string(),
                 role,
+                expires_at: None,
             },
         )
         .await

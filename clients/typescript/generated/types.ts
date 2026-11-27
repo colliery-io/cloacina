@@ -1842,6 +1842,12 @@ export interface components {
         };
         /** @description Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`. */
         CreateKeyRequest: {
+            /**
+             * @description Optional. When the key expires, as an RFC 3339 timestamp in the
+             *     future (for example `2027-01-31T00:00:00Z`). After it the key is
+             *     refused with 401 `key_expired`. Not set: the key does not expire.
+             */
+            expires_at?: string | null;
             name: string;
             /**
              * @description Required. A request with no role is refused with 400: the server does
@@ -2185,6 +2191,8 @@ export interface components {
         KeyCreatedResponse: {
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /** @description When the key expires (RFC 3339); `null`: it does not expire. */
+            expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
             /** @description God-mode flag — never granted via the create endpoints. */
@@ -2201,6 +2209,11 @@ export interface components {
         KeyInfo: {
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /**
+             * @description When the key expires (RFC 3339); `null`: it does not expire. The
+             *     keys the Kubernetes actuator mints for agents expire.
+             */
+            expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
             is_admin: boolean;
@@ -2422,6 +2435,11 @@ export interface components {
             items: {
                 /** @description RFC 3339 timestamp. */
                 created_at: string;
+                /**
+                 * @description When the key expires (RFC 3339); `null`: it does not expire. The
+                 *     keys the Kubernetes actuator mints for agents expire.
+                 */
+                expires_at?: string | null;
                 /** @description Key UUID. */
                 id: string;
                 is_admin: boolean;
@@ -3652,7 +3670,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5158,7 +5176,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;

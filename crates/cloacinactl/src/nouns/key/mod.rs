@@ -47,6 +47,10 @@ enum KeyVerb {
         name: String,
         #[arg(long, value_enum, default_value_t = Role::Read)]
         role: Role,
+        /// When the key expires: an RFC 3339 timestamp in the future, for
+        /// example `2027-01-31T00:00:00Z`. Not set: the key does not expire.
+        #[arg(long)]
+        expires_at: Option<String>,
     },
     List,
     Revoke {
@@ -74,11 +78,18 @@ impl KeyCmd {
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
         match self.verb {
-            KeyVerb::Create { name, role } => {
-                let body = serde_json::json!({
+            KeyVerb::Create {
+                name,
+                role,
+                expires_at,
+            } => {
+                let mut body = serde_json::json!({
                     "name": name,
                     "role": KeyVerb::role_str(role),
                 });
+                if let Some(at) = &expires_at {
+                    body["expires_at"] = serde_json::Value::String(at.clone());
+                }
                 let resp: serde_json::Value = client.post("/v1/auth/keys", &body).await?;
 
                 // One-time-only warning for human output.
@@ -92,6 +103,9 @@ impl KeyCmd {
                     println!("created key: {plaintext}");
                     println!("ID:          {id}");
                     println!("role:        {}", KeyVerb::role_str(role));
+                    if let Some(at) = resp.get("expires_at").and_then(|v| v.as_str()) {
+                        println!("expires at:  {at}");
+                    }
                     println!("NOTE: this is the only time the secret will be shown. Save it now.");
                     Ok(())
                 } else {

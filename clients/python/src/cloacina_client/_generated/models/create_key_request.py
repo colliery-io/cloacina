@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Self, TypeVar
+from typing import Any, Self, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.key_role import KeyRole
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="CreateKeyRequest")
 
@@ -24,16 +25,26 @@ class CreateKeyRequest:
             - `admin`: `write`, plus keys, accounts, secrets, the audit record and the
               fleet size of its tenant.
             - `agent`: act as an execution agent, and nothing else.
+        expires_at (None | str | Unset): Optional. When the key expires, as an RFC 3339 timestamp in the
+            future (for example `2027-01-31T00:00:00Z`). After it the key is
+            refused with 401 `key_expired`. Not set: the key does not expire.
     """
 
     name: str
     role: KeyRole
+    expires_at: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         name = self.name
 
         role = self.role.value
+
+        expires_at: None | str | Unset
+        if isinstance(self.expires_at, Unset):
+            expires_at = UNSET
+        else:
+            expires_at = self.expires_at
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -43,6 +54,8 @@ class CreateKeyRequest:
                 "role": role,
             }
         )
+        if expires_at is not UNSET:
+            field_dict["expires_at"] = expires_at
 
         return field_dict
 
@@ -53,9 +66,19 @@ class CreateKeyRequest:
 
         role = KeyRole(d.pop("role"))
 
+        def _parse_expires_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
+
         create_key_request = cls(
             name=name,
             role=role,
+            expires_at=expires_at,
         )
 
         create_key_request.additional_properties = d

@@ -332,6 +332,27 @@ struct Cli {
     )]
     max_unpacked_bytes: u64,
 
+    /// Days an agent key that the Kubernetes actuator mints stays valid.
+    /// After it the key is refused with 401 `key_expired`. Default 30.
+    /// Docker actuator keys do not expire. CLOACINA-T-1083.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_KEY_LIFETIME_DAYS",
+        default_value_t = cloacina_server::actuator::AgentKeyExpiry::DEFAULT_LIFETIME_DAYS
+    )]
+    agent_key_lifetime_days: u32,
+
+    /// Days left on an agent key at which the Kubernetes actuator replaces
+    /// it: a new key in the Secret, and the pods roll onto it. The old key is
+    /// revoked when every pool's rollout is complete. Must be at least 1 and
+    /// less than `--agent-key-lifetime-days`. Default 10. CLOACINA-T-1083.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_KEY_ROTATE_DAYS",
+        default_value_t = cloacina_server::actuator::AgentKeyExpiry::DEFAULT_ROTATE_DAYS
+    )]
+    agent_key_rotate_days: u32,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -407,6 +428,15 @@ async fn main() -> Result<()> {
         cli.max_unpacked_bytes,
     )
     .map_err(|e| anyhow::anyhow!(e))?;
+
+    // CLOACINA-T-1083: the expiry and rotation of the agent keys.
+    cloacina_server::actuator::set_agent_key_expiry(
+        cloacina_server::actuator::AgentKeyExpiry::from_days(
+            cli.agent_key_lifetime_days,
+            cli.agent_key_rotate_days,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?,
+    );
 
     // CLOACINA-T-1024: the console log format and the task log link.
     cloacina_server::task_logs::set_log_format(cli.log_format);
@@ -529,6 +559,29 @@ mod tests {
         let cli =
             Cli::try_parse_from(["cloacina-server", "--fleet-graph-firings", "inline"]).unwrap();
         assert_eq!(cli.fleet_graph_firings, GraphFiringExecution::Inline);
+    }
+
+    // CLOACINA-T-1083: agent keys live 30 days and are rotated with 10 left.
+    #[test]
+    fn agent_key_expiry_flags_default_to_30_and_10_days() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.agent_key_lifetime_days, 30);
+        assert_eq!(cli.agent_key_rotate_days, 10);
+        let cli = Cli::try_parse_from([
+            "cloacina-server",
+            "--agent-key-lifetime-days",
+            "90",
+            "--agent-key-rotate-days",
+            "30",
+        ])
+        .unwrap();
+        let rule = cloacina_server::actuator::AgentKeyExpiry::from_days(
+            cli.agent_key_lifetime_days,
+            cli.agent_key_rotate_days,
+        )
+        .unwrap();
+        assert_eq!(rule.lifetime, chrono::Duration::days(90));
+        assert_eq!(rule.rotate_before, chrono::Duration::days(30));
     }
 
     #[test]

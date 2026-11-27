@@ -56,6 +56,41 @@ fn key_request(
     }
 }
 
+/// The optional expiry of a key request (CLOACINA-T-1083): an RFC 3339
+/// timestamp in the future, or none. Else a 400 that says why.
+fn key_expiry(
+    raw: Option<&str>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, ApiError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let at = chrono::DateTime::parse_from_rfc3339(raw.trim())
+        .map_err(|e| {
+            ApiError::bad_request(
+                "invalid_expires_at",
+                format!("expires_at must be an RFC 3339 timestamp: {e}"),
+            )
+        })?
+        .with_timezone(&chrono::Utc);
+    if at <= now {
+        return Err(ApiError::bad_request(
+            "invalid_expires_at",
+            "expires_at must be in the future",
+        ));
+    }
+    Ok(Some(at))
+}
+
+/// The audit facts of a created key: name, role, and the expiry when set.
+fn key_create_detail(info: &cloacina::dal::unified::api_keys::ApiKeyInfo) -> serde_json::Value {
+    let mut detail = serde_json::json!({ "name": info.name, "role": info.permissions });
+    if let Some(at) = info.expires_at {
+        detail["expires_at"] = serde_json::Value::String(at.to_rfc3339());
+    }
+    detail
+}
+
 /// POST /auth/keys — create a new API key.
 ///
 /// Requires admin role. Non-admin keys cannot create keys with higher
@@ -68,7 +103,7 @@ fn key_request(
     request_body = CreateKeyRequest,
     responses(
         (status = 201, description = "Key created — plaintext returned exactly once", body = KeyCreatedResponse),
-        (status = 400, description = "No role, an unknown role, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
@@ -98,12 +133,16 @@ pub async fn create_key(
     // Keep the call shape explicit and reject any caller that
     // somehow tried to set is_admin (today the request body has no
     // such field, but lock that in defensively).
+    let expires_at = match key_expiry(body.expires_at.as_deref(), chrono::Utc::now()) {
+        Ok(at) => at,
+        Err(e) => return e.into_response(),
+    };
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal
         .api_keys()
-        .create_key(
+        .create_key_expiring(
             &hash,
             &body.name,
             // CLOACI-T-0817: mint a key for the "public" tenant (the public realm
@@ -112,6 +151,7 @@ pub async fn create_key(
             Some("public"),
             false, /* is_admin: never granted via this endpoint */
             body.role.as_str(),
+            expires_at,
         )
         .await
     {
@@ -119,7 +159,7 @@ pub async fn create_key(
             audit_record::note(
                 info.tenant_id.as_deref(),
                 AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
-                    .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
+                    .detail(key_create_detail(&info)),
             );
             (
                 StatusCode::CREATED,
@@ -131,6 +171,7 @@ pub async fn create_key(
                     tenant_id: info.tenant_id,
                     is_admin: info.is_admin,
                     created_at: info.created_at.to_rfc3339(),
+                    expires_at: info.expires_at.map(|t| t.to_rfc3339()),
                 }),
             )
                 .into_response()
@@ -173,6 +214,7 @@ pub async fn list_keys(
                     is_admin: k.is_admin,
                     created_at: k.created_at.to_rfc3339(),
                     revoked: k.revoked,
+                    expires_at: k.expires_at.map(|t| t.to_rfc3339()),
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
@@ -251,7 +293,7 @@ pub async fn revoke_key(
     request_body = CreateKeyRequest,
     responses(
         (status = 201, description = "Tenant-scoped key created — plaintext returned exactly once", body = KeyCreatedResponse),
-        (status = 400, description = "No role, an unknown role, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
@@ -268,17 +310,22 @@ pub async fn create_tenant_key(
         Ok(body) => body,
         Err(e) => return e.into_response(),
     };
+    let expires_at = match key_expiry(body.expires_at.as_deref(), chrono::Utc::now()) {
+        Ok(at) => at,
+        Err(e) => return e.into_response(),
+    };
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal
         .api_keys()
-        .create_key(
+        .create_key_expiring(
             &hash,
             &body.name,
             Some(&tenant_id),
             false,
             body.role.as_str(),
+            expires_at,
         )
         .await
     {
@@ -290,7 +337,7 @@ pub async fn create_tenant_key(
             audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
-                    .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
+                    .detail(key_create_detail(&info)),
             );
             (
                 StatusCode::CREATED,
@@ -302,6 +349,7 @@ pub async fn create_tenant_key(
                     tenant_id: info.tenant_id,
                     is_admin: info.is_admin,
                     created_at: info.created_at.to_rfc3339(),
+                    expires_at: info.expires_at.map(|t| t.to_rfc3339()),
                 }),
             )
                 .into_response()
@@ -346,6 +394,7 @@ pub async fn list_tenant_keys(
                     is_admin: k.is_admin,
                     created_at: k.created_at.to_rfc3339(),
                     revoked: k.revoked,
+                    expires_at: k.expires_at.map(|t| t.to_rfc3339()),
                 })
                 .collect();
             Json(ListResponse::new(items)).into_response()

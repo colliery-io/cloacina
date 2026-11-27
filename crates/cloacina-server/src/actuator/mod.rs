@@ -70,6 +70,85 @@ pub fn agent_log_format_env_value(format: LogFormat) -> Option<&'static str> {
     }
 }
 
+/// The expiry and rotation rule of the agent keys the Kubernetes actuator
+/// mints (CLOACINA-T-1083). A key expires `lifetime` after it is minted. When
+/// less than `rotate_before` is left, the key is no longer live for the
+/// actuator: the next reconcile mints a new key and rolls the pods onto it.
+/// Docker actuator keys have no expiry: the Docker actuator is single user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentKeyExpiry {
+    pub lifetime: chrono::Duration,
+    pub rotate_before: chrono::Duration,
+}
+
+impl AgentKeyExpiry {
+    /// Default lifetime of an agent key, in days.
+    pub const DEFAULT_LIFETIME_DAYS: u32 = 30;
+    /// Default days left at which an agent key is rotated.
+    pub const DEFAULT_ROTATE_DAYS: u32 = 10;
+
+    /// The rule from the server settings. The rotation window must be at
+    /// least a day and shorter than the lifetime: else every key would be due
+    /// at once.
+    pub fn from_days(lifetime_days: u32, rotate_days: u32) -> Result<Self, String> {
+        if rotate_days == 0 {
+            return Err("--agent-key-rotate-days must be at least 1".to_string());
+        }
+        if rotate_days >= lifetime_days {
+            return Err(format!(
+                "--agent-key-rotate-days ({rotate_days}) must be less than \
+                 --agent-key-lifetime-days ({lifetime_days})"
+            ));
+        }
+        Ok(Self {
+            lifetime: chrono::Duration::days(i64::from(lifetime_days)),
+            rotate_before: chrono::Duration::days(i64::from(rotate_days)),
+        })
+    }
+
+    /// The expiry of a key minted at `now`.
+    pub fn expires_at(&self, now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+        now + self.lifetime
+    }
+
+    /// True when a key that expires at `expires_at` must be replaced now:
+    /// less than `rotate_before` is left. A key with no expiry is not due.
+    pub fn is_due(
+        &self,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> bool {
+        expires_at.is_some_and(|at| at - now < self.rotate_before)
+    }
+}
+
+impl Default for AgentKeyExpiry {
+    fn default() -> Self {
+        Self::from_days(Self::DEFAULT_LIFETIME_DAYS, Self::DEFAULT_ROTATE_DAYS)
+            .expect("the default agent key expiry is valid")
+    }
+}
+
+static AGENT_KEY_EXPIRY: std::sync::OnceLock<AgentKeyExpiry> = std::sync::OnceLock::new();
+
+/// Set the agent key expiry rule from the server settings. Called once at
+/// start, before the actuator is built. A second call keeps the first value.
+pub fn set_agent_key_expiry(expiry: AgentKeyExpiry) {
+    let _ = AGENT_KEY_EXPIRY.set(expiry);
+}
+
+/// The agent key expiry rule: the server setting, or the default.
+pub fn agent_key_expiry() -> AgentKeyExpiry {
+    AGENT_KEY_EXPIRY.get().copied().unwrap_or_default()
+}
+
+/// Tells every server that keys were revoked, so each clears its key cache
+/// (CLOACINA-T-1128). The actuator sends it after it revokes agent keys.
+#[async_trait]
+pub trait KeyRevocationNotice: Send + Sync {
+    async fn announce(&self);
+}
+
 /// What a single [`FleetActuator::reconcile`] pass did for one tenant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ReconcileOutcome {

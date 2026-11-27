@@ -187,6 +187,16 @@ pub struct ServerSettingArgs {
     /// Overrides `[server].max_unpacked_bytes`.
     #[arg(long, env = "CLOACINA_MAX_UNPACKED_BYTES")]
     pub max_unpacked_bytes: Option<u64>,
+
+    /// Days an agent key that the Kubernetes actuator mints stays valid.
+    /// Overrides `[server].agent_key_lifetime_days`. CLOACINA-T-1083.
+    #[arg(long, env = "CLOACINA_AGENT_KEY_LIFETIME_DAYS")]
+    pub agent_key_lifetime_days: Option<u32>,
+
+    /// Days left on an agent key at which the Kubernetes actuator replaces
+    /// it. Overrides `[server].agent_key_rotate_days`. CLOACINA-T-1083.
+    #[arg(long, env = "CLOACINA_AGENT_KEY_ROTATE_DAYS")]
+    pub agent_key_rotate_days: Option<u32>,
 }
 
 /// What `server start` adds to the `cloacina-server` command for the settings
@@ -370,6 +380,18 @@ pub(crate) fn forwarded_settings(
         "--max-unpacked-bytes",
         number(cli.max_unpacked_bytes, config.max_unpacked_bytes),
     );
+    arg(
+        "--agent-key-lifetime-days",
+        cli.agent_key_lifetime_days
+            .or(config.agent_key_lifetime_days)
+            .map(|n| n.to_string()),
+    );
+    arg(
+        "--agent-key-rotate-days",
+        cli.agent_key_rotate_days
+            .or(config.agent_key_rotate_days)
+            .map(|n| n.to_string()),
+    );
 
     // The URL can hold a token: an env var of the server process, so it is
     // not in the process list.
@@ -519,11 +541,13 @@ cors_allowed_methods = ["GET", "POST"]
 cors_allowed_headers = ["authorization"]
 max_package_bytes = 209715200
 max_unpacked_bytes = 1073741824
+agent_key_lifetime_days = 60
+agent_key_rotate_days = 20
 "#;
 
     /// The arguments forwarded for [`FULL_CONFIG`] after the settings of
     /// CLOACINA-T-1039, in order.
-    const FULL_CONFIG_LATER_ARGS: [&str; 34] = [
+    const FULL_CONFIG_LATER_ARGS: [&str; 38] = [
         "--verification-org-id",
         "6f1c2a7e-3b9d-4c55-9e0a-2d4b8f1e7a60",
         "--reconcile-interval-s",
@@ -558,6 +582,10 @@ max_unpacked_bytes = 1073741824
         "209715200",
         "--max-unpacked-bytes",
         "1073741824",
+        "--agent-key-lifetime-days",
+        "60",
+        "--agent-key-rotate-days",
+        "20",
     ];
 
     #[test]
@@ -745,12 +773,13 @@ max_unpacked_bytes = 1073741824
         let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
         let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
         assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
-        assert_eq!(flags.len(), 34);
+        assert_eq!(flags.len(), 36);
         assert_eq!(flags[0], "--home");
         assert_eq!(flags[6], "--require-signatures");
         assert_eq!(flags[7], "--database-wait-timeout-s");
         assert_eq!(flags[17], "--verification-org-id");
         assert_eq!(flags[33], "--max-unpacked-bytes");
+        assert_eq!(flags[35], "--agent-key-rotate-days");
     }
 
     /// CLOACINA-T-1106: each flag of [`ServerSettingArgs`] is forwarded under
@@ -831,9 +860,15 @@ max_unpacked_bytes = 1073741824
             "5",
             "--fleet-graph-firings",
             "worker",
+            "--agent-key-lifetime-days",
+            "45",
+            "--agent-key-rotate-days",
+            "15",
         ])
         .unwrap()
         .settings;
+        assert_eq!(flags.agent_key_lifetime_days, Some(45));
+        assert_eq!(flags.agent_key_rotate_days, Some(15));
         assert_eq!(flags.fleet_graph_firings.as_deref(), Some("worker"));
         assert_eq!(flags.fleet_artifact_fetch_wait_s, Some(60));
         assert_eq!(flags.context_warn_bytes, Some(1));

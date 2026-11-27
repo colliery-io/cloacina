@@ -309,7 +309,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -2393,7 +2393,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -6700,6 +6700,13 @@
           "role"
         ],
         "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional. When the key expires, as an RFC 3339 timestamp in the\nfuture (for example `2027-01-31T00:00:00Z`). After it the key is\nrefused with 401 `key_expired`. Not set: the key does not expire."
+          },
           "name": {
             "type": "string"
           },
@@ -7395,6 +7402,13 @@
             "type": "string",
             "description": "RFC 3339 timestamp."
           },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the key expires (RFC 3339); `null`: it does not expire."
+          },
           "id": {
             "type": "string",
             "description": "Key UUID."
@@ -7438,6 +7452,13 @@
           "created_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the key expires (RFC 3339); `null`: it does not expire. The\nkeys the Kubernetes actuator mints for agents expire."
           },
           "id": {
             "type": "string",
@@ -7890,6 +7911,13 @@
                 "created_at": {
                   "type": "string",
                   "description": "RFC 3339 timestamp."
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "When the key expires (RFC 3339); `null`: it does not expire. The\nkeys the Kubernetes actuator mints for agents expire."
                 },
                 "id": {
                   "type": "string",

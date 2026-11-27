@@ -290,6 +290,14 @@ pub struct ServerSection {
     /// (`--max-unpacked-bytes`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_unpacked_bytes: Option<u64>,
+    /// Days an agent key of the Kubernetes actuator stays valid
+    /// (`--agent-key-lifetime-days`, CLOACINA-T-1083).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_key_lifetime_days: Option<u32>,
+    /// Days left on an agent key at which it is replaced
+    /// (`--agent-key-rotate-days`, CLOACINA-T-1083).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_key_rotate_days: Option<u32>,
 }
 
 impl Default for ServerSection {
@@ -325,6 +333,8 @@ impl Default for ServerSection {
             cors_allowed_headers: Vec::new(),
             max_package_bytes: None,
             max_unpacked_bytes: None,
+            agent_key_lifetime_days: None,
+            agent_key_rotate_days: None,
         }
     }
 }

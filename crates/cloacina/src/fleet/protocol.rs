@@ -163,6 +163,11 @@ pub struct AgentRegisterResponse {
     /// least this often; the server marks an agent dead after a small
     /// multiple of missed intervals.
     pub heartbeat_interval_seconds: u32,
+    /// CLOACINA-T-1083 — when the agent's key expires (RFC 3339). `None`: the
+    /// key does not expire, or an older server. The agent logs it at start,
+    /// and warns when the key is close to expiry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_expires_at: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
