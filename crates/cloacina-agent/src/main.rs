@@ -2251,7 +2251,11 @@ async fn process_work_packet(
     //     reads them via `ctx.secret(name)`. The plaintext lives only in this
     //     resolver, only for the run; it is never persisted or logged (NFR-001/
     //     NFR-003). The AAD is keyed by `task_execution_id`, matching the wrap.
-    if !packet.wrapped_secrets.is_empty() {
+    //     CLOACINA-T-1081: the packet carries only the secrets the task's
+    //     package declares; any other name the task asks for is refused.
+    if packet.wrapped_secrets.is_empty() {
+        context.set_secret_resolver(InMemorySecretResolver::empty().refusing_unsent().into_arc());
+    } else {
         let Some(key_id) = packet.secret_key_id.as_deref() else {
             // Secrets present but no key id — a malformed dispatch. Fail closed
             // rather than run with missing secrets.
@@ -2279,7 +2283,7 @@ async fn process_work_packet(
             &packet.wrapped_secrets,
             &packet.task_execution_id,
         ) {
-            Ok(resolver) => context.set_secret_resolver(resolver.into_arc()),
+            Ok(resolver) => context.set_secret_resolver(resolver.refusing_unsent().into_arc()),
             Err(e) => {
                 // Names only — `FleetSecretError` never renders a secret value.
                 return cloacina::fleet::AgentOutcome::Failure {
