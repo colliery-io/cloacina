@@ -33,6 +33,16 @@ Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
 
    Then `curl http://localhost:8080/v1/health` should return 200.
 {{- end }}
+{{- if .Values.server.networkPolicy.enabled }}
+{{- if not .Values.server.networkPolicy.from }}
+
+   A NetworkPolicy opens the API port only to the server pods and the
+   agents the server makes. `server.networkPolicy.from` is empty: list your
+   ingress controller or gateway there, and any agent or tool you run
+   yourself. TLS ends in the cluster: see the transport security page of the
+   docs.
+{{- end }}
+{{- end }}
 
 {{- if .Values.metrics.enabled }}
 
@@ -55,10 +65,10 @@ Release:  {{ .Release.Name }} (namespace: {{ .Release.Namespace }})
 {{- end }}
 {{- if .Values.postgresql.enabled }}
 
-NOTE: Bundled Postgres is installed in this release. The default
-credentials in values.yaml are for demo use only — set
-`postgresql.auth.password` (and ideally use `--set-string`) before
-deploying anywhere durable.
+NOTE: Bundled Postgres is installed in this release, for demo and
+development use. Its password is in the Secret {{ .Release.Name }}-postgresql
+(key POSTGRES_PASSWORD): generated at install unless
+`postgresql.auth.password` was set.
 {{- end }}
 
 Docs:    https://cloacina.dev/platform/how-to-guides/deploying-to-kubernetes
