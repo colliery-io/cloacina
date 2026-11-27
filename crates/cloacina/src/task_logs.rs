@@ -73,6 +73,27 @@ pub fn bound_error_details(details: &str) -> String {
     format!("[first {start} bytes cut]\n{}", &details[start..])
 }
 
+/// The most characters of a failed task's error message that a log line at
+/// info or above holds (CLOACINA-T-1096). A fixed value. It counts characters,
+/// not bytes.
+pub const MAX_LOGGED_ERROR_CHARS: usize = 300;
+
+/// The error message of a failed task as a log line at info or above holds
+/// it: whole when it has at most [`MAX_LOGGED_ERROR_CHARS`] characters, else
+/// its first [`MAX_LOGGED_ERROR_CHARS`] characters and a note that says how
+/// long the whole message is. The full message is task data: a line that
+/// holds it is at trace.
+pub fn error_for_log(message: &str) -> std::borrow::Cow<'_, str> {
+    match message.char_indices().nth(MAX_LOGGED_ERROR_CHARS) {
+        None => std::borrow::Cow::Borrowed(message),
+        Some((end, _)) => std::borrow::Cow::Owned(format!(
+            "{}... [cut: {MAX_LOGGED_ERROR_CHARS} of {} characters]",
+            &message[..end],
+            message.chars().count()
+        )),
+    }
+}
+
 /// The format of the log lines a process writes to its console.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LogFormat {
@@ -224,6 +245,30 @@ mod tests {
         let (message, details) = split_error_details(&wrapped);
         assert_eq!(message, "Task execution failed: m");
         assert!(details.unwrap().ends_with("END"));
+    }
+
+    #[test]
+    fn an_error_for_a_log_line_is_whole_up_to_the_limit_and_cut_after_it() {
+        let at_limit = "e".repeat(MAX_LOGGED_ERROR_CHARS);
+        assert_eq!(error_for_log(&at_limit), at_limit.as_str());
+        assert_eq!(error_for_log(""), "");
+
+        let over = format!("{at_limit}TAIL");
+        assert_eq!(
+            error_for_log(&over),
+            format!("{at_limit}... [cut: 300 of 304 characters]")
+        );
+    }
+
+    #[test]
+    fn a_cut_error_counts_characters_and_splits_none() {
+        // 2 bytes each: a cut by bytes at 300 would be inside a character
+        // for an odd offset, and would keep 150 of them.
+        let over = format!("x{}", "é".repeat(MAX_LOGGED_ERROR_CHARS));
+        let cut = error_for_log(&over);
+        let kept = cut.split_once("... [cut: ").unwrap().0;
+        assert_eq!(kept.chars().count(), MAX_LOGGED_ERROR_CHARS);
+        assert!(cut.ends_with("[cut: 300 of 301 characters]"), "{cut}");
     }
 
     #[test]
