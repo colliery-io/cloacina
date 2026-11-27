@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The `tracing` and `log` lines of a packaged Rust task are written**
+  (CLOACINA-T-1099). Before, they were lost: the package is a loaded library
+  with its own `tracing` and `log`, and nothing was set there. Now the process
+  that runs the task (agent, worker process, server, embedded runner) writes
+  them with its own logger and filter, with their level and target, inside
+  the span of the task, so they carry its ids. A package gets this when it is
+  built again against this release; a package built before still loads and
+  runs, and its lines are still lost. The plugin interface stays at version
+  8: the lines go through a new host interface, `CloacinaLog`, that the host
+  binds by name, and a package that does not import it is not refused.
+
 ## [0.12.0] - 2026-10-13
 
 ### Changed
