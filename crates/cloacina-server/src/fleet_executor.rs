@@ -1291,32 +1291,50 @@ impl TaskExecutor for FleetExecutor {
             // CLOACINA-T-1084: the same write records the dispatch on the
             // task row, so that another replica can take over this wait if
             // this one stops. (The packet row is known here unless the agent
-            // already reported and ended the wait.)
-            let started = match self.coordinator.packet_row(event.task_execution_id) {
-                Some(packet_row_id) => self
-                    .dal
-                    .task_execution()
-                    .mark_started_in_fleet_dispatch(
-                        event.task_execution_id,
-                        self.instance_id,
-                        &dispatch_id,
-                        packet_row_id,
-                    )
-                    .await
-                    .map(|_| ()),
-                None => {
-                    self.dal
+            // already reported and ended the wait.) A dropped write leaves the
+            // dispatch with no record: try again on an error before giving up.
+            let mut tries = 0;
+            loop {
+                tries += 1;
+                let started = match self.coordinator.packet_row(event.task_execution_id) {
+                    Some(packet_row_id) => self
+                        .dal
                         .task_execution()
-                        .mark_started(event.task_execution_id)
+                        .mark_started_in_fleet_dispatch(
+                            event.task_execution_id,
+                            self.instance_id,
+                            &dispatch_id,
+                            packet_row_id,
+                        )
                         .await
+                        .map(|_| ()),
+                    None => {
+                        self.dal
+                            .task_execution()
+                            .mark_started(event.task_execution_id)
+                            .await
+                    }
+                };
+                match started {
+                    Ok(()) => break,
+                    Err(e) if tries < 5 => {
+                        debug!(
+                            task_id = %event.task_execution_id,
+                            error = %e,
+                            tries,
+                            "fleet: could not stamp the start; trying again"
+                        );
+                        tokio::time::sleep(Duration::from_millis(100 * tries)).await;
+                    }
+                    Err(e) => {
+                        warn!(
+                            task_id = %event.task_execution_id,
+                            error = %e,
+                            "fleet: failed to stamp task started_at"
+                        );
+                        break;
+                    }
                 }
-            };
-            if let Err(e) = started {
-                warn!(
-                    task_id = %event.task_execution_id,
-                    error = %e,
-                    "fleet: failed to stamp task started_at"
-                );
             }
             debug!(
                 task_id = %event.task_execution_id,
