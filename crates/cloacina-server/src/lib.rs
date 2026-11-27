@@ -20,6 +20,17 @@
 //! single `run()` entrypoint that boots the axum HTTP server with auth, tenant
 //! management, workflow upload, and execution APIs.
 
+/// Install the process default rustls crypto provider (aws-lc-rs). Call it
+/// once, first thing in `main`, before any TLS client is built.
+///
+/// CLOACINA-T-1030: rustls has both ring and aws-lc-rs compiled in (see
+/// Cargo.toml). With no process default it panics when a client asks it to
+/// pick one, which is what the Kubernetes fleet actuator's client does at
+/// start. A second call does nothing.
+pub fn install_default_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 pub mod actuator;
 pub mod agent_registry;
 pub mod alerts;

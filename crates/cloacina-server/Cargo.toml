@@ -87,6 +87,13 @@ bollard = "0.21"
 # stack. Client construction is in-cluster + lazy (the substrate guard confirms
 # we are running as a pod before the actuator is built, fail-closed).
 kube = { version = "4", default-features = false, features = ["client", "rustls-tls", "ring"] }
+# CLOACINA-T-1030: the images are built with the features of every workspace
+# member unified, so rustls has both crypto backends compiled in (ring: kube,
+# openidconnect's reqwest, wasmtime-wasi-http; aws-lc-rs: reqwest 0.13) and
+# cannot pick a default. main() installs aws-lc-rs as the process default, the
+# same choice as cloacina-agent (CLOACINA-T-0960). Naming the feature here
+# gives every build of this crate the two backends the images have.
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 k8s-openapi = { version = "0.28", features = ["v1_32"] }
 tracing-opentelemetry = { version = "0.34", optional = true }
 opentelemetry = { version = "0.33", optional = true }
