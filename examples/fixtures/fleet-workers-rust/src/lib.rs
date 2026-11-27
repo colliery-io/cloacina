@@ -42,12 +42,15 @@ fn mark(task: &str, event: &str) {
     let Ok(path) = std::env::var("FLEET_WORKERS_MARKER") else {
         return;
     };
+    // The tasks run in different processes at the same time: each line goes
+    // out in one write, so two lines do not mix.
+    let line = format!("{} {} {}\n", task, event, std::process::id());
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
     {
-        let _ = writeln!(f, "{} {} {}", task, event, std::process::id());
+        let _ = f.write_all(line.as_bytes());
     }
 }
 
