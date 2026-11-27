@@ -38,9 +38,7 @@ pub mod standing_rollup {
     use super::*;
 
     #[task(retry_attempts = 0)]
-    pub async fn read_interval(
-        context: &mut Context<serde_json::Value>,
-    ) -> Result<(), TaskError> {
+    pub async fn read_interval(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
         let start = context.get("interval_start").cloned();
         let end = context.get("interval_end").cloned();
         let fired = context.get("scheduled_time").cloned();
