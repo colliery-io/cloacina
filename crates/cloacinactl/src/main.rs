@@ -259,8 +259,20 @@ fn default_home() -> PathBuf {
         .join(".cloacina")
 }
 
+/// Install the process default rustls crypto provider (aws-lc-rs).
+///
+/// CLOACINA-T-1030: a build of the whole workspace has both ring and
+/// aws-lc-rs compiled into rustls. With no process default, a `wss://`
+/// connect panics when rustls is asked to pick one. A second call does
+/// nothing.
+fn install_default_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
+    // CLOACINA-T-1030: before any TLS client is built.
+    install_default_crypto_provider();
     match run().await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
@@ -358,4 +370,18 @@ async fn run() -> std::result::Result<(), CliError> {
         }
     })
     .map_err(CliError::from)
+}
+
+#[cfg(test)]
+mod crypto_provider_tests {
+    /// CLOACINA-T-1030: after the call `main` makes first, rustls has a
+    /// process default provider, whichever backends are compiled in.
+    /// `ClientConfig::builder()` is what the WebSocket client calls; it
+    /// panics with two backends and no default.
+    #[test]
+    fn rustls_has_a_default_provider_after_install() {
+        super::install_default_crypto_provider();
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+        let _ = rustls::ClientConfig::builder();
+    }
 }
