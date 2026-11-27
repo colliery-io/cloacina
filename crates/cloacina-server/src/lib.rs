@@ -1312,13 +1312,23 @@ pub async fn run(
         "fleet actuator initialized"
     );
 
+    // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
+    // the key cache of this one when the notice arrives.
+    let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
+    #[cfg(feature = "postgres")]
+    crate::routes::auth::spawn_key_revocation_listener(
+        database_url.clone(),
+        key_cache.clone(),
+        substrate_shutdown_rx.clone(),
+    );
+
     let admin_database = runner.database().clone();
     let state = AppState {
         database: admin_database.clone(),
         default_max_agents,
         initial_agents,
         runner: Arc::new(runner),
-        key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
+        key_cache,
         endpoint_registry,
         graph_scheduler: graph_scheduler.clone(),
         delivery_sink: delivery_sink.clone(),

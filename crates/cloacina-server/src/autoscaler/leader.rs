@@ -78,6 +78,42 @@ where
     with_advisory_leadership(db, FLEET_CONTROL_LOCK_KEY, "fleet", work).await
 }
 
+/// Run `work` while holding the fleet lock, waiting for it up to `max_wait`
+/// (CLOACINA-T-1095). Tenant removal uses it: while it removes a tenant's
+/// agents and their rows, no fleet tick can start them again.
+///
+/// Returns `None` when the lock was not taken in `max_wait` (another replica
+/// held it all that time, or Postgres could not be reached); `work` did not
+/// run then.
+#[cfg(feature = "postgres")]
+pub async fn with_fleet_lock_waiting<F, Fut, T>(
+    db: &Database,
+    max_wait: std::time::Duration,
+    work: F,
+) -> Option<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = T>,
+{
+    const RETRY: std::time::Duration = std::time::Duration::from_millis(250);
+    let deadline = tokio::time::Instant::now() + max_wait;
+    let mut work = Some(work);
+    loop {
+        let out = with_advisory_leadership(db, FLEET_CONTROL_LOCK_KEY, "tenant removal", || {
+            let work = work.take().expect("work runs at most once");
+            work()
+        })
+        .await;
+        if out.is_some() || work.is_none() {
+            return out;
+        }
+        if tokio::time::Instant::now() + RETRY > deadline {
+            return None;
+        }
+        tokio::time::sleep(RETRY).await;
+    }
+}
+
 /// The same single-replica gate for any advisory-lock `key` (CLOACINA-T-1023):
 /// run `work` only if this replica takes `pg_try_advisory_lock(key)`, and
 /// ALWAYS release the lock afterwards. `what` names the loop in log lines.
