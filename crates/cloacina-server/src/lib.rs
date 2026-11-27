@@ -313,6 +313,8 @@ pub struct AppState {
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
     default_executor: &str,
+    require_signatures: bool,
+    verification_org_id: Option<uuid::Uuid>,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
@@ -323,6 +325,11 @@ fn runner_config_for_tenant_cache(
     // runners so their dispatcher sends tenant tasks to the same executor (and
     // a dispatcher exists at all, which `register_executor` requires).
     builder = builder.default_executor(default_executor);
+    // CLOACINA-T-1037: the same signature requirement as the admin runner, so
+    // a tenant's reconciler makes the same signature-existence check on load.
+    builder = builder
+        .require_signatures(require_signatures)
+        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
     builder
         .build()
         .expect("default tenant runner config builds cleanly")
@@ -1104,7 +1111,12 @@ pub async fn run(
         let cache = crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(tenant_runner_cache_size.max(1))
                 .expect("max(1) is non-zero"),
-            runner_config_for_tenant_cache(reconcile_interval, &default_executor),
+            runner_config_for_tenant_cache(
+                reconcile_interval,
+                &default_executor,
+                require_signatures,
+                verification_org_id,
+            ),
         )
         // CLOACI-T-0581 follow-up: per-tenant runners share the global graph
         // scheduler so their reconcilers can route packaged CGs. The scheduler
@@ -2945,7 +2957,7 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None, "default"),
+                runner_config_for_tenant_cache(None, "default", false, None),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -5863,7 +5875,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, "default"),
+            runner_config_for_tenant_cache(None, "default", false, None),
         ));
 
         let schema_a = format!(
@@ -7183,6 +7195,23 @@ mod tests {
     }
 
     // ── Security args validation (CLOACI-I-0103 / T-0567) ─────────────────
+
+    /// CLOACINA-T-1037: the config of per-tenant runners carries the server's
+    /// signature requirement, as the admin runner's config does.
+    #[test]
+    fn tenant_runner_config_carries_the_signature_requirement() {
+        let org = uuid::Uuid::new_v4();
+        let on = runner_config_for_tenant_cache(None, "default", true, Some(org));
+        assert!(on.require_signatures());
+        assert_eq!(
+            on.verification_org_id(),
+            Some(cloacina::UniversalUuid::from(org))
+        );
+
+        let off = runner_config_for_tenant_cache(None, "default", false, None);
+        assert!(!off.require_signatures());
+        assert_eq!(off.verification_org_id(), None);
+    }
 
     #[test]
     fn validate_security_args_default_passes() {

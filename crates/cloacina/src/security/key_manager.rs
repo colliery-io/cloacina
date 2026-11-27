@@ -184,7 +184,15 @@ pub trait KeyManager: Send + Sync {
     async fn revoke_signing_key(&self, key_id: UniversalUuid) -> Result<(), KeyError>;
 
     /// Revoke a trusted key (prevents future verification with this key).
-    async fn revoke_trusted_key(&self, key_id: UniversalUuid) -> Result<(), KeyError>;
+    ///
+    /// The key must be one that `org_id` trusts directly. A key of another
+    /// organization is not revoked and the call returns
+    /// [`KeyError::NotFound`], the same answer as for an unknown key.
+    async fn revoke_trusted_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<(), KeyError>;
 
     /// Grant trust from a parent organization to a child organization.
     ///

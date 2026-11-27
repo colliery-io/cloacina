@@ -346,12 +346,22 @@ impl KeyManager for DbKeyManager {
         Ok(())
     }
 
-    async fn revoke_trusted_key(&self, key_id: UniversalUuid) -> Result<(), KeyError> {
+    async fn revoke_trusted_key(
+        &self,
+        org_id: UniversalUuid,
+        key_id: UniversalUuid,
+    ) -> Result<(), KeyError> {
         let now = UniversalTimestamp::now();
+        // The org is part of the filter (CLOACINA-T-1037): a key that another
+        // org trusts matches no row, and the caller gets `NotFound`.
         let updated = crate::interact_on_backend!(self.dal, |conn| {
-            diesel::update(trusted_keys::table.filter(trusted_keys::id.eq(key_id)))
-                .set(trusted_keys::revoked_at.eq(Some(now)))
-                .execute(conn)
+            diesel::update(
+                trusted_keys::table
+                    .filter(trusted_keys::id.eq(key_id))
+                    .filter(trusted_keys::org_id.eq(org_id)),
+            )
+            .set(trusted_keys::revoked_at.eq(Some(now)))
+            .execute(conn)
         })
         .map_err(|e| KeyError::Database(e.to_string()))?;
 
@@ -956,7 +966,7 @@ mod tests {
             .await
             .unwrap();
 
-        km.revoke_trusted_key(trusted.id).await.unwrap();
+        km.revoke_trusted_key(org_id, trusted.id).await.unwrap();
 
         // Revoked keys should not appear in list (list filters revoked)
         let keys = km.list_trusted_keys(org_id).await.unwrap();
@@ -969,8 +979,44 @@ mod tests {
         let dal = unique_dal().await;
         let km = DbKeyManager::new(dal);
 
-        let result = km.revoke_trusted_key(UniversalUuid::new_v4()).await;
+        let result = km
+            .revoke_trusted_key(UniversalUuid::new_v4(), UniversalUuid::new_v4())
+            .await;
         assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    /// CLOACINA-T-1037: an org cannot revoke a key that another org trusts.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_trusted_key_of_another_org_is_refused() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let owner_org = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        let trusted = km
+            .trust_public_key(owner_org, &kp.public_key, Some("owner-key"))
+            .await
+            .unwrap();
+
+        let result = km.revoke_trusted_key(other_org, trusted.id).await;
+        assert!(matches!(result, Err(KeyError::NotFound(id)) if id == trusted.id));
+
+        // The key is still trusted by its own org.
+        let found = km
+            .find_trusted_key(owner_org, &trusted.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_some(), "the key of the other org was revoked");
+
+        // Its own org can revoke it.
+        km.revoke_trusted_key(owner_org, trusted.id).await.unwrap();
+        let found = km
+            .find_trusted_key(owner_org, &trusted.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_none());
     }
 
     #[cfg(feature = "sqlite")]
@@ -1021,7 +1067,7 @@ mod tests {
             .await
             .unwrap();
 
-        km.revoke_trusted_key(trusted.id).await.unwrap();
+        km.revoke_trusted_key(org_id, trusted.id).await.unwrap();
 
         let found = km
             .find_trusted_key(org_id, &trusted.fingerprint)
