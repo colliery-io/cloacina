@@ -112,7 +112,10 @@ def _server_values_with_fleet(tag, agent_ref, chart_actuator, compiler_ref=None)
     base = base.replace(zero, '{name: CLOACINA_INITIAL_AGENTS, value: "1"}')
     assert "  actuator: kubernetes\n" in base, "the e2e server values changed: actuator not found"
     if not chart_actuator:
-        base = base.replace("  actuator: kubernetes\n", "  actuator: none\n")
+        # CLOACINA-T-1075: the driver runs the agents; the chart must be told.
+        base = base.replace(
+            "  actuator: kubernetes\n", "  actuator: none\n  externalAgents: true\n"
+        )
     else:
         # The server's actuator makes each tenant's compiler (CLOACINA-T-1034),
         # with what the driver's own manifest gave it: the test image as it is

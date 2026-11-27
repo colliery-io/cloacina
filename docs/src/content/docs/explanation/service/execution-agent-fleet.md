@@ -22,13 +22,13 @@ task, and report the result. This is the right tool when you want to:
 - scale execution capacity independently of the server, or
 - isolate heavy or untrusted task execution away from the control plane.
 
-Adopting the fleet is a single server-level switch: set the **default executor**
-to `fleet` (via `[server].default_executor` in `config.toml`, or
-`CLOACINA_DEFAULT_EXECUTOR=fleet` / `--default-executor fleet`). Every task then
-runs on the fleet instead of the in-process `default` executor — there is no
-per-task matching. The `fleet` key is only a registered executor when you've
-opted in; if you select it without the fleet deployed, the server fails fast at
-startup.
+The fleet is the server's default executor (CLOACINA-T-1075): every task runs
+on an agent of its tenant, and the server loads packages from their metadata
+only, so no tenant code runs in the server process. The in-process `default`
+executor is used only with `--single-trust` (`[server].single_trust`,
+`CLOACINA_SINGLE_TRUST`), and then only when `--default-executor default` is
+set or no executor is set. There is no per-task matching. See
+[Tenant code and the server process](../security-model/#tenant-code-and-the-server-process).
 
 ## The pieces
 

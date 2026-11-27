@@ -34,7 +34,8 @@ command-line flags (most also accept an environment variable). The
 | `--verification-org-id` | `CLOACINA_VERIFICATION_ORG_ID` | — | Server-wide trusted org UUID (optional). A key trusted in it is accepted for every tenant, after the tenant's own keys. |
 | `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | Warning limit on per-tenant runners; none is stopped at the limit. |
 | `--tenant-deletion-drain-timeout-s` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Seconds to drain in-flight work before a tenant's runner is hard-evicted on `DELETE /v1/tenants/{name}`. |
-| `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to; set `fleet` to route to the execution-agent fleet. An unknown key fails startup fast. |
+| `--single-trust` | `CLOACINA_SINGLE_TRUST` | off | Every tenant is trusted as much as the server. On: packages load in the server process (their libraries opened, their Python modules imported) and `--default-executor default` is allowed; the server logs a warning at start. Off: packages load from the metadata document their compiler stored, no tenant code runs in the server, and every task goes to the fleet. See [Tenant code and the server process](../../explanation/service/security-model/#tenant-code-and-the-server-process). |
+| `--default-executor` | `CLOACINA_DEFAULT_EXECUTOR` | `fleet`; `default` with `--single-trust` | Executor every task is dispatched to: `fleet` (the execution-agent fleet) or `default` (the in-process thread executor). `default` without `--single-trust` stops the start with an error that names the setting. An unknown key fails startup fast. |
 | `--agent-heartbeat-interval-s` | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `15` | Fleet-agent heartbeat cadence advertised to agents. |
 | `--agent-liveness-misses` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Missed heartbeats before an agent is considered dead (dead-after = interval × misses). |
 | `--fleet-task-timeout-s` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
@@ -161,6 +162,7 @@ Task claiming enables horizontal scaling by allowing multiple runner instances t
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `default_executor` | `String` | `"default"` | Executor key every task is dispatched to. `"default"` is the in-process thread executor; the server registers `"fleet"` for the agent fleet. |
+| `package_load_mode` | `PackageLoadMode` | `InProcess` | How the reconciler loads a package. `InProcess` opens its library, or imports its Python module, in this process. `MetadataOnly` registers it from the metadata document its compiler stored and opens no package code; the tasks have no code in this process and need an executor that sends them to agents. `cloacina-server` uses `MetadataOnly` unless it runs with `--single-trust`. |
 
 ### Context Size
 
@@ -241,6 +243,7 @@ let config = DefaultRunnerConfig::builder()
 
     // Executor routing
     .default_executor("default")
+    .package_load_mode(PackageLoadMode::InProcess)
 
     // Identity
     .runner_id(Some("runner-01".to_string()))
@@ -314,7 +317,8 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 
 | config.toml Key | Default | Description |
 |---|---|---|
-| `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
+| `server.default_executor` | not set | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"fleet"` sends all work to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/); `"default"` is the in-process thread executor and needs single trust. Not set: not forwarded, and the server uses `fleet`, or `default` with single trust. The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). Forwarded as `--default-executor`. |
+| `server.single_trust` | not set | `true`: every tenant is trusted as much as the server; packages load and tasks may run in the server process. Forwarded as `--single-trust`. |
 | `server.database_wait_timeout_s` | not set | Seconds the server waits at start for the database to accept a connection; `0` = one try. Forwarded as `--database-wait-timeout-s`. |
 | `server.run_history_retention_days` | not set | Days to keep a finished run; `0` keeps run history for ever. Forwarded as `--run-history-retention-days`. |
 | `server.outbox_acked_retention_s` | not set | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever. Forwarded as `--outbox-acked-retention-s`. |
@@ -394,7 +398,8 @@ compiler's default.
 |---|---|
 | `DATABASE_URL` | Database connection URL for `server start` and `admin` commands |
 | `CLOACINA_BOOTSTRAP_KEY` | Bootstrap API key for `server start` first startup |
-| `CLOACINA_DEFAULT_EXECUTOR` | Executor key every task is dispatched to (overrides `[server].default_executor`; default `default`, set `fleet` for the agent fleet) |
+| `CLOACINA_DEFAULT_EXECUTOR` | Executor key every task is dispatched to (overrides `[server].default_executor`; not set: `fleet`, or `default` with single trust) |
+| `CLOACINA_SINGLE_TRUST` | `true`: single trust, tenant code runs in the server process (`--single-trust`) |
 | `RUST_LOG` | Log filter directive (e.g., `info`, `debug`, `cloacina=trace`) |
 
 ## Schema naming rules

@@ -101,6 +101,10 @@ pub struct DefaultRunnerConfig {
     /// CLOACINA-T-1062: the database that holds the trusted keys, when it
     /// is not the runner's own (a tenant's runner: the admin schema).
     signature_trust_database: Option<crate::Database>,
+    /// CLOACINA-T-1075: how the reconciler loads a package. In process by
+    /// default; `cloacina-server` loads from metadata only unless it runs
+    /// with single trust.
+    package_load_mode: crate::registry::PackageLoadMode,
     enable_claiming: bool,
     heartbeat_interval: Duration,
     stale_claim_sweep_interval: Duration,
@@ -272,7 +276,14 @@ impl DefaultRunnerConfig {
             require_signatures: self.require_signatures,
             verification_org_id: self.verification_org_id,
             signature_trust_database: self.signature_trust_database.clone(),
+            // CLOACINA-T-1075: in process unless the server says otherwise.
+            package_load_mode: self.package_load_mode,
         }
+    }
+
+    /// CLOACINA-T-1075: how the reconciler loads a package.
+    pub fn package_load_mode(&self) -> crate::registry::PackageLoadMode {
+        self.package_load_mode
     }
 
     /// The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
@@ -396,6 +407,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 require_signatures: false,
                 verification_org_id: None,
                 signature_trust_database: None,
+                package_load_mode: crate::registry::PackageLoadMode::InProcess,
                 enable_claiming: true,
                 heartbeat_interval: Duration::from_secs(10),
                 stale_claim_sweep_interval: Duration::from_secs(30),
@@ -572,6 +584,14 @@ impl DefaultRunnerConfigBuilder {
     /// from the admin schema.
     pub fn signature_trust_database(mut self, value: Option<crate::Database>) -> Self {
         self.config.signature_trust_database = value;
+        self
+    }
+
+    /// CLOACINA-T-1075: how the reconciler loads a package. The default,
+    /// in process, runs the package's code in this process; a server with no
+    /// single trust sets [`PackageLoadMode::MetadataOnly`](crate::registry::PackageLoadMode).
+    pub fn package_load_mode(mut self, mode: crate::registry::PackageLoadMode) -> Self {
+        self.config.package_load_mode = mode;
         self
     }
 

@@ -135,6 +135,8 @@ def metrics_format():
         server_proc = subprocess.Popen(
             [
                 str(server_binary),
+                # CLOACINA-T-1075: tasks run in the server, no agents here.
+                "--single-trust",
                 "--home", str(home),
                 "--database-url", "postgres://cloacina:cloacina@localhost:15432/cloacina",
                 "--bind", "127.0.0.1:18181",

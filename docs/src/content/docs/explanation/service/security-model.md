@@ -44,6 +44,20 @@ The server is the **only** Cloacina mode with a low-trust posture. It assumes:
 
 This is where the threat model gets real, and the rest of this page is about what the server does to enforce it.
 
+### Tenant code and the server process
+
+On a server, tenant code runs only on the tenant's agents and in the tenant's compiler (CLOACINA-A-0019). The server process holds the admin database URL, the key that wraps every tenant's secrets, the bootstrap key, the OIDC client secret and, with the Kubernetes actuator, a service account that can create namespaces, Secrets and Deployments. So it runs no tenant code:
+
+- **Packages load from their metadata document.** The tenant's compiler describes each package in a child process and stores the document ([the describe step](#the-describe-step-reading-a-packages-metadata)). The server registers the package's tasks, workflow, cron schedules, reactors and graph from that document. It opens no tenant library and imports no tenant Python module, so no load-time code and no module top level runs in it.
+- **Every task goes to the agent fleet.** The executor is `fleet`. A task registered from the document has no code in the server: if anything asks the server to run it, it fails with a reason that names where it runs.
+- **A graph firing runs on an agent.** The graph registered from the document has no code in the server. A firing that cannot be sent to an agent fails with a reason; the server does not run it.
+- **`public` is a tenant like the others.** Its packages load the same way.
+- **A package with no document does not load.** A package that is not described yet waits for its compiler; the workflow detail gives `not_loaded_reason`. A package its compiler could not describe has `describe_error` and does not load until it is built again.
+- **A package whose code would have to run in the server is refused.** Three things need that today: a poll trigger (its code runs at each poll), a native provider (a library opened by the process that uses it) and Python reactive code (the reactors, accumulators and graph of a Python package are Python functions). Such a package gets `build_status` `failed` with a reason that names what it uses, in `build_error`. WASM providers are not refused.
+- **Cron schedules** need no tenant code: the expression, the timezone and the policy are data.
+
+The single-trust setting (`--single-trust`, `CLOACINA_SINGLE_TRUST`, chart `server.singleTrust`) turns this off, for a server whose every tenant is trusted as much as the server itself. With it the server opens each package's library and imports its Python module in its own process, as the daemon does, and `--default-executor default` runs tasks there. Every tenant's code then reaches what the server process holds. The server logs a warning at start when the setting is on. Without it the server refuses to start with `--default-executor default`.
+
 ## Server auth model
 
 ### API keys, bearer-token, and the cache
@@ -450,7 +464,7 @@ The compiler process does not do this. After the build it starts a child, the co
 - **When it fails.** A package that cannot be described, or whose describe passes the time limit, fails its build: the package gets `build_status` `failed` and the reason in `build_error`.
 - **Packages built before the document existed.** The compiler describes each one from its stored build, with no new build and no upload, and the package stays in service. A package it cannot describe keeps `build_status` `success` and gets the reason in `describe_error`, which the workflow routes return.
 
-This step does not change how a server or an agent loads a package: a server opens the library, and imports a Python package, in its own process.
+A server reads this document and nothing else from the package (see [Tenant code and the server process](#tenant-code-and-the-server-process)). An agent opens the library, or imports the Python package, in its own process, to run the package's tasks.
 
 ### Python packages: what the compiler downloads
 
@@ -559,7 +573,7 @@ CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier ser
 
 What multi-tenant isolation **does not** guarantee:
 
-- **CPU side-channels** between executions running concurrently on the same server process. Tenants share the OS and the runtime; an attacker who can run code in one tenant can in principle observe timing of code in another. If this threat is in scope, run a separate `cloacina-server` instance per tenant (one host process per tenant) rather than relying on schema isolation.
+- **CPU side-channels** between tenants' code on one host. Each tenant's tasks run in its own agents, but agents of several tenants can run on one node; with single trust every tenant's code runs in the one server process. An attacker who can run code in one tenant can in principle observe timing of code in another on the same host. If this threat is in scope, keep each tenant's agents on their own nodes.
 - **Privileged operator actions.** An `is_admin` key can do anything; key compromise = total compromise. Treat `is_admin` keys like AWS root credentials.
 - **Postgres-level row-level security.** Cloacina relies on schema-level isolation and the `SET search_path` enforcement above; it does not layer Postgres RLS policies on top. If your compliance posture requires defense-in-depth at the DB layer, layer RLS yourself.
 

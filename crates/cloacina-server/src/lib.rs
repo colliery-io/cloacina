@@ -37,6 +37,7 @@ pub mod alerts;
 pub mod autoscaler;
 pub mod db_wait;
 pub mod delivery_sink;
+pub mod execution_mode;
 pub mod fleet_coordinator;
 pub mod fleet_executor;
 pub mod fleet_graph_executor;
@@ -317,6 +318,11 @@ pub struct AppState {
     /// (kind `"none"`) when actuation is off — in which case the reconcile loop
     /// does not run.
     pub fleet_actuator: Arc<dyn crate::actuator::FleetActuator>,
+    /// CLOACINA-T-1075: how this server's reconcilers load packages. With
+    /// [`PackageLoadMode::MetadataOnly`](cloacina::registry::PackageLoadMode)
+    /// the workflow routes say why a built package with no document is not
+    /// loaded.
+    pub package_load_mode: cloacina::registry::PackageLoadMode,
 }
 
 /// CLOACI-T-0580: build the base `DefaultRunnerConfig` used by every
@@ -361,11 +367,15 @@ fn runner_config_for_tenant_cache(
     // the keys that sign them from here.
     signature_trust_database: Option<Database>,
     context_limits: cloacina::executor::ContextSizeLimits,
+    // CLOACINA-T-1075: how each tenant's reconciler loads a package. The same
+    // for every tenant, `public` included.
+    package_load_mode: cloacina::registry::PackageLoadMode,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
     // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
     builder = builder.priority_aging_interval(priority_aging_interval_from_env());
+    builder = builder.package_load_mode(package_load_mode);
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     builder = builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -410,11 +420,11 @@ pub async fn run(
     tenant_runner_cache_size: usize,
     tenant_deletion_drain_timeout: std::time::Duration,
     log_retention_days: u64,
-    // Executor every task is dispatched to (CLOACI-T-0640). `"default"` runs all
-    // work on the in-process thread executor; `"fleet"` sends it to the
-    // execution-agent fleet. Validated against the registered executor keys at
-    // boot — an unknown key fails fast.
-    default_executor: String,
+    // Where tenant code runs (CLOACINA-T-1075): the single-trust setting, the
+    // executor every task is dispatched to (CLOACI-T-0640) and how packages
+    // load. `main` resolves it with `ExecutionMode::resolve`; the executor key
+    // is validated against the registered executors at boot.
+    execution_mode: crate::execution_mode::ExecutionMode,
     // Fleet agent liveness tuning (CLOACI-T-0639). `agent_heartbeat_interval_s`
     // is advertised to agents (their heartbeat cadence) and is the sweeper's
     // tick rate; the sweeper marks an agent dead after `agent_liveness_misses`
@@ -946,9 +956,19 @@ pub async fn run(
     // reach them too or fleet dispatch never fires for tenant tasks (the only
     // kind the server runs). The key is validated against the registered
     // executors after registration below.
+    let default_executor = execution_mode.default_executor.clone();
+    let package_load_mode = execution_mode.package_load_mode;
     let use_fleet = default_executor == "fleet";
     info!(default_executor = %default_executor, "Default executor configured");
+    // CLOACINA-T-1075: where tenant code runs. Single trust is a warning: it
+    // is a choice an operator must see in the log.
+    if execution_mode.single_trust {
+        warn!("{}", execution_mode.start_line());
+    } else {
+        info!("{}", execution_mode.start_line());
+    }
     runner_builder = runner_builder.default_executor(default_executor.clone());
+    runner_builder = runner_builder.package_load_mode(package_load_mode);
     let runner_config = runner_builder
         .build()
         .context("Invalid runner configuration")?;
@@ -1262,6 +1282,7 @@ pub async fn run(
                 // CLOACINA-T-1062: the trusted keys are in the admin schema.
                 Some(runner.database().clone()),
                 context_limits,
+                package_load_mode,
             ),
         )
         // CLOACI-T-0581 follow-up: per-tenant runners share the global graph
@@ -1394,6 +1415,14 @@ pub async fn run(
         actuator = %fleet_actuator.kind(),
         "fleet actuator initialized"
     );
+    // CLOACINA-T-1075: with no single trust every task waits for an agent.
+    // With no actuator only agents that register themselves can take it.
+    if !execution_mode.single_trust && fleet_actuator.kind() == "none" {
+        warn!(
+            "no fleet actuator (CLOACINA_FLEET_ACTUATOR=none): packaged work waits for agents \
+             that register themselves, for example from the cloacina-agent chart"
+        );
+    }
 
     // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
     // the key cache of this one when the notice arrives.
@@ -1447,6 +1476,7 @@ pub async fn run(
         // enforced by every replica.
         login_throttle: crate::routes::local_auth::LoginThrottleConfig::from_env(),
         fleet_actuator: fleet_actuator.clone(),
+        package_load_mode,
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -3234,6 +3264,7 @@ mod tests {
                     None,
                     None,
                     Default::default(),
+                    Default::default(),
                 ),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
@@ -3252,6 +3283,7 @@ mod tests {
             // CLOACI-T-0810: tests don't actuate — a Noop actuator keeps handlers
             // that read `fleet_actuator` constructible without a Docker daemon.
             fleet_actuator: Arc::new(crate::actuator::NoopActuator),
+            package_load_mode: cloacina::registry::PackageLoadMode::InProcess,
         }
     }
 
@@ -6505,7 +6537,15 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, "default", false, None, None, Default::default()),
+            runner_config_for_tenant_cache(
+                None,
+                "default",
+                false,
+                None,
+                None,
+                Default::default(),
+                Default::default(),
+            ),
         ));
 
         let schema_a = format!(
@@ -7835,6 +7875,7 @@ mod tests {
             Some(org),
             None,
             Default::default(),
+            Default::default(),
         );
         assert!(on.require_signatures());
         assert_eq!(
@@ -7856,8 +7897,15 @@ mod tests {
         );
         assert!(reconciler.signature_trust_database.is_none());
 
-        let off =
-            runner_config_for_tenant_cache(None, "default", false, None, None, Default::default());
+        let off = runner_config_for_tenant_cache(
+            None,
+            "default",
+            false,
+            None,
+            None,
+            Default::default(),
+            Default::default(),
+        );
         assert!(!off.require_signatures());
         assert_eq!(off.verification_org_id(), None);
     }

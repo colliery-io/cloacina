@@ -341,6 +341,8 @@ def _ui_e2e(smoke: bool, visual: bool = False, update_baselines: bool = False) -
 
         server_cmd = [
             "target/debug/cloacina-server",
+            # CLOACINA-T-1075: tasks run in the server, no agents here.
+            "--single-trust",
             "--home", str(home),
             "--database-url", DB_URL,
             "--bind", SERVER_BIND,

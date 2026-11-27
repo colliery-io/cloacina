@@ -257,6 +257,34 @@ fn resolve_native_provider(
     Ok(None)
 }
 
+/// The names of the NATIVE providers in `search_path` (CLOACINA-T-1075): each
+/// directory one level down whose `provider.json` declares `runtime =
+/// "native"`. Reads the manifests only; no library is opened. Sorted.
+pub fn native_provider_names(search_path: &Path) -> Result<Vec<String>, LoaderError> {
+    if !search_path.is_dir() {
+        return Ok(Vec::new());
+    }
+    let entries = std::fs::read_dir(search_path).map_err(|e| LoaderError::FileSystem {
+        path: search_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+    let mut names = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if let Ok(provider) = read_provider_manifest(&path)
+            && provider.runtime == ProviderRuntime::Native
+        {
+            names.push(provider.name);
+        }
+    }
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
 /// Load a configured member from a NATIVE provider cdylib. Returns `Ok(None)` when
 /// `package_name` is not a native provider in `search_path` (caller then takes the
 /// WASM path). On the native path it `dlopen`s the provider cdylib, selects the

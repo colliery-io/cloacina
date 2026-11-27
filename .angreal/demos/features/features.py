@@ -276,6 +276,8 @@ def _run_gold_path(
         server_proc = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
+                # CLOACINA-T-1075: the demos run tasks in the server.
+                "--single-trust",
                 "--home", str(home),
                 "--database-url", db_url,
                 "--bind", server_bind,

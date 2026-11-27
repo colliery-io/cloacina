@@ -641,9 +641,12 @@ def _leader_values(tag, agent_ref, *, interval_s=1):
     tick so the advisory lock is observable and failover is quick."""
     base = _server_values(tag, agent_ref, BOOTSTRAP_SECRET)
     # Override the autoscale interval (shared default is 5s) for a faster tick.
+    # CLOACINA-T-1075: this harness runs a packaged graph in the server, so
+    # the server runs with single trust.
     base = base.replace(
         '    - {name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "5"}\n',
-        f'    - {{name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "{interval_s}"}}\n',
+        f'    - {{name: CLOACINA_AUTOSCALE_INTERVAL_S, value: "{interval_s}"}}\n'
+        '    - {name: CLOACINA_SINGLE_TRUST, value: "true"}\n',
     )
     # CLOACI-T-0851: per-pod DNS identity + advertised address, so reactor
     # ownership publishes routable owner addresses (assertion 6).

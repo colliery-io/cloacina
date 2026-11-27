@@ -157,6 +157,15 @@ pub struct WorkflowDetail {
     /// `failed` and the reason in `build_error`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub describe_error: Option<String>,
+    /// Why this built package is not loaded (CLOACINA-T-1075). A server that
+    /// loads packages from their metadata only does not load a package that
+    /// has no metadata document: it waits for the tenant's compiler to
+    /// describe it, or the compiler could not (`describe_error`). Absent when
+    /// the package has a document, is not built, or the server runs with
+    /// single trust. A package the server refuses has `build_status`
+    /// `failed` and the reason in `build_error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_loaded_reason: Option<String>,
     /// Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
     /// new executions until resumed.
     #[serde(default)]

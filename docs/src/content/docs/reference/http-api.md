@@ -887,8 +887,9 @@ Get details for a specific workflow by package name.
 |---|---|---|
 | `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence. |
 | `build_status` | string | Real build state: `pending` / `building` / `failed` / `success`. |
-| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. |
+| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. A package the server refuses to load, because it uses a poll trigger, a native provider or Python reactive code, is `failed` with the reason here. |
 | `describe_error` | string | Present only when the compiler could not write the metadata document of a built package: a package built before the document existed that cannot be described from its stored build. `build_status` stays `success`. |
+| `not_loaded_reason` | string | Present only on a server without single trust, for a built package with no metadata document: the server does not load it. It waits for the tenant's compiler to describe the package, or the compiler could not (`describe_error`). |
 | `paused` | boolean | Whether this workflow is paused. A paused workflow refuses new executions until resumed. |
 | `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
 | `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence. |

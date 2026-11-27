@@ -81,7 +81,7 @@ pub use placement_check::{
     PlacedTask, TaskPlacementCheck, register_task_placement_check, task_placement_check,
 };
 pub use reconciler::{
-    CronWorkflowRegistrar, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
+    CronWorkflowRegistrar, PackageLoadMode, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
     ReconcilerStatus, RegistryReconciler,
 };
 pub use traits::{LoadSignature, LoadSignatureRefusal, RegistryStorage, WorkflowRegistry};

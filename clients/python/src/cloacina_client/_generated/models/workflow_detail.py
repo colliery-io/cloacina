@@ -45,6 +45,13 @@ class WorkflowDetail:
                 package whose describe fails during a build has `build_status`
                 `failed` and the reason in `build_error`.
             description (None | str | Unset):
+            not_loaded_reason (None | str | Unset): Why this built package is not loaded (CLOACINA-T-1075). A server that
+                loads packages from their metadata only does not load a package that
+                has no metadata document: it waits for the tenant's compiler to
+                describe it, or the compiler could not (`describe_error`). Absent when
+                the package has a document, is not built, or the server runs with
+                single trust. A package the server refuses has `build_status`
+                `failed` and the reason in `build_error`.
             paused (bool | Unset): Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
                 new executions until resumed.
             task_graph (list[WorkflowTaskNode] | Unset): The task dependency graph (nodes + their upstream dependencies) for
@@ -67,6 +74,7 @@ class WorkflowDetail:
     declared_params: list[InputSlot] | Unset = UNSET
     describe_error: None | str | Unset = UNSET
     description: None | str | Unset = UNSET
+    not_loaded_reason: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
     task_graph: list[WorkflowTaskNode] | Unset = UNSET
     uploaded_by: None | str | Unset = UNSET
@@ -114,6 +122,12 @@ class WorkflowDetail:
         else:
             description = self.description
 
+        not_loaded_reason: None | str | Unset
+        if isinstance(self.not_loaded_reason, Unset):
+            not_loaded_reason = UNSET
+        else:
+            not_loaded_reason = self.not_loaded_reason
+
         paused = self.paused
 
         task_graph: list[dict[str, Any]] | Unset = UNSET
@@ -151,6 +165,8 @@ class WorkflowDetail:
             field_dict["describe_error"] = describe_error
         if description is not UNSET:
             field_dict["description"] = description
+        if not_loaded_reason is not UNSET:
+            field_dict["not_loaded_reason"] = not_loaded_reason
         if paused is not UNSET:
             field_dict["paused"] = paused
         if task_graph is not UNSET:
@@ -218,6 +234,15 @@ class WorkflowDetail:
 
         description = _parse_description(d.pop("description", UNSET))
 
+        def _parse_not_loaded_reason(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        not_loaded_reason = _parse_not_loaded_reason(d.pop("not_loaded_reason", UNSET))
+
         paused = d.pop("paused", UNSET)
 
         _task_graph = d.pop("task_graph", UNSET)
@@ -251,6 +276,7 @@ class WorkflowDetail:
             declared_params=declared_params,
             describe_error=describe_error,
             description=description,
+            not_loaded_reason=not_loaded_reason,
             paused=paused,
             task_graph=task_graph,
             uploaded_by=uploaded_by,

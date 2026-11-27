@@ -128,6 +128,10 @@ services:
       # server's in-process executor (CLOACI-I-0114). The `agent` services below
       # register over WS, fetch cdylibs by digest, run tasks, and report back.
       CLOACINA_DEFAULT_EXECUTOR: "fleet"
+      # CLOACINA-T-1075: the demo packages include a Kafka stream (a native
+      # provider), poll triggers and Python graphs, which the server loads
+      # only with single trust. Tasks still go to the agents above.
+      CLOACINA_SINGLE_TRUST: "true"
       # CLOACI-T-0779: seed deterministic tenant-scoped keys for the isolation
       # demo (tenant:key:role). The first two are tenant-admin (full access within
       # their tenant, never cross-tenant). The last two have the role `agent`:

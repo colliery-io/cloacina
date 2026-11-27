@@ -9614,6 +9614,13 @@
             "type": "string",
             "description": "Package UUID."
           },
+          "not_loaded_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why this built package is not loaded (CLOACINA-T-1075). A server that\nloads packages from their metadata only does not load a package that\nhas no metadata document: it waits for the tenant's compiler to\ndescribe it, or the compiler could not (`describe_error`). Absent when\nthe package has a document, is not built, or the server runs with\nsingle trust. A package the server refuses has `build_status`\n`failed` and the reason in `build_error`."
+          },
           "package_name": {
             "type": "string"
           },

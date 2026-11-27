@@ -54,11 +54,18 @@ enum ServerVerb {
         #[arg(long, env = "CLOACINA_REQUIRE_SIGNATURES")]
         require_signatures: bool,
 
-        /// Executor every task is dispatched to (CLOACI-T-0640): `default`
-        /// (in-process thread executor) or `fleet` (execution-agent fleet).
-        /// Overrides `[server].default_executor` in config.toml when set.
+        /// Executor every task is dispatched to (CLOACI-T-0640): `fleet`
+        /// (execution-agent fleet) or `default` (in-process thread executor,
+        /// needs single trust). Overrides `[server].default_executor` in
+        /// config.toml when set. Not set: the server picks.
         #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR")]
         default_executor: Option<String>,
+
+        /// Single trust (CLOACINA-T-1075): tenant code runs in the server
+        /// process. Forwarded as `--single-trust`. Also on with
+        /// `[server].single_trust = true` in config.toml.
+        #[arg(long, env = "CLOACINA_SINGLE_TRUST")]
+        single_trust: bool,
 
         #[command(flatten)]
         settings: Box<start::ServerSettingArgs>,
@@ -85,6 +92,7 @@ impl ServerCmd {
                 bootstrap_key,
                 require_signatures,
                 default_executor,
+                single_trust,
                 settings,
             } => {
                 start::run(
@@ -95,6 +103,7 @@ impl ServerCmd {
                     bootstrap_key,
                     require_signatures,
                     default_executor,
+                    single_trust,
                     *settings,
                 )
                 .await

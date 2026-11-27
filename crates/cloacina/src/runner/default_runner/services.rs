@@ -199,6 +199,8 @@ impl DefaultRunner {
 
         let (inner_tx, inner_rx) = watch::channel(false);
 
+        // CLOACINA-T-1075: the reconciler config carries the package load
+        // mode, in process unless the server says otherwise.
         let reconciler_config = self.config.reconciler_config();
 
         let workflow_registry_result = match self.config.registry_storage_backend() {

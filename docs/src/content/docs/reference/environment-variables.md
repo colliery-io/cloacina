@@ -71,7 +71,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Server-wide trusted org UUID (optional) |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner warning limit |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
-| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
+| `CLOACINA_SINGLE_TRUST` | `--single-trust` | off | Every tenant is trusted as much as the server. On: packages load in the server process (libraries opened, Python modules imported) and the in-process executor is allowed; the server logs a warning at start. Off: packages load from the metadata document their compiler stored and every task goes to the fleet. See [Tenant code and the server process](../../explanation/service/security-model/#tenant-code-and-the-server-process). |
+| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `fleet`; `default` with single trust | Executor every task is dispatched to. `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/); `default` runs all work on the in-process thread executor and needs `CLOACINA_SINGLE_TRUST`, or the server does not start. Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). |
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
@@ -539,7 +540,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_MAX_PACKAGE_BYTES` | Server | Largest package upload, in bytes (default `104857600`) |
 | `CLOACINA_MAX_UNPACKED_BYTES` | Server, Compiler, Agent, Daemon, `cloacinactl` | Largest unpacked size of a package archive, in bytes (default `524288000`) |
 | `CLOACINA_UV` | `cloacinactl` | Path of the `uv` program that `package build` runs (default: `uv` on `PATH`) |
-| `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
+| `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `fleet`; `default` needs single trust) |
+| `CLOACINA_SINGLE_TRUST` | Server | Single trust: tenant code runs in the server process (default off) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |

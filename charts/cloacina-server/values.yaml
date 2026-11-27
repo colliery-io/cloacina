@@ -140,6 +140,15 @@ server:
   # Server-wide trusted org UUID (optional). A key in it is trusted for every
   # tenant; with none, each tenant trusts only its own keys.
   verificationOrgId: ""
+  # Single trust (CLOACINA-T-1075): every tenant is trusted as much as the
+  # server. When true the server loads each package in its own process (opens
+  # its library, imports its Python module) and runs tasks there; tenant code
+  # can then reach the database, the secrets key and every other tenant's
+  # data. When false (the default) the server opens no tenant code: it loads
+  # each package from the metadata its compiler stored and sends every task to
+  # the agent fleet, so the install needs `fleet.actuator=kubernetes` or
+  # `fleet.externalAgents=true`. --single-trust.
+  singleTrust: false
   # Format of the server's log lines on stderr: text or json (one JSON object
   # per line, for a log stack). --log-format (CLOACINA-T-1024).
   logFormat: text
@@ -202,21 +211,31 @@ packages:
 # ---------------------------------------------------------------------------
 # Fleet actuator (CLOACI-I-0127 / T-0814)
 #
-# The server can auto-scale a per-tenant pool of cloacina-agent workloads.
-# `actuator` selects the substrate and is OFF by default — existing installs
-# are completely unchanged (no ServiceAccount, no RBAC, no actuator env are
-# rendered unless you opt in).
+# The server sends every tenant task to an agent of the tenant (CLOACINA-T-1075),
+# unless `server.singleTrust` is true. An install must say where the agents
+# come from: the chart fails at render when `actuator` is `none`,
+# `externalAgents` is false and `server.singleTrust` is false.
+#
+# `actuator` selects the substrate. With `none` no ServiceAccount, no RBAC and
+# no actuator env are rendered.
 #
 #   none        — actuation off (default).
 #   kubernetes  — scale a per-tenant `cloacina-agent` Deployment in the
 #                 tenant's OWN namespace (REQ-007). Renders the least-privilege
-#                 RBAC below (REQ-006) and binds it to the server pod.
+#                 RBAC below (REQ-006) and binds it to the server pod. The
+#                 RBAC is a ClusterRole: it creates namespaces, Secrets,
+#                 Deployments, ServiceAccounts and NetworkPolicies.
 #
 # The Docker actuator (CLOACINA_FLEET_ACTUATOR=docker) is a dev-only substrate
 # and is not offered through this chart.
 # ---------------------------------------------------------------------------
 fleet:
   actuator: none
+
+  # true: you run the agents yourself, for example with the cloacina-agent
+  # chart, each with an `agent` key of its tenant. With `actuator: none` the
+  # server makes no agent; work waits until an agent of the tenant registers.
+  externalAgents: false
 
   # Agent image the actuator runs for each tenant (CLOACINA_AGENT_IMAGE).
   agentImage: ghcr.io/colliery-io/cloacina-agent:latest
