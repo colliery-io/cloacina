@@ -773,7 +773,7 @@ impl TaskExecutor for FleetExecutor {
             // CLOACINA-T-1018: the lookup goes through the execution's version
             // pin. The first task of an execution pins the active version; each
             // later task gets that version, also after a newer one is active.
-            let (primary_digest, language, package_version) = match self
+            let (primary_digest, language, package_version, python_platforms) = match self
                 .dal
                 .workflow_packages()
                 .resolve_dispatch_for_execution(
@@ -783,7 +783,12 @@ impl TaskExecutor for FleetExecutor {
                 )
                 .await
             {
-                Ok(Some(pkg)) => (pkg.content_hash, pkg.language, pkg.version),
+                Ok(Some(pkg)) => (
+                    pkg.content_hash,
+                    pkg.language,
+                    pkg.version,
+                    pkg.python_platforms,
+                ),
                 Ok(None) => {
                     return Ok(self
                         .reconcile_error(
@@ -816,9 +821,12 @@ impl TaskExecutor for FleetExecutor {
             // cdylib — it runs from its source on ANY agent. A COMPILED package runs
             // only where a cdylib exists for that arch: the host primary ∪ its
             // per-target builds. `None` = "any arch is fine" (interpreted).
+            // CLOACINA-T-1048: a Python package with vendored native wheels
+            // records the platforms they are for; it runs only on an agent of
+            // one of them. A pure Python package records none.
             let interpreted = language.eq_ignore_ascii_case("python");
             let runnable_triples: Option<Vec<String>> = if interpreted {
-                None
+                python_platforms
             } else {
                 let mut t = self
                     .dal
