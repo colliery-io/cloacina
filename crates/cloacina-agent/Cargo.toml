@@ -44,6 +44,9 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["r
 # wasmtime-wasi-http: ring), so main() installs one as the process default
 # for tokio-tungstenite (CLOACINA-T-0960).
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+# The system roots of the WebSocket connector when `--ca-file` adds a CA
+# (CLOACINA-T-1069); the same crate tokio-tungstenite loads them with.
+rustls-native-certs = "0.8"
 futures-util = "0.3"
 
 # Base64 to decode `payload_b64` from the substrate envelope.
@@ -68,3 +71,5 @@ libc = "0.2"
 [dev-dependencies]
 # Packs a Python source package for the worker-process tests (CLOACINA-T-1028).
 fidius-core = { workspace = true }
+# A TLS server for the `--ca-file` tests (CLOACINA-T-1069).
+tokio-rustls = { version = "0.26", default-features = false }
