@@ -1027,6 +1027,8 @@ static T1074_MARK: extern "C" fn() = {{
     #[derive(Default)]
     struct RecordedSchedules {
         cron: std::sync::Mutex<Vec<(String, String)>>,
+        /// CLOACINA-T-1077: poll rows, as (trigger, workflow, interval ms).
+        poll: std::sync::Mutex<Vec<(String, String, i32)>>,
     }
 
     #[async_trait::async_trait]
@@ -1044,6 +1046,21 @@ static T1074_MARK: extern "C" fn() = {{
         async fn unregister_cron_workflow(&self, _schedule_id: &str) -> Result<(), String> {
             Ok(())
         }
+        async fn register_poll_trigger(
+            &self,
+            trigger_name: &str,
+            workflow_name: &str,
+            poll_interval_ms: i32,
+            _allow_concurrent: bool,
+        ) -> Result<String, String> {
+            let mut poll = self.poll.lock().unwrap();
+            poll.push((
+                trigger_name.to_string(),
+                workflow_name.to_string(),
+                poll_interval_ms,
+            ));
+            Ok(format!("poll-{}", poll.len()))
+        }
     }
 
     /// A reconciler of the tenant `public` over `registry`, in `mode`, with
@@ -1053,6 +1070,21 @@ static T1074_MARK: extern "C" fn() = {{
         mode: PackageLoadMode,
         schedules: Arc<RecordedSchedules>,
     ) -> (RegistryReconciler, Arc<Runtime>) {
+        reconciler_with_polls(
+            registry,
+            mode,
+            schedules,
+            cloacina::trigger::empty_poll_dispatcher_slot(),
+        )
+    }
+
+    /// [`reconciler`], with the slot its poll triggers send their polls to.
+    fn reconciler_with_polls(
+        registry: Arc<Registry>,
+        mode: PackageLoadMode,
+        schedules: Arc<RecordedSchedules>,
+        polls: cloacina::trigger::PollDispatcherSlot,
+    ) -> (RegistryReconciler, Arc<Runtime>) {
         let config = ReconcilerConfig {
             default_tenant_id: "public".to_string(),
             package_load_mode: mode,
@@ -1060,10 +1092,11 @@ static T1074_MARK: extern "C" fn() = {{
         };
         let (_tx, rx) = tokio::sync::watch::channel(false);
         let runtime = Arc::new(Runtime::empty());
-        let reconciler = RegistryReconciler::new(registry, config, rx)
+        let mut reconciler = RegistryReconciler::new(registry, config, rx)
             .expect("create the reconciler")
             .with_runtime(runtime.clone())
             .with_cron_registrar(schedules);
+        reconciler.set_poll_dispatcher_slot(polls);
         (reconciler, runtime)
     }
 
@@ -1316,5 +1349,241 @@ static T1074_MARK: extern "C" fn() = {{
         assert!(runtime.task_namespaces().is_empty());
         let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
         assert_eq!(inspected.build_status, "success");
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1077: a poll trigger's code runs on the agent
+    // -----------------------------------------------------------------------
+
+    use cloacina::cloacina_workflow::{TriggerError, TriggerResult};
+    use cloacina::trigger::{PollDispatcher, PollRequest};
+
+    /// Stands in for the agent fleet: it records each poll and answers fire
+    /// with `{"from": "agent"}`. It runs no trigger code.
+    #[derive(Default)]
+    struct FleetStandIn {
+        polls: std::sync::Mutex<Vec<PollRequest>>,
+    }
+
+    #[async_trait::async_trait]
+    impl PollDispatcher for FleetStandIn {
+        async fn poll(&self, request: &PollRequest) -> Result<TriggerResult, TriggerError> {
+            self.polls.lock().unwrap().push(request.clone());
+            let mut ctx = cloacina::Context::new();
+            ctx.insert("from", serde_json::json!("agent")).unwrap();
+            Ok(TriggerResult::Fire(Some(ctx)))
+        }
+        fn wait(&self) -> Duration {
+            Duration::from_secs(40)
+        }
+    }
+
+    /// What an agent does with the answer of a poll: the outcome it reports
+    /// and the server reads back.
+    fn answer_as_the_server_reads_it(result: Result<TriggerResult, TriggerError>) -> TriggerResult {
+        cloacina::fleet::poll_result_from_outcome(cloacina::fleet::poll_outcome(result))
+            .expect("a poll answer")
+    }
+
+    /// A Rust package with a poll trigger loads on a server that loads from
+    /// metadata only. The server's scheduler polls the trigger through the
+    /// dispatcher, and the trigger's code never runs in this process: the
+    /// poll appends the process id to a file, and the file has none. The
+    /// agent's path then opens the build and polls it: the code runs there,
+    /// and the answer is fire with the trigger's context.
+    #[tokio::test]
+    #[serial]
+    async fn a_rust_poll_trigger_runs_on_the_agent_never_in_the_server() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("polled-by.txt");
+        let poll_code = format!(
+            r#"
+// CLOACINA-T-1077: a poll trigger that leaves the id of the process it runs in.
+#[cloacina_macros::trigger(on = "compiler_happy_workflow", poll_interval = "7s")]
+pub async fn t1077_marking_poll() -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {{
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open({mark:?}) {{
+        let _ = writeln!(file, "{{}}", std::process::id());
+    }}
+    let mut ctx = cloacina_workflow::Context::new();
+    ctx.insert("polled_by", serde_json::json!(std::process::id()))
+        .map_err(cloacina_workflow::TriggerError::from)?;
+    Ok(cloacina_workflow::TriggerResult::Fire(Some(ctx)))
+}}
+"#,
+            mark = mark.display().to_string()
+        );
+        let (_stage, pkg) = stage_rust_fixture("compiler-happy-rust", &poll_code);
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(&pkg), &config).await;
+        // The build this test just made; copied before another test builds.
+        let built = fixture_target_dir()
+            .join("debug")
+            .join(format!("libcompiler_happy_rust.{}", library_extension()));
+        let library = home.path().join(format!("agent-copy.{}", library_extension()));
+        std::fs::copy(&built, &library).expect("copy the built library");
+        assert!(marks(&mark).is_empty(), "the describe child does not poll");
+        let registry = Arc::new(registry);
+
+        let slot = cloacina::trigger::empty_poll_dispatcher_slot();
+        let stand_in = Arc::new(FleetStandIn::default());
+        *slot.write().unwrap() = Some(stand_in.clone());
+        let schedules = Arc::new(RecordedSchedules::default());
+        let (metadata_only, runtime) = reconciler_with_polls(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            schedules.clone(),
+            slot,
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "the refusal of a poll trigger is gone: {:?}",
+            result.packages_failed
+        );
+        // The interval comes from the stored document.
+        assert_eq!(
+            schedules.poll.lock().unwrap().as_slice(),
+            &[(
+                "t1077_marking_poll".to_string(),
+                "compiler_happy_workflow".to_string(),
+                7_000
+            )]
+        );
+
+        // The scheduler's poll, on the server: it goes to the fleet.
+        let trigger = runtime
+            .get_trigger("t1077_marking_poll")
+            .expect("the trigger, from the document");
+        for _ in 0..3 {
+            let answer = trigger.poll().await.expect("an answer");
+            let ctx = answer.into_context().expect("fire with a context");
+            assert_eq!(ctx.get("from"), Some(&serde_json::json!("agent")));
+        }
+        assert_eq!(stand_in.polls.lock().unwrap().len(), 3);
+        assert_eq!(
+            stand_in.polls.lock().unwrap()[0].package_name,
+            "compiler-happy-rust"
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process ran the poll trigger's code"
+        );
+        assert!(marks(&mark).is_empty());
+
+        // The agent's path: open the build, poll the trigger.
+        let on_agent = cloacina::registry::loader::ffi_trigger::FfiTriggerImpl::open(
+            &library,
+            "t1077_marking_poll",
+            Duration::from_secs(7),
+            false,
+        )
+        .expect("open the build as the agent does");
+        let ctx = answer_as_the_server_reads_it(
+            cloacina::cloacina_workflow::Trigger::poll(&on_agent).await,
+        )
+        .into_context()
+        .expect("fire with the trigger's context");
+        assert_eq!(
+            ctx.get("polled_by"),
+            Some(&serde_json::json!(std::process::id()))
+        );
+        assert_eq!(marks(&mark), vec![std::process::id()]);
+    }
+
+    /// The same for a Python package: the poll trigger loads from the
+    /// document, the server's poll goes to the fleet, the module is never
+    /// imported here; the agent's path imports the package into a runtime,
+    /// polls it, and the answer is fire with the trigger's context.
+    #[tokio::test]
+    #[serial]
+    async fn a_python_poll_trigger_runs_on_the_agent_never_in_the_server() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("polled-by.txt");
+        let poll_code = format!(
+            "\n\nimport os as _t1077_os\n\n\
+             @cloaca.trigger(on=\"demo_py_cron_workflow\", poll_interval=\"9s\")\n\
+             def t1077_marking_poll():\n    \
+             with open({mark:?}, \"a\") as _t1077_f:\n        \
+             _t1077_f.write(f\"{{_t1077_os.getpid()}}\\n\")\n    \
+             return cloaca.TriggerResult.fire(cloaca.Context({{\"polled_by\": _t1077_os.getpid()}}))\n",
+            mark = mark.display().to_string()
+        );
+        let stage = stage_fixture_with(
+            "demo-py-cron",
+            "workflow/demo_py_cron/tasks.py",
+            &poll_code,
+        );
+        let archive = pack_dir(stage.path());
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, archive.clone(), &config).await;
+        assert!(marks(&mark).is_empty(), "the describe child does not poll");
+        let registry = Arc::new(registry);
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+
+        let slot = cloacina::trigger::empty_poll_dispatcher_slot();
+        let stand_in = Arc::new(FleetStandIn::default());
+        *slot.write().unwrap() = Some(stand_in.clone());
+        let schedules = Arc::new(RecordedSchedules::default());
+        let (metadata_only, runtime) = reconciler_with_polls(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            schedules.clone(),
+            slot,
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "the refusal of a poll trigger is gone: {:?}",
+            result.packages_failed
+        );
+        assert_eq!(
+            schedules.poll.lock().unwrap().as_slice(),
+            &[(
+                "t1077_marking_poll".to_string(),
+                "demo_py_cron_workflow".to_string(),
+                9_000
+            )]
+        );
+        let trigger = runtime
+            .get_trigger("t1077_marking_poll")
+            .expect("the trigger, from the document");
+        assert!(trigger.poll().await.expect("an answer").should_fire());
+        assert_eq!(stand_in.polls.lock().unwrap().len(), 1);
+        assert!(
+            marks(&mark).is_empty(),
+            "the server process ran the poll trigger's code"
+        );
+
+        // The agent's path: import into a runtime of the build, poll.
+        let py = cloacina::python_runtime::python_runtime().expect("a Python runtime");
+        let agent_runtime = Arc::new(Runtime::new());
+        let staging = home.path().join("agent-pysrc");
+        std::fs::create_dir_all(&staging).unwrap();
+        let load_runtime = agent_runtime.clone();
+        tokio::task::spawn_blocking(move || {
+            py.load_workflow_package(&archive, None, &staging, "public", &load_runtime)
+                .map(|_| ())
+        })
+        .await
+        .unwrap()
+        .expect("import the package as the agent does");
+        let on_agent = agent_runtime
+            .get_trigger("t1077_marking_poll")
+            .expect("the import registers the trigger");
+        let ctx = answer_as_the_server_reads_it(on_agent.poll().await)
+            .into_context()
+            .expect("fire with the trigger's context");
+        assert_eq!(
+            ctx.get("polled_by"),
+            Some(&serde_json::json!(std::process::id()))
+        );
+        assert_eq!(marks(&mark), vec![std::process::id()]);
     }
 }
