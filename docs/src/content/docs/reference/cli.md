@@ -955,6 +955,7 @@ default_executor = "default"        # "default" (in-process) or "fleet"
 # agent_heartbeat_interval_s = 15
 # agent_liveness_misses = 3
 # fleet_artifact_fetch_wait_s = 300
+# fleet_graph_firings = "inline"
 # context_warn_bytes = 1048576
 # context_max_bytes = 16777216
 # cors_allowed_origins = ["https://ops.example.com"]

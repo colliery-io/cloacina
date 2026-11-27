@@ -263,6 +263,10 @@ pub struct ServerSection {
     /// (`--fleet-artifact-fetch-wait-s`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fleet_artifact_fetch_wait_s: Option<u64>,
+    /// Where an agent runs a graph firing: `inline` or `worker`
+    /// (`--fleet-graph-firings`, CLOACINA-T-1125).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_graph_firings: Option<String>,
     /// Warning size of a task context, bytes; `0` = off
     /// (`--context-warn-bytes`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -313,6 +317,7 @@ impl Default for ServerSection {
             agent_heartbeat_interval_s: None,
             agent_liveness_misses: None,
             fleet_artifact_fetch_wait_s: None,
+            fleet_graph_firings: None,
             context_warn_bytes: None,
             context_max_bytes: None,
             cors_allowed_origins: Vec::new(),

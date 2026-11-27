@@ -147,6 +147,12 @@ pub struct ServerSettingArgs {
     #[arg(long, env = "CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S")]
     pub fleet_artifact_fetch_wait_s: Option<u64>,
 
+    /// Where an agent runs a computation-graph firing: `inline` (in the
+    /// agent process) or `worker` (in a worker process, with the limits of a
+    /// task). Overrides `[server].fleet_graph_firings`. CLOACINA-T-1125.
+    #[arg(long, env = "CLOACINA_FLEET_GRAPH_FIRINGS")]
+    pub fleet_graph_firings: Option<String>,
+
     /// Size in bytes above which a task context is logged as a warning;
     /// `0` = off. Overrides `[server].context_warn_bytes`.
     #[arg(long, env = "CLOACINA_CONTEXT_WARN_BYTES")]
@@ -333,6 +339,10 @@ pub(crate) fn forwarded_settings(
         ),
     );
     arg(
+        "--fleet-graph-firings",
+        text(&cli.fleet_graph_firings, &config.fleet_graph_firings),
+    );
+    arg(
         "--context-warn-bytes",
         number(cli.context_warn_bytes, config.context_warn_bytes),
     );
@@ -501,6 +511,7 @@ log_format = "json"
 agent_heartbeat_interval_s = 10
 agent_liveness_misses = 4
 fleet_artifact_fetch_wait_s = 120
+fleet_graph_firings = "worker"
 context_warn_bytes = 2097152
 context_max_bytes = 33554432
 cors_allowed_origins = ["https://ops.example.com", "https://ui.example.com"]
@@ -512,7 +523,7 @@ max_unpacked_bytes = 1073741824
 
     /// The arguments forwarded for [`FULL_CONFIG`] after the settings of
     /// CLOACINA-T-1039, in order.
-    const FULL_CONFIG_LATER_ARGS: [&str; 32] = [
+    const FULL_CONFIG_LATER_ARGS: [&str; 34] = [
         "--verification-org-id",
         "6f1c2a7e-3b9d-4c55-9e0a-2d4b8f1e7a60",
         "--reconcile-interval-s",
@@ -531,6 +542,8 @@ max_unpacked_bytes = 1073741824
         "4",
         "--fleet-artifact-fetch-wait-s",
         "120",
+        "--fleet-graph-firings",
+        "worker",
         "--context-warn-bytes",
         "2097152",
         "--context-max-bytes",
@@ -732,12 +745,12 @@ max_unpacked_bytes = 1073741824
         let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
         let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
         assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
-        assert_eq!(flags.len(), 33);
+        assert_eq!(flags.len(), 34);
         assert_eq!(flags[0], "--home");
         assert_eq!(flags[6], "--require-signatures");
         assert_eq!(flags[7], "--database-wait-timeout-s");
         assert_eq!(flags[17], "--verification-org-id");
-        assert_eq!(flags[32], "--max-unpacked-bytes");
+        assert_eq!(flags[33], "--max-unpacked-bytes");
     }
 
     /// CLOACINA-T-1106: each flag of [`ServerSettingArgs`] is forwarded under
@@ -816,9 +829,12 @@ max_unpacked_bytes = 1073741824
             "64",
             "--agent-liveness-misses",
             "5",
+            "--fleet-graph-firings",
+            "worker",
         ])
         .unwrap()
         .settings;
+        assert_eq!(flags.fleet_graph_firings.as_deref(), Some("worker"));
         assert_eq!(flags.fleet_artifact_fetch_wait_s, Some(60));
         assert_eq!(flags.context_warn_bytes, Some(1));
         assert_eq!(flags.context_max_bytes, Some(2));
