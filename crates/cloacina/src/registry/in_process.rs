@@ -22,7 +22,6 @@
 //! a reactor is a name, accumulators and a mode, and an accumulator is host
 //! code picked by its type. What is tenant code, and so refused on a server:
 //!
-//! - a poll trigger: its code runs at each poll;
 //! - a stream accumulator whose provider is native: the provider is a library
 //!   opened in the process that runs the accumulator;
 //! - a Python polling accumulator: its poll function runs at each interval;
@@ -32,7 +31,9 @@
 //!   package, so it would never emit.
 //!
 //! A native provider that only a constructor-node task uses is not refused:
-//! the task runs on the tenant's agents.
+//! the task runs on the tenant's agents. A poll trigger is not refused: its
+//! polls run on the tenant's agents (CLOACINA-T-1077). A compiler of the
+//! release before records it as `poll_trigger`; the server drops that kind.
 //!
 //! The compiler records the list in the document (format 2,
 //! [`PackageDescription::in_process`]); the server refuses a package whose
@@ -45,7 +46,8 @@ use cloacina_workflow_plugin::types::{AccumulatorConfig, AccumulatorDeclarationE
 
 use crate::registry::package_description::PackageDescription;
 
-/// A poll trigger.
+/// A poll trigger. No longer refused (CLOACINA-T-1077): a document whose
+/// compiler recorded it still carries the kind, and the server drops it.
 pub const POLL_TRIGGER: &str = "poll_trigger";
 /// A native provider named by a stream accumulator.
 pub const NATIVE_STREAM_PROVIDER: &str = "native_stream_provider";
@@ -60,7 +62,7 @@ pub const RUST_POLLING_ACCUMULATOR: &str = "rust_polling_accumulator";
 /// with the names of what the package uses of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InProcessReason {
-    /// One of the kinds of this module (`poll_trigger`, ...).
+    /// One of the kinds of this module (`native_stream_provider`, ...).
     pub kind: String,
     /// The triggers, providers or accumulators, sorted.
     pub names: Vec<String>,
@@ -154,16 +156,8 @@ pub fn in_process_reasons(
         }
     };
 
-    push(
-        POLL_TRIGGER,
-        document
-            .triggers
-            .iter()
-            .filter(|t| t.cron_expression.is_none())
-            .map(|t| t.name.clone())
-            .collect(),
-    );
-
+    // CLOACINA-T-1077: a poll trigger is not in the list; its polls run on
+    // the tenant's agents.
     let accumulators = effective_accumulators(document, overrides);
     let of_type = |kind: &str| -> Vec<String> {
         accumulators
@@ -198,13 +192,14 @@ pub fn in_process_reasons(
 
 /// The reasons a server refuses `document` for: those the compiler recorded
 /// and those computed from the document again, merged by kind. A format 1
-/// document has no record; its caller keeps the rule of format 1.
+/// document has no record; its caller keeps the rule of format 1. A
+/// recorded `poll_trigger` is dropped (CLOACINA-T-1077).
 pub fn refused_on_server(
     document: &PackageDescription,
     overrides: &[AccumulatorConfig],
 ) -> Vec<InProcessReason> {
     let mut merged = in_process_reasons(document, overrides);
-    for recorded in &document.in_process {
+    for recorded in document.in_process.iter().filter(|r| r.kind != POLL_TRIGGER) {
         match merged.iter_mut().find(|r| r.kind == recorded.kind) {
             Some(reason) => {
                 reason.names.extend(recorded.names.iter().cloned());
@@ -374,9 +369,10 @@ mod tests {
         );
     }
 
-    /// A poll trigger is named, as before.
+    /// A poll trigger is not refused (CLOACINA-T-1077), and a `poll_trigger`
+    /// a compiler of the release before recorded is dropped.
     #[test]
-    fn a_poll_trigger_is_named() {
+    fn a_poll_trigger_is_not_refused() {
         let mut doc = document("python");
         doc.triggers = vec![TriggerPackageMetadata {
             name: "watch".to_string(),
@@ -389,9 +385,12 @@ mod tests {
             catchup_policy: None,
             max_active_runs: None,
         }];
-        let reasons = in_process_reasons(&doc, &[]);
-        assert_eq!(reasons[0].kind, POLL_TRIGGER);
-        assert!(reasons[0].text().contains("poll trigger(s) 'watch'"));
+        assert!(in_process_reasons(&doc, &[]).is_empty());
+        doc.in_process = vec![InProcessReason {
+            kind: POLL_TRIGGER.to_string(),
+            names: vec!["watch".to_string()],
+        }];
+        assert!(refused_on_server(&doc, &[]).is_empty());
     }
 
     /// The server merges what the compiler recorded with what it computes.
