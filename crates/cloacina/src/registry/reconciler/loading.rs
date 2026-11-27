@@ -4242,6 +4242,172 @@ mod tests {
             Some(last_run.timestamp()),
             "a failed load must keep last_run_at"
         );
+        assert_eq!(
+            row.next_run_at.map(|t| t.0.timestamp()),
+            Some(due.timestamp()),
+            "a failed load must keep next_run_at, so the missed fire stays due"
+        );
+    }
+
+    /// A task that counts its runs, for the workflow of the cron trigger of
+    /// [`make_test_metadata`].
+    #[cfg(feature = "sqlite")]
+    struct CountedTask(Arc<std::sync::atomic::AtomicUsize>);
+
+    #[cfg(feature = "sqlite")]
+    #[async_trait::async_trait]
+    impl crate::Task for CountedTask {
+        async fn execute(
+            &self,
+            context: crate::Context<serde_json::Value>,
+        ) -> Result<crate::Context<serde_json::Value>, crate::TaskError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(context)
+        }
+
+        fn id(&self) -> &str {
+            "work"
+        }
+
+        fn dependencies(&self) -> &[crate::TaskNamespace] {
+            &[]
+        }
+    }
+
+    /// CLOACINA-T-1057: the missed fire runs after the next good load. A
+    /// schedule with a due fire, a load that fails (its register step, then
+    /// the rollback), and no fire while the workflow is not in the runtime;
+    /// then a good load: one run, for the due fire (`skip`, the default
+    /// policy).
+    #[cfg(feature = "sqlite")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[serial]
+    async fn missed_fire_runs_after_the_next_good_load() {
+        use crate::runner::{DefaultRunner, DefaultRunnerConfig};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let url = format!("sqlite://{}", dir.path().join("t1057.db").display());
+        let reconciler = make_test_reconciler();
+        let runtime = runtime_of(&reconciler);
+        runtime.register_trigger("nightly_cron".to_string(), || {
+            Arc::new(MockCronTrigger {
+                name: "nightly_cron".to_string(),
+                workflow: "etl_workflow".to_string(),
+                cron: "0 0 * * *".to_string(),
+                timezone: None,
+                catchup: None,
+                max_active_runs: None,
+            })
+        });
+        let config = DefaultRunnerConfig::builder()
+            .enable_cron_scheduling(true)
+            .cron_poll_interval(std::time::Duration::from_millis(200))
+            .cron_enable_recovery(false)
+            .enable_trigger_scheduling(false)
+            .enable_registry_reconciler(false)
+            .build()
+            .expect("runner config");
+        let runner = DefaultRunner::builder()
+            .database_url(&url)
+            .with_config(config)
+            .runtime_arc(runtime.clone())
+            .build()
+            .await
+            .expect("runner");
+        let reconciler = reconciler.with_cron_registrar(Arc::new(
+            crate::runner::default_runner::cron_api::DalCronRegistrar::new(
+                runner.database().clone(),
+                Arc::new(tokio::sync::Notify::new()),
+            ),
+        ));
+        let dal = crate::dal::DAL::new(runner.database().clone());
+        let metadata = make_test_metadata();
+        let (pre_r, pre_t, pre_g) = empty_pre_snapshots();
+        let view = reconciler.build_view_python("cron-pkg", &pre_r, &pre_t, &pre_g, &[]);
+
+        // An earlier good load made the row; its next fire was due a day ago.
+        let first_load = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("first load registers the schedule");
+        let schedule_id: crate::database::universal_types::UniversalUuid =
+            first_load[0].parse::<Uuid>().unwrap().into();
+        let last_run = chrono::Utc::now() - chrono::Duration::days(2);
+        let due = chrono::Utc::now() - chrono::Duration::days(1);
+        dal.schedule()
+            .update_schedule_times(schedule_id, last_run, due)
+            .await
+            .unwrap();
+
+        // A load that fails after its register step.
+        let existing = reconciler
+            .schedule_ids_before_load(&metadata)
+            .await
+            .expect("the existing rows are read");
+        let reloaded = reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("the re-load registers the schedule");
+        reconciler
+            .rollback_schedule_rows(&metadata, &reloaded, &existing)
+            .await;
+        runner.notify_cron_change();
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        let fires = dal
+            .schedule_execution()
+            .list_by_schedule(schedule_id, 100, 0)
+            .await
+            .expect("fires");
+        assert!(
+            fires.is_empty(),
+            "no fire while the workflow is not in the runtime"
+        );
+
+        // The next good load: the schedule is registered again and the
+        // workflow is in the runtime.
+        reconciler
+            .step_load_cron_triggers(&metadata, &view)
+            .await
+            .expect("the good load registers the schedule");
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let task: Arc<dyn crate::Task> = Arc::new(CountedTask(runs.clone()));
+        let workflow = crate::Workflow::builder("etl_workflow")
+            .add_task(task.clone())
+            .expect("add task")
+            .build()
+            .expect("build workflow");
+        let namespace = crate::TaskNamespace::new(
+            workflow.tenant(),
+            workflow.package(),
+            workflow.name(),
+            "work",
+        );
+        runtime.register_task(namespace, move || task.clone());
+        runtime.register_workflow("etl_workflow".to_string(), move || workflow.clone());
+        runner.notify_cron_change();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while runs.load(std::sync::atomic::Ordering::SeqCst) == 0
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let fires = dal
+            .schedule_execution()
+            .list_by_schedule(schedule_id, 100, 0)
+            .await
+            .expect("fires");
+        let run_count = runs.load(std::sync::atomic::Ordering::SeqCst);
+        runner.shutdown().await.expect("shutdown");
+
+        assert_eq!(run_count, 1, "`skip`: one run for the missed fire");
+        assert_eq!(fires.len(), 1);
+        assert_eq!(
+            fires[0].scheduled_time.map(|t| t.0.timestamp()),
+            Some(due.timestamp()),
+            "the run is for the fire that was due"
+        );
     }
 
     /// A row that the failed load itself made is still rolled back
