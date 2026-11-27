@@ -14,7 +14,7 @@ REST endpoints). For the trust model behind keys, roles, and the bootstrap key, 
 
 - `cloacinactl` installed and a reachable server.
 - An **admin** key to authenticate with — on first startup the server writes a
-  bootstrap admin key once to `~/.cloacina/bootstrap-key` (see
+  bootstrap admin key to `~/.cloacina/bootstrap-key` (see
   [Deploy a Server](../../../tutorials/service/01-deploy-a-server/)).
 
 Either pass `--server`/`--api-key` on each command or save a profile (see
@@ -57,6 +57,23 @@ curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
   -d '{"name": "acme-bot", "role": "write"}' | jq -r '.key'
 ```
 
+## Rotate a platform admin key
+
+A platform admin key (`is_admin = true`, no tenant) passes every route.
+The bootstrap key is one. To rotate it, make a new one, store it, then
+revoke the old one:
+
+```bash
+cloacinactl key create ops-admin --platform-admin \
+  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+cloacinactl key revoke <old-key-id> --force \
+  --server http://127.0.0.1:8080 --api-key "$NEW_ADMIN_KEY"
+```
+
+`--platform-admin` cannot be combined with `--role`: the key gets role
+`admin`, no tenant and no expiry. Only a platform admin key can make one.
+The server refuses to revoke the last live platform admin key (`409`).
+
 ## List keys
 
 ```bash
@@ -82,7 +99,8 @@ The CLI is a thin wrapper over these endpoints (full details in the
 
 | Action | Method + path |
 |--------|---------------|
-| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ... }`; platform-admin only, always scoped to `public`) |
+| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ... }`; platform-admin only, scoped to `public`) |
+| Create (platform admin) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": "admin", "platform_admin": true }`; platform-admin only) |
 | Create (named tenant) | `POST /v1/tenants/{tenant_id}/keys` (same body; tenant-admin or platform-admin) |
 | List | `GET /v1/auth/keys` (platform-admin) or `GET /v1/tenants/{tenant_id}/keys` (tenant-admin) |
 | Revoke | `DELETE /v1/auth/keys/{key_id}` or `DELETE /v1/tenants/{tenant_id}/keys/{key_id}` |

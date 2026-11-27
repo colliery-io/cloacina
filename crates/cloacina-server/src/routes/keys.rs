@@ -58,8 +58,9 @@ fn key_request(
 
 /// POST /auth/keys — create a new API key.
 ///
-/// Requires admin role. Non-admin keys cannot create keys with higher
-/// permissions than their own (prevents privilege escalation).
+/// Platform admin only (the route table). Without `platform_admin` the key
+/// belongs to the tenant `public`. With `platform_admin: true` it is a
+/// platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
 /// Returns the plaintext key exactly once. It cannot be retrieved again.
 #[utoipa::path(
     post,
@@ -68,9 +69,9 @@ fn key_request(
     request_body = CreateKeyRequest,
     responses(
         (status = 201, description = "Key created — plaintext returned exactly once", body = KeyCreatedResponse),
-        (status = 400, description = "No role, an unknown role, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "No role, an unknown role, `platform_admin` with a role other than admin, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
-        (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Platform admin key required", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
@@ -84,20 +85,22 @@ pub async fn create_key(
         Ok(body) => body,
         Err(e) => return e.into_response(),
     };
-    // Privilege-escalation guard. `body.role` populates the per-key
-    // `permissions` string (read/write/admin scoped to a tenant);
-    // `is_admin` is the orthogonal god-mode flag that grants
-    // cross-tenant access. T-0557 Bug 3 audit flagged the
-    // earlier shape of this block as a no-op — the comment claimed
-    // "create_key always sets is_admin=false, this is safe" while
-    // performing no actual check. The safety claim is correct
-    // (god-mode is granted only via `bootstrap-admin` at server
-    // start, never here): we hard-code `is_admin = false` in the
-    // `create_key` call below, so a tenant-admin issuing
-    // role="admin" gets another tenant-admin key, never god-mode.
-    // Keep the call shape explicit and reject any caller that
-    // somehow tried to set is_admin (today the request body has no
-    // such field, but lock that in defensively).
+    // The route table lets only a platform admin key reach this route, so
+    // the flag is granted only by a holder of the flag (CLOACINA-T-1065).
+    // A platform admin key has no tenant and role `admin`, like the
+    // bootstrap key.
+    if body.platform_admin && body.role != cloacina_api_types::KeyRole::Admin {
+        return ApiError::bad_request("invalid_request", "a platform admin key has role `admin`")
+            .into_response();
+    }
+    // CLOACI-T-0817: a key with no flag belongs to the "public" tenant (a
+    // None-tenant non-admin key would reach nothing). For named tenants use
+    // POST /tenants/{tenant_id}/keys.
+    let tenant = if body.platform_admin {
+        None
+    } else {
+        Some("public")
+    };
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -106,11 +109,8 @@ pub async fn create_key(
         .create_key(
             &hash,
             &body.name,
-            // CLOACI-T-0817: mint a key for the "public" tenant (the public realm
-            // is a real tenant now; a None-tenant non-admin key would reach
-            // nothing). For named tenants use POST /tenants/{tenant_id}/keys.
-            Some("public"),
-            false, /* is_admin: never granted via this endpoint */
+            tenant,
+            body.platform_admin,
             body.role.as_str(),
         )
         .await
@@ -118,8 +118,13 @@ pub async fn create_key(
         Ok(info) => {
             audit_record::note(
                 info.tenant_id.as_deref(),
-                AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string())
-                    .detail(serde_json::json!({ "name": info.name, "role": info.permissions })),
+                AuditEvent::ok(audit_record::actions::KEY_CREATE, info.id.to_string()).detail(
+                    serde_json::json!({
+                        "name": info.name,
+                        "role": info.permissions,
+                        "platform_admin": info.is_admin,
+                    }),
+                ),
             );
             (
                 StatusCode::CREATED,
@@ -198,6 +203,7 @@ pub async fn list_keys(
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Admin role required", body = cloacina_api_types::ErrorBody),
         (status = 404, description = "Key not found or already revoked", body = cloacina_api_types::ErrorBody),
+        (status = 409, description = "The key is the last live platform admin key", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
 )]
@@ -214,9 +220,11 @@ pub async fn revoke_key(
         }
     };
 
+    use cloacina::dal::unified::api_keys::RevokeOutcome;
     let dal = cloacina::dal::DAL::new(state.database.clone());
-    match dal.api_keys().revoke_key(id).await {
-        Ok(true) => {
+    // The last live platform admin key is kept (CLOACINA-T-1065).
+    match dal.api_keys().revoke_key_keeping_platform_admin(id).await {
+        Ok(RevokeOutcome::Revoked) => {
             // Every server clears its key cache, so the revoked key is
             // rejected on each replica now (CLOACINA-T-1128).
             crate::routes::auth::announce_key_revocation_or_warn(&state).await;
@@ -230,7 +238,12 @@ pub async fn revoke_key(
             })
             .into_response()
         }
-        Ok(false) => {
+        Ok(RevokeOutcome::LastPlatformAdmin) => ApiError::conflict(
+            "last_platform_admin_key",
+            "this is the last live platform admin key: make another one before you revoke it",
+        )
+        .into_response(),
+        Ok(RevokeOutcome::NotFound) => {
             ApiError::not_found("key_not_found", "key not found or already revoked").into_response()
         }
         Err(e) => {
@@ -251,7 +264,7 @@ pub async fn revoke_key(
     request_body = CreateKeyRequest,
     responses(
         (status = 201, description = "Tenant-scoped key created — plaintext returned exactly once", body = KeyCreatedResponse),
-        (status = 400, description = "No role, an unknown role, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
+        (status = 400, description = "No role, an unknown role, `platform_admin: true`, or a body that is not a key request", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Tenant access or admin role denied", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
@@ -268,6 +281,14 @@ pub async fn create_tenant_key(
         Ok(body) => body,
         Err(e) => return e.into_response(),
     };
+    // A tenant key is never a platform admin key (CLOACINA-T-1065).
+    if body.platform_admin {
+        return ApiError::bad_request(
+            "invalid_request",
+            "a tenant key cannot be a platform admin key: use POST /v1/auth/keys",
+        )
+        .into_response();
+    }
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());

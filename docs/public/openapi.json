@@ -285,7 +285,7 @@
           "keys"
         ],
         "summary": "POST /auth/keys — create a new API key.",
-        "description": "Requires admin role. Non-admin keys cannot create keys with higher\npermissions than their own (prevents privilege escalation).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
+        "description": "Platform admin only (the route table). Without `platform_admin` the key\nbelongs to the tenant `public`. With `platform_admin: true` it is a\nplatform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
         "operationId": "create_key",
         "requestBody": {
           "content": {
@@ -309,7 +309,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin` with a role other than admin, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -329,7 +329,7 @@
             }
           },
           "403": {
-            "description": "Admin role required",
+            "description": "Platform admin key required",
             "content": {
               "application/json": {
                 "schema": {
@@ -417,6 +417,16 @@
           },
           "404": {
             "description": "Key not found or already revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The key is the last live platform admin key",
             "content": {
               "application/json": {
                 "schema": {
@@ -2393,7 +2403,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin: true`, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -6703,6 +6713,10 @@
           "name": {
             "type": "string"
           },
+          "platform_admin": {
+            "type": "boolean",
+            "description": "`POST /auth/keys` only: make a platform admin key (no tenant, role\n`admin`, the platform admin flag). Needs `role: admin`. The tenant\nroute refuses `true` with 400 (CLOACINA-T-1065)."
+          },
           "role": {
             "$ref": "#/components/schemas/KeyRole",
             "description": "Required. A request with no role is refused with 400: the server does\nnot choose a role for the caller."
@@ -7401,7 +7415,7 @@
           },
           "is_admin": {
             "type": "boolean",
-            "description": "God-mode flag — never granted via the create endpoints."
+            "description": "Platform admin flag. Set only by `POST /auth/keys` with\n`platform_admin: true`, and by the bootstrap."
           },
           "key": {
             "type": "string",

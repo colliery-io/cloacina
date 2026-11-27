@@ -47,6 +47,10 @@ enum KeyVerb {
         name: String,
         #[arg(long, value_enum, default_value_t = Role::Read)]
         role: Role,
+        /// Make a platform admin key: no tenant, role `admin` and the
+        /// platform admin flag. Needs a platform admin key (CLOACINA-T-1065).
+        #[arg(long, conflicts_with = "role")]
+        platform_admin: bool,
     },
     List,
     Revoke {
@@ -65,6 +69,16 @@ impl KeyVerb {
             Role::Agent => "agent",
         }
     }
+
+    /// The body of `POST /v1/auth/keys`. A platform admin key has role
+    /// `admin`.
+    fn create_body(name: &str, role: Role, platform_admin: bool) -> serde_json::Value {
+        if platform_admin {
+            serde_json::json!({ "name": name, "role": "admin", "platform_admin": true })
+        } else {
+            serde_json::json!({ "name": name, "role": KeyVerb::role_str(role) })
+        }
+    }
 }
 
 impl KeyCmd {
@@ -74,11 +88,12 @@ impl KeyCmd {
         let output = ctx.output;
         let client = CliClient::new(ctx)?;
         match self.verb {
-            KeyVerb::Create { name, role } => {
-                let body = serde_json::json!({
-                    "name": name,
-                    "role": KeyVerb::role_str(role),
-                });
+            KeyVerb::Create {
+                name,
+                role,
+                platform_admin,
+            } => {
+                let body = KeyVerb::create_body(&name, role, platform_admin);
                 let resp: serde_json::Value = client.post("/v1/auth/keys", &body).await?;
 
                 // One-time-only warning for human output.
@@ -91,7 +106,14 @@ impl KeyCmd {
                         .unwrap_or("<none>");
                     println!("created key: {plaintext}");
                     println!("ID:          {id}");
-                    println!("role:        {}", KeyVerb::role_str(role));
+                    let role = resp
+                        .get("permissions")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    println!("role:        {role}");
+                    if platform_admin {
+                        println!("platform admin: yes");
+                    }
                     println!("NOTE: this is the only time the secret will be shown. Save it now.");
                     Ok(())
                 } else {
@@ -113,5 +135,56 @@ impl KeyCmd {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        key: KeyCmd,
+    }
+
+    /// CLOACINA-T-1065: `--platform-admin` asks for a platform admin key with
+    /// role `admin`, and cannot be combined with `--role`.
+    #[test]
+    fn platform_admin_flag_sends_the_field_and_role_admin() {
+        let cli = Cli::try_parse_from(["key", "create", "ops", "--platform-admin"]).unwrap();
+        let KeyVerb::Create {
+            name,
+            role,
+            platform_admin,
+        } = cli.key.verb
+        else {
+            panic!("not a create");
+        };
+        assert!(platform_admin);
+        assert_eq!(
+            KeyVerb::create_body(&name, role, platform_admin),
+            serde_json::json!({ "name": "ops", "role": "admin", "platform_admin": true })
+        );
+
+        assert!(
+            Cli::try_parse_from(["key", "create", "ops", "--platform-admin", "--role", "read"])
+                .is_err()
+        );
+
+        let cli = Cli::try_parse_from(["key", "create", "ci", "--role", "write"]).unwrap();
+        let KeyVerb::Create {
+            name,
+            role,
+            platform_admin,
+        } = cli.key.verb
+        else {
+            panic!("not a create");
+        };
+        assert_eq!(
+            KeyVerb::create_body(&name, role, platform_admin),
+            serde_json::json!({ "name": "ci", "role": "write" })
+        );
     }
 }
