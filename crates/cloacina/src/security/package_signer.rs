@@ -891,7 +891,7 @@ mod tests {
                 .create_signing_key(org_id, "revoked-signer", &mk)
                 .await
                 .unwrap();
-            km.revoke_signing_key(key_info.id).await.unwrap();
+            km.revoke_signing_key(org_id, key_info.id).await.unwrap();
 
             let temp_file = NamedTempFile::new().unwrap();
             std::fs::write(temp_file.path(), b"content").unwrap();

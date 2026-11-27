@@ -157,7 +157,7 @@ let result = verify_package_offline(&package_path, &signature_path, &public_key_
 
 6. **Optionally, revoke the old signing key** to prevent new signatures:
    ```rust
-   key_manager.revoke_signing_key(old_signing_key_id).await?;
+   key_manager.revoke_signing_key(org_id, old_signing_key_id).await?;
    ```
 
 ## See Also
