@@ -107,13 +107,12 @@ struct Cli {
     #[arg(long, env = "CLOACINA_RUN_HISTORY_RETENTION_DAYS", default_value_t = 0)]
     run_history_retention_days: u64,
 
-    /// Seconds to keep a `delivery_outbox` row after it was acked. `0` turns
-    /// this off (keep for ever). Default 3600. CLOACINA-T-1023.
-    #[arg(
-        long,
-        env = "CLOACINA_OUTBOX_ACKED_RETENTION_S",
-        default_value_t = 3600
-    )]
+    /// Seconds to keep a `delivery_outbox` row after it was acked. A
+    /// background job then deletes the row. `0` (the default) keeps acked
+    /// rows for ever: an operator must set a period to turn the deletes on,
+    /// and until then `delivery_outbox` grows with each delivered message.
+    /// CLOACINA-T-1023, CLOACINA-T-1092.
+    #[arg(long, env = "CLOACINA_OUTBOX_ACKED_RETENTION_S", default_value_t = 0)]
     outbox_acked_retention_s: u64,
 
     /// Seconds between passes of the retention job. Default 300.
@@ -350,4 +349,44 @@ async fn main() -> Result<()> {
         std::time::Duration::from_secs(cli.database_wait_timeout_s),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+    use cloacina_server::retention::RetentionConfig;
+
+    fn retention_of(args: &[&str]) -> RetentionConfig {
+        let cli = Cli::try_parse_from(args).unwrap();
+        RetentionConfig::from_flags(
+            cli.run_history_retention_days,
+            cli.outbox_acked_retention_s,
+            cli.retention_interval_s,
+        )
+    }
+
+    // CLOACINA-T-1092: with no retention flag nothing is deleted, and the
+    // retention job does not start.
+    #[test]
+    fn retention_flags_are_off_by_default() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.outbox_acked_retention_s, 0);
+        assert_eq!(cli.run_history_retention_days, 0);
+
+        let cfg = retention_of(&["cloacina-server"]);
+        assert_eq!(cfg, RetentionConfig::default());
+        assert_eq!(cfg.outbox_acked, None);
+        assert!(!cfg.enabled());
+    }
+
+    #[test]
+    fn outbox_acked_retention_flag_turns_the_cleanup_on() {
+        let cfg = retention_of(&["cloacina-server", "--outbox-acked-retention-s", "3600"]);
+        assert_eq!(
+            cfg.outbox_acked,
+            Some(std::time::Duration::from_secs(3_600))
+        );
+        assert!(cfg.enabled());
+    }
 }

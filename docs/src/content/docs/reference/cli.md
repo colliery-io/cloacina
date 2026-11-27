@@ -207,7 +207,7 @@ binary, by flag or environment variable (the wrapper passes the environment
 through): `--run-history-retention-days` /
 `CLOACINA_RUN_HISTORY_RETENTION_DAYS` (default `0`, off),
 `--outbox-acked-retention-s` / `CLOACINA_OUTBOX_ACKED_RETENTION_S` (default
-`3600`) and `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S`
+`0`, off: acked `delivery_outbox` rows are kept and the table grows) and `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S`
 (default `300`). See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
 
