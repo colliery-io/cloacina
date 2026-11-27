@@ -612,6 +612,23 @@ impl ComputationGraphScheduler {
         }
     }
 
+    /// CLOACINA-T-1053: a scheduler whose registry requires tenants (a
+    /// server's) refuses a graph or reactor with no tenant. Such a load would
+    /// get the allow-all policy, which is for embedded use only.
+    fn require_tenant(
+        &self,
+        kind: &str,
+        name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<(), String> {
+        if self.registry.tenants_required() && tenant_id.is_none() {
+            return Err(format!(
+                "{kind} '{name}' has no tenant: this scheduler requires a tenant for every graph and reactor"
+            ));
+        }
+        Ok(())
+    }
+
     /// Load and start a reactor with no subscribers.
     ///
     /// Idempotent on `(reactor_name, contract)`: if a reactor with this name
@@ -680,6 +697,7 @@ impl ComputationGraphScheduler {
         constructor: Option<cloacina_computation_graph::ReactorConstructorRef>,
         provider_root: Option<&std::path::Path>,
     ) -> Result<(), String> {
+        self.require_tenant("reactor", &reactor_name, tenant_id.as_deref())?;
         let provider_root = provider_root.map(|p| p.to_path_buf());
 
         // CLOACI-T-0924: a load is a CLAIM, so it addresses the caller's own
@@ -1106,6 +1124,7 @@ impl ComputationGraphScheduler {
         scope: TenantScope<'_>,
         graph_fn: CompiledGraphFn,
     ) -> Result<(), String> {
+        self.require_tenant("graph", &graph_name, scope.tenant_id)?;
         let graph_key = scope.own_key(&graph_name);
         {
             let g2r = self.graph_to_reactor.read().await;
@@ -1174,6 +1193,7 @@ impl ComputationGraphScheduler {
         provider_root: Option<&std::path::Path>,
     ) -> Result<(), String> {
         let name = decl.name.clone();
+        self.require_tenant("graph", &name, decl.tenant_id.as_deref())?;
         // Resolve the reactor identity. `Some(...)` from a split-form caller
         // (T-0544 M2: cross-package fan-out) lets multiple graphs share a
         // reactor by name. `None` (today's bundled-form path) synthesizes a
@@ -1459,25 +1479,29 @@ impl ComputationGraphScheduler {
     /// redirect. `None` means "not known to be foreign" — the accumulator is
     /// local, or nonexistent; the caller distinguishes those the way it always
     /// has.
+    ///
+    /// CLOACINA-T-1053: `scope` is the caller. The search across tenants is
+    /// for an admin (`scope.is_admin`), not for any caller with no tenant: a
+    /// key with no tenant that is not an admin finds nothing here.
     pub async fn foreign_reactor_for_accumulator(
         &self,
-        tenant_id: Option<&str>,
+        scope: TenantScope<'_>,
         accumulator: &str,
     ) -> Option<crate::TenantKey> {
         let fa = self.foreign_accumulators.read().await;
-        if let Some(hit) = fa.get(&TenantKey::new(tenant_id, accumulator)) {
+        if let Some(hit) = fa.get(&TenantKey::new(scope.tenant_id, accumulator)) {
             return Some(hit.clone());
         }
-        // Untenanted caller (admin/bootstrap keys carry no tenant): resolve by
+        // Admin caller (the bootstrap key carries no tenant): resolve by
         // name across tenants when UNIQUE, mirroring the endpoint registry's
-        // Global-scope semantics. Found live on a real cluster: the bootstrap
+        // admin-scope semantics. Found live on a real cluster: the bootstrap
         // key (tenant_id=None) injected into an accumulator whose reactor was
         // loaded under Some("public") — the exact-key lookup missed, so the
         // redirect never happened and an admin inject at a non-owner 404'd
         // while the same inject at the owner returned 200. Ambiguity stays
         // None: silently picking one tenant's reactor would misroute another's
         // events, which is worse than the outbox fallback.
-        if tenant_id.is_none() {
+        if scope.is_admin {
             let mut matches = fa.iter().filter(|(k, _)| k.name == accumulator);
             if let Some((_, reactor_key)) = matches.next() {
                 if matches.next().is_none() {
@@ -2797,7 +2821,7 @@ mod tests {
             .expect("load succeeds even when the claim is lost");
 
         let key = scheduler
-            .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+            .foreign_reactor_for_accumulator(TenantScope::tenant("acme"), "pipeline_acc")
             .await
             .expect("the graph's accumulator must map to its foreign reactor");
         assert_eq!(key.name, "rx");
@@ -2807,13 +2831,13 @@ mod tests {
         // NOT produce a redirect.
         assert!(
             scheduler
-                .foreign_reactor_for_accumulator(Some("acme"), "nope")
+                .foreign_reactor_for_accumulator(TenantScope::tenant("acme"), "nope")
                 .await
                 .is_none()
         );
         assert!(
             scheduler
-                .foreign_reactor_for_accumulator(Some("globex"), "events")
+                .foreign_reactor_for_accumulator(TenantScope::tenant("globex"), "events")
                 .await
                 .is_none()
         );
@@ -2844,7 +2868,7 @@ mod tests {
         assert!(scheduler.reactors.read().await.is_empty(), "not started");
         assert!(
             scheduler
-                .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+                .foreign_reactor_for_accumulator(TenantScope::tenant("acme"), "pipeline_acc")
                 .await
                 .is_some()
         );
@@ -2869,7 +2893,7 @@ mod tests {
         );
         assert!(
             scheduler
-                .foreign_reactor_for_accumulator(Some("acme"), "pipeline_acc")
+                .foreign_reactor_for_accumulator(TenantScope::tenant("acme"), "pipeline_acc")
                 .await
                 .is_none(),
             "taken-over accumulators must stop redirecting away from this replica"
@@ -3415,5 +3439,180 @@ mod tests {
         assert!(err.contains("already loaded"), "{err}");
 
         scheduler.shutdown_all().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1053: on a server every graph has a tenant; `public` is one
+    // -----------------------------------------------------------------------
+
+    /// A scheduler whose registry requires tenants refuses an untenanted
+    /// graph or reactor, so the allow-all policy cannot exist on a server.
+    #[tokio::test]
+    async fn t1053_server_scheduler_refuses_a_graph_with_no_tenant() {
+        let registry = EndpointRegistry::requiring_tenants();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+
+        let err = scheduler
+            .load_graph(tenant_decl("pipeline", "rx", None))
+            .await
+            .expect_err("an untenanted graph must be refused");
+        assert!(err.contains("has no tenant"), "{err}");
+
+        let err = scheduler
+            .load_reactor(
+                "rx".to_string(),
+                vec![],
+                ReactionCriteria::WhenAny,
+                InputStrategy::Latest,
+                None,
+                vec![],
+                None,
+            )
+            .await
+            .expect_err("an untenanted reactor must be refused");
+        assert!(err.contains("has no tenant"), "{err}");
+
+        let err = scheduler
+            .bind_graph_to_reactor(
+                "pipeline".to_string(),
+                "rx".to_string(),
+                TenantScope::untenanted(),
+                nop_graph_fn(),
+            )
+            .await
+            .expect_err("an untenanted bind must be refused");
+        assert!(err.contains("has no tenant"), "{err}");
+
+        assert!(scheduler.list_graphs().await.is_empty());
+        assert!(scheduler.list_reactors().await.is_empty());
+        assert!(registry.list_accumulator_keys().await.is_empty());
+        assert!(registry.list_reactor_keys().await.is_empty());
+    }
+
+    /// A graph of the `public` tenant is loaded as the reconciler of the admin
+    /// runner loads it: with `tenant_id = Some("public")`. It carries that
+    /// tenant in its status and its endpoints are closed to another tenant's
+    /// key and to a key with no tenant.
+    #[tokio::test]
+    async fn t1053_public_graph_is_closed_to_other_tenants_and_to_no_tenant_keys() {
+        use crate::computation_graph::registry::{EndpointScope, KeyContext, ReactorOp};
+
+        let registry = EndpointRegistry::requiring_tenants();
+        let scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("public")))
+            .await
+            .expect("a public graph loads");
+
+        let graphs = scheduler.list_graphs().await;
+        assert_eq!(graphs.len(), 1);
+        assert_eq!(graphs[0].tenant_id.as_deref(), Some("public"));
+        let reactors = scheduler.list_reactors().await;
+        assert_eq!(reactors.len(), 1);
+        assert_eq!(reactors[0].tenant_id.as_deref(), Some("public"));
+
+        let id = uuid::Uuid::new_v4();
+        let key = |tenant, is_admin| KeyContext {
+            key_id: &id,
+            tenant_id: tenant,
+            is_admin,
+        };
+        for outsider in [key(Some("acme"), false), key(None, false)] {
+            assert!(
+                registry
+                    .check_accumulator_auth("pipeline_acc", &outsider)
+                    .await
+                    .is_err()
+            );
+            for op in [ReactorOp::ForceFire, ReactorOp::Pause, ReactorOp::Resume] {
+                assert!(
+                    registry
+                        .check_reactor_op_auth("rx", &outsider, &op)
+                        .await
+                        .is_err()
+                );
+                // The graph name is an alias of its reactor: closed too.
+                assert!(
+                    registry
+                        .check_reactor_op_auth("pipeline", &outsider, &op)
+                        .await
+                        .is_err()
+                );
+            }
+            assert!(
+                registry
+                    .list_accumulators_with_health_for_key(&outsider)
+                    .await
+                    .is_empty()
+            );
+            assert!(
+                registry
+                    .send_to_accumulator(
+                        "pipeline_acc",
+                        EndpointScope::from_key_context(&outsider),
+                        b"{}".to_vec()
+                    )
+                    .await
+                    .is_err()
+            );
+        }
+
+        let public = key(Some("public"), false);
+        assert!(
+            registry
+                .check_accumulator_auth("pipeline_acc", &public)
+                .await
+                .is_ok()
+        );
+        assert!(
+            registry
+                .check_reactor_op_auth("rx", &public, &ReactorOp::ForceFire)
+                .await
+                .is_ok()
+        );
+        let admin = key(None, true);
+        assert!(
+            registry
+                .check_accumulator_auth("pipeline_acc", &admin)
+                .await
+                .is_ok()
+        );
+
+        scheduler.shutdown_all().await;
+    }
+
+    /// The search across tenants for a foreign accumulator is for an admin.
+    /// A caller with no tenant that is not an admin finds nothing.
+    #[tokio::test]
+    async fn t1053_foreign_lookup_across_tenants_needs_admin() {
+        let registry = EndpointRegistry::requiring_tenants();
+        let mut scheduler = ComputationGraphScheduler::new(registry.clone());
+        scheduler.set_ownership(Arc::new(FakeOwnership {
+            refuse_claim: std::sync::atomic::AtomicBool::new(true),
+            ..Default::default()
+        }));
+        scheduler
+            .load_graph(tenant_decl("pipeline", "rx", Some("acme")))
+            .await
+            .expect("load succeeds even when the claim is lost");
+
+        assert!(
+            scheduler
+                .foreign_reactor_for_accumulator(TenantScope::untenanted(), "pipeline_acc")
+                .await
+                .is_none(),
+            "no tenant and not admin must not resolve another tenant's accumulator"
+        );
+        let hit = scheduler
+            .foreign_reactor_for_accumulator(TenantScope::admin(), "pipeline_acc")
+            .await
+            .expect("an admin resolves the unique match");
+        assert_eq!(hit.tenant_id.as_deref(), Some("acme"));
+        assert!(
+            scheduler
+                .foreign_reactor_for_accumulator(TenantScope::tenant("acme"), "pipeline_acc")
+                .await
+                .is_some()
+        );
     }
 }

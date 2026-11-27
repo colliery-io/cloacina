@@ -79,6 +79,11 @@ pub enum RegistryError {
         name: String,
         tenants: Vec<String>,
     },
+
+    /// CLOACINA-T-1053: a registry that requires tenants (a server's) was
+    /// asked to register an endpoint with no tenant.
+    #[error("{kind} '{name}' has no tenant; this registry requires one")]
+    TenantRequired { kind: &'static str, name: String },
 }
 
 /// Operations that can be performed on a reactor via WebSocket.
@@ -98,6 +103,21 @@ pub struct KeyContext<'a> {
     pub key_id: &'a uuid::Uuid,
     pub tenant_id: Option<&'a str>,
     pub is_admin: bool,
+}
+
+impl KeyContext<'_> {
+    /// May this key act on something that `owner_tenant` owns?
+    ///
+    /// An admin may. Any other key may only when it has a tenant and that
+    /// tenant is the owner. A key with no tenant that is not an admin may act
+    /// on nothing: "no tenant" is not "admin" (CLOACINA-T-1053). An owner with
+    /// no tenant is reachable by an admin only.
+    pub fn may_act_for(&self, owner_tenant: Option<&str>) -> bool {
+        if self.is_admin {
+            return true;
+        }
+        matches!((self.tenant_id, owner_tenant), (Some(key), Some(owner)) if key == owner)
+    }
 }
 
 /// Authorization policy for an accumulator endpoint.
@@ -364,11 +384,28 @@ enum ResolveMiss {
 ///
 /// A non-admin caller can therefore never resolve another tenant's endpoint,
 /// which is the whole point of CLOACI-T-0921.
+///
+/// With `tenants_required` (a server's registry, CLOACINA-T-1053) step 2 is
+/// for admins only: a caller that is not an admin resolves its own tenant's
+/// entry or nothing, and a caller with no tenant resolves nothing.
 fn resolve_key<V>(
     map: &HashMap<EndpointKey, V>,
     scope: EndpointScope<'_>,
     name: &str,
+    tenants_required: bool,
 ) -> Result<EndpointKey, ResolveMiss> {
+    if tenants_required && !scope.is_admin {
+        let Some(tenant) = scope.tenant_id else {
+            return Err(ResolveMiss::NotFound);
+        };
+        let key = EndpointKey::new(Some(tenant), name);
+        return if map.contains_key(&key) {
+            Ok(key)
+        } else {
+            Err(ResolveMiss::NotFound)
+        };
+    }
+
     if let Some(tenant) = scope.tenant_id {
         let key = EndpointKey::new(Some(tenant), name);
         if map.contains_key(&key) {
@@ -421,9 +458,18 @@ struct ReactorEntry {
 /// whole server process, so every map is keyed by [`EndpointKey`] —
 /// CLOACI-T-0921: keying by bare name let same-named accumulators from two
 /// tenants broadcast into each other's boundary channels.
+///
+/// Two modes (CLOACINA-T-1053). [`EndpointRegistry::new`] is the embedded
+/// mode: an endpoint may have no tenant, it gets an allow-all policy, and
+/// every lookup falls back to it. [`EndpointRegistry::requiring_tenants`] is
+/// the server mode: every endpoint has a tenant, a key reaches only its own
+/// tenant's endpoints, and a key with no tenant that is not an admin reaches
+/// none.
 #[derive(Clone)]
 pub struct EndpointRegistry {
     inner: Arc<RwLock<RegistryInner>>,
+    /// Server mode: see the type docs.
+    tenants_required: bool,
 }
 
 struct RegistryInner {
@@ -461,7 +507,27 @@ impl EndpointRegistry {
                 accumulator_meta: HashMap::new(),
                 accumulator_injects: HashMap::new(),
             })),
+            tenants_required: false,
         }
+    }
+
+    /// A registry for a multi-tenant server (CLOACINA-T-1053).
+    ///
+    /// - An endpoint with no tenant is refused at registration
+    ///   ([`RegistryError::TenantRequired`]), so no allow-all endpoint exists.
+    /// - A caller that is not an admin resolves a name in its own tenant only.
+    /// - A caller with no tenant that is not an admin resolves nothing and is
+    ///   authorized for nothing.
+    pub fn requiring_tenants() -> Self {
+        Self {
+            tenants_required: true,
+            ..Self::new()
+        }
+    }
+
+    /// Whether this registry refuses endpoints with no tenant.
+    pub fn tenants_required(&self) -> bool {
+        self.tenants_required
     }
 
     /// Record an operator inject into an accumulator (CLOACI-T-0776). Called only
@@ -471,7 +537,7 @@ impl EndpointRegistry {
     pub async fn note_accumulator_operator_inject(&self, name: &str, scope: EndpointScope<'_>) {
         let now = chrono::Utc::now().timestamp_millis();
         let mut inner = self.inner.write().await;
-        let Ok(key) = resolve_key(&inner.accumulators, scope, name) else {
+        let Ok(key) = resolve_key(&inner.accumulators, scope, name, self.tenants_required) else {
             return;
         };
         let entry = inner.accumulator_injects.entry(key).or_insert((0, 0));
@@ -487,7 +553,7 @@ impl EndpointRegistry {
         scope: EndpointScope<'_>,
     ) -> Option<(u64, i64)> {
         let inner = self.inner.read().await;
-        let key = resolve_key(&inner.accumulators, scope, name).ok()?;
+        let key = resolve_key(&inner.accumulators, scope, name, self.tenants_required).ok()?;
         inner.accumulator_injects.get(&key).copied()
     }
 
@@ -506,6 +572,12 @@ impl EndpointRegistry {
         name: String,
         sender: mpsc::Sender<Vec<u8>>,
     ) -> Result<(), RegistryError> {
+        if self.tenants_required && owner.tenant_id.is_none() {
+            return Err(RegistryError::TenantRequired {
+                kind: "accumulator",
+                name,
+            });
+        }
         let key = owner.key(&name);
         let mut inner = self.inner.write().await;
         match inner.accumulators.get_mut(&key) {
@@ -545,6 +617,12 @@ impl EndpointRegistry {
         sender: mpsc::Sender<ManualCommand>,
         handle: ReactorHandle,
     ) -> Result<(), RegistryError> {
+        if self.tenants_required && owner.tenant_id.is_none() {
+            return Err(RegistryError::TenantRequired {
+                kind: "reactor",
+                name,
+            });
+        }
         let key = owner.key(&name);
         let mut inner = self.inner.write().await;
         if let Some(existing) = inner.reactors.get(&key) {
@@ -590,7 +668,7 @@ impl EndpointRegistry {
         scope: EndpointScope<'_>,
     ) -> Option<AccumulatorDescriptor> {
         let inner = self.inner.read().await;
-        let key = resolve_key(&inner.accumulator_meta, scope, name).ok()?;
+        let key = resolve_key(&inner.accumulator_meta, scope, name, self.tenants_required).ok()?;
         inner.accumulator_meta.get(&key).cloned()
     }
 
@@ -654,7 +732,7 @@ impl EndpointRegistry {
         scope: EndpointScope<'_>,
     ) -> Option<ReactorHandle> {
         let inner = self.inner.read().await;
-        let key = resolve_key(&inner.reactors, scope, name).ok()?;
+        let key = resolve_key(&inner.reactors, scope, name, self.tenants_required).ok()?;
         inner.reactors.get(&key).map(|e| e.handle.clone())
     }
 
@@ -694,7 +772,12 @@ impl EndpointRegistry {
         // CLOACI-T-0921: an unresolvable name (including another tenant's) is
         // indistinguishable from "no policy" — deny by default either way, and
         // never leak that the name exists in a tenant the caller can't see.
-        let Ok(key) = resolve_key(&inner.accumulator_policies, scope, name) else {
+        let Ok(key) = resolve_key(
+            &inner.accumulator_policies,
+            scope,
+            name,
+            self.tenants_required,
+        ) else {
             return Err(RegistryError::AccumulatorUnauthorized(name.to_string()));
         };
         match inner.accumulator_policies.get(&key) {
@@ -717,7 +800,8 @@ impl EndpointRegistry {
     ) -> Result<(), RegistryError> {
         let inner = self.inner.read().await;
         let scope = EndpointScope::from_key_context(ctx);
-        let Ok(key) = resolve_key(&inner.reactor_policies, scope, name) else {
+        let Ok(key) = resolve_key(&inner.reactor_policies, scope, name, self.tenants_required)
+        else {
             return Err(RegistryError::ReactorUnauthorized(name.to_string()));
         };
         match inner.reactor_policies.get(&key) {
@@ -741,7 +825,8 @@ impl EndpointRegistry {
     ) -> Result<(), RegistryError> {
         let inner = self.inner.read().await;
         let scope = EndpointScope::from_key_context(ctx);
-        let Ok(key) = resolve_key(&inner.reactor_policies, scope, name) else {
+        let Ok(key) = resolve_key(&inner.reactor_policies, scope, name, self.tenants_required)
+        else {
             return Err(RegistryError::ReactorUnauthorized(name.to_string()));
         };
         match inner.reactor_policies.get(&key) {
@@ -770,7 +855,7 @@ impl EndpointRegistry {
         bytes: Vec<u8>,
     ) -> Result<usize, RegistryError> {
         let mut inner = self.inner.write().await;
-        let key = match resolve_key(&inner.accumulators, scope, name) {
+        let key = match resolve_key(&inner.accumulators, scope, name, self.tenants_required) {
             Ok(k) => k,
             Err(ResolveMiss::NotFound) => {
                 return Err(RegistryError::AccumulatorNotFound(name.to_string()));
@@ -832,7 +917,7 @@ impl EndpointRegistry {
         command: ManualCommand,
     ) -> Result<(), RegistryError> {
         let inner = self.inner.read().await;
-        let key = match resolve_key(&inner.reactors, scope, name) {
+        let key = match resolve_key(&inner.reactors, scope, name, self.tenants_required) {
             Ok(k) => k,
             Err(ResolveMiss::NotFound) => {
                 return Err(RegistryError::ReactorNotFound(name.to_string()));
@@ -889,7 +974,7 @@ impl EndpointRegistry {
     /// visible to `scope`.
     pub async fn accumulator_count(&self, name: &str, scope: EndpointScope<'_>) -> usize {
         let inner = self.inner.read().await;
-        let Ok(key) = resolve_key(&inner.accumulators, scope, name) else {
+        let Ok(key) = resolve_key(&inner.accumulators, scope, name, self.tenants_required) else {
             return 0;
         };
         inner
@@ -929,7 +1014,13 @@ impl EndpointRegistry {
         scope: EndpointScope<'_>,
     ) -> Option<AccumulatorHealth> {
         let inner = self.inner.read().await;
-        let key = resolve_key(&inner.accumulator_health, scope, name).ok()?;
+        let key = resolve_key(
+            &inner.accumulator_health,
+            scope,
+            name,
+            self.tenants_required,
+        )
+        .ok()?;
         inner
             .accumulator_health
             .get(&key)
@@ -977,10 +1068,12 @@ impl EndpointRegistry {
             .filter(|key| {
                 // CLOACI-T-0921: the key's own tenant is the first gate — an
                 // entry owned by another tenant is invisible regardless of
-                // policy. Untenanted entries stay globally visible (that is the
-                // pre-tenancy single-tenant deployment).
+                // policy. Untenanted entries stay globally visible in the
+                // embedded mode (the single-tenant deployment). A registry
+                // that requires tenants holds none, and shows one to an admin
+                // only (CLOACINA-T-1053).
                 let tenant_visible = match (&key.tenant_id, ctx.tenant_id) {
-                    (None, _) => true,
+                    (None, _) => !self.tenants_required || ctx.is_admin,
                     (Some(_), _) if ctx.is_admin => true,
                     (Some(owner), Some(caller)) => owner == caller,
                     (Some(_), None) => false,
@@ -1661,5 +1754,302 @@ mod tests {
             .map(|(n, _, _)| n)
             .collect();
         assert_eq!(visible, vec!["a_acc".to_string()]);
+    }
+
+    // CLOACINA-T-1053: "no tenant" grants nothing by itself
+
+    fn ctx<'a>(key_id: &'a uuid::Uuid, tenant: Option<&'a str>, is_admin: bool) -> KeyContext<'a> {
+        KeyContext {
+            key_id,
+            tenant_id: tenant,
+            is_admin,
+        }
+    }
+
+    /// A registry that requires tenants holding `public`'s and `acme`'s
+    /// accumulator `ticks` and reactor `rx`, each with its tenant policy.
+    async fn server_registry() -> (EndpointRegistry, Vec<mpsc::Receiver<Vec<u8>>>) {
+        let registry = EndpointRegistry::requiring_tenants();
+        let mut receivers = Vec::new();
+        for tenant in ["public", "acme"] {
+            let owner = tenant_owner(tenant, "pkg", "rx");
+            let (tx, rx) = mpsc::channel(10);
+            receivers.push(rx);
+            registry
+                .register_accumulator(&owner, "ticks".to_string(), tx)
+                .await
+                .unwrap();
+            let (cmd_tx, _cmd_rx) = mpsc::channel(10);
+            registry
+                .register_reactor(&owner, "rx".to_string(), cmd_tx, dummy_handle())
+                .await
+                .unwrap();
+            registry
+                .set_accumulator_policy(
+                    &owner,
+                    "ticks".to_string(),
+                    AccumulatorAuthPolicy::for_tenant(tenant),
+                )
+                .await;
+            registry
+                .set_reactor_policy(
+                    &owner,
+                    "rx".to_string(),
+                    ReactorAuthPolicy::for_tenant(tenant),
+                )
+                .await;
+        }
+        (registry, receivers)
+    }
+
+    #[test]
+    fn test_t1053_may_act_for_needs_admin_or_the_same_tenant() {
+        let id = uuid::Uuid::new_v4();
+        // An admin acts for every owner, with or without a tenant of its own.
+        assert!(ctx(&id, None, true).may_act_for(Some("acme")));
+        assert!(ctx(&id, None, true).may_act_for(None));
+        // A tenant key acts for its own tenant only.
+        assert!(ctx(&id, Some("acme"), false).may_act_for(Some("acme")));
+        assert!(!ctx(&id, Some("acme"), false).may_act_for(Some("globex")));
+        assert!(!ctx(&id, Some("acme"), false).may_act_for(None));
+        // A key with no tenant that is not an admin acts for nobody, not even
+        // for an owner with no tenant.
+        assert!(!ctx(&id, None, false).may_act_for(Some("acme")));
+        assert!(!ctx(&id, None, false).may_act_for(Some("public")));
+        assert!(!ctx(&id, None, false).may_act_for(None));
+    }
+
+    #[tokio::test]
+    async fn test_t1053_server_registry_refuses_an_endpoint_with_no_tenant() {
+        let registry = EndpointRegistry::requiring_tenants();
+        assert!(registry.tenants_required());
+        let (tx, _rx) = mpsc::channel(10);
+        let err = registry
+            .register_accumulator(&owner("rx"), "ticks".to_string(), tx)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryError::TenantRequired {
+                kind: "accumulator",
+                ..
+            }
+        ));
+        let (cmd_tx, _cmd_rx) = mpsc::channel(10);
+        let err = registry
+            .register_reactor(&owner("rx"), "rx".to_string(), cmd_tx, dummy_handle())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryError::TenantRequired {
+                kind: "reactor",
+                ..
+            }
+        ));
+        assert!(registry.list_accumulator_keys().await.is_empty());
+        assert!(registry.list_reactor_keys().await.is_empty());
+    }
+
+    /// The key an OIDC `_` rule makes: no tenant, not an admin.
+    #[tokio::test]
+    async fn test_t1053_no_tenant_non_admin_key_reaches_nothing_on_a_server() {
+        let (registry, mut receivers) = server_registry().await;
+        let id = uuid::Uuid::new_v4();
+        let nobody = ctx(&id, None, false);
+
+        assert!(
+            registry
+                .check_accumulator_auth("ticks", &nobody)
+                .await
+                .is_err()
+        );
+        assert!(registry.check_reactor_auth("rx", &nobody).await.is_err());
+        for op in [
+            ReactorOp::ForceFire,
+            ReactorOp::FireWith,
+            ReactorOp::Pause,
+            ReactorOp::Resume,
+            ReactorOp::GetState,
+        ] {
+            assert!(
+                registry
+                    .check_reactor_op_auth("rx", &nobody, &op)
+                    .await
+                    .is_err(),
+                "{op:?} must be denied"
+            );
+        }
+        assert!(
+            registry
+                .list_accumulators_with_health_for_key(&nobody)
+                .await
+                .is_empty()
+        );
+
+        let scope = EndpointScope::from_key_context(&nobody);
+        assert!(matches!(
+            registry.send_to_accumulator("ticks", scope, vec![1]).await,
+            Err(RegistryError::AccumulatorNotFound(_))
+        ));
+        assert!(matches!(
+            registry
+                .send_to_reactor("rx", scope, ManualCommand::ForceFire)
+                .await,
+            Err(RegistryError::ReactorNotFound(_))
+        ));
+        assert!(registry.get_reactor_handle("rx", scope).await.is_none());
+        for rx in receivers.iter_mut() {
+            assert!(rx.try_recv().is_err(), "no tenant may receive the event");
+        }
+    }
+
+    /// `public` is a tenant like any other: another tenant's key cannot see,
+    /// inject into, fire or pause its graphs.
+    #[tokio::test]
+    async fn test_t1053_public_endpoints_are_closed_to_other_tenants() {
+        let registry = EndpointRegistry::requiring_tenants();
+        let public = tenant_owner("public", "pkg", "pub_rx");
+        let (tx, mut rx) = mpsc::channel(10);
+        registry
+            .register_accumulator(&public, "pub_ticks".to_string(), tx)
+            .await
+            .unwrap();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
+        registry
+            .register_reactor(&public, "pub_rx".to_string(), cmd_tx, dummy_handle())
+            .await
+            .unwrap();
+        registry
+            .set_accumulator_policy(
+                &public,
+                "pub_ticks".to_string(),
+                AccumulatorAuthPolicy::for_tenant("public"),
+            )
+            .await;
+        registry
+            .set_reactor_policy(
+                &public,
+                "pub_rx".to_string(),
+                ReactorAuthPolicy::for_tenant("public"),
+            )
+            .await;
+
+        let id = uuid::Uuid::new_v4();
+        let acme = ctx(&id, Some("acme"), false);
+        let acme_scope = EndpointScope::from_key_context(&acme);
+        assert!(
+            registry
+                .check_accumulator_auth("pub_ticks", &acme)
+                .await
+                .is_err()
+        );
+        assert!(registry.check_reactor_auth("pub_rx", &acme).await.is_err());
+        assert!(
+            registry
+                .check_reactor_op_auth("pub_rx", &acme, &ReactorOp::Pause)
+                .await
+                .is_err()
+        );
+        assert!(
+            registry
+                .check_reactor_op_auth("pub_rx", &acme, &ReactorOp::ForceFire)
+                .await
+                .is_err()
+        );
+        assert!(
+            registry
+                .list_accumulators_with_health_for_key(&acme)
+                .await
+                .is_empty()
+        );
+        assert!(
+            registry
+                .send_to_accumulator("pub_ticks", acme_scope, vec![1])
+                .await
+                .is_err()
+        );
+        assert!(
+            registry
+                .send_to_reactor("pub_rx", acme_scope, ManualCommand::ForceFire)
+                .await
+                .is_err()
+        );
+        assert!(
+            registry
+                .get_reactor_handle("pub_rx", acme_scope)
+                .await
+                .is_none()
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(cmd_rx.try_recv().is_err());
+
+        // A `public` key and an admin reach them.
+        let public_key = ctx(&id, Some("public"), false);
+        assert!(
+            registry
+                .check_accumulator_auth("pub_ticks", &public_key)
+                .await
+                .is_ok()
+        );
+        assert!(
+            registry
+                .check_reactor_op_auth("pub_rx", &public_key, &ReactorOp::ForceFire)
+                .await
+                .is_ok()
+        );
+        let listed: Vec<String> = registry
+            .list_accumulators_with_health_for_key(&public_key)
+            .await
+            .into_iter()
+            .map(|(n, _, _)| n)
+            .collect();
+        assert_eq!(listed, vec!["pub_ticks".to_string()]);
+        let admin = ctx(&id, None, true);
+        assert!(
+            registry
+                .check_accumulator_auth("pub_ticks", &admin)
+                .await
+                .is_ok()
+        );
+        assert!(registry.check_reactor_auth("pub_rx", &admin).await.is_ok());
+    }
+
+    /// Embedded use (no server, no tenants) keeps the open behaviour: an
+    /// untenanted endpoint with the allow-all policy is reachable by any key.
+    #[tokio::test]
+    async fn test_t1053_embedded_registry_keeps_allow_all_for_untenanted() {
+        let registry = EndpointRegistry::new();
+        assert!(!registry.tenants_required());
+        let embedded = owner("rx");
+        let (tx, mut rx) = mpsc::channel(10);
+        registry
+            .register_accumulator(&embedded, "ticks".to_string(), tx)
+            .await
+            .unwrap();
+        registry
+            .set_accumulator_policy(
+                &embedded,
+                "ticks".to_string(),
+                AccumulatorAuthPolicy::allow_all(),
+            )
+            .await;
+
+        let id = uuid::Uuid::new_v4();
+        for key in [ctx(&id, None, false), ctx(&id, Some("acme"), false)] {
+            assert!(registry.check_accumulator_auth("ticks", &key).await.is_ok());
+            assert_eq!(
+                registry
+                    .list_accumulators_with_health_for_key(&key)
+                    .await
+                    .len(),
+                1
+            );
+        }
+        registry
+            .send_to_accumulator("ticks", EndpointScope::tenant("acme"), vec![7])
+            .await
+            .unwrap();
+        assert_eq!(rx.try_recv().unwrap(), vec![7]);
     }
 }

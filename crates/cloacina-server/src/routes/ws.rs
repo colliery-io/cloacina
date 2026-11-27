@@ -146,6 +146,14 @@ impl Drop for WsConnectionGuard {
     }
 }
 
+/// A connection accepted for an accumulator whose reactor another replica
+/// owns, when no owner address was published yet (CLOACI-T-0851).
+struct ForeignReactor {
+    /// The reactor's tenant. The frames of the connection are written for
+    /// this tenant, not for the key's: an admin key has none (CLOACINA-T-1053).
+    tenant_id: Option<String>,
+}
+
 /// WebSocket handler for accumulator endpoints.
 ///
 /// `GET /v1/ws/accumulator/{name}` — upgrades to WebSocket after PAK auth.
@@ -188,18 +196,24 @@ pub async fn accumulator_ws(
     // Runs BEFORE the local auth check, which fails CLOSED for foreign
     // accumulators (no local registration → no policy — observed live as a 403
     // at the non-owner for an inject the owner accepted with 200). Guarded by
-    // the equivalent authz — admin, untenanted, or tenant-match — so the
-    // redirect does not become an unauthenticated probe for reactor placement.
+    // the equivalent authz — admin, or tenant-match — so the redirect does not
+    // become an unauthenticated probe for reactor placement. A key with no
+    // tenant that is not an admin matches no reactor (CLOACINA-T-1053).
     // Checked BEFORE on_upgrade — after acceptance the 307 can never be sent.
-    let mut known_foreign = false;
+    //
+    let mut known_foreign: Option<ForeignReactor> = None;
     if let Some(reactor_key) = state
         .graph_scheduler
-        .foreign_reactor_for_accumulator(ctx.tenant_id, &name)
+        .foreign_reactor_for_accumulator(
+            cloacina::TenantScope {
+                tenant_id: ctx.tenant_id,
+                is_admin: ctx.is_admin,
+            },
+            &name,
+        )
         .await
     {
-        let authorized = ctx.is_admin
-            || ctx.tenant_id.is_none()
-            || ctx.tenant_id == reactor_key.tenant_id.as_deref();
+        let authorized = ctx.may_act_for(reactor_key.tenant_id.as_deref());
         if authorized {
             let dal = cloacina::dal::unified::DAL::new(state.database.clone());
             match dal
@@ -232,7 +246,9 @@ pub async fn accumulator_ws(
                 // client's next reconnect gets the redirect once the new owner
                 // publishes.
                 Ok(None) => {
-                    known_foreign = true;
+                    known_foreign = Some(ForeignReactor {
+                        tenant_id: reactor_key.tenant_id.clone(),
+                    });
                 }
                 Err(e) => {
                     warn!(accumulator = %name, "owner-address lookup failed: {e}");
@@ -244,7 +260,7 @@ pub async fn accumulator_ws(
     // Per-endpoint authorization check (skipped only when the connection is
     // already known-foreign and authorized above — there is no local policy to
     // consult for an endpoint this replica does not host).
-    if !known_foreign {
+    if known_foreign.is_none() {
         if let Err(_e) = state
             .endpoint_registry
             .check_accumulator_auth(&name, &ctx)
@@ -340,7 +356,7 @@ async fn handle_accumulator_socket(
     // Decided at handshake: this accumulator's reactor is owned elsewhere and
     // no redirect was possible (no address published). Frames route through
     // the inject fallback rather than the direct registry send.
-    known_foreign: bool,
+    known_foreign: Option<ForeignReactor>,
 ) {
     debug!(accumulator = %name, key = %auth.name, "accumulator WebSocket connected");
     let _conn_guard = WsConnectionGuard::new("accumulator");
@@ -368,12 +384,12 @@ async fn handle_accumulator_socket(
                 // lost MID-connection instead, the local send fails, the
                 // 4404 close fires, and the client's reconnect handshake
                 // performs the redirect — which is the correct recovery.
-                if known_foreign {
+                if let Some(foreign) = &known_foreign {
                     match cloacina::computation_graph::reactor_routing::inject_event(
                         &registry,
                         Some(&dal),
                         &name,
-                        auth.tenant_id.as_deref(),
+                        foreign.tenant_id.as_deref(),
                         bytes,
                     )
                     .await
