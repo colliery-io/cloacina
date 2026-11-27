@@ -180,6 +180,23 @@ context:
   maxBytes: 16777216
 
 # ---------------------------------------------------------------------------
+# Package size limits (CLOACINA-T-1048, CLOACINA-T-1106)
+#
+# The defaults are the server's own. A Python package carries its vendored
+# dependencies, one folder per platform: a heavy set can need more.
+# ---------------------------------------------------------------------------
+packages:
+  # The largest package archive, in bytes, that an upload accepts; a larger
+  # upload gets status 413 (CLOACINA_MAX_PACKAGE_BYTES). Default 100 MiB.
+  maxPackageBytes: 104857600
+  # The largest size, in bytes, that a package archive may unpack to
+  # (CLOACINA_MAX_UNPACKED_BYTES). Default 500 MiB. Set on the server and on
+  # the chart's compiler; the server passes it on to the agents its fleet
+  # actuator starts. Agents installed apart from this chart need the same
+  # value.
+  maxUnpackedBytes: 524288000
+
+# ---------------------------------------------------------------------------
 # Fleet actuator (CLOACI-I-0127 / T-0814)
 #
 # The server can auto-scale a per-tenant pool of cloacina-agent workloads.
@@ -372,6 +389,10 @@ fleetTaskTimeLimits:
   # Longest time limit (seconds) a task can get; a task that asks for more
   # gets this value. CLOACINA_FLEET_TASK_TIMEOUT_MAX_S.
   maxSeconds: 86400
+  # How long (seconds) a task waits, per attempt, while agents cannot fetch
+  # its package artifact; then the attempt fails. 0: the first failed fetch
+  # fails the attempt. CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S.
+  artifactFetchWaitSeconds: 300
 
 # ---------------------------------------------------------------------------
 # Alert webhook (CLOACINA-T-1024)

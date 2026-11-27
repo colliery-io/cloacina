@@ -58,8 +58,9 @@ environment variables are the whole surface. `~/.cloacina/config.toml`
 belongs to `cloacinactl`, whose `server start` resolves `database_url`
 and the keys of the [`[server]` section](#server-section) from it and
 forwards them to the server. The Helm chart `cloacina-server` sets the
-retention, fleet time limit and alert webhook settings from its values
-`retention.*`, `fleetTaskTimeLimits.*` and `alertWebhook.*`. The one subcommand is `cloacina-server emit-openapi`,
+retention, fleet time limit, artifact fetch wait, package size, context size
+and alert webhook settings from its values `retention.*`,
+`fleetTaskTimeLimits.*`, `packages.*`, `context.*` and `alertWebhook.*`. The one subcommand is `cloacina-server emit-openapi`,
 which prints the OpenAPI 3.1 document to stdout without needing a
 database.
 
@@ -312,7 +313,6 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | config.toml Key | Default | Description |
 |---|---|---|
 | `server.default_executor` | `"default"` | Executor key every task is dispatched to. There is no per-task routing — all work goes to this one executor. `"default"` is the in-process thread executor; set `"fleet"` to offload all work to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). The key is hard-matched against registered executors at server startup; an unknown key fails fast (no silent fallback). |
-
 | `server.database_wait_timeout_s` | not set | Seconds the server waits at start for the database to accept a connection; `0` = one try. Forwarded as `--database-wait-timeout-s`. |
 | `server.run_history_retention_days` | not set | Days to keep a finished run; `0` keeps run history for ever. Forwarded as `--run-history-retention-days`. |
 | `server.outbox_acked_retention_s` | not set | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever. Forwarded as `--outbox-acked-retention-s`. |
@@ -325,11 +325,30 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.alert_webhook_max_attempts` | not set | The most sends of one alert. Forwarded as `--alert-webhook-max-attempts`. |
 | `server.public_base_url` | not set | Public URL of the server, for the links in an alert. Forwarded as `--public-base-url`. |
 | `server.task_log_url_template` | not set | URL of a task's logs in your log stack, with the placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`. Forwarded as `--task-log-url-template`. |
+| `server.verification_org_id` | not set | Server-wide trusted organization UUID. Forwarded as `--verification-org-id`. |
+| `server.reconcile_interval_s` | not set | Seconds between reconciler passes. Forwarded as `--reconcile-interval-s`. |
+| `server.tenant_runner_cache_size` | not set | Warning limit on per-tenant runners. Forwarded as `--tenant-runner-cache-size`. |
+| `server.tenant_deletion_drain_timeout_s` | not set | Seconds a tenant delete waits for running workflows. Forwarded as `--tenant-deletion-drain-timeout-s`. |
+| `server.log_retention_days` | not set | Daily log files to keep; `0` keeps them all. Forwarded as `--log-retention-days`. |
+| `server.log_format` | not set | `text` or `json`. Forwarded as `--log-format`. |
+| `server.agent_heartbeat_interval_s` | not set | Heartbeat interval (seconds) of fleet agents. Forwarded as `--agent-heartbeat-interval-s`. |
+| `server.agent_liveness_misses` | not set | Missed heartbeats before an agent is dead. Forwarded as `--agent-liveness-misses`. |
+| `server.fleet_artifact_fetch_wait_s` | not set | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact. Forwarded as `--fleet-artifact-fetch-wait-s`. |
+| `server.context_warn_bytes` | not set | Size in bytes above which a task context is logged as a warning. Forwarded as `--context-warn-bytes`. |
+| `server.context_max_bytes` | not set | Largest size in bytes of a task context. Forwarded as `--context-max-bytes`. |
+| `server.cors_allowed_origins` | `[]` | Origins allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-origins`. |
+| `server.cors_allowed_methods` | `[]` | Methods allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-methods`. |
+| `server.cors_allowed_headers` | `[]` | Request headers allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-headers`. |
+| `server.max_package_bytes` | not set | The largest package archive, in bytes, that an upload accepts. Forwarded as `--max-package-bytes`. |
+| `server.max_unpacked_bytes` | not set | The largest size, in bytes, that a package archive may unpack to. Forwarded as `--max-unpacked-bytes`. |
 
 A key that is not set is not forwarded, and the server uses its own default
 (see [Server flags](#server-flags-cloacina-server)). The signing secret of the
 alert webhook has no key: set the env var `CLOACINA_ALERT_WEBHOOK_SECRET`, which
-the server started by `cloacinactl server start` inherits.
+the server started by `cloacinactl server start` inherits. Every flag of
+`cloacina-server` but `--home`, `--verbose` and the base flags of `server start`
+(`--bind`, `--metrics-bind`, `--database-url`, `--bootstrap-key`,
+`--require-signatures`) has a key here.
 
 ```toml
 [server]
@@ -341,7 +360,30 @@ alert_webhook_events = ["failed", "cancelled"]
 public_base_url = "https://cloacina.example.com"
 ```
 
-Each key has a flag of the same name on `cloacinactl server start` (for example `--default-executor <key>`, `--fleet-task-timeout-s <N>`) and the env var of the server setting (for example `CLOACINA_DEFAULT_EXECUTOR`, `CLOACINA_FLEET_TASK_TIMEOUT_S`). Precedence: flag > env var > `config.toml` `[server]` > the server's default.
+Each key has a flag of the same name on `cloacinactl server start` (for example `--default-executor <key>`, `--fleet-task-timeout-s <N>`) and the env var of the server setting (for example `CLOACINA_DEFAULT_EXECUTOR`, `CLOACINA_FLEET_TASK_TIMEOUT_S`). Precedence: flag > env var > `config.toml` `[server]` > the server's default. `--reconcile-interval-s` and `--log-retention-days` have no env var.
+
+### `[compiler]` section
+
+`local_addr` is the address that `cloacinactl compiler status` and
+`compiler health` probe. The other keys are read by `cloacinactl compiler
+start`, which forwards them to the `cloacina-compiler` binary:
+
+| config.toml Key | Default | Description |
+|---|---|---|
+| `compiler.local_addr` | `"127.0.0.1:9000"` | Status and health address of the compiler. |
+| `compiler.max_unpacked_bytes` | not set | The largest size, in bytes, that a package archive may unpack to. Forwarded as `--max-unpacked-bytes`. |
+| `compiler.python_platforms` | `[]` | Platforms to vendor Python dependencies for, `<arch>-<os>`. An empty list is not forwarded. Forwarded as `--python-platform`. |
+| `compiler.python_version` | not set | The Python to vendor for, `major.minor`. Forwarded as `--python-version`. |
+| `compiler.python_index_url` | not set | The package index of the wheels. Forwarded as the env var `CLOACINA_COMPILER_PYTHON_INDEX_URL`, not as an argument, because the URL can hold a password. |
+| `compiler.python_wheel_dir` | not set | A folder of wheel files. Forwarded as `--python-wheel-dir`. |
+| `compiler.python_uv_cache_dir` | not set | The cache folder of `uv`. Forwarded as `--python-uv-cache-dir`. |
+| `compiler.python_offline` | not set | `true`: vendor with no network. Forwarded as `--python-offline`. |
+| `compiler.uv` | not set | The `uv` program. Forwarded as `--uv`. |
+
+Each key has a flag of the same name on `cloacinactl compiler start`
+(`python_platforms` is `--python-platform`) and the env var of the compiler
+setting. Precedence: flag > env var > `config.toml` `[compiler]` > the
+compiler's default.
 
 ## Environment Variables
 
