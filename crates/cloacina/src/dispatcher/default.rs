@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::traits::{Dispatcher, TaskExecutor};
 use super::types::{DispatchError, ExecutionStatus, TaskReadyEvent};
@@ -95,44 +95,59 @@ impl DefaultDispatcher {
         event: &TaskReadyEvent,
         result: super::types::ExecutionResult,
     ) -> Result<(), DispatchError> {
-        match result.status {
-            ExecutionStatus::Completed => {
-                info!(
-                    task_id = %event.task_execution_id,
-                    task_name = %event.task_name,
-                    duration_ms = result.duration.as_millis(),
-                    "Task completed successfully"
-                );
-            }
-            ExecutionStatus::Failed => {
-                let error_msg = result.error.as_deref().unwrap_or("Unknown error");
-                warn!(
-                    task_id = %event.task_execution_id,
-                    task_name = %event.task_name,
-                    error = error_msg,
-                    duration_ms = result.duration.as_millis(),
-                    "Task failed"
-                );
-            }
-            ExecutionStatus::Retry => {
-                // Retry handling is done by the executor - it schedules the retry
-                debug!(
-                    task_id = %event.task_execution_id,
-                    task_name = %event.task_name,
-                    "Task will be retried"
-                );
-            }
-            ExecutionStatus::Skipped => {
-                // Task was claimed by another runner — no action needed
-                debug!(
-                    task_id = %event.task_execution_id,
-                    task_name = %event.task_name,
-                    "Task skipped (claimed by another runner)"
-                );
-            }
-        }
-
+        log_result(event, &result);
         Ok(())
+    }
+}
+
+/// The log lines of an execution result.
+///
+/// A failure's error message can hold task data. The warn line "Task failed"
+/// holds it cut to [`crate::task_logs::MAX_LOGGED_ERROR_CHARS`] characters
+/// (CLOACINA-T-1096). The full message is in a trace line, which an operator
+/// must turn on, and on the task execution row.
+fn log_result(event: &TaskReadyEvent, result: &super::types::ExecutionResult) {
+    match result.status {
+        ExecutionStatus::Completed => {
+            info!(
+                task_id = %event.task_execution_id,
+                task_name = %event.task_name,
+                duration_ms = result.duration.as_millis(),
+                "Task completed successfully"
+            );
+        }
+        ExecutionStatus::Failed => {
+            let error_msg = result.error.as_deref().unwrap_or("Unknown error");
+            warn!(
+                task_id = %event.task_execution_id,
+                task_name = %event.task_name,
+                error = crate::task_logs::error_for_log(error_msg).as_ref(),
+                duration_ms = result.duration.as_millis(),
+                "Task failed"
+            );
+            trace!(
+                task_id = %event.task_execution_id,
+                task_name = %event.task_name,
+                error = error_msg,
+                "Task failed: the full error message (task data)"
+            );
+        }
+        ExecutionStatus::Retry => {
+            // Retry handling is done by the executor - it schedules the retry
+            debug!(
+                task_id = %event.task_execution_id,
+                task_name = %event.task_name,
+                "Task will be retried"
+            );
+        }
+        ExecutionStatus::Skipped => {
+            // Task was claimed by another runner — no action needed
+            debug!(
+                task_id = %event.task_execution_id,
+                task_name = %event.task_name,
+                "Task skipped (claimed by another runner)"
+            );
+        }
     }
 }
 
@@ -349,6 +364,93 @@ mod tests {
         let result = ExecutionResult::retry(id, "transient", Duration::from_millis(10));
         assert_eq!(result.status, ExecutionStatus::Retry);
         assert_eq!(result.error.as_deref(), Some("transient"));
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1096: the "Task failed" line holds the error message cut to
+    // a stated length; the full message is at trace.
+    // -----------------------------------------------------------------------
+
+    use crate::task_logs::MAX_LOGGED_ERROR_CHARS;
+    use crate::task_logs::test_support::LogCapture;
+
+    /// What `log_result` writes for `result` with the log at `max_level`.
+    fn logged(max_level: tracing::Level, result: &ExecutionResult) -> String {
+        let capture = LogCapture::default();
+        let event = create_test_event("acme::pkg::etl::load");
+        tracing::subscriber::with_default(capture.subscriber(max_level), || {
+            log_result(&event, result)
+        });
+        capture.text()
+    }
+
+    fn failure(message: &str) -> ExecutionResult {
+        ExecutionResult::failure(
+            UniversalUuid::new_v4(),
+            message.to_string(),
+            Duration::from_millis(50),
+        )
+    }
+
+    /// A message longer than the limit, with task data at its end.
+    fn long_message() -> String {
+        format!(
+            "row for robin failed: {}END-OF-THE-MESSAGE",
+            "x".repeat(MAX_LOGGED_ERROR_CHARS)
+        )
+    }
+
+    #[test]
+    fn the_warn_line_of_a_failure_holds_a_long_message_cut() {
+        let message = long_message();
+        let out = logged(tracing::Level::WARN, &failure(&message));
+        assert_eq!(out.lines().count(), 1, "{out}");
+        assert!(out.contains("Task failed"), "{out}");
+        assert!(out.contains("acme::pkg::etl::load"), "{out}");
+        assert!(out.contains("row for robin failed: xxx"), "{out}");
+        assert!(
+            !out.contains("END-OF-THE-MESSAGE"),
+            "the warn line holds the whole error message: {out}"
+        );
+        // The line shows that it was cut, and how long the message is.
+        assert!(
+            out.contains(&format!(
+                "... [cut: {MAX_LOGGED_ERROR_CHARS} of {} characters]",
+                message.chars().count()
+            )),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn the_warn_line_of_a_failure_holds_a_short_message_whole() {
+        let out = logged(tracing::Level::WARN, &failure("ValueError: no such row"));
+        assert!(out.contains("ValueError: no such row"), "{out}");
+        assert!(!out.contains("[cut:"), "{out}");
+    }
+
+    #[test]
+    fn the_cut_does_not_split_a_character() {
+        // Two bytes each, after one byte: a cut by bytes would be inside one.
+        let message = format!("x{}", "é".repeat(MAX_LOGGED_ERROR_CHARS + 50));
+        let out = logged(tracing::Level::WARN, &failure(&message));
+        assert!(
+            out.contains(&format!("x{}...", "é".repeat(MAX_LOGGED_ERROR_CHARS - 1))),
+            "{out}"
+        );
+        assert!(!out.contains(&"é".repeat(MAX_LOGGED_ERROR_CHARS)), "{out}");
+    }
+
+    /// `--verbose` is debug: the full message is not there. Trace has it.
+    #[test]
+    fn the_full_message_of_a_failure_is_at_trace_only() {
+        let message = long_message();
+        let debug = logged(tracing::Level::DEBUG, &failure(&message));
+        assert!(!debug.contains("END-OF-THE-MESSAGE"), "{debug}");
+        let trace = logged(tracing::Level::TRACE, &failure(&message));
+        assert!(trace.contains("END-OF-THE-MESSAGE"), "{trace}");
+        // The warn line is still cut with trace on.
+        assert_eq!(trace.matches("END-OF-THE-MESSAGE").count(), 1, "{trace}");
     }
 
     #[test]

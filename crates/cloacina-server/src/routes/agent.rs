@@ -725,13 +725,20 @@ pub async fn list_agents(
     Json(cloacina_api_types::common::ListResponse::new(agents)).into_response()
 }
 
-/// The log lines of a reported result (CLOACINA-T-1072).
+/// The log lines of a reported result (CLOACINA-T-1072, CLOACINA-T-1096).
 ///
 /// Info (debug for a refusal) names the report: the agent, the task, the
-/// attempt, the kind of outcome and the size of its payload. The context of a
-/// success and the message of a failure or a refusal are task data: they are
+/// attempt, the kind of outcome and the size of its payload. For a failure it
+/// also holds the error message, cut to
+/// [`cloacina::task_logs::MAX_LOGGED_ERROR_CHARS`] characters: the rule of the
+/// dispatcher's "Task failed" line. The context of a success, the full
+/// message of a failure and the message of a refusal are task data: they are
 /// in the trace line only, which an operator must turn on.
 fn log_reported_result(req: &AgentResultRequest) {
+    let failure_message = match &req.outcome {
+        AgentOutcome::Failure { message, .. } => Some(cloacina::task_logs::error_for_log(message)),
+        _ => None,
+    };
     let (kind, payload_bytes) = match &req.outcome {
         AgentOutcome::Success { context } => (
             "success".to_string(),
@@ -762,6 +769,8 @@ fn log_reported_result(req: &AgentResultRequest) {
             duration_ms = req.duration_ms,
             outcome = %kind,
             payload_bytes,
+            // Not a field of a success: `None` writes nothing.
+            error = failure_message.as_deref(),
             "agent reported result"
         );
     }
@@ -890,26 +899,64 @@ mod tests {
         );
     }
 
+    /// CLOACINA-T-1096: a failure's message is in the info line, whole when
+    /// it is not longer than the limit.
     #[test]
-    fn the_info_log_of_a_failure_names_the_kind_and_holds_no_message() {
+    fn the_info_log_of_a_failure_names_the_kind_and_holds_a_short_message_whole() {
         let out = logged(tracing::Level::INFO, &failure());
+        assert_eq!(out.lines().count(), 1, "{out}");
         assert!(out.contains("agent reported result"), "{out}");
         assert!(out.contains("outcome=failure(TaskError)"), "{out}");
         assert!(
-            !out.contains("text-from-the-task-error"),
-            "the info log holds the error message of the task: {out}"
+            out.contains("row for robin has text-from-the-task-error"),
+            "{out}"
         );
+        assert!(!out.contains("[cut:"), "{out}");
     }
 
-    /// `--verbose` is debug: it shows a refusal, and still no task data.
+    /// A failure whose message is longer than the limit, with task data at
+    /// its end.
+    fn long_failure() -> AgentResultRequest {
+        report(AgentOutcome::Failure {
+            message: format!(
+                "row for robin failed: {}END-OF-THE-ERROR",
+                "é".repeat(cloacina::task_logs::MAX_LOGGED_ERROR_CHARS)
+            ),
+            classification: cloacina::fleet::FailureClassification::TaskError,
+        })
+    }
+
+    /// CLOACINA-T-1096: the same cut as the dispatcher's "Task failed" line.
     #[test]
-    fn the_debug_log_holds_no_task_data() {
-        for req in [success(), failure(), refusal()] {
+    fn the_info_log_of_a_failure_holds_a_long_message_cut() {
+        let out = logged(tracing::Level::INFO, &long_failure());
+        assert!(out.contains("outcome=failure(TaskError)"), "{out}");
+        assert!(out.contains("row for robin failed: ééé"), "{out}");
+        assert!(
+            !out.contains("END-OF-THE-ERROR"),
+            "the info log holds the whole error message of the task: {out}"
+        );
+        // 22 characters of text, 300 of `é`, 16 of the end.
+        assert!(out.contains("... [cut: 300 of 338 characters]"), "{out}");
+    }
+
+    /// The line of a success has no `error` field.
+    #[test]
+    fn the_info_log_of_a_success_has_no_error_field() {
+        let out = logged(tracing::Level::INFO, &success());
+        assert!(!out.contains("error="), "{out}");
+    }
+
+    /// `--verbose` is debug: it shows a refusal, and still no context, no
+    /// full message of a long failure and no message of a refusal.
+    #[test]
+    fn the_debug_log_holds_no_context_and_no_full_message() {
+        for req in [success(), long_failure(), refusal()] {
             let out = logged(tracing::Level::DEBUG, &req);
             assert!(out.contains("agent reported result"), "{out}");
             for data in [
                 "value-from-the-task-context",
-                "text-from-the-task-error",
+                "END-OF-THE-ERROR",
                 "text-from-the-refusal",
             ] {
                 assert!(!out.contains(data), "the debug log holds {data}: {out}");
@@ -929,6 +976,7 @@ mod tests {
     fn the_trace_log_holds_the_full_outcome() {
         assert!(logged(tracing::Level::TRACE, &success()).contains("value-from-the-task-context"));
         assert!(logged(tracing::Level::TRACE, &failure()).contains("text-from-the-task-error"));
+        assert!(logged(tracing::Level::TRACE, &long_failure()).contains("END-OF-THE-ERROR"));
         assert!(logged(tracing::Level::TRACE, &refusal()).contains("text-from-the-refusal"));
     }
 }

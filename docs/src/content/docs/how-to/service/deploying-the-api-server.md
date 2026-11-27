@@ -193,14 +193,22 @@ Use `--verbose` for debug-level output during troubleshooting.
 
 What the log holds of a task's data, by level:
 
-- `info` and `debug`: the line for a result that an agent reports (`agent reported result`) names the agent, the task, the attempt, the duration, the kind of result and the size of its payload in bytes. It holds no value of the task's output context and no error message. The line `Context saved` lists the names of the context keys, not their values.
-- `warn`: the line `Task failed` holds the error message of a failed task.
+- `info` and `debug`: the line for a result that an agent reports (`agent reported result`) names the agent, the task, the attempt, the duration, the kind of result and the size of its payload in bytes. It holds no value of the task's output context. For a failure it holds the error message in the field `error`, cut as described below. The line `Context saved` lists the names of the context keys, not their values.
+- `warn`: the line `Task failed` holds the error message of a failed task in the field `error`, cut as described below. Every runner writes this line, an embedded one too.
 - `trace`: task data, see below.
 
-The `trace` level writes task data. With `trace` on for `cloacina_server::routes::agent`, the server logs the full outcome of every result an agent reports: the whole output context of a success, and the message of a failure or a refusal, for every tenant. `--verbose` does not turn it on. Turn it on for one module and for a short time, and treat the log file as you treat the task data:
+The error message of a failed task is cut to 300 characters in these two lines. The length is fixed; it counts characters, not bytes. A message of 300 characters or fewer is printed whole. A longer one is printed as its first 300 characters followed by `... [cut: 300 of <n> characters]`, where `<n>` is the length of the whole message. The cut limits how much of an error message the log holds; the first 300 characters can still hold task data. The whole message is on the task (`last_error`, and `error_details` for a traceback, in `GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks`) and in the log at `trace`.
+
+The `trace` level writes task data. `--verbose` does not turn it on. Two modules write it:
+
+- `cloacina_server::routes::agent`: the full outcome of every result an agent reports: the whole output context of a success, and the whole message of a failure or a refusal, for every tenant.
+- `cloacina::dispatcher::default`: the whole error message of every failed task (`Task failed: the full error message`).
+
+Turn it on for one module and for a short time, and treat the log file as you treat the task data:
 
 ```bash
 RUST_LOG=info,cloacina_server::routes::agent=trace cloacinactl server start --database-url postgresql://...
+RUST_LOG=info,cloacina::dispatcher::default=trace cloacinactl server start --database-url postgresql://...
 ```
 
 ## TLS Termination
