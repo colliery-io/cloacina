@@ -3305,6 +3305,9 @@ mod tests {
     /// Key expiry: the optional field, `key_expired`, actuator keys (CLOACINA-T-1083).
     mod agent_key_expiry;
 
+    /// OIDC sessions follow the group map and the IdP (CLOACINA-T-1082).
+    mod oidc_group_changes;
+
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.

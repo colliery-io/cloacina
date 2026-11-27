@@ -352,18 +352,24 @@ In every case the result is an ordinary bearer key; authorization does not care 
 
 Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`). Directly-created API keys have no provenance, and an expiry only when their creator gave one ([Key expiry](#key-expiry)).
 
-- **Refresh** — `POST /v1/auth/refresh` re-checks that the underlying account / identity is still valid, mints a fresh key, and revokes the old one. The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
+- **Refresh** — `POST /v1/auth/refresh` mints a fresh key and revokes the old one. For a local account it first checks that the account is still active. For an OIDC login it runs the current allowlist on the claims stored at login, and once an hour it reads the groups again at the IdP when the IdP gave a refresh token (see [What bounds an OIDC session](#what-bounds-an-oidc-session)). The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
 - **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and sends the revocation notice, so every replica clears its auth cache.
 
-A refreshed key is **re-minted with exactly the scope the original login resolved to** — tenant and role are read from the stored key record, not from anything the caller sends — and the mint path takes no `is_admin` argument at all. A refresh therefore cannot broaden a session's authority, and god-mode remains unreachable through any login flow.
+A refreshed key keeps the tenant of the key it replaces, and its role comes from the server's own records, never from anything the caller sends: the stored key for a local account, the current allowlist run on the stored login claims for OIDC. The mint path takes no `is_admin` argument at all, so god-mode remains unreachable through any login flow.
 
 #### What bounds an OIDC session
 
 Each OIDC sign-in opens a **server-side login session** with an absolute deadline (`CLOACINA_OIDC_SESSION_MAX_AGE_S`, default 8 hours). Refresh rotates the 15-minute key inside that window; it never extends the deadline. Past it, refreshing fails and the user goes through the full OIDC flow again — which re-checks the identity at the IdP *and* re-resolves the current allowlist.
 
-Cloacina deliberately does **not** spend the IdP's own refresh token on each refresh. Doing so would require `offline_access` (not universally granted), would put the IdP on the hot path of every session in the deployment, and would mean taking custody of a long-lived credential — the very thing short-TTL minted keys exist to avoid. The cost of the simpler design is that a user deactivated *at the IdP* keeps their cloacina session until the absolute deadline expires. Deployments where the IdP is the authority on employment status should lower `CLOACINA_OIDC_SESSION_MAX_AGE_S` accordingly (e.g. `3600` for same-hour offboarding); disabling the corresponding local account or revoking the key cuts a session off immediately, subject to the 30-second cross-replica window above.
+The login session stores the login's claims (`sub`, `email`, `email_verified`, `groups`). Each refresh runs the current `CLOACINA_OIDC_MAP` on them: a lower role applies to the new key, and a tenant the identity no longer maps to ends that session. The map is read at start, so a map change applies without downtime: a rolling restart, then live sessions follow at their next refresh. Sessions opened before this release have no stored claims and keep their role to their deadline.
 
-The `oidc_sessions` table retains an encrypted (AES-256-GCM) column for IdP refresh material for deployments that later opt into token custody; it is unused — and NULL — by default.
+When the IdP gave a refresh token at login and `CLOACINA_SECRET_KEK` is set, the server keeps that token in `oidc_sessions.refresh_enc`, AES-256-GCM with associated data `cloacina:oidc-refresh:v1:<login_id>`, so it decrypts only for its own login. Once per `CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S` (default one hour) one refresh of the login spends it at the token endpoint and reads the groups again. The IdP is on the path once an hour per login, not at every refresh.
+
+- The IdP refuses the token: the session ends.
+- The IdP cannot be reached: the session keeps its last claims and runs to its deadline, with a warning in the log.
+- No refresh token, or no KEK: the groups are read at login only, and the deadline bounds a group removal. Lower `CLOACINA_OIDC_SESSION_MAX_AGE_S` (for example `3600`) for a tighter bound.
+
+Disabling a local account or revoking the key cuts a session off immediately, subject to the 30-second cross-replica window above.
 
 OIDC in-flight login state (the `state` / nonce / PKCE verifier between the redirect and the callback) and the login session itself both live in Postgres, so refresh and the callback can land on any replica — no sticky sessions.
 
