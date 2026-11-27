@@ -409,10 +409,10 @@ Signature verification proves *who* signed the package, not *what's in the packa
 
 `cloacina-compiler` runs `cargo build` on packages submitted by — possibly untrusted — package authors. This is the most dangerous code path in the entire system: arbitrary Rust code is being compiled, which means arbitrary build scripts (`build.rs`) and arbitrary proc-macro code can run with the compiler's privileges. A package can also name a constructor provider crate (a Cargo dependency, or a `[metadata.providers]` entry with a registry, path or git source); the compiler builds that crate and runs its manifest binary.
 
-There is no process sandbox around any of this. The compiler starts these child processes for a package: `cargo fetch`, the build, and for provider bundling `cargo metadata`, the provider crate's build and its manifest binary. Every one of them gets:
+There is no process sandbox around any of this. The compiler starts these child processes for a package: `cargo fetch`, the build, for provider bundling `cargo metadata`, the provider crate's build and its manifest binary, and the describe child that reads the built package's metadata (see [The describe step](#the-describe-step-reading-a-packages-metadata)). Every one of them gets:
 
 - **A cleared environment.** The child inherits only `PATH`, `HOME`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `TMPDIR`, `TERM` and `CARGO_PROFILE_DEV_DEBUG`, plus the build wiring the compiler sets by name (`CARGO_TARGET_DIR`, the `--vendor-dir` `CARGO_HOME`). The two steps that download and run no package code (`cargo fetch`, `cargo metadata`) also inherit the proxy, certificate and cargo network variables. `DATABASE_URL` and the rest of the compiler's environment are not passed.
-- **The build timeout** (`--build-timeout-s`). Past it, the child and its process group are killed. A timed-out `cargo build` is marked `timed_out` and the stale-build sweeper reclaims the row; a timed-out fetch or provider step fails the build.
+- **The build timeout** (`--build-timeout-s`). Past it, the child and its process group are killed. A timed-out `cargo build` is marked `timed_out` and the stale-build sweeper reclaims the row; a timed-out fetch or provider step fails the build. The describe child has its own limit, `--describe-timeout-s` (120 seconds by default); past it the build fails.
 - **`setrlimit` resource caps** (CPU, memory, file descriptors, processes). Linux only.
 
 Network and dependency resolution depend on the cargo flags:
@@ -421,6 +421,19 @@ Network and dependency resolution depend on the cargo flags:
 - **With `--frozen`/`--offline` dropped** (`--cargo-flags-replace`; the Helm chart's default is `build --lib`), the build has two phases: `cargo fetch` downloads the dependency graph from the network, then the build runs with `--offline` appended.
 - **`--offline` binds cargo, not the code cargo runs.** A build script, a proc-macro or a provider's manifest binary can open any connection the host allows. Provider bundling does not use the cargo flags: its cargo steps can download.
 
+### The describe step: reading a package's metadata
+
+A package's metadata is in its code: its tasks with their dependencies, trigger rules, retry policy, time limit and placement, its triggers and cron schedules, its reactors, graphs and constructor nodes, and its declared params and secrets. A Rust library answers calls for it. A Python package registers it when it is imported. So reading the metadata runs the package's code: opening a library runs its load-time code, and an import runs the module.
+
+The compiler process does not do this. After the build it starts a child, the compiler binary in describe mode. The child opens the built library, or imports the Python package, and writes one metadata document. The compiler stores the document with the build (`workflow_packages.metadata_document`).
+
+- **What runs.** The package's load-time code, and for a Python package the top level of its entry module and of what that imports, its dependencies included. It runs in the child, as a build child: the cleared environment (no `DATABASE_URL`), the resource caps and the `--describe-timeout-s` limit.
+- **What it can reach.** What build code can reach: the compiler's files and, on Linux through `/proc`, the compiler's command line and environment (see below). With a compiler per tenant that is one tenant's build credential.
+- **When it fails.** A package that cannot be described, or whose describe passes the time limit, fails its build: the package gets `build_status` `failed` and the reason in `build_error`.
+- **Packages built before the document existed.** The compiler describes each one from its stored build, with no new build and no upload, and the package stays in service. A package it cannot describe keeps `build_status` `success` and gets the reason in `describe_error`, which the workflow routes return.
+
+This step does not change how a server or an agent loads a package: a server opens the library, and imports a Python package, in its own process.
+
 ### Python packages: what the compiler downloads
 
 A Python package that is published with a `requirements.lock` and no `vendor/` folder gets its dependencies from the compiler. For each platform of its settings the compiler runs `uv pip install` on the lock file and stores the installed wheels as one set per platform. A package that ships `vendor/` is not touched: the compiler runs no `uv` and downloads nothing for it.
@@ -428,7 +441,7 @@ A Python package that is published with a `requirements.lock` and no `vendor/` f
 - **What runs.** `uv`, as a build child: the cleared environment, the timeout and the resource caps above, plus the proxy and certificate variables. It installs wheels only (`--only-binary :all:`), so no build script and no code of a dependency runs in the compiler: a wheel is unpacked, not executed. A dependency with no wheel fails the build.
 - **What it downloads, and from where.** The wheels that the lock file names, and the index pages of those distributions, over HTTPS from the package index of the compiler's settings (`--python-index-url`; PyPI by default: `pypi.org` and `files.pythonhosted.org`). With `--python-wheel-dir` it also reads wheels from a folder of the compiler image. With `--python-offline` it opens no connection: the wheels come from that folder, or from a `uv` cache in the image, and a wheel that is not there fails the build by name.
 - **What the package's author controls.** The names, the versions and the hashes in the lock file. Not the source: the compiler refuses a lock file that holds anything other than pinned versions with hashes (an option such as `-r` or `--index-url`, a URL, a path), and it runs `uv` with `--no-config`, so a `uv.toml` in the package does not choose the index. The hashes are the author's own: `--require-hashes` makes the compiler install the files the author locked, and does not make those files safe.
-- **Where the files go.** Into the stored set of the package, and from there into `vendor/<platform>/` on the servers and agents that load the package. The dependencies then run with the package's tasks, with the same reach as the package's own code (see [What a task can reach on its agent](#what-a-task-can-reach-on-its-agent)). The compiler imports none of them.
+- **Where the files go.** Into the stored set of the package, and from there into `vendor/<platform>/` on the servers and agents that load the package. The dependencies then run with the package's tasks, with the same reach as the package's own code (see [What a task can reach on its agent](#what-a-task-can-reach-on-its-agent)). In the compiler, the describe child imports the package with the set of the compiler's own platform, so the dependencies the package imports at its top level run there too, with the reach of build code.
 - **What this adds to the compiler's network needs.** Egress to the index, unless the compiler is offline. A compiler with restricted egress needs the index and its file host allowed, an index mirror inside the network, or an image that carries the wheels: see [Running the Compiler](../../../how-to/service/running-the-compiler/#python-packages-vendoring-dependencies).
 
 The threat model the compiler addresses:

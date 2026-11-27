@@ -470,6 +470,7 @@ Exposed on `localhost:9092`.
 | Variable | Purpose | Default | Component | Notes |
 |----------|---------|---------|-----------|-------|
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build (seconds). | `600` | Compiler | Past timeout, the build is killed and the row is left for the stale-build sweeper to reclaim. |
+| `CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S` | Wall-clock cap on the describe step (seconds): the child process that reads a built package's metadata. | `120` | Compiler | Also settable via `--describe-timeout-s`. Past the cap the child is killed and the build fails with that reason. |
 | `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package archive may unpack to. The compiler refuses to build a larger one. | `524288000` | Compiler | Also settable via `--max-unpacked-bytes`. Use the value of the server. |
 | `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
@@ -556,6 +557,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |
+| `CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S` | Compiler | Wall-clock cap on the describe step (default `120`) |
 | `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | `CARGO_HOME` pointed at a curated vendored source tree |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |
 | `CLOACINA_TENANT_SCHEMA` | Compiler | Scope the compiler to one tenant's schema for build isolation |
