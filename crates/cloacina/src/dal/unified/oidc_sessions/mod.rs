@@ -120,33 +120,15 @@ pub fn refresh_token_aad(login_id: uuid::Uuid) -> String {
 }
 
 /// Encrypt an IdP refresh token with the 32-byte server key, AES-256-GCM with
-/// associated data (`nonce || ciphertext || tag`).
+/// associated data (`nonce || ciphertext || tag`), through the bound helper of
+/// the secrets store (CLOACINA-T-1071).
 pub fn encrypt_token_bound(
     plaintext: &[u8],
     enc_key: &[u8],
     aad: &[u8],
 ) -> Result<Vec<u8>, ValidationError> {
-    use aes_gcm::aead::{Aead, KeyInit, Payload};
-    use rand::Rng;
-    let fail =
-        |e: String| ValidationError::ConnectionPool(format!("refresh-token encryption: {e}"));
-    let cipher = aes_gcm::Aes256Gcm::new_from_slice(enc_key).map_err(|e| fail(e.to_string()))?;
-    let mut nonce = [0u8; 12];
-    rand::rng().fill_bytes(&mut nonce);
-    #[allow(deprecated)]
-    let ciphertext = cipher
-        .encrypt(
-            aes_gcm::Nonce::from_slice(&nonce),
-            Payload {
-                msg: plaintext,
-                aad,
-            },
-        )
-        .map_err(|e| fail(e.to_string()))?;
-    let mut out = Vec::with_capacity(12 + ciphertext.len());
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(&ciphertext);
-    Ok(out)
+    crate::crypto::encrypt_bytes_bound(plaintext, enc_key, aad)
+        .map_err(|e| ValidationError::ConnectionPool(format!("refresh-token encryption: {e}")))
 }
 
 /// Decrypt a refresh token sealed by [`encrypt_token_bound`] with the same
@@ -156,23 +138,8 @@ pub fn decrypt_token_bound(
     enc_key: &[u8],
     aad: &[u8],
 ) -> Result<Vec<u8>, ValidationError> {
-    use aes_gcm::aead::{Aead, KeyInit, Payload};
-    let fail =
-        |e: String| ValidationError::ConnectionPool(format!("refresh-token decryption: {e}"));
-    if ciphertext.len() < 12 + 16 {
-        return Err(fail("too short".to_string()));
-    }
-    let cipher = aes_gcm::Aes256Gcm::new_from_slice(enc_key).map_err(|e| fail(e.to_string()))?;
-    #[allow(deprecated)]
-    cipher
-        .decrypt(
-            aes_gcm::Nonce::from_slice(&ciphertext[..12]),
-            Payload {
-                msg: &ciphertext[12..],
-                aad,
-            },
-        )
-        .map_err(|e| fail(e.to_string()))
+    crate::crypto::decrypt_bytes_bound(ciphertext, enc_key, aad)
+        .map_err(|e| ValidationError::ConnectionPool(format!("refresh-token decryption: {e}")))
 }
 
 /// One OIDC login session row as the refresh path reads it
@@ -637,5 +604,25 @@ mod tests {
     #[test]
     fn bad_key_length_errors() {
         assert!(encrypt_token(b"x", &[0u8; 16]).is_err());
+        assert!(encrypt_token_bound(b"x", &[0u8; 16], b"aad").is_err());
+    }
+
+    /// CLOACINA-T-1071, CLOACINA-T-1082: the refresh-token helpers are the
+    /// bound helpers of `crypto`, with the login's associated data.
+    #[test]
+    fn the_token_helpers_use_the_crypto_bound_helpers() {
+        let key = [0x55u8; 32];
+        let login = uuid::Uuid::new_v4();
+        let aad = refresh_token_aad(login);
+        let sealed = crate::crypto::encrypt_bytes_bound(b"rt", &key, aad.as_bytes()).unwrap();
+        assert_eq!(
+            decrypt_token_bound(&sealed, &key, aad.as_bytes()).unwrap(),
+            b"rt"
+        );
+        let enc = encrypt_token_bound(b"rt", &key, aad.as_bytes()).unwrap();
+        assert_eq!(
+            crate::crypto::decrypt_bytes_bound(&enc, &key, aad.as_bytes()).unwrap(),
+            b"rt"
+        );
     }
 }
