@@ -349,10 +349,13 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
-    /// Record the fleet dispatch a task is in (CLOACINA-T-1084): the
-    /// `dispatch_id` of its work packet and the packet's `delivery_outbox`
-    /// row. Written by the fleet executor that holds the claim, when it hands
-    /// the packet to an agent; cleared with the claim
+    /// Stamp the start of a fleet dispatch and record the dispatch
+    /// (CLOACINA-T-1084), in one write: what
+    /// [`mark_started`](Self::mark_started) writes (`Running`, `started_at`,
+    /// no `waiting_since`), plus the `dispatch_id` of the work packet and the
+    /// packet's `delivery_outbox` row. Written by the fleet executor that
+    /// holds the claim, when it hands the packet to an agent; the dispatch
+    /// is cleared with the claim
     /// ([`release_runner_claim`](Self::release_runner_claim)).
     ///
     /// With these, another server replica can take over the wait of the
@@ -361,7 +364,7 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// Only a row whose claim `runner_id` holds is changed. Returns `false`
     /// for any other row.
-    pub async fn record_fleet_dispatch(
+    pub async fn mark_started_in_fleet_dispatch(
         &self,
         task_id: UniversalUuid,
         runner_id: UniversalUuid,
@@ -377,6 +380,9 @@ impl<'a> TaskExecutionDAL<'a> {
                     .filter(task_executions::claimed_by.eq(Some(runner_id))),
             )
             .set((
+                task_executions::status.eq("Running"),
+                task_executions::started_at.eq(Some(now)),
+                task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                 task_executions::fleet_dispatch_id.eq(Some(dispatch_id)),
                 task_executions::fleet_packet_row_id.eq(Some(packet_row_id)),
                 task_executions::updated_at.eq(now),
@@ -1009,11 +1015,10 @@ mod fleet_dispatch_tests {
             .unwrap();
         assert!(
             dal.task_execution()
-                .record_fleet_dispatch(task_id, runner, "d1", 7)
+                .mark_started_in_fleet_dispatch(task_id, runner, "d1", 7)
                 .await
                 .unwrap()
         );
-        dal.task_execution().mark_started(task_id).await.unwrap();
         task_id
     }
 
@@ -1038,13 +1043,16 @@ mod fleet_dispatch_tests {
         let runner = UniversalUuid::new_v4();
         let task_id = dispatched_task(&dal, runner).await;
         let task = row(&dal, task_id).await;
+        assert_eq!(task.status, "Running");
+        assert!(task.started_at.is_some());
+        assert_eq!(task.waiting_since, None);
         assert_eq!(task.fleet_dispatch_id.as_deref(), Some("d1"));
         assert_eq!(task.fleet_packet_row_id, Some(7));
 
         // Another runner cannot write it.
         assert!(
             !dal.task_execution()
-                .record_fleet_dispatch(task_id, UniversalUuid::new_v4(), "d2", 8)
+                .mark_started_in_fleet_dispatch(task_id, UniversalUuid::new_v4(), "d2", 8)
                 .await
                 .unwrap()
         );

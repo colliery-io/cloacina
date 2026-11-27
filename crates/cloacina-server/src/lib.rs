@@ -777,6 +777,14 @@ pub async fn run(
          state. An honest agent does not cause one."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_dispatches_taken_over_total",
+        "Fleet dispatches whose server replica stopped, taken up by another \
+         replica (CLOACINA-T-1084). `outcome`: `waiting` (the packet is open; \
+         this replica waits for the report), `stored_report` (the report was \
+         stored while no replica waited; this replica applies it), `lost` (no \
+         report comes; the stale claim sweeper sends the task again)."
+    );
+    metrics::describe_counter!(
         "cloacina_delivery_refused_acks_total",
         "Acks on the delivery WebSocket for an outbox row that is not addressed \
          to the connection's own recipient and tenant (CLOACINA-T-1052). The \
@@ -1206,6 +1214,7 @@ pub async fn run(
             // relay drains them and they reach the agents.
             let reg_outbox_dal = unified_dal.clone();
             let reg_secret_factory = secret_resolver_factory.clone();
+            let reg_shutdown = substrate_shutdown_rx.clone();
             let registrar: crate::tenant_runner_cache::FleetRegistrar =
                 Arc::new(move |runner: &cloacina::DefaultRunner| {
                     let dal = cloacina::dal::unified::DAL::new(runner.database().clone());
@@ -1228,7 +1237,11 @@ pub async fn run(
                     .with_secret_resolver_factory(reg_secret_factory.clone())
                     .with_task_time_limits(fleet_task_time_limits)
                     .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
-                    if runner.register_executor("fleet", Arc::new(fleet_executor)) {
+                    // CLOACINA-T-1084: take over the tenant's fleet dispatches
+                    // whose replica stopped. The loop ends with the executor.
+                    let fleet_executor = Arc::new(fleet_executor);
+                    fleet_executor.spawn_takeover_loop(reg_shutdown.clone());
+                    if runner.register_executor("fleet", fleet_executor) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
                         warn!(
@@ -1416,10 +1429,11 @@ pub async fn run(
         .with_secret_resolver_factory(secret_resolver_factory.clone())
         .with_task_time_limits(fleet_task_time_limits)
         .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
-        if state
-            .runner
-            .register_executor("fleet", Arc::new(fleet_executor))
-        {
+        // CLOACINA-T-1084: take over the fleet dispatches of the admin schema
+        // whose replica stopped.
+        let fleet_executor = Arc::new(fleet_executor);
+        fleet_executor.spawn_takeover_loop(substrate_shutdown_rx.clone());
+        if state.runner.register_executor("fleet", fleet_executor) {
             info!("Fleet executor registered on dispatcher under key 'fleet'");
         } else {
             warn!(
