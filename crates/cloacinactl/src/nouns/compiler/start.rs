@@ -350,7 +350,7 @@ uv = "/usr/local/bin/uv"
     /// The flags of `cloacina-compiler` that `compiler start` does not take
     /// (CLOACINA-T-1106). Set them on `cloacina-compiler` itself, or through
     /// their env var where they have one.
-    const NOT_ON_COMPILER_START: [&str; 14] = [
+    const NOT_ON_COMPILER_START: [&str; 15] = [
         "--build-rlimit-cpu",
         "--build-rlimit-files",
         "--build-rlimit-mem",
@@ -361,6 +361,8 @@ uv = "/usr/local/bin/uv"
         "--cargo-flag",
         "--cargo-flags-replace",
         "--cargo-target-dir",
+        // CLOACINA-T-1074, as `--build-timeout-s`.
+        "--describe-timeout-s",
         "--dev-workspace",
         "--log-retention-days",
         "--tenant-schema",

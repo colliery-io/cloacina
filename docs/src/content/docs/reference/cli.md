@@ -383,7 +383,7 @@ for what each Python setting does.
 The other flags of `cloacina-compiler` are not flags of `compiler start`:
 `--tenant-schema`, `--build-target`, `--build-target-package`,
 `--cargo-flag`, `--cargo-flags-replace`, `--cargo-target-dir`,
-`--build-timeout-s`, `--vendor-dir`, `--dev-workspace`, the four
+`--build-timeout-s`, `--describe-timeout-s`, `--vendor-dir`, `--dev-workspace`, the four
 `--build-rlimit-*` flags and `--log-retention-days`. Set the ones that have
 an env var through the environment, which `cloacina-compiler` inherits, or
 run `cloacina-compiler` itself. A test of `cloacinactl` holds this list: a new
