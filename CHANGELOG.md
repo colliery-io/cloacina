@@ -213,6 +213,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     answer has the header `x-cloacina-version`. `cloacinactl` warns once on
     stderr when the server is of another minor; the server refuses no client
     by version.
+- **Server: tenant code runs in the server process only with single trust**
+  (CLOACINA-T-1075). `--single-trust` / `CLOACINA_SINGLE_TRUST` / chart value
+  `server.singleTrust` is off by default. Off: the server loads each package
+  from the metadata document its compiler stored, opens no tenant library and
+  imports no tenant Python module; the executor is `fleet`, and
+  `--default-executor default` stops the start (the default of
+  `--default-executor` is now not set, where it was `"default"`). A package
+  with no metadata document does not load. On: packages load in process as
+  before, and `--default-executor default` is allowed, with a warning at
+  start. A server that ran tasks in its own process needs `--single-trust`,
+  or agents for each tenant. The daemon and embedded use are not changed.
+  - The chart fails at render unless it is told where tasks run:
+    `fleet.actuator=kubernetes`, `fleet.externalAgents=true` or
+    `server.singleTrust=true`. The values file of 0.12 renders only with one
+    of them added.
+- **Fleet: a graph firing that no agent takes fails with its reason**
+  (CLOACINA-T-1076). With the fleet executor the server no longer runs such a
+  firing in its own process: no owning package, no agent with room in the
+  tenant, a refusal of the agent or an enqueue error fails the firing, and
+  the failure is in the reactor's recent fires. A server that cannot build
+  the fleet graph executor at start does not start.
+- **Poll triggers run on the tenant's agents** (CLOACINA-T-1077). A package
+  with a poll trigger loads on a server that loads from metadata; each poll
+  is a work packet to an agent of the tenant, which answers fire or skip. A
+  poll with no answer fires nothing; the reason is in `last_poll_error`
+  (migration 068). New setting `--fleet-poll-timeout-s` (default 30). A
+  tenant with an active poll trigger keeps one agent.
+- **A task reads only the secrets its package declares** (CLOACINA-T-1081).
+  Any other name answers `secret not granted`, on agents and in the server
+  process. A package that declares no secret, or has no metadata document,
+  reads none; a package built before `secrets(...)` reads none until a new
+  version declares them. Each refusal by the server writes an audit row,
+  action `secret.refused`.
+- **Colliding tenant names are refused** (CLOACINA-T-1070). `POST
+  /v1/tenants` answers `409 tenant_namespace_taken` for a name whose
+  Kubernetes namespace another tenant has (`team_a`, `team__a`, `Team_A`,
+  `team_a_`, or names alike in their first 47 characters). Tenants that
+  exist do not move.
+- **Chart: network policies close the API port and bundled Postgres by
+  default; bundled Postgres gets a generated password** (CLOACINA-T-1069).
+  `server.networkPolicy.enabled` and `postgresql.networkPolicy.enabled` are
+  new and `true`. On a CNI that enforces NetworkPolicy, the API port admits
+  only the server pods and, with `fleet.actuator=kubernetes`, the managed
+  agents: list the ingress controller or gateway, agents you run yourself and
+  tools in `server.networkPolicy.from`. The chart compiler's port admits
+  nobody (`compiler.networkPolicy.from`); bundled Postgres admits the server
+  and the compilers (`postgresql.networkPolicy.from`). The default of
+  `postgresql.auth.password` is now empty: a new install gets a generated
+  password kept in the Secret `<release>-postgresql`; an install that kept
+  the old default keeps its password. With `fleet.networkPolicy.enabled` and
+  the Kubernetes actuator, the server does not start when it cannot write the
+  agent NetworkPolicy. The agent takes `--ca-file` /
+  `CLOACINA_AGENT_CA_FILE`.
 
 ### Fixed
 
@@ -237,14 +290,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-- **Database migrations 051 to 067.** The server applies them at start:
+- **Database migrations 051 to 075.** The server applies them at start:
   `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
-  `061`, `062`, `063`, `064`, `065`, `066`, `067` (Postgres and SQLite). Back
-  up the database before the upgrade; there is no downgrade, restore the
-  backup to go back.
-- **Upgrade order** (CLOACINA-T-1087): stop the compilers and pause package
-  uploads before the server roll; start the compilers after it. A compiler
-  of the previous minor during the roll is not covered.
+  `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,
+  `073`, `074`, `075` (Postgres and SQLite) and `071`, `072` (Postgres
+  only). Back up the database before the upgrade; there is no downgrade,
+  restore the backup to go back.
+- **Upgrade order** (CLOACINA-T-1087, CLOACINA-T-1046): back up the
+  database; scale the compilers to zero and pause package uploads; roll the
+  server; start the compilers again; then the agents; then `cloacinactl` and
+  the SDKs. A compiler of the previous minor during the roll is not covered.
+- **Stored secrets are rewritten bound to their tenant and name at the first
+  start** (CLOACINA-T-1071). With `CLOACINA_SECRET_KEK` set, the new server
+  rewrites the secrets of `public` and of each tenant schema once, one
+  transaction per schema, under the migration lock. A replica of the previous
+  version cannot read a rewritten secret: scale the old replicas to zero
+  before the new one starts. The previous version cannot read rewritten
+  secrets after a rollback: restore the backup, or create the secrets again.
+  An embedded program that stores secrets with `SecretStore` calls
+  `SecretStore::bind_stored_rows(org_id, kek)` once for each `org_id` before
+  it reads them.
+- **The bootstrap key runs when no live platform admin key exists**
+  (CLOACINA-T-1065), even when tenant keys exist. Rotate the bootstrap key
+  with `cloacinactl key create <name> --platform-admin`, revoke the old key,
+  then drop `CLOACINA_BOOTSTRAP_KEY` (chart: `apiKeySecretRef`) or give it a
+  new value. A value that was used before fails the start. The last live
+  platform admin key cannot be revoked (`409`).
 - **From 0.12, active packages:** migration 052 makes the active version of
   a package the newest that is not superseded and whose build succeeded.
   The servers of 0.12 read it as the newest that is not superseded; with no
