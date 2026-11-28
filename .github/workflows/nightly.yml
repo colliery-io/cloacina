@@ -589,6 +589,14 @@ jobs:
     uses: ./.github/workflows/signing-e2e.yml
 
   # -----------------------------------------------------------------------
+  # CLI e2e (CLOACINA-T-1142): cloacinactl against a live server.
+  # -----------------------------------------------------------------------
+
+  cli-e2e:
+    name: CLI E2E
+    uses: ./.github/workflows/cli-e2e.yml
+
+  # -----------------------------------------------------------------------
   # Nightly Docker image (CLOACI-I-0111 / T-0604)
   #
   # Pushes ghcr.io/<owner>/cloacina-server:nightly so users tracking the
@@ -716,7 +724,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, cli-e2e, nightly-docker-manifest]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -780,7 +788,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, cli-e2e, nightly-docker-manifest]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -828,7 +836,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, cli-e2e, nightly-docker-manifest]
     if: always()
     runs-on: ubuntu-latest
     permissions:

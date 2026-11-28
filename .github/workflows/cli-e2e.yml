@@ -6,8 +6,9 @@ name: CLI E2E
 # (`angreal test e2e cli`, CLOACINA-T-1142).
 #
 # The lane ran in no workflow, so a check went stale without notice. It runs
-# on each pull request that touches the CLI or the routes it calls, each
-# night, and on demand.
+# on each pull request that touches the CLI or the routes it calls, on
+# demand, and from the nightly suite, which is the release gate
+# (unified_release.yml calls nightly.yml).
 
 on:
   pull_request:
@@ -20,10 +21,8 @@ on:
       - '.angreal/test/e2e/cli.py'
       - '.angreal/docker-compose.yaml'
       - '.github/workflows/cli-e2e.yml'
-  schedule:
-    # 4:30am UTC, after the fleet e2e starts.
-    - cron: '30 4 * * *'
   workflow_dispatch: {}
+  workflow_call: {}
 
 concurrency:
   group: cli-e2e-${{ github.ref }}
