@@ -56,8 +56,9 @@ affinity: {}
 # (node drains, rolling updates).
 #
 # NOTE: there is deliberately NO HorizontalPodAutoscaler. The control-plane
-# back-pressure autoscaler is the scaling mechanism — it sees per-tenant signal
-# (utilization, limits) that an HPA's CPU/memory metrics cannot.
+# autoscaler is the scaling mechanism: it scales each tenant's agent pools on
+# the waiting work that does not fit (CLOACINA-T-1029), a signal that an HPA's
+# CPU/memory metrics cannot see.
 # ---------------------------------------------------------------------------
 podDisruptionBudget:
   # Rendered only when enabled AND replicaCount > 1 (a PDB over a single replica
@@ -111,8 +112,20 @@ postgresql:
     tag: "17"
   auth:
     username: cloacina
-    password: cloacina
+    # Empty: the chart generates a password at install and keeps it in the
+    # Secret <release>-postgresql (key POSTGRES_PASSWORD); an upgrade reads it
+    # back from that Secret (CLOACINA-T-1069). A value here is used as it is.
+    # Postgres takes the password at its first start only: to change it later,
+    # change it in the database too (ALTER ROLE).
+    password: ""
     database: cloacina
+  # Ingress to bundled Postgres (CLOACINA-T-1069): port 5432 is open only to
+  # the server pods, the chart's compiler, the tenant compilers (with
+  # fleet.actuator=kubernetes and fleet.compiler.enabled) and the peers in
+  # `from` (empty by default). enabled=false leaves it open to every source.
+  networkPolicy:
+    enabled: true
+    from: []
   persistence:
     enabled: true
     size: 10Gi
@@ -121,9 +134,13 @@ postgresql:
 # ---------------------------------------------------------------------------
 # API key bootstrap
 #
-# On first start cloacina-server generates an admin API key and prints it
-# to stdout. To pin a known value, store it in a Secret and reference it
-# here — the chart wires it as CLOACINA_BOOTSTRAP_KEY.
+# On first start cloacina-server makes a platform admin API key and writes
+# it to /home/cloacina/.cloacina/bootstrap-key in the pod. It is not logged.
+# The home is an emptyDir, so the file is lost when the pod restarts: read
+# it at once, or pin a known value. To pin one, store it in a Secret and
+# reference it here — the chart wires it as CLOACINA_BOOTSTRAP_KEY. After
+# the first start, make a second platform admin key, revoke this one, and
+# drop the Secret (a revoked value cannot be used again).
 # ---------------------------------------------------------------------------
 apiKeySecretRef:
   name: ""
@@ -174,6 +191,27 @@ server:
   #     - name: RUST_LOG
   #       value: info,cloacina=debug
   extraEnv: []
+  # Ingress to the API port (8080) of the server pods (CLOACINA-T-1069). It
+  # needs a CNI that enforces NetworkPolicy; on a CNI that does not, it
+  # changes nothing. With it on, the API port is open only to:
+  #   - the server pods (a reactor inject forwarded between replicas);
+  #   - with fleet.actuator=kubernetes, the agent pods of the tenant
+  #     namespaces (label cloacina.managed=true);
+  #   - the peers in `from`.
+  # `from` is a list of NetworkPolicy peers, empty by default. Every other
+  # client of the API goes there: the ingress controller or gateway (the UI
+  # and cloacinactl from outside the cluster come through it), agents you run
+  # yourself (fleet.externalAgents, the cloacina-agent chart), and tools in
+  # the cluster. Example, for an ingress controller in the namespace
+  # `ingress-nginx`:
+  #   from:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: ingress-nginx
+  # enabled=false leaves the API port open to every source.
+  networkPolicy:
+    enabled: true
+    from: []
 
 # ---------------------------------------------------------------------------
 # Task context size limits (CLOACINA-T-1047)
@@ -266,6 +304,13 @@ fleet:
   #            of a task; each firing pays a process start and a package load
   # Any other value stops the server at start.
   graphFirings: inline
+
+  # Kubernetes actuator: how long (seconds) a managed agent drains on SIGTERM
+  # (CLOACINA_AGENT_DRAIN_S, CLOACINA-T-1029). Each agent gets it as
+  # CLOACINA_AGENT_DRAIN_SECONDS, and the agent pods' grace period is this
+  # plus 15. Empty: not set; the agent's default (25 s) and the Kubernetes
+  # default grace period (30 s). Setting it rolls the agent pods once.
+  agentDrainSeconds: ""
 
   # ServiceAccount the server runs as when the actuator is enabled. The chart
   # creates it (and the RBAC below) only when actuator=kubernetes.
@@ -626,6 +671,12 @@ compiler:
     repository: ""
     tag: ""
   bind: "0.0.0.0:9000"
+  # Ingress to the bind port (/health, /v1/status) of the compiler pods
+  # (CLOACINA-T-1069), with server.networkPolicy.enabled: open only to the
+  # peers in this list, nobody by default. The kubelet probes come from the
+  # node and are not blocked.
+  networkPolicy:
+    from: []
   pollIntervalMs: 1000
   # Extra CLI args, e.g. ["--cargo-flags-replace=build", "--cargo-flags-replace=--lib"]
   # (full override of the default cargo flag list, dropping --frozen/--offline
@@ -700,19 +751,21 @@ compiler:
 #
 # metrics.enabled=false puts /metrics back on the API port (and on the
 # compiler's bind port), where every client that can reach the API can read
-# it. No metrics Service and no NetworkPolicy is rendered then.
+# it. No metrics Service is rendered then.
 # ---------------------------------------------------------------------------
 metrics:
   enabled: true
   port: 9090
 
-  # NetworkPolicy for the server pods (and the compiler pods, when the
-  # compiler is enabled). Rendered only with metrics.enabled=true. It needs a
-  # CNI that enforces NetworkPolicy; on a CNI that does not, it changes nothing.
-  #   - the API port (and the compiler's bind port) stays open to every
-  #     source, as without a policy;
+  # The metrics port in the NetworkPolicy of the server pods (and of the
+  # compiler pods, when the compiler is enabled). Used with
+  # metrics.enabled=true. It needs a CNI that enforces NetworkPolicy; on a CNI
+  # that does not, it changes nothing.
   #   - the metrics port is open only to the peers in `from`;
+  #   - the API port and the compiler's bind port follow
+  #     server.networkPolicy and compiler.networkPolicy;
   #   - every other ingress to those pods is refused.
+  # enabled=false leaves the metrics port open to every source.
   # `from` is a list of NetworkPolicy peers. The default, an empty list, admits
   # nobody to the metrics port: name your Prometheus here. Example, for a
   # Prometheus in the namespace `monitoring`:

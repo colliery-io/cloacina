@@ -287,6 +287,31 @@ async fn the_build_role_runs_every_query_of_a_compiler() {
     outcome.expect("every compiler query succeeds as the build role");
 }
 
+/// CLOACINA-T-1087: the compiler's schema check at start, as the build
+/// role: it reads the applied migrations and the release row of its schema,
+/// and finds nothing pending on a tenant the server made.
+#[tokio::test]
+#[serial]
+async fn the_build_role_reads_the_schema_check_of_a_compiler() {
+    use cloacina::database::schema_release::{RELEASE, schema_status};
+    let admin_db = admin_database();
+    admin_db.run_migrations().await.expect("public migrations");
+    let admin = DatabaseAdmin::new(admin_db.clone());
+    let tenant = make_tenant(&admin, "status").await;
+    let url = build_url(&admin, &tenant).await;
+
+    let compiler_db = cloacina::Database::try_new_with_schema(&url, "", 1, Some(&tenant))
+        .expect("build role database");
+    let status = schema_status(&compiler_db).await;
+    compiler_db.close();
+    drop_tenants(&admin, &[&tenant]).await;
+    admin_db.close();
+
+    let status = status.expect("the build role reads its schema");
+    assert_eq!(status.pending, 0);
+    assert_eq!(status.written_by.as_deref(), Some(RELEASE));
+}
+
 /// The build role of one tenant reaches no other tenant's schema, no table
 /// of `public`, no table of its own schema outside the build tables, and can
 /// make nothing. A table that its schema lacks is refused, not read from

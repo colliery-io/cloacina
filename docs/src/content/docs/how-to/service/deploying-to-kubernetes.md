@@ -121,8 +121,17 @@ Before this setting a chart install ran every task in the server process
 
 ## Pinning the bootstrap API key
 
-By default, `cloacina-server` generates a random admin API key on first
-start and prints it to stdout. To pin one:
+By default, `cloacina-server` generates a random platform admin API key
+on first start and writes it to `/home/cloacina/.cloacina/bootstrap-key`
+in the pod that logged `Bootstrap admin key written`. The key is not
+logged. The home is an `emptyDir`: the file is lost when the pod
+restarts, so read it at once:
+
+```sh
+kubectl exec <pod> -- cat /home/cloacina/.cloacina/bootstrap-key
+```
+
+To pin one instead:
 
 ```sh
 kubectl create secret generic cloacina-bootstrap \
@@ -137,6 +146,12 @@ helm upgrade --install cloacina \
 
 The chart wires the secret into the container as
 `CLOACINA_BOOTSTRAP_KEY`.
+
+Then rotate the key: make a second platform admin key with
+`cloacinactl key create <name> --platform-admin`, store it, revoke the
+bootstrap key, and drop `apiKeySecretRef` and the Secret. A revoked
+value cannot be used again: a later bootstrap with it fails the start.
+See [Configure a multi-tenant deployment](../configure-multi-tenant-deployment/#5-rotate-the-bootstrap-key).
 
 ## Ingress + TLS
 
@@ -166,6 +181,51 @@ helm upgrade --install cloacina \
 cert-manager users can wire issuance via the standard
 `cert-manager.io/cluster-issuer` annotation under `ingress.annotations`.
 
+`ingress.tls` covers clients outside the cluster. Inside the cluster the
+server listens on plain HTTP: agents and server replicas need a service
+mesh or a gateway for TLS. See [Transport Security](../transport-security/).
+
+## Network policies
+
+The chart closes its ports by default (CLOACINA-T-1069). The policies need a
+CNI that enforces NetworkPolicy.
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `server.networkPolicy.enabled` | `true` | The API port (8080) is open only to the server pods, the agents of the tenant namespaces (with `fleet.actuator=kubernetes`) and `server.networkPolicy.from`. `false`: open to every source |
+| `server.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to the API port: the ingress controller or gateway, agents you run yourself, tools |
+| `compiler.networkPolicy.from` | `[]` | Peers allowed to the chart compiler's port (9000, `/health` and `/v1/status`). Empty: nobody. Used with `server.networkPolicy.enabled` |
+| `postgresql.networkPolicy.enabled` | `true` | Bundled Postgres (5432) is open only to the server pods, the chart's compiler, the tenant compilers and `postgresql.networkPolicy.from` |
+| `postgresql.networkPolicy.from` | `[]` | More peers allowed to bundled Postgres |
+| `postgresql.auth.password` | `""` | Empty: a generated password, kept in the Secret `<release>-postgresql` across upgrades |
+
+Name the ingress controller, or the ingress traffic from outside the
+cluster stops at the policy:
+
+```yaml
+server:
+  networkPolicy:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+```
+
+### Upgrading to closed network policies
+
+On a CNI that enforces NetworkPolicy, an install that reached the API port
+from other pods must set before the upgrade:
+
+- `server.networkPolicy.from`: the ingress controller or gateway, agents
+  from the `cloacina-agent` chart or run by hand, in-cluster tools;
+- `compiler.networkPolicy.from`: a reader of the compiler's `/v1/status`;
+- `postgresql.networkPolicy.from`: other clients of bundled Postgres;
+- or `server.networkPolicy.enabled=false` and
+  `postgresql.networkPolicy.enabled=false` to keep the ports open.
+
+Bundled Postgres keeps the password it has: the chart reads it from its
+Secret. `kubectl port-forward` is not affected by the policies.
+
 ## Probes + signatures + tenants
 
 | Knob | Default | Effect |
@@ -192,10 +252,10 @@ off the API port by default:
   served on port 9090 only, and `:8080/metrics` answers 404.
 - The ClusterIP Service `<fullname>-metrics` exposes port 9090. The API
   Service and the Ingress do not.
-- A NetworkPolicy for the server pods keeps the API port open to every
-  source and opens port 9090 only to the peers in
-  `metrics.networkPolicy.from`. The list is empty by default, so no pod
-  can reach the metrics port until you name your Prometheus.
+- The NetworkPolicy of the server pods opens port 9090 only to the peers
+  in `metrics.networkPolicy.from`. The list is empty by default, so no pod
+  can reach the metrics port until you name your Prometheus. The API port
+  follows `server.networkPolicy` (see [Network policies](#network-policies)).
 
 ### Let Prometheus scrape
 
@@ -225,14 +285,14 @@ With `compiler.enabled=true` the compiler pods get the same treatment:
 `--metrics-bind` on `metrics.port`, the Service
 `<fullname>-compiler-metrics` (port `cmp-metrics`), a second
 `ServiceMonitor` named `<fullname>-compiler`, and a NetworkPolicy that
-keeps the compiler's bind port open and opens the metrics port only to
-the peers in `from`.
+opens the compiler's bind port only to `compiler.networkPolicy.from` and
+the metrics port only to the peers in `metrics.networkPolicy.from`.
 
 | Knob | Default | Effect |
 |------|---------|--------|
 | `metrics.enabled` | `true` | Starts the server (and the compiler, when enabled) with `--metrics-bind 0.0.0.0:<port>`. Adds the container port and the ClusterIP metrics Service. `:8080/metrics` answers 404 |
 | `metrics.port` | `9090` | Port of the metrics listener |
-| `metrics.networkPolicy.enabled` | `true` | Adds the NetworkPolicy for the server pods (and the compiler pods). Rendered only with `metrics.enabled=true`. Takes effect on a CNI that enforces NetworkPolicy |
+| `metrics.networkPolicy.enabled` | `true` | The metrics port of the server pods (and the compiler pods) is open only to `from`. Used with `metrics.enabled=true`. `false`: open to every source. Takes effect on a CNI that enforces NetworkPolicy |
 | `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers that may reach the metrics port. Empty admits nobody |
 | `serviceMonitor.enabled` | `false` | Emits a `ServiceMonitor` for the metrics Service |
 
@@ -255,9 +315,9 @@ the peers in `from`.
 
 `metrics.enabled=false` puts `/metrics` back on port 8080, where every
 client that can reach the API can read it, each tenant's agents
-included. The chart then renders no metrics Service and no
-NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on port
-`http`.
+included. The chart then renders no metrics Service and no metrics rule
+in the NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on
+port `http`: list Prometheus in `server.networkPolicy.from`.
 
 ### Upgrading from a chart where `metrics.enabled` was `false`
 
@@ -330,6 +390,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | `server.singleTrust` | `false` | `true`: tenant code runs in the server process (`--single-trust`). |
 | `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
+| `fleet.agentDrainSeconds` | `""` | Seconds a managed agent drains on SIGTERM. Rendered as the server's `CLOACINA_AGENT_DRAIN_S` when set; the agent pods' grace period is this plus 15. Setting it rolls the agent pods once. |
 | `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |
 | `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |
 | `fleet.serviceAccount.annotations` | `{}` | Annotations on that ServiceAccount (e.g. IRSA / Workload Identity). |
@@ -370,7 +431,7 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | API group | Resource | Verbs | Why |
 |---|---|---|---|
 | (core) | `namespaces` | `create`, `patch` | Ensure each tenant's namespace via server-side apply (a single create-or-update call, authorized as `create`+`patch`). No `get`/`list`/`delete`. |
-| `apps` | `deployments` | `create`, `delete`, `get`, `patch` | Ensure each pool's agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count and the id of the agent key that the pod template names during reconcile. `delete` removes the Deployment of a pool that an admin removes, by name, after the server checked that the pool has no agents; a tenant's deprovision still scales to zero. No `list`. |
+| `apps` | `deployments` | `create`, `delete`, `get`, `patch` | Ensure each pool's agent Deployment (server-side apply) and `patch` its replica count to scale; `get` reads the ready-replica count, the id of the agent key that the pod template names, and the rollout status, which the actuator waits on before it revokes a replaced agent key. `delete` removes the Deployment of a pool that an admin removes, by name, after the server checked that the pool has no agents; a tenant's deprovision still scales to zero. No `list`. |
 | (core) | `serviceaccounts` | `create`, `patch` | Ensure the ServiceAccount a pool names, with the pool's annotations (server-side apply). No `get`/`list`/`delete`: the ServiceAccount stays when its pool is removed. |
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
 | `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
@@ -564,8 +625,9 @@ helm upgrade --install cloacina \
 ```
 
 > **No HorizontalPodAutoscaler.** The chart intentionally ships none. Server
-> *fleet* scaling is driven by the control-plane back-pressure autoscaler, which
-> sees per-tenant utilization an HPA's CPU/memory metrics cannot. Scale the
+> *fleet* scaling is driven by the control-plane autoscaler, which sees the
+> waiting work of each tenant's pools and what it requests, which an HPA's
+> CPU/memory metrics cannot. Scale the
 > server *replica* count by hand (or your own policy) for HTTP/HA headroom.
 
 ## Upgrades
@@ -588,6 +650,16 @@ nothing left to do. If a tenant schema cannot be migrated, the new pod
 logs the tenant's name and exits, and the existing pod keeps serving.
 A tenant created through the old pod while the new pod runs is migrated
 by the new pod when it first opens that tenant.
+
+The old pod keeps working on the schema that the new pod migrated: each
+migration of a minor leaves the previous minor's server working, and a
+server on a schema exactly one minor ahead of it starts with no migration.
+A server more than one minor behind the schema refuses to start and names
+both releases ([Schema versions](../production-deployment/#schema-versions)).
+
+Before the upgrade, stop the compilers and pause package uploads. Bring them back once every server pod runs the new
+version. A compiler runs no migration: one that starts before the server
+has migrated waits for it, up to 10 minutes.
 
 ## Uninstall
 

@@ -238,14 +238,18 @@ def queue_depth_trigger():
 In the daemon and in embedded use the poll function runs in the process that
 loaded the package. On a server (without `--single-trust`) it runs on an agent
 of the package's tenant (CLOACINA-T-1077): the server sends each poll to an
-agent, the agent imports the package and calls the function, and the answer
-comes back as fire, with the context, or skip. So on a server:
+agent, a worker process of the agent imports the package and calls the
+function (CLOACINA-T-1143), and the answer comes back as fire, with the
+context, or skip. So on a server:
 
 - a poll trigger needs a running agent of its tenant; the fleet keeps one for a
   tenant with a poll trigger;
 - each poll is one dispatch to an agent;
-- module-level state of the package lives on the agent, not in the server, and
-  two agents do not share it;
+- a poll is held to the agent's memory share for a task with no request, and
+  is killed at `--fleet-poll-timeout-s`;
+- module-level state of the package lives in the poll's worker: it is kept
+  between polls of one warm worker (at most `--warm-worker-idle-seconds`,
+  default 60, between two polls) and is not shared between workers or agents;
 - a poll that gets no answer (no agent, no answer within
   `--fleet-poll-timeout-s` plus 10 s, the agent's refusal, or an exception)
   fires nothing, and the reason is in `last_poll_error` of the trigger.

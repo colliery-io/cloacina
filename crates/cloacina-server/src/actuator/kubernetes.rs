@@ -51,7 +51,7 @@ use tracing::{info, warn};
 use cloacina::database::Database;
 use cloacina_api_types::{AgentEgressRule, AgentPoolSettings, DEFAULT_AGENT_POOL};
 
-use super::docker::{DalKeyMinter, KeyMinter};
+use super::docker::{DalKeyMinter, KeyMinter, minter_with_notice};
 use super::settings::{AgentPoolSource, DalPoolSource, DefaultPoolOnly, fixed_agent_count};
 use super::{ActuatorError, FleetActuator, ReconcileOutcome, reconcile_delta};
 
@@ -199,9 +199,8 @@ pub struct KubernetesConfig {
     /// (`CLOACINA_FLEET_NETWORK_POLICY`, default ON). REQ-007 defense-in-depth.
     pub network_policy_enabled: bool,
     /// Server endpoint the NetworkPolicy egress allows. `None` when the chart did
-    /// not plumb it — the actuator then SKIPS the policy (fail-OPEN for the
-    /// policy specifically, so a missing knob never locks agents out of the
-    /// server; the server-side ABAC remains the real boundary).
+    /// not plumb it: with `network_policy_enabled` the server then does not
+    /// start (`preflight`, CLOACINA-T-1069).
     pub server_endpoint: Option<ServerEndpoint>,
     /// Namespace the cluster DNS service runs in
     /// (`CLOACINA_FLEET_DNS_NAMESPACE`, default `kube-system`).
@@ -211,6 +210,10 @@ pub struct KubernetesConfig {
     /// (CLOACINA-T-1101). The server checks the value at start and gives it
     /// here: [`KubernetesConfig::from_env`] leaves the default.
     pub agent_log_format: cloacina::task_logs::LogFormat,
+    /// How long a managed agent drains on SIGTERM, in seconds
+    /// (`CLOACINA_AGENT_DRAIN_S`, CLOACINA-T-1029). Unset: the agent's own
+    /// default, and no grace period on the pod (the Kubernetes default).
+    pub agent_drain_seconds: Option<u32>,
 }
 
 /// Parse a `k=v,k2=v2` selector string into a label map (empty entries skipped).
@@ -284,6 +287,8 @@ impl KubernetesConfig {
             server_endpoint,
             dns_namespace,
             agent_log_format: Default::default(),
+            agent_drain_seconds: env_nonempty("CLOACINA_AGENT_DRAIN_S")
+                .and_then(|s| s.parse().ok()),
         }
     }
 }
@@ -318,6 +323,25 @@ pub fn tenant_namespace(tenant_id: &str) -> String {
         segment
     };
     format!("{NAMESPACE_PREFIX}{segment}")
+}
+
+/// The tenant, among `existing`, whose namespace is the namespace of `tenant`
+/// and whose name is not `tenant` (CLOACINA-T-1070).
+///
+/// [`tenant_namespace`] is not one to one: `team_a`, `team__a`, `Team_A` and
+/// `team_a_` map to one namespace, and so do two names that agree in the
+/// characters the label keeps. Tenant create refuses a name this finds a
+/// tenant for, so two tenants never share a namespace, its agent-key Secret
+/// or its Deployments. A tenant of the same name is left to the
+/// tenant-exists check.
+pub fn namespace_holder<'a, I>(tenant: &str, existing: I) -> Option<&'a str>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let namespace = tenant_namespace(tenant);
+    existing
+        .into_iter()
+        .find(|other| *other != tenant && tenant_namespace(other) == namespace)
 }
 
 /// Everything [`KubeOps::ensure_deployment`] needs to materialize the agent
@@ -367,7 +391,17 @@ pub struct AgentDeployment {
     /// The agent's log format (`CLOACINA_AGENT_LOG_FORMAT`). `text` leaves
     /// the variable out: the agent's own default.
     pub log_format: cloacina::task_logs::LogFormat,
+    /// How long the agent drains on SIGTERM (CLOACINA-T-1029):
+    /// `CLOACINA_AGENT_DRAIN_SECONDS` on the agent, and the pod's
+    /// `terminationGracePeriodSeconds` this plus [`DRAIN_GRACE_MARGIN_S`].
+    /// `None` leaves both out: the agent's default drain (25 s) inside the
+    /// Kubernetes default grace period (30 s).
+    pub drain_seconds: Option<u32>,
 }
+
+/// Seconds the pod's grace period gives past the agent's drain: for the
+/// hand-back reports and the exit (CLOACINA-T-1029).
+pub const DRAIN_GRACE_MARGIN_S: u32 = 15;
 
 /// Everything [`KubeOps::ensure_network_policy`] needs to materialize one
 /// tenant's agent `NetworkPolicy` (CLOACI-T-0819, REQ-007 defense-in-depth).
@@ -447,6 +481,12 @@ pub trait KubeOps: Send + Sync {
     /// Current ready replica count for the agent `Deployment` (0 if absent).
     async fn count_ready_replicas(&self, namespace: &str, name: &str)
     -> Result<u32, ActuatorError>;
+    /// True when a `Deployment`'s rollout is complete: its status is of the
+    /// current spec, and every replica runs the current pod template and is
+    /// available, with no pod of an older template left (the test of
+    /// `kubectl rollout status`). An absent Deployment is complete: it has no
+    /// pod. CLOACINA-T-1083: the old agent key is revoked only after this.
+    async fn rollout_complete(&self, namespace: &str, name: &str) -> Result<bool, ActuatorError>;
     /// The id of the API key a `Deployment`'s pods are started with: its
     /// pod-template annotation [`KEY_ID_ANNOTATION`]. `None` when the
     /// Deployment is absent or was applied before CLOACINA-T-1055.
@@ -464,7 +504,15 @@ pub trait KubeOps: Send + Sync {
         name: &str,
         key: &str,
     ) -> Result<bool, ActuatorError>;
+    /// Whether the server's identity may do `verb` on NetworkPolicies
+    /// (`networking.k8s.io`) in every namespace: a SelfSubjectAccessReview
+    /// (CLOACINA-T-1069). Reads and writes no object.
+    async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError>;
 }
+
+/// The verbs the actuator uses on NetworkPolicies: server-side apply
+/// (`create`, `patch`) and the removal of a pool's policy (`delete`).
+pub const NETWORK_POLICY_VERBS: [&str; 3] = ["create", "patch", "delete"];
 
 /// Kubernetes fleet actuator. Generic over its API substrate ([`KubeOps`]) and
 /// key mint ([`KeyMinter`]) for testability; production wiring uses
@@ -531,6 +579,7 @@ impl KubernetesActuator {
         database: Database,
         compilers: Option<super::compiler::CompilerSettings>,
         agent_log_format: cloacina::task_logs::LogFormat,
+        notice: Option<Arc<dyn super::KeyRevocationNotice>>,
     ) -> Result<Self, ActuatorError> {
         let ops = Arc::new(KubeApiOps::in_cluster()?);
         let credentials = Arc::new(super::compiler::AdminBuildCredentials::new(
@@ -538,7 +587,13 @@ impl KubernetesActuator {
         ));
         let actuator = Self {
             ops: ops.clone(),
-            minter: Arc::new(DalKeyMinter::new(database.clone())),
+            // The tenant's agent key expires and is rotated (CLOACINA-T-1083).
+            minter: minter_with_notice(
+                Arc::new(
+                    DalKeyMinter::new(database.clone()).with_expiry(super::agent_key_expiry()),
+                ),
+                notice,
+            ),
             pools: Arc::new(DalPoolSource::new(database)),
             config: KubernetesConfig {
                 agent_log_format,
@@ -556,6 +611,43 @@ impl KubernetesActuator {
     /// plumbed the server endpoint.
     fn network_policy_active(&self) -> bool {
         self.config.network_policy_enabled && self.config.server_endpoint.is_some()
+    }
+
+    /// The start check of the agent NetworkPolicies (CLOACINA-T-1069). With
+    /// `CLOACINA_FLEET_NETWORK_POLICY` on, the server must be able to write
+    /// them: the server endpoint variables are set, and its identity may
+    /// create, patch and delete NetworkPolicies. Else the server does not
+    /// start, and the error names what is missing.
+    async fn check_network_policy_access(&self) -> Result<(), ActuatorError> {
+        if !self.config.network_policy_enabled {
+            return Ok(());
+        }
+        if self.config.server_endpoint.is_none() {
+            return Err(ActuatorError::Substrate(
+                "CLOACINA_FLEET_NETWORK_POLICY is on, but CLOACINA_SERVER_NAMESPACE and \
+                 CLOACINA_SERVER_POD_SELECTOR are not both set: the server cannot write the \
+                 agent NetworkPolicy of a tenant namespace. Set them (the cloacina-server \
+                 chart does), or set CLOACINA_FLEET_NETWORK_POLICY=false"
+                    .to_string(),
+            ));
+        }
+        let mut missing = Vec::new();
+        for verb in NETWORK_POLICY_VERBS {
+            if !self.ops.may_on_network_policies(verb).await? {
+                missing.push(verb);
+            }
+        }
+        if !missing.is_empty() {
+            return Err(ActuatorError::Substrate(format!(
+                "CLOACINA_FLEET_NETWORK_POLICY is on, but the server's ServiceAccount may not \
+                 {} networkpolicies (apiGroup networking.k8s.io) in the tenant namespaces. \
+                 Grant the verbs create, patch and delete on networkpolicies in a ClusterRole \
+                 bound to the server's ServiceAccount (the cloacina-server chart renders it \
+                 with fleet.actuator=kubernetes), or set CLOACINA_FLEET_NETWORK_POLICY=false",
+                missing.join(", ")
+            )));
+        }
+        Ok(())
     }
 
     /// Reconcile one pool of a tenant: its ServiceAccount, its NetworkPolicy,
@@ -622,6 +714,7 @@ impl KubernetesActuator {
             key_id: Some(key_id.to_string()),
             resources: self.config.resources.with_pool(settings),
             log_format: self.config.agent_log_format,
+            drain_seconds: self.config.agent_drain_seconds,
         };
         self.ops.ensure_deployment(&spec).await?;
 
@@ -653,6 +746,10 @@ impl KubernetesActuator {
 
 #[async_trait]
 impl FleetActuator for KubernetesActuator {
+    async fn preflight(&self) -> Result<(), ActuatorError> {
+        self.check_network_policy_access().await
+    }
+
     async fn reconcile(
         &self,
         tenant_id: &str,
@@ -669,9 +766,9 @@ impl FleetActuator for KubernetesActuator {
 
         // REQ-007 defense-in-depth (CLOACI-T-0819): lock the namespace down with a
         // default-deny NetworkPolicy that only lets agents reach DNS + the server.
-        // Skipped (fail-OPEN) when the chart did not plumb the server endpoint, so
-        // a missing knob never strands the fleet — the server-side ABAC (NFR-004)
-        // remains the real boundary.
+        // A server started with the policy on and no server endpoint does not
+        // get here: `preflight` stops its start (CLOACINA-T-1069). The warning
+        // below is for an actuator built without that check.
         if self.config.network_policy_enabled {
             match &self.config.server_endpoint {
                 Some(server) => {
@@ -697,8 +794,9 @@ impl FleetActuator for KubernetesActuator {
         // pool's Deployment, so all the tenant's agents share one key of role
         // `agent`. The `default` Deployment's pod template names the key in
         // use. With none named (a cold start, or a Deployment from before the
-        // `agent` role), or one that is not a live `agent` key (revoked, or a
-        // `read` key), a new key is minted and written to the Secret; the
+        // `agent` role), or one that is not a live `agent` key (revoked, a
+        // `read` key, expired, or due for rotation: CLOACINA-T-1083), a new
+        // key is minted and written to the Secret; the
         // annotation then changes on every pool's Deployment, which rolls its
         // pods onto the new key.
         let noted = self
@@ -723,15 +821,20 @@ impl FleetActuator for KubernetesActuator {
         };
 
         // One Deployment per pool. `desired` is the count of `default`; another
-        // pool runs its own fixed count. A pool that fails does not stop the
-        // others; the first error is returned after all were tried.
+        // pool runs the count the autoscaler stored for it, held to its
+        // bounds, else its min (CLOACINA-T-1029). A pool that fails does not
+        // stop the others; the first error is returned after all were tried.
+        let stored_counts = self.pools.stored_counts(tenant_id).await?;
         let mut total = ReconcileOutcome::default();
         let mut first_error = None;
         for (pool, settings) in &pools {
             let want = if pool == DEFAULT_AGENT_POOL {
                 desired
             } else {
-                fixed_agent_count(settings)
+                match stored_counts.get(pool) {
+                    Some(stored) => super::settings::pool_agent_count(settings, Some(*stored)),
+                    None => fixed_agent_count(settings),
+                }
             };
             match self
                 .reconcile_pool(tenant_id, &namespace, pool, settings, want, &key_id)
@@ -751,7 +854,21 @@ impl FleetActuator for KubernetesActuator {
         if let Some(e) = first_error {
             return Err(e);
         }
-        // Every pool is on `key_id` now: revoke every other key the actuator
+        // Every pool's Deployment names `key_id` now, but the old pods hold
+        // the old key until they are replaced (CLOACINA-T-1083). Revoke only
+        // when every pool's rollout is complete; else a later reconcile does
+        // it, or the old key expires.
+        for (pool, _) in &pools {
+            if !self
+                .ops
+                .rollout_complete(&namespace, &pool_deployment_name(pool))
+                .await?
+            {
+                tracing::debug!(tenant = %tenant_id, pool = %pool, "fleet actuator revokes no agent key until the pool's rollout is complete (kubernetes)");
+                return Ok(total);
+            }
+        }
+        // Every pod runs on `key_id`: revoke every other key the actuator
         // minted for the tenant (finding 12 of CLOACINA-D-0019). That takes
         // the key just replaced and the `read` keys from before the `agent`
         // role. Not done after a failed pool: its pods may still hold the old
@@ -1028,6 +1145,18 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
                 "value": format,
             }));
         }
+        // The agent's drain on SIGTERM (CLOACINA-T-1029). Not set by
+        // default, so the manifest is as before and an upgrade rolls nothing.
+        if let Some(seconds) = spec.drain_seconds {
+            env.push(serde_json::json!({
+                "name": "CLOACINA_AGENT_DRAIN_SECONDS",
+                "value": seconds.to_string(),
+            }));
+        }
+    }
+    if let Some(seconds) = spec.drain_seconds {
+        manifest["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] =
+            (u64::from(seconds) + u64::from(DRAIN_GRACE_MARGIN_S)).into();
     }
     manifest
 }
@@ -1388,6 +1517,15 @@ impl KubeOps for KubeApiOps {
         Ok(ready.max(0) as u32)
     }
 
+    async fn rollout_complete(&self, namespace: &str, name: &str) -> Result<bool, ActuatorError> {
+        let api: Api<Deployment> = Api::namespaced(self.client.clone(), namespace);
+        let found = api
+            .get_opt(name)
+            .await
+            .map_err(|e| ActuatorError::Substrate(format!("get deployment failed: {e}")))?;
+        Ok(found.is_none_or(|d| deployment_rollout_complete(&d)))
+    }
+
     async fn deployment_key_id(
         &self,
         namespace: &str,
@@ -1404,6 +1542,54 @@ impl KubeOps for KubeApiOps {
             .and_then(|m| m.annotations)
             .and_then(|a| a.get(KEY_ID_ANNOTATION).cloned()))
     }
+
+    async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError> {
+        use k8s_openapi::api::authorization::v1::SelfSubjectAccessReview;
+        let api: Api<SelfSubjectAccessReview> = Api::all(self.client.clone());
+        // No namespace: every namespace, as the ClusterRole of the chart grants.
+        let review: SelfSubjectAccessReview = serde_json::from_value(serde_json::json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SelfSubjectAccessReview",
+            "spec": {
+                "resourceAttributes": {
+                    "group": "networking.k8s.io",
+                    "resource": "networkpolicies",
+                    "verb": verb,
+                }
+            }
+        }))
+        .map_err(|e| ActuatorError::Substrate(format!("build access review: {e}")))?;
+        let answer = api
+            .create(&kube::api::PostParams::default(), &review)
+            .await
+            .map_err(|e| {
+                ActuatorError::Substrate(format!(
+                    "SelfSubjectAccessReview for {verb} on networkpolicies failed: {e}"
+                ))
+            })?;
+        Ok(answer.status.is_some_and(|s| s.allowed))
+    }
+}
+
+/// The test of `kubectl rollout status` on a Deployment (CLOACINA-T-1083):
+/// the controller has seen the current spec, every wanted replica runs the
+/// current pod template and is available, and no pod of an older template is
+/// left.
+fn deployment_rollout_complete(deployment: &Deployment) -> bool {
+    let generation = deployment.metadata.generation.unwrap_or(0);
+    let wanted = deployment
+        .spec
+        .as_ref()
+        .and_then(|s| s.replicas)
+        .unwrap_or(1);
+    let Some(status) = deployment.status.as_ref() else {
+        return wanted == 0;
+    };
+    let observed = status.observed_generation.unwrap_or(0);
+    let updated = status.updated_replicas.unwrap_or(0);
+    let total = status.replicas.unwrap_or(0);
+    let available = status.available_replicas.unwrap_or(0);
+    observed >= generation && updated >= wanted && total <= updated && available >= updated
 }
 
 #[cfg(test)]
@@ -1452,13 +1638,19 @@ mod tests {
         secret_values: Mutex<BTreeMap<String, String>>,
         /// A Deployment name whose next delete fails, once.
         fail_delete_once: Mutex<Option<String>>,
+        /// Deployment names whose rollout is not complete (CLOACINA-T-1083).
+        rolling: Mutex<Vec<String>>,
+        /// NetworkPolicy verbs the access review denies (CLOACINA-T-1069).
+        denied_network_policy_verbs: Mutex<Vec<String>>,
     }
 
     impl MockOps {
         fn with_ready(ready: u32) -> Self {
             Self {
+                rolling: Mutex::new(Vec::new()),
                 secret_values: Mutex::new(BTreeMap::new()),
                 fail_delete_once: Mutex::new(None),
+                denied_network_policy_verbs: Mutex::new(Vec::new()),
                 ready,
                 namespaces: Mutex::new(Vec::new()),
                 secrets: AtomicU32::new(0),
@@ -1588,6 +1780,13 @@ mod tests {
         ) -> Result<u32, ActuatorError> {
             Ok(self.ready)
         }
+        async fn rollout_complete(
+            &self,
+            _namespace: &str,
+            name: &str,
+        ) -> Result<bool, ActuatorError> {
+            Ok(!self.rolling.lock().unwrap().iter().any(|n| n == name))
+        }
         async fn deployment_key_id(
             &self,
             _namespace: &str,
@@ -1610,6 +1809,14 @@ mod tests {
                 None => Ok(false),
             }
         }
+        async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError> {
+            Ok(!self
+                .denied_network_policy_verbs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|v| v == verb))
+        }
     }
 
     /// Mock minter: counts, hands back a deterministic key, and records the
@@ -1619,6 +1826,8 @@ mod tests {
     struct MockMinter {
         minted: AtomicU32,
         kept: Mutex<Vec<Vec<String>>>,
+        /// What each `revoke_others` answers: the number of keys revoked.
+        others: AtomicU32,
     }
 
     #[async_trait]
@@ -1649,7 +1858,7 @@ mod tests {
             keep: &[String],
         ) -> Result<u32, ActuatorError> {
             self.kept.lock().unwrap().push(keep.to_vec());
-            Ok(0)
+            Ok(self.others.load(Ordering::SeqCst))
         }
     }
 
@@ -1676,6 +1885,72 @@ mod tests {
             server_endpoint: Some(server_endpoint()),
             dns_namespace: "kube-system".to_string(),
             agent_log_format: Default::default(),
+            agent_drain_seconds: None,
+        }
+    }
+
+    /// CLOACINA-T-1029: with a drain set, the agent gets it and the pod's
+    /// grace period covers it; with none, the manifest is as before.
+    #[test]
+    fn the_drain_sets_the_agent_env_and_the_grace_period() {
+        let mut spec = default_spec();
+        let m = agent_deployment_manifest(&spec);
+        assert!(m["spec"]["template"]["spec"]["terminationGracePeriodSeconds"].is_null());
+        assert!(env_value(&m, "CLOACINA_AGENT_DRAIN_SECONDS").is_none());
+        spec.drain_seconds = Some(600);
+        let m = agent_deployment_manifest(&spec);
+        assert_eq!(
+            m["spec"]["template"]["spec"]["terminationGracePeriodSeconds"],
+            serde_json::json!(615)
+        );
+        assert_eq!(
+            env_value(&m, "CLOACINA_AGENT_DRAIN_SECONDS"),
+            Some(&serde_json::json!("600"))
+        );
+    }
+
+    /// CLOACINA-T-1029: a pool other than `default` runs the count the
+    /// autoscaler stored, held to its bounds; with none stored, its min.
+    #[tokio::test]
+    async fn another_pool_runs_its_stored_count() {
+        let scaled = AgentPoolSettings {
+            min_agents: Some(0),
+            max_agents: Some(3),
+            ..Default::default()
+        };
+        struct Stored(Vec<(String, AgentPoolSettings)>, BTreeMap<String, u32>);
+        #[async_trait]
+        impl AgentPoolSource for Stored {
+            async fn pools(
+                &self,
+                tenant_id: &str,
+            ) -> Result<Vec<(String, AgentPoolSettings)>, ActuatorError> {
+                FixedPools(self.0.clone()).pools(tenant_id).await
+            }
+            async fn stored_counts(
+                &self,
+                _tenant_id: &str,
+            ) -> Result<BTreeMap<String, u32>, ActuatorError> {
+                Ok(self.1.clone())
+            }
+        }
+        for (stored, want) in [(None, 0), (Some(2), 2), (Some(9), 3)] {
+            let ops = Arc::new(MockOps::with_ready(0));
+            let counts: BTreeMap<String, u32> = stored
+                .map(|n| [("big".to_string(), n)].into_iter().collect())
+                .unwrap_or_default();
+            let act = actuator(ops.clone(), minter()).with_pools(Arc::new(Stored(
+                vec![("big".to_string(), scaled.clone())],
+                counts,
+            )));
+            act.reconcile("acme", 1).await.unwrap();
+            let scaled = ops.scaled.lock().unwrap().clone();
+            assert!(
+                scaled
+                    .iter()
+                    .any(|(name, n)| name == &pool_deployment_name("big") && *n == want),
+                "stored {stored:?}: {scaled:?}"
+            );
         }
     }
 
@@ -1714,6 +1989,58 @@ mod tests {
         assert_eq!(nps[0].namespace, "cloacina-tenant-acme");
         assert_eq!(nps[0].server.namespace, "cloacina-system");
         assert_eq!(nps[0].dns_namespace, "kube-system");
+    }
+
+    /// CLOACINA-T-1069: with the agent policy on, the start check passes when
+    /// the server can write NetworkPolicies, and refuses when it cannot: no
+    /// server endpoint, or a verb the RBAC does not grant. The message names
+    /// what is missing. With the policy off nothing is checked.
+    #[tokio::test]
+    async fn preflight_refuses_the_start_when_the_agent_policy_cannot_be_written() {
+        let minter = Arc::new(MockMinter::default());
+
+        let ops = Arc::new(MockOps::with_ready(0));
+        KubernetesActuator::new(ops, minter.clone(), config())
+            .preflight()
+            .await
+            .expect("the server may write NetworkPolicies");
+
+        let mut cfg = config();
+        cfg.server_endpoint = None;
+        let ops = Arc::new(MockOps::with_ready(0));
+        let err = KubernetesActuator::new(ops, minter.clone(), cfg)
+            .preflight()
+            .await
+            .expect_err("no server endpoint stops the start")
+            .to_string();
+        assert!(err.contains("CLOACINA_SERVER_NAMESPACE"), "{err}");
+        assert!(err.contains("CLOACINA_SERVER_POD_SELECTOR"), "{err}");
+        assert!(err.contains("CLOACINA_FLEET_NETWORK_POLICY=false"), "{err}");
+
+        let ops = Arc::new(MockOps::with_ready(0));
+        *ops.denied_network_policy_verbs.lock().unwrap() =
+            vec!["create".to_string(), "delete".to_string()];
+        let err = KubernetesActuator::new(ops, minter.clone(), config())
+            .preflight()
+            .await
+            .expect_err("a verb the RBAC does not grant stops the start")
+            .to_string();
+        assert!(
+            err.contains("may not create, delete networkpolicies"),
+            "{err}"
+        );
+        assert!(err.contains("networking.k8s.io"), "{err}");
+        assert!(err.contains("ClusterRole"), "{err}");
+
+        let mut cfg = config();
+        cfg.network_policy_enabled = false;
+        cfg.server_endpoint = None;
+        let ops = Arc::new(MockOps::with_ready(0));
+        *ops.denied_network_policy_verbs.lock().unwrap() = vec!["create".to_string()];
+        KubernetesActuator::new(ops, minter, cfg)
+            .preflight()
+            .await
+            .expect("with the policy off nothing is checked");
     }
 
     #[tokio::test]
@@ -1759,6 +2086,7 @@ mod tests {
             key_id: None,
             resources: AgentResources::default(),
             log_format: Default::default(),
+            drain_seconds: None,
         };
         let m = agent_deployment_manifest(&spec);
         let pod = &m["spec"]["template"]["spec"];
@@ -1921,6 +2249,7 @@ mod tests {
             key_id: None,
             resources: AgentResources::default(),
             log_format: Default::default(),
+            drain_seconds: None,
         }
     }
 
@@ -2799,6 +3128,321 @@ mod tests {
         assert!(minter.kept.lock().unwrap().is_empty());
     }
 
+    /// CLOACINA-T-1083: a new key rolls the pods, but the old pods hold the
+    /// old key until they are replaced. While a pool's rollout is not
+    /// complete the old key is not revoked; the first reconcile after every
+    /// pool's rollout is complete revokes it.
+    #[tokio::test]
+    async fn the_old_key_is_revoked_only_after_every_pools_rollout_is_complete() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        *ops.key_id.lock().unwrap() = Some("read-key-from-before".to_string());
+        // The pool `big` is still rolling onto the new key.
+        ops.rolling
+            .lock()
+            .unwrap()
+            .push(pool_deployment_name("big"));
+        let minter = Arc::new(MockMinter::default());
+        let act = actuator(ops.clone(), minter.clone())
+            .with_pools(Arc::new(FixedPools(vec![("big".to_string(), big_pool())])));
+
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(minter.minted.load(Ordering::SeqCst), 1);
+        assert!(
+            minter.kept.lock().unwrap().is_empty(),
+            "the old key was revoked while the pool `big` still ran pods on it"
+        );
+
+        // The rollout of `big` completes: the next reconcile revokes.
+        ops.rolling.lock().unwrap().clear();
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(minter.minted.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            minter.kept.lock().unwrap().clone(),
+            vec![vec!["minted-0".to_string()]]
+        );
+    }
+
+    /// CLOACINA-T-1083: the same holds for the pool `default`.
+    #[tokio::test]
+    async fn a_rolling_default_pool_keeps_the_old_key() {
+        let ops = Arc::new(MockOps::with_ready(1));
+        *ops.key_id.lock().unwrap() = None;
+        ops.rolling
+            .lock()
+            .unwrap()
+            .push(pool_deployment_name(DEFAULT_AGENT_POOL));
+        let minter = Arc::new(MockMinter::default());
+        let act = actuator(ops.clone(), minter.clone());
+        act.reconcile("acme", 1).await.unwrap();
+        assert!(minter.kept.lock().unwrap().is_empty());
+    }
+
+    /// A minter whose keys are all due for rotation (CLOACINA-T-1083).
+    #[derive(Default)]
+    struct DueMinter {
+        inner: MockMinter,
+    }
+
+    #[async_trait]
+    impl KeyMinter for DueMinter {
+        async fn mint(
+            &self,
+            tenant_id: &str,
+        ) -> Result<super::super::docker::MintedKey, ActuatorError> {
+            self.inner.mint(tenant_id).await
+        }
+        async fn is_live_agent_key(
+            &self,
+            _tenant_id: &str,
+            key_id: &str,
+        ) -> Result<bool, ActuatorError> {
+            // `minted-before` has 10 days left: due. A key minted now is not.
+            Ok(key_id.starts_with("minted-") && key_id != "minted-before")
+        }
+        async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
+            self.inner.revoke(key_id).await
+        }
+        async fn revoke_others(
+            &self,
+            tenant_id: &str,
+            keep: &[String],
+        ) -> Result<u32, ActuatorError> {
+            self.inner.revoke_others(tenant_id, keep).await
+        }
+    }
+
+    /// CLOACINA-T-1083: a key due for rotation is replaced like a key that is
+    /// not live: a new key in the Secret, every pool's pods named onto it,
+    /// and the old key revoked once the rollout is complete.
+    #[tokio::test]
+    async fn a_key_due_for_rotation_is_replaced_and_the_pods_roll() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        let minter = Arc::new(DueMinter::default());
+        let act = KubernetesActuator::new(ops.clone(), minter.clone(), config());
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(minter.inner.minted.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            ops.secret_values
+                .lock()
+                .unwrap()
+                .get("cloacina-tenant-acme/cloacina-agent-key/api-key")
+                .map(String::as_str),
+            Some("clk_test_0")
+        );
+        assert_eq!(
+            ops.deployment_specs.lock().unwrap()[0].key_id.as_deref(),
+            Some("minted-0")
+        );
+        assert_eq!(
+            minter.inner.kept.lock().unwrap().clone(),
+            vec![vec!["minted-0".to_string()]]
+        );
+    }
+
+    fn key_info(
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> cloacina::dal::unified::api_keys::ApiKeyInfo {
+        cloacina::dal::unified::api_keys::ApiKeyInfo {
+            id: uuid::Uuid::new_v4(),
+            name: "agent:acme:x".to_string(),
+            permissions: "agent".to_string(),
+            created_at: chrono::Utc::now(),
+            revoked: false,
+            tenant_id: Some("acme".to_string()),
+            is_admin: false,
+            expires_at,
+            issued_via: None,
+        }
+    }
+
+    /// CLOACINA-T-1083: under the rule of 30 days and rotation at 10 days
+    /// left, a key is live with more than 10 days left, and due with less.
+    #[test]
+    fn a_key_is_rotated_when_10_days_are_left() {
+        use super::super::docker::agent_key_is_live;
+        let rule = super::super::AgentKeyExpiry::default();
+        assert_eq!(rule.lifetime, chrono::Duration::days(30));
+        assert_eq!(rule.rotate_before, chrono::Duration::days(10));
+        let now = chrono::Utc::now();
+        let days = |d: i64| Some(now + chrono::Duration::days(d));
+        assert!(agent_key_is_live(
+            &key_info(days(30)),
+            "acme",
+            Some(rule),
+            now
+        ));
+        assert!(agent_key_is_live(
+            &key_info(Some(
+                now + chrono::Duration::days(10) + chrono::Duration::minutes(1)
+            )),
+            "acme",
+            Some(rule),
+            now
+        ));
+        assert!(!agent_key_is_live(
+            &key_info(Some(
+                now + chrono::Duration::days(10) - chrono::Duration::minutes(1)
+            )),
+            "acme",
+            Some(rule),
+            now
+        ));
+        assert!(!agent_key_is_live(
+            &key_info(days(1)),
+            "acme",
+            Some(rule),
+            now
+        ));
+        // An expired key is never live, with or without a rule.
+        assert!(!agent_key_is_live(&key_info(days(-1)), "acme", None, now));
+        // No expiry: live for the Docker minter (no rule); under the rule it
+        // is a key from before the rule, and the first reconcile replaces it.
+        assert!(agent_key_is_live(&key_info(None), "acme", None, now));
+        assert!(!agent_key_is_live(&key_info(None), "acme", Some(rule), now));
+        // Another tenant's key is not live.
+        assert!(!agent_key_is_live(
+            &key_info(days(30)),
+            "beta",
+            Some(rule),
+            now
+        ));
+    }
+
+    #[test]
+    fn a_new_key_expires_after_the_lifetime() {
+        let rule = super::super::AgentKeyExpiry::default();
+        let now = chrono::Utc::now();
+        assert_eq!(rule.expires_at(now), now + chrono::Duration::days(30));
+        let rule = super::super::AgentKeyExpiry::from_days(7, 2).unwrap();
+        assert_eq!(rule.expires_at(now), now + chrono::Duration::days(7));
+        assert!(rule.is_due(Some(now + chrono::Duration::days(1)), now));
+        assert!(!rule.is_due(Some(now + chrono::Duration::days(3)), now));
+        assert!(!rule.is_due(None, now));
+    }
+
+    #[test]
+    fn an_agent_key_rule_with_a_window_not_under_the_lifetime_is_refused() {
+        for (lifetime, rotate) in [(30, 30), (10, 20), (30, 0), (0, 0)] {
+            assert!(
+                super::super::AgentKeyExpiry::from_days(lifetime, rotate).is_err(),
+                "{lifetime}/{rotate}"
+            );
+        }
+    }
+
+    /// Counts the key revocation notices sent.
+    #[derive(Default)]
+    struct CountingNotice(AtomicU32);
+
+    #[async_trait]
+    impl super::super::KeyRevocationNotice for CountingNotice {
+        async fn announce(&self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// CLOACINA-T-1083: when the actuator revokes the old key, every server
+    /// is told (the notice of CLOACINA-T-1128); with nothing revoked, no
+    /// notice.
+    #[tokio::test]
+    async fn the_revoke_of_the_old_key_sends_the_cross_server_notice() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        *ops.key_id.lock().unwrap() = None;
+        let inner = Arc::new(MockMinter::default());
+        inner.others.store(1, Ordering::SeqCst);
+        let notice = Arc::new(CountingNotice::default());
+        let minter = minter_with_notice(inner.clone(), Some(notice.clone()));
+        let act = KubernetesActuator::new(ops.clone(), minter, config());
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(inner.kept.lock().unwrap().len(), 1);
+        assert_eq!(notice.0.load(Ordering::SeqCst), 1);
+
+        inner.others.store(0, Ordering::SeqCst);
+        act.reconcile("acme", 2).await.unwrap();
+        assert_eq!(
+            notice.0.load(Ordering::SeqCst),
+            1,
+            "nothing revoked: no notice"
+        );
+    }
+
+    /// The single revoke of the Docker actuator (a stopped container's key)
+    /// sends the notice too.
+    #[tokio::test]
+    async fn a_single_revoke_sends_the_notice() {
+        let notice = Arc::new(CountingNotice::default());
+        let minter = minter_with_notice(Arc::new(MockMinter::default()), Some(notice.clone()));
+        minter.revoke("minted-3").await.unwrap();
+        assert_eq!(notice.0.load(Ordering::SeqCst), 1);
+    }
+
+    fn deployment(
+        generation: i64,
+        wanted: i32,
+        status: Option<(i64, i32, i32, i32)>,
+    ) -> Deployment {
+        let mut d = Deployment::default();
+        d.metadata.generation = Some(generation);
+        d.spec = Some(k8s_openapi::api::apps::v1::DeploymentSpec {
+            replicas: Some(wanted),
+            ..Default::default()
+        });
+        d.status = status.map(|(observed, updated, total, available)| {
+            k8s_openapi::api::apps::v1::DeploymentStatus {
+                observed_generation: Some(observed),
+                updated_replicas: Some(updated),
+                replicas: Some(total),
+                available_replicas: Some(available),
+                ..Default::default()
+            }
+        });
+        d
+    }
+
+    /// CLOACINA-T-1083: the test of `kubectl rollout status`.
+    #[test]
+    fn a_rollout_is_complete_when_every_pod_runs_the_new_template() {
+        // Done: 2 wanted, 2 updated, 2 in all, 2 available.
+        assert!(deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 2, 2, 2))
+        )));
+        // The controller has not seen the new spec yet.
+        assert!(!deployment_rollout_complete(&deployment(
+            4,
+            2,
+            Some((3, 2, 2, 2))
+        )));
+        // One pod of the old template is left.
+        assert!(!deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 2, 3, 2))
+        )));
+        // Not every pod is on the new template yet.
+        assert!(!deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 1, 2, 2))
+        )));
+        // A new pod is not available yet.
+        assert!(!deployment_rollout_complete(&deployment(
+            3,
+            2,
+            Some((3, 2, 2, 1))
+        )));
+        // Scaled to zero, no pod left: done.
+        assert!(deployment_rollout_complete(&deployment(
+            3,
+            0,
+            Some((3, 0, 0, 0))
+        )));
+        assert!(deployment_rollout_complete(&deployment(1, 0, None)));
+        // No status yet with pods wanted: not done.
+        assert!(!deployment_rollout_complete(&deployment(1, 2, None)));
+    }
+
     #[test]
     fn the_manifest_names_the_key_in_the_pod_template() {
         let mut spec = AgentDeployment {
@@ -2820,6 +3464,7 @@ mod tests {
             cpu_total: None,
             memory_total: None,
             log_format: Default::default(),
+            drain_seconds: None,
         };
         let m = agent_deployment_manifest(&spec);
         // The actuator's value wins over a pool annotation of the same name.
@@ -2929,6 +3574,38 @@ mod tests {
         let ns = tenant_namespace(&long);
         assert!(ns.len() <= 63, "namespace too long: {} ({})", ns.len(), ns);
         assert!(ns.starts_with("cloacina-tenant-"));
+    }
+
+    /// CLOACINA-T-1070: names that tenant create takes and that map to one
+    /// namespace. Each is a valid schema name.
+    #[test]
+    fn valid_tenant_names_can_share_a_namespace() {
+        let long = "a".repeat(47);
+        let long_b = format!("{long}_b");
+        let pairs = [
+            ("team_a", "team__a"),
+            ("team_a", "_team_a"),
+            ("team_a", "team_a_"),
+            ("team_a", "Team_A"),
+            (long.as_str(), long_b.as_str()),
+        ];
+        for (a, b) in pairs {
+            cloacina::database::connection::validate_schema_name(a).expect("valid");
+            cloacina::database::connection::validate_schema_name(b).expect("valid");
+            assert_eq!(tenant_namespace(a), tenant_namespace(b), "{a} / {b}");
+        }
+    }
+
+    /// CLOACINA-T-1070: the check finds the other tenant of a namespace, and
+    /// nothing for the same name or a namespace of its own.
+    #[test]
+    fn namespace_holder_finds_the_other_tenant() {
+        let existing = ["acme", "team_a", "zeta"];
+        assert_eq!(namespace_holder("team__a", existing), Some("team_a"));
+        assert_eq!(namespace_holder("Team_A", existing), Some("team_a"));
+        assert_eq!(namespace_holder("team_a", existing), None);
+        assert_eq!(namespace_holder("team_b", existing), None);
+        assert_eq!(namespace_holder("team_b", []), None);
     }
 
     #[test]

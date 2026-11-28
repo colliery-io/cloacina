@@ -258,6 +258,14 @@ jobs:
           python3 scripts/check_sdk_coverage.py
           python3 scripts/check_sdk_versions.py
 
+      # CLOACINA-T-1087: a migration leaves the previous minor's server
+      # working (no drop, rename, NOT NULL without default or unique index
+      # without a `-- compat:` line). Stdlib-only script.
+      - name: Migration compat lint
+        run: |
+          python3 scripts/check_migration_compat.py --self-test
+          python3 scripts/check_migration_compat.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -611,6 +619,7 @@ jobs:
             --set postgresql.enabled=true \
             --set postgresql.auth.password="${PASSWORD}" \
             --set fleet.actuator=kubernetes \
+            --set-string 'server.networkPolicy.from[0].podSelector.matchLabels.cloacina-e2e-client=true' \
             --wait --timeout=8m
 
       - name: Wait for rollout
@@ -638,8 +647,11 @@ jobs:
           # The pod runs detached and its log is read after it ends: with
           # `kubectl run -i --rm`, a command that ends at once can finish
           # before kubectl attaches, and its output is lost.
+          # CLOACINA-T-1069: the install lists this label in
+          # server.networkPolicy.from; other pods cannot reach the API port.
           kubectl run healthcheck \
             -n cloacina-e2e \
+            --labels=cloacina-e2e-client=true \
             --restart=Never \
             --image=curlimages/curl:8.10.1 \
             --command -- curl -sS --retry 5 --retry-connrefused --max-time 10 \

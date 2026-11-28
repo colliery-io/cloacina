@@ -21,10 +21,20 @@
 // crate at WARN, and `println!`. The test in
 // `crates/cloacina/tests/packaged_task_logs.rs` builds this package, loads it
 // through the task registrar and runs the task in the in-process executor.
+//
+// A poll trigger writes one `tracing` line at each poll (CLOACINA-T-1144):
+// the test opens the library as the agent does and polls it.
 
-use cloacina_workflow::{Context, TaskError, task, workflow};
+use cloacina_workflow::{Context, TaskError, TriggerResult, task, workflow};
 
 cloacina_workflow_plugin::package!();
+
+/// Writes one `tracing` line and skips.
+#[cloacina_macros::trigger(on = "task_logs_workflow", poll_interval = "60s")]
+pub async fn task_logs_poll() -> Result<TriggerResult, cloacina_workflow::TriggerError> {
+    tracing::info!(target: "task_logs::poll", "packaged poll line");
+    Ok(TriggerResult::Skip)
+}
 
 #[workflow(
     name = "task_logs_workflow",

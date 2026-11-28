@@ -22,6 +22,8 @@ class KeyInfo:
         name (str):
         permissions (str): Role string: `read` | `write` | `admin` | `agent`.
         revoked (bool):
+        expires_at (None | str | Unset): When the key expires (RFC 3339); `null`: it does not expire. The
+            keys the Kubernetes actuator mints for agents expire.
         tenant_id (None | str | Unset): Tenant scope; `null` for global keys.
     """
 
@@ -31,6 +33,7 @@ class KeyInfo:
     name: str
     permissions: str
     revoked: bool
+    expires_at: None | str | Unset = UNSET
     tenant_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -46,6 +49,12 @@ class KeyInfo:
         permissions = self.permissions
 
         revoked = self.revoked
+
+        expires_at: None | str | Unset
+        if isinstance(self.expires_at, Unset):
+            expires_at = UNSET
+        else:
+            expires_at = self.expires_at
 
         tenant_id: None | str | Unset
         if isinstance(self.tenant_id, Unset):
@@ -65,6 +74,8 @@ class KeyInfo:
                 "revoked": revoked,
             }
         )
+        if expires_at is not UNSET:
+            field_dict["expires_at"] = expires_at
         if tenant_id is not UNSET:
             field_dict["tenant_id"] = tenant_id
 
@@ -85,6 +96,15 @@ class KeyInfo:
 
         revoked = d.pop("revoked")
 
+        def _parse_expires_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
+
         def _parse_tenant_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -101,6 +121,7 @@ class KeyInfo:
             name=name,
             permissions=permissions,
             revoked=revoked,
+            expires_at=expires_at,
             tenant_id=tenant_id,
         )
 

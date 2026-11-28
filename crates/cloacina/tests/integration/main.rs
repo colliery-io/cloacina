@@ -26,6 +26,7 @@
 
 pub mod agent_desired;
 pub mod agent_limits;
+pub mod agent_pool_scale;
 pub mod computation_graph;
 pub mod context;
 pub mod dal;
@@ -37,6 +38,8 @@ pub mod executor;
 pub mod fidius_validation;
 pub mod logging;
 pub mod models;
+#[cfg(feature = "sqlite")]
+pub mod packaged_priority;
 pub mod packaged_task_logs;
 pub mod packaging;
 pub mod packaging_inspection;

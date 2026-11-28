@@ -42,6 +42,19 @@ Secrets are encrypted with **envelope encryption**:
   `CLOACINA_SECRET_KEK` environment variable (base64 or hex of exactly 32
   bytes). Unwrapping happens only server-side, and the plaintext DEK and field
   values live only transiently in memory.
+- Each ciphertext is **bound** to where it belongs, through the AES-GCM
+  associated data. The wrapped DEK is bound to its tenant
+  (`cloacina:dek:v1:<org_id>`), and a secret's field map to its tenant and its
+  name (`cloacina:secret:v1:<org_id>:<name>`). A row copied in the database to
+  another tenant's schema, or to another secret name, does not decrypt there.
+  `<org_id>` is derived from the tenant name, so a tenant's secrets are bound
+  to its name. `v1` marks the format.
+
+Secrets stored before the binding carry no associated data. The first server
+of the release that adds it rewrites them once at start, for `public` and each
+tenant schema: one transaction per schema, under the migration lock. After
+that no row is read in the old form. A schema whose data key does not unwrap
+under the server KEK is left as it is and logged at start.
 
 Per-tenant keys align with Cloacina's tenant-is-the-isolation-boundary posture:
 rotation and compromise blast-radius are scoped to a single tenant. If

@@ -132,6 +132,82 @@ mod postgres_tests {
         assert!(!revoked_again);
     }
 
+    /// CLOACINA-T-1065: the last live platform admin key is not revoked; a
+    /// tenant key does not count as one, and the bootstrap check follows.
+    #[tokio::test]
+    #[serial]
+    async fn test_the_last_platform_admin_key_is_kept() {
+        use cloacina::dal::unified::api_keys::RevokeOutcome;
+
+        let fixture = get_or_init_fixture().await;
+        let mut fixture = fixture.lock().unwrap();
+        fixture.reset_database().await;
+        fixture.initialize().await;
+        let dal = fixture.get_dal();
+        let keys = dal.api_keys();
+
+        // Only a tenant admin key: no live platform admin key.
+        let (_, tenant_hash) = generate_api_key();
+        let tenant_admin = keys
+            .create_key(&tenant_hash, "tenant-admin", Some("acme"), false, "admin")
+            .await
+            .expect("create tenant key");
+        assert!(!keys.has_live_platform_admin_key().await.unwrap());
+
+        let (_, first_hash) = generate_api_key();
+        let first = keys
+            .create_key(&first_hash, "first-admin", None, true, "admin")
+            .await
+            .expect("create first admin");
+        assert!(keys.has_live_platform_admin_key().await.unwrap());
+
+        // The only platform admin key stays.
+        assert_eq!(
+            keys.revoke_key_keeping_platform_admin(first.id)
+                .await
+                .unwrap(),
+            RevokeOutcome::LastPlatformAdmin
+        );
+        assert!(keys.validate_hash(&first_hash).await.unwrap().is_some());
+
+        // With a second one, the first can go; then the second is the last.
+        let (_, second_hash) = generate_api_key();
+        let second = keys
+            .create_key(&second_hash, "second-admin", None, true, "admin")
+            .await
+            .expect("create second admin");
+        assert_eq!(
+            keys.revoke_key_keeping_platform_admin(first.id)
+                .await
+                .unwrap(),
+            RevokeOutcome::Revoked
+        );
+        assert_eq!(
+            keys.revoke_key_keeping_platform_admin(first.id)
+                .await
+                .unwrap(),
+            RevokeOutcome::NotFound
+        );
+        assert_eq!(
+            keys.revoke_key_keeping_platform_admin(second.id)
+                .await
+                .unwrap(),
+            RevokeOutcome::LastPlatformAdmin
+        );
+
+        // A tenant key is revoked as before.
+        assert_eq!(
+            keys.revoke_key_keeping_platform_admin(tenant_admin.id)
+                .await
+                .unwrap(),
+            RevokeOutcome::Revoked
+        );
+
+        // Revoked in the database (the recovery step): the bootstrap would run.
+        assert!(keys.revoke_key(second.id).await.unwrap());
+        assert!(!keys.has_live_platform_admin_key().await.unwrap());
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_has_any_keys() {

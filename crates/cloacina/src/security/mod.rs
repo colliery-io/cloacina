@@ -46,13 +46,16 @@ pub use package_signer::{
 };
 pub use secret_grant::{
     DeclaredSecretResolver, SecretGrant, SecretGrantMode, SecretRefusal, SecretRefusalRecorder,
-    declared_secret_grant, record_secret_refusal, register_secret_refusal_recorder,
-    secret_bindings,
+    UndeclaredBinding, declared_secret_grant, record_secret_refusal,
+    register_secret_refusal_recorder, secret_bindings, undeclared_binding, undeclared_run_binding,
 };
 pub use secret_resolver::{
     KEK_ENV_VAR, SecretAllow, SecretResolverConfigError, SecretStoreResolver,
 };
-pub use secret_store::{SecretError, SecretMetadata, SecretStore};
+pub use secret_store::{
+    BindOutcome, SecretError, SecretMetadata, SecretStore, dek_associated_data,
+    secret_associated_data,
+};
 pub use tenant_org::tenant_org_id;
 pub use verification::{
     SecurityConfig, SignatureSource, VerificationError, VerificationResult,

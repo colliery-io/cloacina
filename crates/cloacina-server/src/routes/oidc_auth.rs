@@ -103,7 +103,10 @@ pub async fn oidc_callback(
         return ApiError::unauthorized("invalid or expired login state").into_response();
     };
 
-    let claims = match provider.complete_login(code, nonce, pkce_verifier).await {
+    let crate::oidc::CompletedLogin {
+        claims,
+        refresh_token,
+    } = match provider.complete_login(code, nonce, pkce_verifier).await {
         Ok(c) => c,
         Err(e) => {
             warn!("oidc complete_login failed: {e}");
@@ -137,9 +140,9 @@ pub async fn oidc_callback(
 
     // CLOACI-T-0923: open a server-side login session per minted key. Its
     // `expires_at` is the session's ABSOLUTE deadline — `/v1/auth/refresh`
-    // rotates the key inside that window without another trip through the IdP,
-    // and past it a full re-auth (fresh IdP check + fresh allowlist
-    // resolution) is forced. Without this row refresh has nothing to
+    // rotates the key inside that window (with the current allowlist, and an
+    // hourly IdP check when a refresh token is stored), and past it a full
+    // re-auth is forced. Without this row refresh has nothing to
     // authorize against and stays a 501, which is exactly the state T-0923
     // found: a 15-minute hard logout.
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -147,13 +150,28 @@ pub async fn oidc_callback(
         + chrono::Duration::from_std(oidc_session_max_age())
             .unwrap_or_else(|_| chrono::Duration::hours(8));
 
+    // CLOACINA-T-1082: the rows of this login share one id, the claims and
+    // the IdP refresh token, so each refresh runs the current map on the
+    // claims and the groups are checked at the IdP each hour.
+    let login_id = uuid::Uuid::new_v4();
+    let stored_claims = serde_json::to_string(&claims).unwrap_or_default();
+    let refresh_enc =
+        crate::routes::session::seal_refresh_token(refresh_token.as_deref(), login_id);
+
     let mut memberships = Vec::with_capacity(principals.len());
     for p in &principals {
         match mint_for_principal(&state, p, DEFAULT_MINTED_KEY_TTL).await {
             Ok((plaintext, info)) => {
                 if let Err(e) = dal
                     .oidc_sessions()
-                    .create_session(info.id, &provider.config.issuer_url, session_deadline)
+                    .create_login_session(
+                        info.id,
+                        &provider.config.issuer_url,
+                        session_deadline,
+                        login_id,
+                        &stored_claims,
+                        refresh_enc.clone(),
+                    )
                     .await
                 {
                     // Fail closed on the *session*, not the login: the key is

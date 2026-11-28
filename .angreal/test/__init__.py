@@ -15,6 +15,7 @@ from .e2e import fleet as e2e_fleet  # noqa: F401
 from .e2e import fleet_long_task as e2e_fleet_long_task  # noqa: F401
 from .e2e import fleet_pools as e2e_fleet_pools  # noqa: F401
 from .e2e import fleet_workers as e2e_fleet_workers  # noqa: F401
+from .e2e import signed_publish as e2e_signed_publish  # noqa: F401
 from .soak import daemon, server  # noqa: F401
 from .soak import fleet as soak_fleet  # noqa: F401
 from .soak import fleet_actuator as soak_fleet_actuator  # noqa: F401

@@ -56,6 +56,10 @@ impl FfiTriggerImpl {
     /// Open the packaged library at `path` and give the poll trigger `name`
     /// of it (CLOACINA-T-1077): the agent's path to a Rust poll trigger.
     /// Opening the library runs its load-time code in this process.
+    ///
+    /// The engine's log interface is bound, as the package loader binds it
+    /// (CLOACINA-T-1144), so the trigger's `tracing` and `log` lines are
+    /// written in this process's log.
     pub fn open(
         path: &std::path::Path,
         name: &str,
@@ -64,6 +68,7 @@ impl FfiTriggerImpl {
     ) -> Result<Self, String> {
         let loaded = fidius_host::loader::load_library(path)
             .map_err(|e| format!("open the library {}: {:?}", path.display(), e))?;
+        crate::registry::loader::package_loader::bind_engine_log(&loaded, path);
         let plugin = loaded
             .plugins
             .into_iter()
@@ -132,9 +137,12 @@ impl Trigger for FfiTriggerImpl {
         };
         // call_method is sync; bounce to a blocking thread so the host's
         // async runtime stays responsive while the cdylib's tokio runtime
-        // drives user poll() code.
+        // drives user poll() code. The caller's span is entered there, so
+        // the trigger's log lines carry the poll's ids (CLOACINA-T-1144).
+        let span = tracing::Span::current();
         let result: Result<TriggerInvokeResult, fidius_host::CallError> =
             tokio::task::spawn_blocking(move || {
+                let _entered = span.enter();
                 handle.call_method(METHOD_INVOKE_TRIGGER_POLL, &request)
             })
             .await

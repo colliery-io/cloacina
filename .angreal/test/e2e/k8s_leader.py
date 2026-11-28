@@ -79,6 +79,7 @@ from .._utils import print_final_success, print_section_header
 from .k8s_fleet import (
     CHART_DIR,
     COMPOSE_FILE,
+    E2E_CLIENT_LABEL,
     REGISTRY_HOST,
     REGISTRY_K8S,
     _check_tool,
@@ -276,7 +277,9 @@ def _upload_package_incluster(kubeconfig, fixture_path, tenant):
     in-cluster upload survives any single kill. Returns the HTTP status code.
     """
     name = f"upload-{uuid.uuid4().hex[:6]}"
+    # CLOACINA-T-1069: the label lets the pod reach the API port.
     _run(["kubectl", "run", name, "--restart=Never",
+          f"--labels={E2E_CLIENT_LABEL}=true",
           "--image=curlimages/curl:8.7.1", "-n", NS, "--command", "--",
           "sleep", "300"], env=_kube_env(kubeconfig), check=True, capture=True)
     try:
@@ -353,7 +356,9 @@ def _curl_pod_exec(kubeconfig, args):
     # output degenerates to kubectl's deletion notice — seen as a spurious
     # inject failure after five consecutive green runs of the same step.
     probe = f"curl-probe-{uuid.uuid4().hex[:6]}"
+    # CLOACINA-T-1069: the label lets the probe reach the API port.
     r = _run(["kubectl", "run", probe, "--rm", "-i", "--restart=Never",
+              f"--labels={E2E_CLIENT_LABEL}=true",
               "--image=curlimages/curl:8.7.1", "-n", NS, "--command", "--",
               "curl", "-s", *args],
              env=_kube_env(kubeconfig), check=False, capture=True)
@@ -982,7 +987,9 @@ def _deploy_compiler(kubeconfig, compiler_ref):
             "replicas": 1,
             "selector": {"matchLabels": {"app": "cloacina-compiler"}},
             "template": {
-                "metadata": {"labels": {"app": "cloacina-compiler"}},
+                # CLOACINA-T-1069: the e2e label lets it reach bundled Postgres.
+                "metadata": {"labels": {"app": "cloacina-compiler",
+                                        E2E_CLIENT_LABEL: "true"}},
                 "spec": {"containers": [{
                     "name": "compiler",
                     "image": compiler_ref,

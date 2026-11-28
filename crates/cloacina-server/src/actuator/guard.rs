@@ -195,25 +195,28 @@ pub fn docker_single_user_warning(kind: &str, tenants: usize) -> Option<String> 
 /// to start. `database` is used by the actuator to mint per-tenant agent keys.
 /// `compilers` turns the per-tenant compilers on (CLOACINA-T-1034).
 /// `agent_log_format` is the log format of the agents the actuator starts
-/// (CLOACINA-T-1101).
+/// (CLOACINA-T-1101). `key_notice` is sent after the actuator revokes agent
+/// keys (CLOACINA-T-1083).
 pub fn build_actuator(
     kind: &str,
     substrate: &dyn Substrate,
     database: Database,
     compilers: Option<super::compiler::CompilerSettings>,
     agent_log_format: cloacina::task_logs::LogFormat,
+    key_notice: Option<Arc<dyn super::KeyRevocationNotice>>,
 ) -> Result<Arc<dyn FleetActuator>, GuardError> {
     let db_docker = database.clone();
     let compilers_docker = compilers.clone();
+    let notice_docker = key_notice.clone();
     build_actuator_with(
         kind,
         substrate,
         move || {
-            DockerActuator::from_env(db_docker, compilers_docker, agent_log_format)
+            DockerActuator::from_env(db_docker, compilers_docker, agent_log_format, notice_docker)
                 .map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
         },
         move || {
-            KubernetesActuator::from_env(database, compilers, agent_log_format)
+            KubernetesActuator::from_env(database, compilers, agent_log_format, key_notice)
                 .map(|a| Arc::new(a) as Arc<dyn FleetActuator>)
         },
     )
