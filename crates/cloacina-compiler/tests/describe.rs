@@ -1467,46 +1467,267 @@ static T1074_MARK: extern "C" fn() = {{
         // shows the in-process load makes it here.
     }
 
-    /// A Python polling accumulator is recorded in the document by the
-    /// compiler, and the server refuses the package at load, with the kind
-    /// and the name, where a failed build is read.
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1156: a Python polling accumulator polls on the agents
+    // -----------------------------------------------------------------------
+
+    use cloacina::computation_graph::graph_executor::{GraphExecutor, GraphFireEvent};
+    use cloacina::trigger::AccumulatorPollRequest;
+
+    /// A Python graph package whose polling accumulator `t1156_tick`
+    /// appends the id of the process its poll function runs in to `mark`,
+    /// and answers that id. Returns the package's folder.
+    fn polling_graph_package(dir: &Path, mark: &Path) -> PathBuf {
+        let root = dir.join("t1156-poll");
+        let module = root.join("workflow/t1156_poll");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            root.join("package.toml"),
+            "[package]\nname = \"t1156-poll\"\nversion = \"0.1.0\"\n\
+             interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+             extension = \"cloacina\"\n\n[metadata]\ngraph_name = \"t1156_graph\"\n\
+             language = \"python\"\ndescription = \"T-1156 polling accumulator\"\n\
+             entry_module = \"t1156_poll.graph\"\nreaction_mode = \"when_any\"\n\
+             input_strategy = \"latest\"\n",
+        )
+        .unwrap();
+        std::fs::write(module.join("__init__.py"), "").unwrap();
+        std::fs::write(
+            module.join("graph.py"),
+            format!(
+                "import os\nimport cloaca\n\n\n\
+                 @cloaca.polling_accumulator(interval=\"1s\")\n\
+                 def t1156_tick():\n    \
+                 with open({mark:?}, \"a\") as f:\n        \
+                 f.write(f\"{{os.getpid()}}\\n\")\n    \
+                 return {{\"source\": \"poller\", \"polled_by\": os.getpid()}}\n\n\n\
+                 @cloaca.reactor(name=\"t1156_reactor\", accumulators=[\"t1156_tick\"], mode=\"when_any\")\n\
+                 class _Reactor:\n    pass\n\n\n\
+                 with cloaca.ComputationGraphBuilder(\n    \"t1156_graph\",\n    reactor=_Reactor,\n    \
+                 graph={{\"observe\": {{\"inputs\": [\"t1156_tick\"]}}}},\n) as builder:\n\n    \
+                 @cloaca.node\n    def observe(t1156_tick):\n        \
+                 return {{\"seen\": (t1156_tick or {{}}).get(\"source\")}}\n",
+                mark = mark.display().to_string()
+            ),
+        )
+        .unwrap();
+        root
+    }
+
+    /// Stands in for the fleet's graph executor: records the input of each
+    /// firing, as source -> JSON.
+    #[derive(Default)]
+    struct GraphFirings(std::sync::Mutex<Vec<std::collections::HashMap<String, String>>>);
+
+    #[async_trait::async_trait]
+    impl GraphExecutor for GraphFirings {
+        async fn execute(
+            &self,
+            fire: GraphFireEvent,
+        ) -> cloacina::cloacina_computation_graph::GraphResult {
+            let cache = cloacina::computation_graph::packaging_bridge::input_cache_to_ffi_cache(
+                &fire.snapshot,
+            )
+            .expect("the firing's input");
+            self.0.lock().unwrap().push(cache);
+            cloacina::cloacina_computation_graph::GraphResult::completed(Vec::new())
+        }
+    }
+
+    impl GraphFirings {
+        /// The value of `source` in the first firing that `pick` takes, in
+        /// at most 20 s.
+        async fn wait_for(
+            &self,
+            source: &str,
+            pick: impl Fn(&serde_json::Value) -> bool,
+        ) -> Option<serde_json::Value> {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            while std::time::Instant::now() < deadline {
+                let found = self
+                    .0
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|f| f.get(source))
+                    .filter_map(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                    .find(|v| pick(v));
+                if found.is_some() {
+                    return found;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            None
+        }
+    }
+
+    /// Stands in for the fleet with no agent code: each poll of a polling
+    /// accumulator answers `{"source": "stand-in"}`.
+    #[derive(Default)]
+    struct AccumulatorFleetStandIn(std::sync::Mutex<Vec<AccumulatorPollRequest>>);
+
+    #[async_trait::async_trait]
+    impl PollDispatcher for AccumulatorFleetStandIn {
+        async fn poll(&self, _request: &PollRequest) -> Result<TriggerResult, TriggerError> {
+            Ok(TriggerResult::Skip)
+        }
+        async fn poll_accumulator(
+            &self,
+            request: &AccumulatorPollRequest,
+        ) -> Result<Option<serde_json::Value>, String> {
+            self.0.lock().unwrap().push(request.clone());
+            Ok(Some(serde_json::json!({"source": "stand-in"})))
+        }
+        fn wait(&self) -> Duration {
+            Duration::from_secs(40)
+        }
+    }
+
+    /// The agent's path in this process: the package imported into a
+    /// runtime of its own, as an agent does, and each poll calls the poll
+    /// function; the answer crosses the wire shape the server reads.
+    struct AgentInThisProcess {
+        archive: Vec<u8>,
+        staging: PathBuf,
+        imported: tokio::sync::Mutex<bool>,
+    }
+
+    #[async_trait::async_trait]
+    impl PollDispatcher for AgentInThisProcess {
+        async fn poll(&self, _request: &PollRequest) -> Result<TriggerResult, TriggerError> {
+            Ok(TriggerResult::Skip)
+        }
+        async fn poll_accumulator(
+            &self,
+            request: &AccumulatorPollRequest,
+        ) -> Result<Option<serde_json::Value>, String> {
+            {
+                let mut imported = self.imported.lock().await;
+                if !*imported {
+                    let py = cloacina::python_runtime::python_runtime().expect("a Python runtime");
+                    let archive = self.archive.clone();
+                    let staging = self.staging.clone();
+                    let tenant = request.tenant_id.clone();
+                    tokio::task::spawn_blocking(move || {
+                        py.load_workflow_package(
+                            &archive,
+                            None,
+                            &staging,
+                            &tenant,
+                            &Arc::new(Runtime::new()),
+                        )
+                        .map(|_| ())
+                    })
+                    .await
+                    .unwrap()?;
+                    *imported = true;
+                }
+            }
+            let request = request.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                cloacina_python::computation_graph::poll_accumulator(
+                    &request.tenant_id,
+                    &request.package_name,
+                    &request.accumulator_name,
+                )
+            })
+            .await
+            .unwrap();
+            cloacina::fleet::accumulator_poll_from_outcome(
+                cloacina::fleet::accumulator_poll_outcome(result),
+            )
+            .map_err(|e| e.to_string())
+        }
+        fn wait(&self) -> Duration {
+            Duration::from_secs(40)
+        }
+    }
+
+    /// One event end to end, from the poll to the tenant's graph, for a
+    /// Python polling accumulator on a server that loads from metadata only
+    /// (CLOACINA-T-1156). The package is built through the compiler and the
+    /// describe child; the document records nothing in process, and the
+    /// metadata-only load takes it. The server's accumulator polls through
+    /// the dispatcher: the value answered reaches the graph's firing, and
+    /// the poll function never runs in this process (its mark stays empty).
+    /// Then the agent's path in this process imports the package and calls
+    /// the poll function: its value, with this process's id, reaches the
+    /// graph too.
     #[tokio::test]
     #[serial]
-    async fn a_python_polling_accumulator_is_recorded_and_refused() {
+    async fn a_python_polling_accumulator_polls_on_the_agent_into_the_graph() {
         let home = tempfile::TempDir::new().unwrap();
-        let stage = stage_fixture_with(
-            "demo-py-graph",
-            "package.toml",
-            "\n[[metadata.accumulators]]\nname = \"py_alpha\"\naccumulator_type = \"polling\"\n\n\
-             [metadata.accumulators.config]\ninterval = \"2s\"\n",
-        );
+        let mark = home.path().join("polled-by.txt");
+        let root = polling_graph_package(home.path(), &mark);
+        let archive = pack_dir(&root);
         let config = test_config(home.path());
         let mut registry = sqlite_registry().await;
-        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+        let id = build_and_record(&mut registry, archive.clone(), &config).await;
+        assert!(marks(&mark).is_empty(), "the describe child does not poll");
 
         let document = stored_document(&registry, id).await;
-        assert_eq!(
-            document.in_process,
-            vec![cloacina::registry::in_process::InProcessReason {
-                kind: cloacina::registry::in_process::PYTHON_POLLING_ACCUMULATOR.to_string(),
-                names: vec!["py_alpha".to_string()],
-            }]
-        );
+        assert!(document.in_process.is_empty(), "{:?}", document.in_process);
+        let graph = document.graph.as_ref().expect("the graph");
+        assert_eq!(graph.accumulators[0].name, "t1156_tick");
+        assert_eq!(graph.accumulators[0].accumulator_type, "polling");
 
         let registry = Arc::new(registry);
-        let (metadata_only, _runtime, scheduler) =
-            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
-        let result = metadata_only.reconcile().await.expect("reconcile");
-        assert!(result.packages_loaded.is_empty());
-        assert_eq!(result.packages_failed.len(), 1);
-        let reason = &result.packages_failed[0].1;
-        assert!(
-            reason.contains("Python polling accumulator(s) 'py_alpha'"),
-            "{reason}"
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+        let slot = cloacina::trigger::empty_poll_dispatcher_slot();
+        let stand_in = Arc::new(AccumulatorFleetStandIn::default());
+        *slot.write().unwrap() = Some(stand_in.clone());
+        let (reconciler, _runtime) = reconciler_with_polls(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            Arc::default(),
+            slot.clone(),
         );
-        assert!(scheduler.list_graphs().await.is_empty());
-        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
-        assert_eq!(inspected.build_status, "failed");
+        let scheduler = Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new()));
+        let firings = Arc::new(GraphFirings::default());
+        scheduler.set_graph_executor(firings.clone()).await;
+        let reconciler = reconciler.with_graph_scheduler(scheduler.clone());
+        let result = reconciler.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "the refusal of a Python polling accumulator is gone: {:?}",
+            result.packages_failed
+        );
+
+        // The server's accumulator polls the fleet; the value reaches the
+        // graph.
+        let value = firings
+            .wait_for("t1156_tick", |v| v["source"] == "stand-in")
+            .await
+            .expect("a firing with the value the fleet answered");
+        assert_eq!(value, serde_json::json!({"source": "stand-in"}));
+        let request = stand_in.0.lock().unwrap()[0].clone();
+        assert_eq!(request.tenant_id, "public");
+        assert_eq!(request.package_name, "t1156-poll");
+        assert_eq!(request.accumulator_name, "t1156_tick");
+        assert!(
+            marks(&mark).is_empty(),
+            "the server process ran the poll function"
+        );
+
+        // The agent's path: import the package, call the poll function.
+        let staging = home.path().join("agent-pysrc");
+        std::fs::create_dir_all(&staging).unwrap();
+        *slot.write().unwrap() = Some(Arc::new(AgentInThisProcess {
+            archive,
+            staging,
+            imported: tokio::sync::Mutex::new(false),
+        }));
+        let here = std::process::id();
+        let value = firings
+            .wait_for("t1156_tick", |v| v["source"] == "poller")
+            .await
+            .expect("a firing with the value of the poll function");
+        assert_eq!(value["polled_by"], serde_json::json!(here));
+        assert!(marks(&mark).contains(&here));
+        scheduler.shutdown_all().await;
     }
 
     /// A row with a document of format 1 keeps the refusal of format 1: a

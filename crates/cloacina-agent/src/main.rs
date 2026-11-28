@@ -714,6 +714,13 @@ async fn connect_and_serve(
     if !capabilities.iter().any(|c| c == POLL_JOB_CAPABILITY) {
         capabilities.push(POLL_JOB_CAPABILITY.to_string());
     }
+    // CLOACINA-T-1156: and polls of Python polling accumulators.
+    if !capabilities
+        .iter()
+        .any(|c| c == cloacina::fleet::ACCUMULATOR_POLL_CAPABILITY)
+    {
+        capabilities.push(cloacina::fleet::ACCUMULATOR_POLL_CAPABILITY.to_string());
+    }
     // CLOACINA-T-1027: the agent's total CPU and memory, when it was given
     // them. The server places tasks by their requests against these.
     // CLOACINA-T-1028: the memory it reports is what it offers to tasks, its
@@ -2198,11 +2205,19 @@ pub(crate) async fn run_poll_job(
         "poll",
         tenant = %packet.tenant_id.as_deref().unwrap_or("public"),
         package = %packet.package_name,
-        trigger = %packet.trigger_name,
+        trigger = %packet.target_name(),
         poll_id = %packet.poll_id,
     );
     tracing::Instrument::instrument(
         async move {
+            // CLOACINA-T-1156: a poll of a polling accumulator.
+            if let Some(accumulator) = packet.accumulator_name.clone() {
+                if let Err(outcome) = load_poll_runtime(&packet, &package, &work_dir).await {
+                    return outcome;
+                }
+                started();
+                return poll::run_accumulator_poll(&packet, accumulator, time_limit).await;
+            }
             let trigger = match load_poll_trigger(&packet, &package, &work_dir).await {
                 Ok(trigger) => trigger,
                 Err(outcome) => return outcome,
@@ -2213,6 +2228,30 @@ pub(crate) async fn run_poll_job(
         span,
     )
     .await
+}
+
+/// The per-build runtime of the Python package of a poll: the import runs
+/// one time per build in this process, and a poll and a task of one build
+/// share it. A polling accumulator's poll function is registered by the
+/// import (CLOACINA-T-1156). A Rust build has none: refused.
+async fn load_poll_runtime(
+    packet: &PollWorkPacket,
+    package: &worker::PreparedPackage,
+    work_dir: &std::path::Path,
+) -> std::result::Result<Arc<cloacina::Runtime>, cloacina::fleet::AgentOutcome> {
+    if packet.language.as_deref() != Some("python") {
+        return Err(poll::not_a_python_package(packet));
+    }
+    let digest = package.digest.clone();
+    let load = poll::load_packet_for(packet);
+    let mut cache = loaded_runtimes().lock().await;
+    if let Some(rt) = cache.get(&digest) {
+        return Ok(rt.clone());
+    }
+    let rt = Arc::new(cloacina::Runtime::new());
+    load_python_package(&load, package, work_dir, &rt).await?;
+    cache.insert(digest, rt.clone());
+    Ok(rt)
 }
 
 /// The trigger of a poll. A Python package is imported into the per-build
@@ -2227,18 +2266,7 @@ async fn load_poll_trigger(
 {
     let digest = package.digest.clone();
     if packet.language.as_deref() == Some("python") {
-        let load = poll::load_packet_for(packet);
-        let runtime = {
-            let mut cache = loaded_runtimes().lock().await;
-            if let Some(rt) = cache.get(&digest) {
-                rt.clone()
-            } else {
-                let rt = Arc::new(cloacina::Runtime::new());
-                load_python_package(&load, package, work_dir, &rt).await?;
-                cache.insert(digest.clone(), rt.clone());
-                rt
-            }
-        };
+        let runtime = load_poll_runtime(packet, package, work_dir).await?;
         return runtime
             .get_trigger(&packet.trigger_name)
             .ok_or_else(|| poll::no_such_trigger(packet));
