@@ -14,6 +14,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -106,6 +107,11 @@ def _psql(sql: str) -> str:
     when_not_to_use=["unit testing", "running without docker"],
 )
 def cli():
+    # The prints are the lane's progress log. Under angreal, stdout is a pipe
+    # in CI and its buffer is lost when the task fails: flush each line.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(line_buffering=True)
     print_section_header("cloacinactl e2e")
     _build_binaries()
     _start_postgres()
@@ -221,13 +227,17 @@ def cli():
 
             # --- package list (empty, table format) ---
             code, out, _ = _cloacinactl(home, "package", "list")
-            assert code == 0 and ("No items" in out or out.strip() == ""), out
+            assert code == 0 and ("No items" in out or out.strip() == ""), (
+                f"package list should be empty: code={code} out={out!r}"
+            )
             print("  ok: package list empty")
 
             # --- package list JSON ---
             code, out, _ = _cloacinactl(home, "-o", "json", "package", "list")
             parsed = json.loads(out)
-            assert isinstance(parsed, list)
+            assert isinstance(parsed, list), (
+                f"package list -o json should render an array, got {parsed!r}"
+            )
             print("  ok: package list -o json parses")
 
             # --- key list reads the T-0594 `items` envelope (regression guard) ---
@@ -435,7 +445,10 @@ def cli():
                     f'context.set("authored_token", "{token}")',
                 )
                 tasks_py.write_text(src)
-                assert "authored_token" in tasks_py.read_text()
+                assert "authored_token" in tasks_py.read_text(), (
+                    f"the edit of {tasks_py} did not apply: the scaffold has no "
+                    "'context.set(\"hello\", \"world\")' line"
+                )
 
                 # 3. validate the edited source dir (T-0679)
                 code, out, _ = _cloacinactl(home, "package", "validate", str(pkg_dir))
@@ -525,9 +538,11 @@ def cli():
                       f"accepted (package_id={package_id})")
 
                 # T-0680: the graph and cron kinds round-trip the same way
-                # (scaffold → validate → pack → upload-accept). cron is Rust-only.
-                for lang, kind in [("python", "graph"), ("rust", "cron")]:
-                    kname = f"e2e-{kind}-{token}"
+                # (scaffold → validate → pack → upload-accept). A Python cron
+                # scaffold exists now (`@cloaca.trigger(on=..., cron=...)`),
+                # so both languages round-trip the cron kind (CLOACINA-T-1142).
+                for lang, kind in [("python", "graph"), ("rust", "cron"), ("python", "cron")]:
+                    kname = f"e2e-{lang}-{kind}-{token}"
                     kdir = Path(authored_s) / kname
                     _cloacinactl(
                         home, "package", "new", kname,
@@ -547,18 +562,6 @@ def cli():
                         f"upload({lang}/{kind}) failed: code={code} out={out!r} stderr={stderr!r}"
                     )
                     print(f"  ok: authored {lang}/{kind} new→validate→pack→upload accepted")
-
-                # T-0680: --kind cron --lang python is rejected with guidance.
-                code, _, stderr = _cloacinactl(
-                    home, "package", "new", f"e2e-pycron-{token}",
-                    "--lang", "python", "--kind", "cron",
-                    "--path", str(Path(authored_s) / "pycron"),
-                    check=False,
-                )
-                assert code != 0 and "Rust-only" in stderr, (
-                    f"python+cron should be rejected; code={code} stderr={stderr!r}"
-                )
-                print("  ok: python --kind cron rejected with guidance")
 
             # ─────────────────────────────────────────────────────────
             # CLOACI-T-0629: substrate contract — end-to-end JIT
