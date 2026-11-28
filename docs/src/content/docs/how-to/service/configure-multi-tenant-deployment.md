@@ -43,11 +43,13 @@ chmod 600 ~/.cloacina/bootstrap-key   # already 0600, but verify
 
 Alternatively, supply your own bootstrap key via
 `--bootstrap-key clk_yourkey...` or the `CLOACINA_BOOTSTRAP_KEY`
-environment variable on first startup. On subsequent starts the
-bootstrap path is skipped if any keys exist.
+environment variable on first startup. On later starts the
+bootstrap path is skipped while a live platform admin key exists.
+Each bootstrap writes the file again, over an older file.
 
 > **Once captured, treat the key like a root password.** Store it in
-> your secret manager. There is no way to retrieve it again.
+> your secret manager, then rotate it (caveat 5 below). There is no
+> way to retrieve it again.
 
 ## Step 2: Create Tenants
 
@@ -79,7 +81,10 @@ provisioning time, not via this endpoint.
 ## Step 3: Create Tenant-Scoped API Keys
 
 Tenant-scoped keys (recommended for application clients) can only
-access their assigned tenant. Only `is_admin` keys can create them.
+access their assigned tenant. A platform admin key or an `admin` key
+of the tenant can create them. With `--tenant <name>`, `key create`
+calls `POST /v1/tenants/{name}/keys` and the key belongs to that
+tenant.
 
 ```bash
 # Create a write-role key for acme's CI/CD
@@ -88,7 +93,8 @@ cloacinactl key create acme-ci \
     --tenant acme \
     --server http://127.0.0.1:8080 \
     --api-key "$ADMIN_KEY"
-# clk_xxx... (shown exactly once — capture it now)
+# created key: clk_xxx... (shown exactly once — capture it now)
+# tenant:      acme
 
 # Create a read-role key for acme's monitoring dashboards
 cloacinactl key create acme-monitor \
@@ -231,44 +237,58 @@ cloacina.example.com {
 }
 ```
 
-### 5. Bootstrap key is single-capture
+### 5. Rotate the bootstrap key
 
-If you lose the bootstrap key and have no other admin key in the
-database, you cannot recover admin access through the API alone.
-The bootstrap path runs only when the `api_keys` table contains
-zero non-revoked keys; once any key exists, the path is skipped on
-subsequent starts.
+The bootstrap path runs at a start when no live platform admin key
+exists: no key with `is_admin = true` that is unrevoked and
+unexpired. Tenant keys do not stop it.
 
-**Recommended: keep two admin keys.** Capture the bootstrap key on
-first startup, then immediately create a second admin key via
-`POST /v1/auth/keys` and store *that* in your secret manager. The
-bootstrap key file (`~/.cloacina/bootstrap-key`) can then be
-deleted from disk; the secret-manager-stored key is your daily
-driver.
+**Rotate the bootstrap key after the first start.** Make a second
+platform admin key, store it in your secret manager, then revoke the
+bootstrap key. No restart is needed.
 
-**If you've already lost both:** recovery requires direct database
-access. Stop `cloacina-server`, then on the database:
+```bash
+cloacinactl key create ops-admin --platform-admin \
+    --server http://127.0.0.1:8080 \
+    --api-key "$ADMIN_KEY"
+# clk_xxx... (shown exactly once — store it now)
 
-```sql
--- Postgres
-UPDATE api_keys SET revoked = true WHERE is_admin = true;
-
--- SQLite (UPDATE-then-restart works the same)
-UPDATE api_keys SET revoked = 1 WHERE is_admin = 1;
+NEW_ADMIN_KEY=clk_xxx...
+cloacinactl key revoke <bootstrap-key-id> --force \
+    --server http://127.0.0.1:8080 \
+    --api-key "$NEW_ADMIN_KEY"
+rm ~/.cloacina/bootstrap-key
 ```
 
-Restart the server. Because no non-revoked admin keys exist, the
-bootstrap path runs again, generates a fresh admin key, and writes
-the plaintext to `~/.cloacina/bootstrap-key` (or the
-`CLOACINA_BOOTSTRAP_KEY` value if supplied). Capture the new key
-immediately and rebuild from there. The old revoked rows can be
-deleted later for cleanliness; leaving them in place is harmless.
+The HTTP form is `POST /v1/auth/keys` with
+`{"name": "ops-admin", "role": "admin", "platform_admin": true}`. Only a
+platform admin key can call it. The new key has no tenant, role
+`admin` and `is_admin = true`, like the bootstrap key, and no expiry.
 
-> **Don't `DELETE FROM api_keys` directly.** Foreign-key references
-> from `package_signatures` (and other tables, depending on your
-> deployment) point at key rows. Marking `revoked = true` is the
-> safe equivalent that triggers re-bootstrap without breaking
-> referential integrity.
+The server refuses to revoke the last live platform admin key: the
+revoke answers `409 Conflict`. Make the new key first.
+
+If you pinned the bootstrap key with `CLOACINA_BOOTSTRAP_KEY`, drop
+the variable (or the Kubernetes Secret) after the first start. A
+revoked key cannot be used again: a recovery start with the old
+value fails, and the log says to set a new value.
+
+**If every platform admin key is lost:** recovery needs database
+access. On the database:
+
+```sql
+UPDATE api_keys SET revoked_at = NOW()
+WHERE is_admin = true AND revoked_at IS NULL;
+```
+
+Restart the server. No live platform admin key exists, so the
+bootstrap path runs again: it makes a new platform admin key from
+`CLOACINA_BOOTSTRAP_KEY` (a new value) or generates one, and writes
+the plaintext to `~/.cloacina/bootstrap-key`. Tenant keys keep
+working. Rotate the new key as above.
+
+> **Don't `DELETE FROM api_keys` directly.** Other rows can point at
+> key rows. Setting `revoked_at` is enough to start a new bootstrap.
 
 ## Verification
 

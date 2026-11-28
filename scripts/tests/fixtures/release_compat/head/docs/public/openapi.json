@@ -1,0 +1,43 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "fixture", "version": "0.13.0"},
+  "paths": {
+    "/v1/things": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "list",
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Thing"}}}}
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NewThing"}}}
+        },
+        "responses": {"201": {"description": "made"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Thing": {
+        "type": "object",
+        "required": ["id", "state"],
+        "properties": {
+          "id": {"type": "string"},
+          "state": {"type": "string", "enum": ["new", "done", "failed"]}
+        }
+      },
+      "NewThing": {
+        "type": "object",
+        "required": ["name", "colour"],
+        "properties": {
+          "name": {"type": "string"},
+          "colour": {"type": "string"}
+        }
+      }
+    }
+  }
+}

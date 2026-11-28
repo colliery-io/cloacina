@@ -100,6 +100,7 @@ pub mod admin;
 pub mod connection;
 pub mod migration_lock;
 pub mod schema;
+pub mod schema_release;
 pub mod universal_types;
 
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
@@ -117,8 +118,10 @@ pub use connection::{DbConnection, DbPool};
 // Re-export admin types for tenant management (PostgreSQL only)
 #[cfg(feature = "postgres")]
 pub use admin::{
-    AdminError, BUILD_ROLE_GRANTS, BuildCredential, DatabaseAdmin, TenantConfig, TenantCredentials,
-    build_role_name,
+    AdminError, BUILD_ROLE_GRANTS, BuildCredential, DatabaseAdmin, GLOBAL_LAYOUT_TABLE,
+    GLOBAL_SCHEMA, GlobalSplit, SERVER_BOOKKEEPING_TABLES, SERVER_GLOBAL_TABLES,
+    SERVER_ROLE_TABLES, SERVER_ROLE_VERBS, TenantConfig, TenantCredentials, build_role_name,
+    server_role_name,
 };
 
 /// Type alias for database operation results.
@@ -190,12 +193,9 @@ pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
     // PostgreSQL: under the migration lock (CLOACINA-T-1042).
     #[cfg(feature = "postgres")]
     migration_lock::run_pending_postgres_migrations_locked(conn).expect("Failed to run migrations");
+    // SQLite: with the release guard (CLOACINA-T-1087).
     #[cfg(not(feature = "postgres"))]
-    {
-        use diesel_migrations::MigrationHarness;
-        conn.run_pending_migrations(MIGRATIONS)
-            .expect("Failed to run migrations");
-    }
+    schema_release::run_pending_sqlite_migrations_guarded(conn).expect("Failed to run migrations");
     Ok(())
 }
 
@@ -238,8 +238,8 @@ pub fn run_migrations_postgres(conn: &mut diesel::pg::PgConnection) -> Result<()
 /// * `Err(_)` - If migration fails
 #[cfg(feature = "sqlite")]
 pub fn run_migrations_sqlite(conn: &mut diesel::sqlite::SqliteConnection) -> Result<()> {
-    use diesel_migrations::MigrationHarness;
-    conn.run_pending_migrations(SQLITE_MIGRATIONS)
+    // With the release guard (CLOACINA-T-1087).
+    schema_release::run_pending_sqlite_migrations_guarded(conn)
         .expect("Failed to run SQLite migrations");
     Ok(())
 }

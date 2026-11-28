@@ -92,6 +92,7 @@ struct PoolSettingsArgs {
         "cpu_request", "memory_request", "cpu_limit", "memory_limit", "max_concurrency",
         "image", "service_account", "service_account_annotation", "pod_label",
         "pod_annotation", "automount_service_account_token", "egress", "agents",
+        "min_agents",
     ])]
     file: Option<String>,
     /// CPU request of each agent, a Kubernetes quantity (`500m`).
@@ -132,10 +133,16 @@ struct PoolSettingsArgs {
     /// (`198.51.100.0/24=443,53/UDP`). Repeat for more.
     #[arg(long, value_name = "CIDR[=PORTS]")]
     egress: Vec<String>,
-    /// How many agents the pool runs. Needed for a pool other than `default`;
-    /// not for `default`.
+    /// The most agents the pool runs (`max_agents`). Needed for a pool other
+    /// than `default`; not for `default`.
     #[arg(long)]
     agents: Option<u32>,
+    /// The fewest agents the pool runs (`min_agents`), at most `--agents`.
+    /// The pool scales between the two on its waiting work; `0` lets it
+    /// scale to zero. Not given: the pool keeps `--agents` agents. Not for
+    /// `default`.
+    #[arg(long)]
+    min_agents: Option<u32>,
 }
 
 impl PoolSettingsArgs {
@@ -176,6 +183,7 @@ impl PoolSettingsArgs {
         put("image", self.image.map(Into::into));
         put("service_account_name", self.service_account.map(Into::into));
         put("max_agents", self.agents.map(Into::into));
+        put("min_agents", self.min_agents.map(Into::into));
         put(
             "automount_service_account_token",
             self.automount_service_account_token.map(Into::into),
@@ -335,6 +343,7 @@ mod tests {
             automount_service_account_token: Some(false),
             egress: vec!["198.51.100.0/24=443,53/udp".into(), "192.0.2.7/32".into()],
             agents: Some(2),
+            min_agents: Some(0),
             ..Default::default()
         }
         .into_body()
@@ -358,6 +367,7 @@ mod tests {
                     { "cidr": "192.0.2.7/32" },
                 ],
                 "max_agents": 2,
+                "min_agents": 0,
             })
         );
     }

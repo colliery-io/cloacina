@@ -113,10 +113,10 @@ pub struct SchedulerLoop<'a> {
     /// When the waiting-task gauges were last read. `None` before the first
     /// read. A mutex because `process_active_executions` takes `&self`.
     waiting_gauge_read_at: std::sync::Mutex<Option<std::time::Instant>>,
-    /// The pools the waiting-task gauges were set for (CLOACINA-T-1027). A
-    /// pool whose last waiting task left gets a zero once more, or its series
-    /// would keep the last value.
-    waiting_gauge_pools: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    /// The pools and priorities the waiting-task gauges were set for
+    /// (CLOACINA-T-1027, CLOACINA-T-1123). A series whose last waiting task
+    /// left gets a zero once more, or it would keep the last value.
+    waiting_gauge_pools: std::sync::Mutex<std::collections::BTreeSet<(String, u8)>>,
     /// The ageing interval of waiting work (CLOACINA-T-1045).
     priority_aging_interval: Duration,
     /// The last turn of the ordered pass before this one, and when that pass
@@ -273,34 +273,48 @@ impl<'a> SchedulerLoop<'a> {
             }
             *read_at = Some(std::time::Instant::now());
         }
-        // CLOACINA-T-1027: one series per pool. The pool `default` always has
-        // one, so a tenant with no pools reads as before with `pool="default"`.
-        match self.dal.task_execution().waiting_task_stats_by_pool().await {
+        // CLOACINA-T-1027: one series per pool. CLOACINA-T-1123: and per
+        // workflow priority as stored on the task rows (0 to 10, so at most
+        // 11 values). The pool `default` at the default priority always has
+        // a series, so a tenant with no pools and no priorities reads as
+        // before with `pool="default"` and `priority="5"`. A series seen once
+        // is set to 0 when its last task leaves.
+        match self
+            .dal
+            .task_execution()
+            .waiting_task_stats_by_pool_and_priority()
+            .await
+        {
             Ok(stats) => {
                 let tenant = self.dal.tenant_label().to_string();
                 let now = chrono::Utc::now();
-                let mut pools = self
+                let mut series = self
                     .waiting_gauge_pools
                     .lock()
                     .unwrap_or_else(|e| e.into_inner());
-                pools.insert(cloacina_api_types::DEFAULT_AGENT_POOL.to_string());
-                pools.extend(stats.iter().map(|p| p.pool.clone()));
-                for pool in pools.iter() {
+                series.insert((
+                    cloacina_api_types::DEFAULT_AGENT_POOL.to_string(),
+                    cloacina_api_types::DEFAULT_PRIORITY,
+                ));
+                series.extend(stats.iter().map(|g| (g.pool.clone(), g.priority)));
+                for (pool, priority) in series.iter() {
                     let (count, age) = stats
                         .iter()
-                        .find(|p| &p.pool == pool)
-                        .map(|p| (p.waiting.count as f64, p.waiting.oldest_age_seconds(now)))
+                        .find(|g| &g.pool == pool && g.priority == *priority)
+                        .map(|g| (g.waiting.count as f64, g.waiting.oldest_age_seconds(now)))
                         .unwrap_or((0.0, 0.0));
                     metrics::gauge!(
                         "cloacina_waiting_tasks",
                         "tenant" => tenant.clone(),
-                        "pool" => pool.clone()
+                        "pool" => pool.clone(),
+                        "priority" => priority.to_string()
                     )
                     .set(count);
                     metrics::gauge!(
                         "cloacina_oldest_waiting_task_age_seconds",
                         "tenant" => tenant.clone(),
-                        "pool" => pool.clone()
+                        "pool" => pool.clone(),
+                        "priority" => priority.to_string()
                     )
                     .set(age);
                 }
@@ -833,9 +847,11 @@ mod gauge_label_tests {
     fn waiting_gauges_carry_the_tenant_label_and_count_ready_tasks() {
         let gauges = gauges_after_one_pass(2);
         // CLOACINA-T-1027: the waiting gauges also carry the `pool` label. A
-        // task with no pool is in `default`.
+        // task with no pool is in `default`. CLOACINA-T-1123: and the
+        // `priority` label, the workflow priority of the task row.
         let default_pool = vec![
             ("pool".to_string(), "default".to_string()),
+            ("priority".to_string(), "5".to_string()),
             ("tenant".to_string(), "public".to_string()),
         ];
         assert_eq!(

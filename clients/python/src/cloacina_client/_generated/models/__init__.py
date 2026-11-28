@@ -105,6 +105,7 @@ from .rotate_secret_request import RotateSecretRequest
 from .rotate_secret_request_fields import RotateSecretRequestFields
 from .secret_deleted_response import SecretDeletedResponse
 from .secret_metadata_response import SecretMetadataResponse
+from .task_attempt_error_detail import TaskAttemptErrorDetail
 from .task_execution_detail import TaskExecutionDetail
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_backfill_summary import TenantListResponseBackfillSummary
@@ -256,6 +257,7 @@ __all__ = (
     "RotateSecretRequestFields",
     "SecretDeletedResponse",
     "SecretMetadataResponse",
+    "TaskAttemptErrorDetail",
     "TaskExecutionDetail",
     "TenantCreatedResponse",
     "TenantListResponseBackfillSummary",

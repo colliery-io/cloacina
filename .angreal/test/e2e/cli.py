@@ -11,8 +11,10 @@ test are stable.
 """
 
 import json
+import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -105,6 +107,11 @@ def _psql(sql: str) -> str:
     when_not_to_use=["unit testing", "running without docker"],
 )
 def cli():
+    # The prints are the lane's progress log. Under angreal, stdout is a pipe
+    # in CI and its buffer is lost when the task fails: flush each line.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(line_buffering=True)
     print_section_header("cloacinactl e2e")
     _build_binaries()
     _start_postgres()
@@ -220,13 +227,17 @@ def cli():
 
             # --- package list (empty, table format) ---
             code, out, _ = _cloacinactl(home, "package", "list")
-            assert code == 0 and ("No items" in out or out.strip() == ""), out
+            assert code == 0 and ("No items" in out or out.strip() == ""), (
+                f"package list should be empty: code={code} out={out!r}"
+            )
             print("  ok: package list empty")
 
             # --- package list JSON ---
             code, out, _ = _cloacinactl(home, "-o", "json", "package", "list")
             parsed = json.loads(out)
-            assert isinstance(parsed, list)
+            assert isinstance(parsed, list), (
+                f"package list -o json should render an array, got {parsed!r}"
+            )
             print("  ok: package list -o json parses")
 
             # --- key list reads the T-0594 `items` envelope (regression guard) ---
@@ -335,24 +346,8 @@ def cli():
                 )
             print("  ok: API-08 health response carries x-request-id")
 
-            # --- API-05: `package pack --sign` exits non-zero ---
-            with tempfile.TemporaryDirectory() as fakepkg_s:
-                fakepkg = Path(fakepkg_s)
-                (fakepkg / "package.toml").write_text("[package]\nname = 'x'\nversion = '0.1.0'\n")
-                fake_key = fakepkg / "fake.key"
-                fake_key.write_text("not-a-real-key")
-                code, _, stderr = _cloacinactl(
-                    home,
-                    "package", "pack",
-                    str(fakepkg),
-                    "--sign", str(fake_key),
-                    check=False,
-                )
-                assert code != 0, "API-05: --sign must fail-hard"
-                assert "not yet implemented" in stderr.lower(), (
-                    f"API-05: error should mention 'not yet implemented', got: {stderr!r}"
-                )
-            print("  ok: API-05 --sign fails hard with clear message")
+            # API-05 (`package pack --sign`) is in the authoring section below:
+            # it needs a package that packs (CLOACINA-T-1062, CLOACINA-T-1142).
 
             # NOTE: the original API-17 scenario asserted that
             # `execution events --follow` exited non-zero with
@@ -450,7 +445,10 @@ def cli():
                     f'context.set("authored_token", "{token}")',
                 )
                 tasks_py.write_text(src)
-                assert "authored_token" in tasks_py.read_text()
+                assert "authored_token" in tasks_py.read_text(), (
+                    f"the edit of {tasks_py} did not apply: the scaffold has no "
+                    "'context.set(\"hello\", \"world\")' line"
+                )
 
                 # 3. validate the edited source dir (T-0679)
                 code, out, _ = _cloacinactl(home, "package", "validate", str(pkg_dir))
@@ -464,6 +462,57 @@ def cli():
                 # 4b. validate accepts the packed archive too
                 code, out, _ = _cloacinactl(home, "package", "validate", str(archive))
                 assert code == 0 and "valid" in out, f"validate(archive) failed: {out!r}"
+
+                # 4c. API-05 (CLOACINA-T-1062): `pack --sign` signs the archive
+                # with an Ed25519 key file and writes `<archive>.sig` beside
+                # it. stdout stays the archive path; stderr names the
+                # signature. The key is made here, mode 600, and never printed.
+                key = Path(authored_s) / "signing-key.pem"
+                subprocess.run(
+                    ["openssl", "genpkey", "-algorithm", "ed25519", "-out", str(key)],
+                    check=True,
+                    capture_output=True,
+                )
+                os.chmod(key, 0o600)
+                signed = Path(authored_s) / f"{pkg_name}-signed.cloacina"
+                sig = Path(f"{signed}.sig")
+                code, out, stderr = _cloacinactl(
+                    home, "package", "pack", str(pkg_dir),
+                    "--out", str(signed), "--sign", str(key),
+                    check=False,
+                )
+                if code != 0 or not signed.exists() or not sig.exists():
+                    raise AssertionError(
+                        f"API-05: pack --sign should write {signed.name} and {sig.name}\n"
+                        f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
+                    )
+                assert sig.stat().st_size > 0, "API-05: the signature file is empty"
+                assert Path(out.strip()).name == signed.name, (
+                    f"API-05: stdout should be the archive path, got {out!r}"
+                )
+                assert sig.name in stderr, (
+                    f"API-05: stderr should name the signature file, got {stderr!r}"
+                )
+                print("  ok: API-05 pack --sign writes <archive>.sig")
+
+                # A key file that is not an Ed25519 key is refused, and no
+                # signature is written.
+                bad_key = Path(authored_s) / "not-a-key.pem"
+                bad_key.write_text("not-a-real-key")
+                os.chmod(bad_key, 0o600)
+                refused = Path(authored_s) / f"{pkg_name}-refused.cloacina"
+                code, _, stderr = _cloacinactl(
+                    home, "package", "pack", str(pkg_dir),
+                    "--out", str(refused), "--sign", str(bad_key),
+                    check=False,
+                )
+                assert code != 0 and "is not a signing key" in stderr, (
+                    f"API-05: a bad key should be refused; code={code} stderr={stderr!r}"
+                )
+                assert not Path(f"{refused}.sig").exists(), (
+                    "API-05: a refused key wrote a signature"
+                )
+                print("  ok: API-05 pack --sign refuses a file that is not a key")
 
                 # 5. upload to the tenant — the server parses package.toml,
                 # stores the source package, and returns a package id. NOTE:
@@ -489,9 +538,11 @@ def cli():
                       f"accepted (package_id={package_id})")
 
                 # T-0680: the graph and cron kinds round-trip the same way
-                # (scaffold → validate → pack → upload-accept). cron is Rust-only.
-                for lang, kind in [("python", "graph"), ("rust", "cron")]:
-                    kname = f"e2e-{kind}-{token}"
+                # (scaffold → validate → pack → upload-accept). A Python cron
+                # scaffold exists now (`@cloaca.trigger(on=..., cron=...)`),
+                # so both languages round-trip the cron kind (CLOACINA-T-1142).
+                for lang, kind in [("python", "graph"), ("rust", "cron"), ("python", "cron")]:
+                    kname = f"e2e-{lang}-{kind}-{token}"
                     kdir = Path(authored_s) / kname
                     _cloacinactl(
                         home, "package", "new", kname,
@@ -511,18 +562,6 @@ def cli():
                         f"upload({lang}/{kind}) failed: code={code} out={out!r} stderr={stderr!r}"
                     )
                     print(f"  ok: authored {lang}/{kind} new→validate→pack→upload accepted")
-
-                # T-0680: --kind cron --lang python is rejected with guidance.
-                code, _, stderr = _cloacinactl(
-                    home, "package", "new", f"e2e-pycron-{token}",
-                    "--lang", "python", "--kind", "cron",
-                    "--path", str(Path(authored_s) / "pycron"),
-                    check=False,
-                )
-                assert code != 0 and "Rust-only" in stderr, (
-                    f"python+cron should be rejected; code={code} stderr={stderr!r}"
-                )
-                print("  ok: python --kind cron rejected with guidance")
 
             # ─────────────────────────────────────────────────────────
             # CLOACI-T-0629: substrate contract — end-to-end JIT

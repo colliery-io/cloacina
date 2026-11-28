@@ -40,7 +40,7 @@ def check():
 @release()
 @angreal.command(
     name="bump",
-    about="set the whole core repo (Rust/npm/python/scaffold + CHANGELOG stub) to a new version",
+    about="set the whole core repo (Rust/npm/python/scaffold) to a new version; CHANGELOG [Unreleased] becomes that version",
     when_to_use=["cutting a release", "moving to the next dev version"],
     when_not_to_use=["touching provider versions (independent, A-0010)"],
 )

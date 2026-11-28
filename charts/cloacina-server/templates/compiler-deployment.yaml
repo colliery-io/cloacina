@@ -92,8 +92,15 @@ spec:
           {{- end }}
           env:
             {{- if .Values.postgresql.enabled }}
+            # The password of bundled Postgres, from its Secret
+            # (CLOACINA-T-1069).
+            - name: CLOACINA_BUNDLED_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_PASSWORD
             - name: DATABASE_URL
-              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"
+              value: "postgres://{{ .Values.postgresql.auth.username }}:$(CLOACINA_BUNDLED_DB_PASSWORD)@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"
             {{- else if .Values.databaseUrlSecretRef.name }}
             - name: DATABASE_URL
               valueFrom:

@@ -45,7 +45,9 @@ the top of the order after twenty.
 Ageing changes the order only. The priority stored with the execution and
 its tasks does not change, and the API shows the stored one.
 
-On a server the interval is `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`
+On a server the interval is the flag `--priority-aging-interval-s`, the
+`[server]` key `priority_aging_interval_s` of `cloacinactl server start`, or
+the environment variable `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`
 (default `120`; `0` switches ageing off). In an embedded program it is
 `DefaultRunnerConfig::builder().priority_aging_interval(..)`.
 
@@ -163,6 +165,18 @@ are not dispatched: the room that frees next is for the better task. A worse
 task is held back only until it has aged level with the better one. Tasks
 that were given the same priorities never hold each other back, so work that
 sets no priority packs onto agents as it did before priorities.
+
+## Watch the queue
+
+The waiting-task gauges `cloacina_waiting_tasks` and
+`cloacina_oldest_waiting_task_age_seconds` carry a `priority` label: the
+workflow priority stored on the task, `0` to `10`. Ageing does not change
+it. So `sum by (tenant, priority) (cloacina_waiting_tasks)` shows how much
+work of each priority waits.
+
+A task row keeps two task priorities: the one its task declares
+(`task_priority_asked`, empty when it declares none) and the one it was
+given (`task_priority`).
 
 ## History loads
 

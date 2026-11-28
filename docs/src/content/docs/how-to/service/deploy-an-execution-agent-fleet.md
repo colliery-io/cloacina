@@ -133,6 +133,9 @@ Useful options (full list in the [CLI reference](../../../reference/cli/#agent))
   server's environment. See [Find a Task's Logs](../find-a-tasks-logs/).
 - `--api-key-file <PATH>` / `CLOACINA_API_KEY_FILE` — read the key from a file
   in place of `CLOACINA_API_KEY`.
+- `--ca-file <PATH>` / `CLOACINA_AGENT_CA_FILE` — trust the CA certificates of
+  a PEM file, in addition to the system roots, for an `https://` server behind
+  a gateway with a private CA. See [Transport Security](../transport-security/).
 
 **The key and task code.** A task runs in a worker process that the agent
 starts, with the agent's user id and the agent's environment; a task marked
@@ -200,6 +203,31 @@ more heartbeat traffic), e.g. ~10s detection:
 ```bash
 CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-server ...
 ```
+
+## Agent and server versions
+
+An agent registers with its release and the plugin interface version of the
+Rust packages it loads.
+
+- **Releases.** The server accepts an agent of its own minor (up to its own
+  patch) and of the minor before. Upgrade the server first, then the agents.
+  An older agent, or a newer one, is refused with `400
+  agent_version_unsupported`, and the message names both releases, for
+  example `agent 0.12.3 is older than this server accepts (0.13 or 0.14;
+  server 0.14.1): upgrade the agent`. An agent that sends no release (one from
+  before 0.13) counts as 0.12. A refused agent writes the server's message to
+  its log at error level and registers again every 60 seconds; it does not
+  exit. While only refused agents exist, the tenant's tasks wait; they do not
+  fail for that reason.
+- **Plugin interface.** The compiler records on each Rust package the plugin
+  interface version it built it for. The server sends such a package only to
+  an agent that reports the same number; an agent that reports none gets no
+  such package. Python packages, and Rust packages built before the record,
+  go to any agent. When no agent of the tenant and pool loads the package's
+  interface, the task waits, and the server log says
+  `the task waits: no agent of tenant <t>, pool <p> loads plugin interface 8
+  (agents here: 7)`. Upgrade the agents, or build the package again with a
+  compiler of their release.
 
 ## 5. Operate
 
@@ -302,12 +330,16 @@ the large ones in a second pool.
 
    ```bash
    cloacinactl tenant pool set tenant_acme large --cpu-limit 4 \
-     --memory-limit 32Gi --memory-request 16Gi --max-concurrency 8 --agents 2
+     --memory-limit 32Gi --memory-request 16Gi --max-concurrency 8 \
+     --min-agents 0 --agents 2
    ```
 
-   A pool other than `default` runs a fixed number of agents (`--agents`, the
-   `max_agents` setting). It is not autoscaled, and the tenant's agent limit
-   does not count it.
+   The pool scales between `--min-agents` (`min_agents`) and `--agents`
+   (`max_agents`) on the work that waits for it: with `0` it has no agent
+   until a large task waits, and goes back to none when it has been idle for
+   `CLOACINA_AUTOSCALE_IDLE_S` (300 s). Without `--min-agents` it runs exactly
+   `--agents` agents. The tenant's agent limit does not count it. See
+   [How a pool scales](../../../explanation/service/execution-agent-fleet/#how-a-pool-scales).
 
 2. Name the pool on the tasks that need it, with what each one needs.
 
@@ -519,14 +551,23 @@ for the full knob list.
 
 ### Autoscaler tuning
 
-When an actuator is active, a leader-gated control loop autoscales
-`desired_count` from per-tenant utilization (Σ `in_flight` / Σ `max_concurrency`)
-and reconciles toward it. Tune it with the `CLOACINA_AUTOSCALE_*` knobs — up/down
-thresholds, cooldown, floor, and tick interval — documented in
+When an actuator is active, a leader-gated control loop sets the count of each
+pool from the waiting work that does not fit on its agents, and reconciles
+toward it ([How a pool scales](../../../explanation/service/execution-agent-fleet/#how-a-pool-scales)).
+Tune it with the `CLOACINA_AUTOSCALE_*` knobs (idle time, cooldown between
+scale-downs, the floor of `default`, tick interval), documented in
 [Environment Variables](../../../reference/environment-variables/#autoscaler).
 Set `CLOACINA_AUTOSCALE=false` to freeze automatic scaling and drive
 `desired_count` by hand through the provision API while reconciliation keeps
 running.
+
+Watch a pool with `cloacinactl tenant pool get <tenant> <pool>`
+(`desired_agents`, `live_agents`) and the `cloacina_fleet_pool_*` gauges.
+
+Agents stopped by a scale-down or a roll drain first. Set
+`CLOACINA_AGENT_DRAIN_S` on the server to the longest task time limit of your
+pools, so a roll lets running tasks finish; see
+[Stopping an agent](../../../explanation/service/execution-agent-fleet/#stopping-an-agent).
 
 ## See also
 

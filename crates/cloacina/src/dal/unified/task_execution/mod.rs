@@ -26,6 +26,7 @@
 //! - Atomic task claiming for distributed execution
 //! - Workflow completion and failure detection
 
+mod attempt_errors;
 mod claiming;
 mod crud;
 mod placement;
@@ -33,7 +34,7 @@ mod queries;
 mod recovery;
 mod state;
 
-pub use placement::{FleetPlacement, PoolWaitingTasks};
+pub use placement::{FleetPlacement, PoolPriorityWaitingTasks, PoolWaitingTasks, WaitingDemand};
 
 use super::DAL;
 use crate::database::universal_types::UniversalUuid;

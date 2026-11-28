@@ -28,6 +28,8 @@ command-line flags (most also accept an environment variable). The
 | `--database-url` | `DATABASE_URL` | _(required)_ | Postgres or SQLite connection URL. |
 | `--max-package-bytes` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts. A larger upload is refused with status 413. |
 | `--max-unpacked-bytes` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to. A larger archive is refused at upload and at load. The compiler, the agent and `cloacinactl` read the same setting. |
+| `--agent-key-lifetime-days` | `CLOACINA_AGENT_KEY_LIFETIME_DAYS` | `30` | Days an agent key that the Kubernetes actuator mints stays valid. Docker actuator keys do not expire. |
+| `--agent-key-rotate-days` | `CLOACINA_AGENT_KEY_ROTATE_DAYS` | `10` | Days left on an agent key at which the Kubernetes actuator replaces it and rolls the pods. At least `1` and less than the lifetime. See [Key expiry](../../explanation/service/security-model/#key-expiry). |
 | `--database-wait-timeout-s` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds to wait at start for the database to accept a connection, with retries. After it the server exits with an error. `0` = one try. |
 | `--bootstrap-key` | `CLOACINA_BOOTSTRAP_KEY` | auto-generated | First-run admin key; if unset, one is generated and written once to `~/.cloacina/bootstrap-key`. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | off | Reject package uploads that are unsigned, or signed by a key that neither the tenant nor the server-wide org trusts. |
@@ -43,6 +45,7 @@ command-line flags (most also accept an environment variable). The
 | `--fleet-graph-firings` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` or `worker`. |
 | `--fleet-artifact-fetch-wait-s` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact; after that the attempt fails. `0`: the first failed fetch fails the attempt. |
 | `--fleet-poll-timeout-s` | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent; the server waits this plus 10 s for the answer. |
+| `--priority-aging-interval-s` | `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | `120` | The ageing interval of waiting work, seconds: for each interval a task has waited, its priority in the order improves by one. `0`: no ageing. |
 | `--context-warn-bytes` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` (1 MiB) | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` = no warning. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
 | `--context-max-bytes` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails and is not retried. One setting for the whole server, not per tenant. `0` = no limit. |
 | `--cors-allowed-origins` | `CLOACINA_CORS_ALLOWED_ORIGINS` | unset | Comma-separated origins (`*` allowed). Unset means **CORS is disabled** — browser clients on other origins are blocked. |
@@ -343,6 +346,7 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.fleet_artifact_fetch_wait_s` | not set | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact. Forwarded as `--fleet-artifact-fetch-wait-s`. |
 | `server.fleet_graph_firings` | not set | Where an agent runs a computation-graph firing: `inline` or `worker`. Forwarded as `--fleet-graph-firings`. |
 | `server.fleet_poll_timeout_s` | not set | Time limit (seconds) of one poll of a poll trigger on an agent. Forwarded as `--fleet-poll-timeout-s`. |
+| `server.priority_aging_interval_s` | not set | The ageing interval of waiting work, seconds; `0`: no ageing. Forwarded as `--priority-aging-interval-s`. |
 | `server.context_warn_bytes` | not set | Size in bytes above which a task context is logged as a warning. Forwarded as `--context-warn-bytes`. |
 | `server.context_max_bytes` | not set | Largest size in bytes of a task context. Forwarded as `--context-max-bytes`. |
 | `server.cors_allowed_origins` | `[]` | Origins allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-origins`. |
@@ -350,6 +354,8 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.cors_allowed_headers` | `[]` | Request headers allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-headers`. |
 | `server.max_package_bytes` | not set | The largest package archive, in bytes, that an upload accepts. Forwarded as `--max-package-bytes`. |
 | `server.max_unpacked_bytes` | not set | The largest size, in bytes, that a package archive may unpack to. Forwarded as `--max-unpacked-bytes`. |
+| `server.agent_key_lifetime_days` | not set | Days an agent key of the Kubernetes actuator stays valid. Forwarded as `--agent-key-lifetime-days`. |
+| `server.agent_key_rotate_days` | not set | Days left on an agent key at which it is replaced. Forwarded as `--agent-key-rotate-days`. |
 
 A key that is not set is not forwarded, and the server uses its own default
 (see [Server flags](#server-flags-cloacina-server)). The signing secret of the
@@ -388,11 +394,26 @@ start`, which forwards them to the `cloacina-compiler` binary:
 | `compiler.python_uv_cache_dir` | not set | The cache folder of `uv`. Forwarded as `--python-uv-cache-dir`. |
 | `compiler.python_offline` | not set | `true`: vendor with no network. Forwarded as `--python-offline`. |
 | `compiler.uv` | not set | The `uv` program. Forwarded as `--uv`. |
+| `compiler.tenant_schema` | not set | Build only this tenant's packages. Forwarded as `--tenant-schema`. |
+| `compiler.build_target` | not set | Run as a per-target compiler for this triple. Forwarded as `--build-target`. |
+| `compiler.build_target_package` | not set | With `build_target`: build only this package. Forwarded as `--build-target-package`. |
+| `compiler.cargo_flags` | `[]` | Cargo flags added to the default list. Each one is forwarded as `--cargo-flag=<flag>`. Not with `cargo_flags_replace`. |
+| `compiler.cargo_flags_replace` | `[]` | The whole cargo flag list, defaults replaced. Each one is forwarded as `--cargo-flags-replace=<flag>`. |
+| `compiler.cargo_target_dir` | not set | A shared cargo target folder. Forwarded as `--cargo-target-dir`. |
+| `compiler.vendor_dir` | not set | `CARGO_HOME` of the cargo build. Forwarded as `--vendor-dir`. |
+| `compiler.dev_workspace` | not set | Dev only: a local cloacina workspace. Forwarded as `--dev-workspace`. |
+| `compiler.build_rlimit_cpu` | not set | `RLIMIT_CPU` of the cargo build, CPU-seconds. Forwarded as `--build-rlimit-cpu`. |
+| `compiler.build_rlimit_mem` | not set | `RLIMIT_AS` of the cargo build, a string: bytes, or a size with `K`, `M` or `G`. Forwarded as `--build-rlimit-mem`. |
+| `compiler.build_rlimit_files` | not set | `RLIMIT_NOFILE` of the cargo build. Forwarded as `--build-rlimit-files`. |
+| `compiler.build_rlimit_procs` | not set | `RLIMIT_NPROC` of the cargo build. Forwarded as `--build-rlimit-procs`. |
+| `compiler.log_retention_days` | not set | Daily log files to keep; `0` keeps all. Forwarded as `--log-retention-days`. |
 
 Each key has a flag of the same name on `cloacinactl compiler start`
-(`python_platforms` is `--python-platform`) and the env var of the compiler
-setting. Precedence: flag > env var > `config.toml` `[compiler]` > the
-compiler's default.
+(`python_platforms` is `--python-platform`, `cargo_flags` is `--cargo-flag`)
+and the env var of the compiler setting where it has one. Precedence: flag >
+env var > `config.toml` `[compiler]` > the compiler's default. The compiler's
+time limits `--build-timeout-s` and `--describe-timeout-s` have no key: set
+their env vars or run `cloacina-compiler` itself.
 
 ## Environment Variables
 

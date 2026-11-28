@@ -143,6 +143,17 @@ mod postgres_impl {
             // Validate schema name to prevent SQL injection
             // This also checks for empty strings and invalid characters
             validate_schema_name(&tenant_config.schema_name)?;
+            // CLOACINA-T-1080: the schema of the global tables is no tenant.
+            if tenant_config
+                .schema_name
+                .eq_ignore_ascii_case(GLOBAL_SCHEMA)
+            {
+                return Err(AdminError::InvalidConfig {
+                    message: format!(
+                        "'{GLOBAL_SCHEMA}' is reserved: it holds the server's global tables"
+                    ),
+                });
+            }
 
             // Validate username to prevent SQL injection
             // This also checks for empty strings, invalid characters, and reserved names
@@ -277,6 +288,10 @@ mod postgres_impl {
                             // still under the migration lock.
                             ensure_build_role_in(conn, &schema_name)?;
 
+                            // 6. The role of the server's pool for the tenant
+                            // (CLOACINA-T-1080).
+                            ensure_server_role_in(conn, &schema_name)?;
+
                             Ok(())
                         });
                     // Defense in depth: SET LOCAL above scopes the change to
@@ -379,15 +394,20 @@ mod postgres_impl {
                             }
                         })?;
 
-                        // 3. Drop the build role (CLOACINA-T-1063). Its
-                        // grants went with the schema.
-                        let role = build_role_name(&schema_name);
-                        let sql = format!("DROP ROLE IF EXISTS \"{}\"", role);
-                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                            AdminError::SqlExecution {
-                                message: format!("Failed to drop role '{}': {}", role, e),
-                            }
-                        })?;
+                        // 3. Drop the build role (CLOACINA-T-1063) and the
+                        // server role (CLOACINA-T-1080). Their grants went
+                        // with the schema.
+                        for role in [
+                            build_role_name(&schema_name),
+                            server_role_name(&schema_name),
+                        ] {
+                            let sql = format!("DROP ROLE IF EXISTS \"{}\"", role);
+                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                                AdminError::SqlExecution {
+                                    message: format!("Failed to drop role '{}': {}", role, e),
+                                }
+                            })?;
+                        }
 
                         Ok(())
                     })
@@ -448,7 +468,7 @@ mod postgres_impl {
                     diesel::sql_query(
                         "SELECT nspname::text FROM pg_catalog.pg_namespace \
                          WHERE nspname NOT LIKE 'pg_%' \
-                         AND nspname NOT IN ('information_schema', 'public') \
+                         AND nspname NOT IN ('information_schema', 'public', 'cloacina_global') \
                          ORDER BY nspname",
                     )
                     .load::<SchemaRow>(conn)
@@ -577,6 +597,9 @@ mod postgres_impl {
                         // The build role and its grants follow each
                         // migration, whatever role ran it (CLOACINA-T-1063).
                         ensure_build_role_in(conn, &schema_name)?;
+                        // So does the server role (CLOACINA-T-1080). A tenant
+                        // made before it gets it here, at the next start.
+                        ensure_server_role_in(conn, &schema_name)?;
                         Ok(ran)
                     });
                 // As in `create_tenant`: a pooled admin connection never
@@ -602,6 +625,10 @@ mod postgres_impl {
         ("workflow_registry", "SELECT"),
         ("package_providers", "SELECT, INSERT, DELETE"),
         ("package_artifacts", "SELECT, INSERT, DELETE"),
+        // The compiler's schema check at start reads which migrations are
+        // applied and which release wrote the schema (CLOACINA-T-1087).
+        ("__diesel_schema_migrations", "SELECT"),
+        ("cloacina_schema_release", "SELECT"),
     ];
 
     /// The name of a tenant's build role (CLOACINA-T-1063): `<tenant>$build`,
@@ -612,14 +639,31 @@ mod postgres_impl {
     ///
     /// The caller passes a schema name that is already checked.
     pub fn build_role_name(schema_name: &str) -> String {
+        suffixed_role_name(schema_name, "build")
+    }
+
+    /// The name of the role of a tenant's server pool (CLOACINA-T-1080):
+    /// `<tenant>$server`, lower case, shortened as [`build_role_name`] is.
+    /// No tenant role has this name: a tenant name cannot hold `$`.
+    ///
+    /// The caller passes a schema name that is already checked.
+    pub fn server_role_name(schema_name: &str) -> String {
+        suffixed_role_name(schema_name, "server")
+    }
+
+    /// `<schema>$<suffix>`, or, past 63 bytes, the start of the name,
+    /// `$<suffix>$` and 16 hex digits of the SHA-256 of the name, 63 bytes in
+    /// all (the start is 40 characters for `build`, 39 for `server`).
+    fn suffixed_role_name(schema_name: &str, suffix: &str) -> String {
         use sha2::Digest;
         let name = schema_name.to_lowercase();
-        if name.len() + "$build".len() <= 63 {
-            format!("{name}$build")
+        if name.len() + 1 + suffix.len() <= 63 {
+            format!("{name}${suffix}")
         } else {
             let digest = sha2::Sha256::digest(name.as_bytes());
             let short = hex::encode(&digest[..8]);
-            format!("{}$build${}", &name[..40], short)
+            let keep = 63 - 2 - suffix.len() - short.len();
+            format!("{}${suffix}${}", &name[..keep], short)
         }
     }
 
@@ -717,6 +761,468 @@ mod postgres_impl {
                 })?;
         }
         Ok(())
+    }
+
+    /// The tables that a tenant's server pool reads and writes, in the
+    /// tenant's own schema (CLOACINA-T-1080). Its role gets
+    /// [`SERVER_ROLE_VERBS`] on each, `USAGE` on their sequences and `USAGE`
+    /// on the schema: no other table, no `CREATE`, no default privileges.
+    /// The list is the same for every tenant, `public` included.
+    ///
+    /// The global tables ([`SERVER_GLOBAL_TABLES`]) are not here: they are in
+    /// the schema [`GLOBAL_SCHEMA`], and the server reads them through the
+    /// admin pool only. `delivery_outbox` is here for the schema's own copy:
+    /// the run-finished notices of the tenant's runs (the global outbox is
+    /// `cloacina_global.delivery_outbox`). The reactive state, the firings and
+    /// the reactor subscriptions of a tenant are in its own schema.
+    ///
+    /// A table that a later migration adds is one more line here, in
+    /// [`SERVER_GLOBAL_TABLES`] or in [`SERVER_BOOKKEEPING_TABLES`]: the grants
+    /// are given again after each migration, and a test fails on a table in
+    /// no list.
+    pub const SERVER_ROLE_TABLES: &[&str] = &[
+        "accumulator_boundaries",
+        "accumulator_checkpoints",
+        "contexts",
+        "delivery_outbox",
+        "execution_events",
+        "package_artifacts",
+        "package_providers",
+        "package_signatures",
+        "reactor_firings",
+        "reactor_state",
+        "reactor_trigger_subscriptions",
+        "recovery_events",
+        "schedule_executions",
+        "schedules",
+        "secrets",
+        "state_accumulator_buffers",
+        "task_attempt_errors",
+        "task_execution_metadata",
+        "task_executions",
+        "tenant_data_keys",
+        "workflow_execution_package_pins",
+        "workflow_executions",
+        "workflow_packages",
+        "workflow_registry",
+    ];
+
+    /// The verbs of the server role on each table of [`SERVER_ROLE_TABLES`].
+    pub const SERVER_ROLE_VERBS: &str = "SELECT, INSERT, UPDATE, DELETE";
+
+    /// The schema of the global tables (CLOACINA-T-1080). A tenant cannot
+    /// have this name.
+    pub const GLOBAL_SCHEMA: &str = "cloacina_global";
+
+    /// The table in [`GLOBAL_SCHEMA`] whose one row says which release last
+    /// moved the global tables (CLOACINA-T-1080): `id = 1`, `written_by`,
+    /// `moved_at`. The release check of the schema (CLOACINA-T-1087) reads
+    /// `written_by` before the move.
+    pub const GLOBAL_LAYOUT_TABLE: &str = "cloacina_global_layout";
+
+    /// The global tables (CLOACINA-T-1080): rows of every tenant, read and
+    /// written by the server through the admin pool only. On a server they
+    /// are in [`GLOBAL_SCHEMA`]; the server's start moves them there from
+    /// `public` ([`DatabaseAdmin::split_global_schema`]). Every schema that
+    /// the migrations made has a copy of each; no server role reaches one.
+    /// `delivery_outbox` is not here: its global rows move to
+    /// `cloacina_global.delivery_outbox`, and each schema keeps its own copy.
+    pub const SERVER_GLOBAL_TABLES: &[&str] = &[
+        "agent_capacity_limits",
+        "agent_desired_counts",
+        "agent_pool_scale",
+        "agent_pools",
+        "api_keys",
+        "audit_events",
+        "fleet_agents",
+        "fleet_result_inbox",
+        "key_trust_acls",
+        "local_accounts",
+        "login_throttle",
+        "oidc_login_flows",
+        "oidc_sessions",
+        "reactor_owner_addresses",
+        "signing_keys",
+        "trusted_keys",
+        "ws_tickets",
+    ];
+
+    /// The bookkeeping of each schema (CLOACINA-T-1080): its applied
+    /// migrations and its release row (CLOACINA-T-1087). They stay in each
+    /// schema; only the admin user writes them, and no server role reaches
+    /// them.
+    pub const SERVER_BOOKKEEPING_TABLES: &[&str] =
+        &["__diesel_schema_migrations", "cloacina_schema_release"];
+
+    #[derive(diesel::QueryableByName)]
+    struct SequenceName {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        name: String,
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct ServerVersion {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        version: i32,
+    }
+
+    /// Makes the server role of `schema_name` if it is absent, gives it the
+    /// grants of [`SERVER_ROLE_TABLES`] on each of those tables that exists,
+    /// and makes the connected user a member that may `SET ROLE` to it
+    /// (CLOACINA-T-1080). Safe to run again. Runs inside a transaction that
+    /// holds the migration lock, so two servers never grant at once.
+    ///
+    /// The role is `NOLOGIN`: no password is issued or stored. The server's
+    /// pool connects as the admin user and runs `SET ROLE` at each checkout.
+    /// The membership needs the admin option on the role: Postgres 16 gives
+    /// it to the user that makes the role (with `CREATEROLE`).
+    fn ensure_server_role_in(
+        conn: &mut diesel::PgConnection,
+        schema_name: &str,
+    ) -> Result<(), AdminError> {
+        let role = server_role_name(schema_name);
+        let sql_error = |what: &str, e: diesel::result::Error| AdminError::SqlExecution {
+            message: format!("{what} (role '{role}'): {e}"),
+        };
+        let existing = diesel::sql_query("SELECT COUNT(*) AS n FROM pg_roles WHERE rolname = $1")
+            .bind::<diesel::sql_types::Text, _>(&role)
+            .get_result::<RoleCount>(conn)
+            .map_err(|e| sql_error("Failed to check for the server role", e))?;
+        if existing.n == 0 {
+            let sql = format!("CREATE ROLE \"{}\" NOLOGIN NOINHERIT", role);
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(|e| sql_error("Failed to create the server role", e))?;
+        }
+
+        let mut grants = vec![format!(
+            "GRANT USAGE ON SCHEMA {} TO \"{}\"",
+            schema_name, role
+        )];
+        let mut present_tables = Vec::new();
+        for table in SERVER_ROLE_TABLES {
+            let qualified = format!("{}.{}", schema_name, table);
+            let present = diesel::sql_query("SELECT to_regclass($1) IS NOT NULL AS present")
+                .bind::<diesel::sql_types::Text, _>(&qualified)
+                .get_result::<TablePresent>(conn)
+                .map_err(|e| sql_error(&format!("Failed to look up table '{qualified}'"), e))?
+                .present;
+            if present {
+                grants.push(format!(
+                    "GRANT {} ON {} TO \"{}\"",
+                    SERVER_ROLE_VERBS, qualified, role
+                ));
+                present_tables.push(table.to_string());
+            }
+        }
+        // The sequences of those tables (a serial or identity column).
+        let sequences = diesel::sql_query(
+            "SELECT s.relname::text AS name \
+             FROM pg_catalog.pg_class s \
+             JOIN pg_catalog.pg_depend d ON d.objid = s.oid \
+              AND d.classid = 'pg_catalog.pg_class'::regclass \
+              AND d.refclassid = 'pg_catalog.pg_class'::regclass \
+             JOIN pg_catalog.pg_class t ON t.oid = d.refobjid \
+             JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace \
+             WHERE s.relkind = 'S' AND n.nspname = $1 AND t.relname = ANY($2) \
+             ORDER BY 1",
+        )
+        .bind::<diesel::sql_types::Text, _>(schema_name)
+        .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&present_tables)
+        .load::<SequenceName>(conn)
+        .map_err(|e| sql_error("Failed to list the sequences", e))?;
+        for sequence in sequences {
+            grants.push(format!(
+                "GRANT USAGE ON SEQUENCE {}.\"{}\" TO \"{}\"",
+                schema_name, sequence.name, role
+            ));
+        }
+
+        // The connected user may `SET ROLE` to it. On Postgres 16 and later
+        // it does not inherit the role's rights; before 16 a plain grant is
+        // the only form (the role holds no right the user lacks).
+        let version =
+            diesel::sql_query("SELECT current_setting('server_version_num')::integer AS version")
+                .get_result::<ServerVersion>(conn)
+                .map_err(|e| sql_error("Failed to read the server version", e))?
+                .version;
+        grants.push(if version >= 160000 {
+            format!(
+                "GRANT \"{}\" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE",
+                role
+            )
+        } else {
+            format!("GRANT \"{}\" TO CURRENT_USER", role)
+        });
+
+        for sql in grants {
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(|e| sql_error("Failed to grant", e))?;
+        }
+        Ok(())
+    }
+
+    /// What [`DatabaseAdmin::split_global_schema`] did.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum GlobalSplit {
+        /// The tables of [`SERVER_GLOBAL_TABLES`] that moved from `public`,
+        /// and the outbox rows that moved to `cloacina_global.delivery_outbox`.
+        Moved {
+            tables: Vec<String>,
+            outbox_rows: usize,
+        },
+        /// The mark is one minor ahead of this binary: nothing changed.
+        PreviousMinor { written_by: String },
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct LayoutRow {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        written_by: String,
+    }
+
+    fn present(conn: &mut diesel::PgConnection, qualified: &str) -> Result<bool, AdminError> {
+        diesel::sql_query("SELECT to_regclass($1) IS NOT NULL AS present")
+            .bind::<diesel::sql_types::Text, _>(qualified)
+            .get_result::<TablePresent>(conn)
+            .map(|row| row.present)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to look up table '{qualified}': {e}"),
+            })
+    }
+
+    fn run_sql(conn: &mut diesel::PgConnection, sql: &str) -> Result<usize, AdminError> {
+        diesel::sql_query(sql)
+            .execute(conn)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("{sql}: {e}"),
+            })
+    }
+
+    /// The move of [`DatabaseAdmin::split_global_schema`], inside its
+    /// transaction, as release `own`.
+    pub(crate) fn split_global_schema_in(
+        conn: &mut diesel::PgConnection,
+        own: &str,
+    ) -> Result<GlobalSplit, AdminError> {
+        use crate::database::schema_release::{Verdict, check};
+        take_migration_lock(conn)?;
+        if present(conn, &format!("{GLOBAL_SCHEMA}.__diesel_schema_migrations"))? {
+            return Err(AdminError::InvalidConfig {
+                message: format!(
+                    "a tenant schema is named '{GLOBAL_SCHEMA}'; that name is reserved for the \
+                     server's global tables. Rename or remove that tenant, then start again"
+                ),
+            });
+        }
+        run_sql(
+            conn,
+            &format!("CREATE SCHEMA IF NOT EXISTS {GLOBAL_SCHEMA}"),
+        )?;
+        run_sql(
+            conn,
+            &format!(
+                "CREATE TABLE IF NOT EXISTS {GLOBAL_SCHEMA}.{GLOBAL_LAYOUT_TABLE} (\
+                 id INTEGER PRIMARY KEY CHECK (id = 1), \
+                 written_by TEXT NOT NULL, \
+                 moved_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+            ),
+        )?;
+        let written_by = diesel::sql_query(format!(
+            "SELECT written_by FROM {GLOBAL_SCHEMA}.{GLOBAL_LAYOUT_TABLE} WHERE id = 1"
+        ))
+        .get_results::<LayoutRow>(conn)
+        .map_err(|e| AdminError::SqlExecution {
+            message: format!("Failed to read the global layout mark: {e}"),
+        })?
+        .into_iter()
+        .next()
+        .map(|row| row.written_by);
+        let write = match check(own, written_by.as_deref())
+            .map_err(|message| AdminError::InvalidConfig { message })?
+        {
+            Verdict::PreviousMinor { written_by } => {
+                return Ok(GlobalSplit::PreviousMinor { written_by });
+            }
+            Verdict::Migrate { write } => write,
+        };
+
+        let mut moved = Vec::new();
+        for table in SERVER_GLOBAL_TABLES {
+            let in_public = present(conn, &format!("public.{table}"))?;
+            let in_global = present(conn, &format!("{GLOBAL_SCHEMA}.{table}"))?;
+            match (in_public, in_global) {
+                (true, false) => {
+                    run_sql(
+                        conn,
+                        &format!("ALTER TABLE public.{table} SET SCHEMA {GLOBAL_SCHEMA}"),
+                    )?;
+                    moved.push(table.to_string());
+                }
+                (true, true) => {
+                    return Err(AdminError::InvalidConfig {
+                        message: format!(
+                            "'{table}' is in both public and {GLOBAL_SCHEMA}; the server does \
+                             not choose between them"
+                        ),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // The outbox: `public` keeps its own run-finished notices; every
+        // other row is global.
+        let mut outbox_rows = 0;
+        if present(conn, "public.delivery_outbox")?
+            && !present(conn, &format!("{GLOBAL_SCHEMA}.delivery_outbox"))?
+        {
+            let global = format!("{GLOBAL_SCHEMA}.delivery_outbox");
+            for sql in [
+                format!("CREATE TABLE {global} (LIKE public.delivery_outbox INCLUDING ALL)"),
+                format!("CREATE SEQUENCE {global}_id_seq OWNED BY {global}.id"),
+                format!(
+                    "ALTER TABLE {global} ALTER COLUMN id SET DEFAULT \
+                     nextval('{global}_id_seq'::regclass)"
+                ),
+                format!(
+                    "SELECT setval('{global}_id_seq'::regclass, \
+                     COALESCE((SELECT max(id) FROM public.delivery_outbox), 0) + 1, false)"
+                ),
+                format!(
+                    "CREATE TRIGGER delivery_outbox_notify_trg AFTER INSERT ON {global} \
+                     FOR EACH ROW EXECUTE FUNCTION public.delivery_outbox_notify()"
+                ),
+            ] {
+                run_sql(conn, &sql)?;
+            }
+            outbox_rows = diesel::sql_query(format!(
+                "INSERT INTO {global} SELECT * FROM public.delivery_outbox WHERE recipient <> $1"
+            ))
+            .bind::<diesel::sql_types::Text, _>(crate::run_alerts::RECIPIENT)
+            .execute(conn)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to move the global outbox rows: {e}"),
+            })?;
+            diesel::sql_query("DELETE FROM public.delivery_outbox WHERE recipient <> $1")
+                .bind::<diesel::sql_types::Text, _>(crate::run_alerts::RECIPIENT)
+                .execute(conn)
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Failed to move the global outbox rows: {e}"),
+                })?;
+        }
+
+        if write {
+            diesel::sql_query(format!(
+                "INSERT INTO {GLOBAL_SCHEMA}.{GLOBAL_LAYOUT_TABLE} (id, written_by, moved_at) \
+                 VALUES (1, $1, now()) \
+                 ON CONFLICT (id) DO UPDATE SET written_by = EXCLUDED.written_by, \
+                 moved_at = EXCLUDED.moved_at"
+            ))
+            .bind::<diesel::sql_types::Text, _>(own)
+            .execute(conn)
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Failed to write the global layout mark: {e}"),
+            })?;
+        }
+        Ok(GlobalSplit::Moved {
+            tables: moved,
+            outbox_rows,
+        })
+    }
+
+    impl DatabaseAdmin {
+        /// Moves the global tables out of `public` into [`GLOBAL_SCHEMA`]
+        /// (CLOACINA-T-1080). The server runs it at start, after the
+        /// migrations of `public`; embedded use and the daemon never do.
+        ///
+        /// One transaction under the migration lock, safe to run again:
+        /// - a schema `cloacina_global` with migrations (a tenant of that
+        ///   name) stops it;
+        /// - the mark [`GLOBAL_LAYOUT_TABLE`] is read with the release check
+        ///   of CLOACINA-T-1087: a mark more than one minor ahead is refused,
+        ///   one minor ahead changes nothing;
+        /// - each table of [`SERVER_GLOBAL_TABLES`] still in `public` moves;
+        /// - `cloacina_global.delivery_outbox` is made once, and every row of
+        ///   `public.delivery_outbox` that is not a run-finished notice moves
+        ///   to it;
+        /// - the mark is raised to this release.
+        pub async fn split_global_schema(&self) -> Result<GlobalSplit, AdminError> {
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            conn.interact(|conn| {
+                conn.transaction::<GlobalSplit, AdminError, _>(|conn| {
+                    split_global_schema_in(conn, crate::database::schema_release::RELEASE)
+                })
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
+
+        /// Runs the pending migrations of `public` with the search path
+        /// `public, cloacina_global` (CLOACINA-T-1080): the migration table
+        /// and a new table are in `public`, and a later migration that
+        /// changes a global table finds it in `cloacina_global` once the
+        /// server has moved it. Under the migration lock and the release
+        /// check, as any schema. Returns how many ran.
+        pub async fn migrate_public_schema(&self) -> Result<usize, AdminError> {
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            conn.interact(|conn| {
+                let result =
+                    conn.transaction::<usize, AdminError, _>(|conn: &mut diesel::PgConnection| {
+                        run_sql(
+                            conn,
+                            &format!("SET LOCAL search_path TO public, {GLOBAL_SCHEMA}"),
+                        )?;
+                        crate::database::migration_lock::run_pending_postgres_migrations_locked(
+                            conn,
+                        )
+                        .map_err(|message| AdminError::SqlExecution { message })
+                    });
+                result
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
+    }
+
+    impl DatabaseAdmin {
+        /// Makes the server role of `schema_name` if it is absent, gives it
+        /// its grants and the connected user's membership, under the
+        /// migration lock (CLOACINA-T-1080). A tenant schema gets it at
+        /// tenant create and with each migration run. The server does not
+        /// make one for `public`: the pool of `public` is the admin pool.
+        pub async fn ensure_server_role(&self, schema_name: &str) -> Result<(), AdminError> {
+            validate_build_schema(schema_name)?;
+            let schema_name = schema_name.to_string();
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            conn.interact(move |conn| {
+                conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                    take_migration_lock(conn)?;
+                    ensure_server_role_in(conn, &schema_name)
+                })
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
     }
 
     impl DatabaseAdmin {
@@ -858,6 +1364,7 @@ mod postgres_impl {
     pub const TENANT_FLEET_ROWS: &[(&str, &str)] = &[
         ("agent_capacity_limits", "tenant_id = $1"),
         ("agent_desired_counts", "tenant_id = $1"),
+        ("agent_pool_scale", "tenant_id = $1"),
         ("agent_pools", "tenant_id = $1"),
         ("fleet_agents", "tenant_id = $1"),
     ];
@@ -1009,6 +1516,37 @@ mod postgres_impl {
             // 57 characters still fit with the plain suffix.
             let fits = "y".repeat(57);
             assert_eq!(build_role_name(&fits), format!("{fits}$build"));
+        }
+
+        #[test]
+        fn server_role_name_is_no_tenant_name_and_fits() {
+            assert_eq!(server_role_name("acme"), "acme$server");
+            assert_eq!(server_role_name("Acme"), "acme$server");
+            assert!(validate_username(&server_role_name("acme")).is_err());
+            let long = "a".repeat(63);
+            let role = server_role_name(&long);
+            assert_eq!(role.len(), 63, "{role}");
+            assert!(role.starts_with(&format!("{}$server$", "a".repeat(39))));
+            assert_ne!(role, build_role_name(&long));
+            crate::database::connection::validate_role_name(&role).expect("a role name");
+            crate::database::connection::validate_role_name(&server_role_name("acme"))
+                .expect("a role name");
+        }
+
+        #[test]
+        fn a_session_role_name_is_checked() {
+            use crate::database::connection::validate_role_name;
+            for bad in [
+                "",
+                "Acme$server",
+                "a\"b",
+                "a b",
+                "1abc",
+                "a;b",
+                &"a".repeat(64),
+            ] {
+                assert!(validate_role_name(bad).is_err(), "{bad:?}");
+            }
         }
 
         #[test]

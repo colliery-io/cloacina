@@ -330,7 +330,7 @@ mod waiting_task_stats_tests {
         let overdue = create_task(&dal, wf, "overdue", "Ready").await;
         let overdue_at = before - Duration::seconds(120);
         dal.task_execution()
-            .schedule_retry(overdue, UniversalTimestamp(overdue_at), 2)
+            .schedule_retry(overdue, UniversalTimestamp(overdue_at), 2, None)
             .await
             .unwrap();
         // Not counted: a retry in backoff.
@@ -340,6 +340,7 @@ mod waiting_task_stats_tests {
                 backoff,
                 UniversalTimestamp(before + Duration::seconds(600)),
                 2,
+                None,
             )
             .await
             .unwrap();
@@ -495,7 +496,7 @@ mod waiting_task_stats_tests {
         // The backoff ends in 300 ms.
         let due_at = UniversalTimestamp(Utc::now() + Duration::milliseconds(300));
         dal.task_execution()
-            .schedule_retry(task, due_at, 2)
+            .schedule_retry(task, due_at, 2, None)
             .await
             .unwrap();
         assert_eq!(waiting_since(&dal, task).await, Some(due_at));
