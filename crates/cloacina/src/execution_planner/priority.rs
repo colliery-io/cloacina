@@ -247,6 +247,8 @@ mod tests {
             task_priority: own,
             fleet_dispatch_claimed_by: None,
             task_priority_asked: None,
+            wait_reason: None,
+            wait_message: None,
         }
     }
 

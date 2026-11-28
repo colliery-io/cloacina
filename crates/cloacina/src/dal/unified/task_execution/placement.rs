@@ -177,6 +177,9 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::fleet_agent_id.eq(Some(agent_id)),
                 task_executions::cpu_request_millis.eq(cpu),
                 task_executions::memory_request_bytes.eq(memory),
+                // CLOACINA-T-1148: a placed task no longer waits.
+                task_executions::wait_reason.eq(None::<String>),
+                task_executions::wait_message.eq(None::<String>),
                 task_executions::updated_at.eq(now),
             ))
             .execute(conn)

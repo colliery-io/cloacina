@@ -101,6 +101,14 @@ pub struct TaskExecution {
     /// its workflow's.
     #[serde(default)]
     pub task_priority_asked: Option<i32>,
+    /// Why the task waits, as a short code (CLOACINA-T-1148), for example
+    /// `no_capacity`. Set where the fleet puts the task off; `None` when it
+    /// does not wait, once it is placed or starts, and after it ends.
+    #[serde(default)]
+    pub wait_reason: Option<String>,
+    /// The wait reason in words (CLOACINA-T-1148).
+    #[serde(default)]
+    pub wait_message: Option<String>,
 }
 
 fn default_priority() -> i32 {

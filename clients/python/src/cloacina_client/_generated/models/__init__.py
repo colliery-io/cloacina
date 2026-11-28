@@ -107,6 +107,7 @@ from .secret_deleted_response import SecretDeletedResponse
 from .secret_metadata_response import SecretMetadataResponse
 from .task_attempt_error_detail import TaskAttemptErrorDetail
 from .task_execution_detail import TaskExecutionDetail
+from .task_wait_reason import TaskWaitReason
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_backfill_summary import TenantListResponseBackfillSummary
 from .tenant_list_response_backfill_summary_items_item import (
@@ -259,6 +260,7 @@ __all__ = (
     "SecretMetadataResponse",
     "TaskAttemptErrorDetail",
     "TaskExecutionDetail",
+    "TaskWaitReason",
     "TenantCreatedResponse",
     "TenantListResponseBackfillSummary",
     "TenantListResponseBackfillSummaryItemsItem",

@@ -1445,6 +1445,23 @@ first, also for a task that was retried and then succeeded. Each entry has
 `null`) and `failed_at` (RFC 3339). It is empty when no attempt failed. For a
 failed task the last entry is the error in `last_error` and `error_details`.
 
+`wait_reason` says why a task waits while the agent fleet puts it off:
+`{"code": "...", "message": "..."}`. It is `null` when the task does not
+wait, once it is placed on an agent or starts, and after it ends. The message
+names the tenant, the pool and the numbers. The codes are an open set; a
+client shows a code it does not know with its message.
+
+| Code | The task waits because |
+|---|---|
+| `plugin_interface` | no agent of its tenant and pool loads the package's plugin interface version |
+| `no_agent` | no agent of its tenant and pool is live |
+| `platform` | no agent of its tenant and pool runs on a platform the package is built for |
+| `too_large` | it requests more CPU or memory than any agent of its pool holds |
+| `no_capacity` | the agents that can run it have no free slot or no room for its requests |
+| `agent_refused` | the agent it was sent to refused it: full or shutting down |
+| `artifact_fetch` | the agent could not fetch the package artifact |
+| `dispatch_retry` | the server could not read the tasks in flight or write the placement |
+
 **Errors:**
 
 | Status | Body |

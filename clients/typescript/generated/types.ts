@@ -2843,6 +2843,21 @@ export interface components {
             task_name: string;
             /** @description Row-updated timestamp (RFC 3339) — always present; a fallback "end". */
             updated_at: string;
+            wait_reason?: components["schemas"]["TaskWaitReason"] | null;
+        };
+        /**
+         * @description Why a task waits (CLOACINA-T-1148): a short code and the same in words.
+         *
+         *     The codes are an open set: a client shows an unknown code with its
+         *     message. The codes of this release: `plugin_interface`, `no_agent`,
+         *     `platform`, `too_large`, `no_capacity`, `agent_refused`,
+         *     `artifact_fetch`, `dispatch_retry`.
+         */
+        TaskWaitReason: {
+            /** @description A short code, for example `no_capacity`. */
+            code: string;
+            /** @description The reason in words, with the tenant, the pool and the numbers. */
+            message: string;
         };
         /**
          * @description `201 Created` body for a new tenant. Password and connection string are
