@@ -95,11 +95,18 @@ def sync_detailed(
     Args:
         tenant_id (str):
         pool (str):
-        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021).
+        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021), as a
+            request
+            sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
 
             Each field is optional. A field that is absent means the server-wide
             default (`CLOACINA_AGENT_*` on the server). The settings apply to every
             managed agent of the pool: a pool has one size of agent.
+
+            A request with an unknown field is refused. The answers of the pool
+            routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+            so that an older client reads an answer of a newer server
+            (CLOACINA-T-1149).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -136,11 +143,18 @@ def sync(
     Args:
         tenant_id (str):
         pool (str):
-        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021).
+        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021), as a
+            request
+            sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
 
             Each field is optional. A field that is absent means the server-wide
             default (`CLOACINA_AGENT_*` on the server). The settings apply to every
             managed agent of the pool: a pool has one size of agent.
+
+            A request with an unknown field is refused. The answers of the pool
+            routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+            so that an older client reads an answer of a newer server
+            (CLOACINA-T-1149).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -172,11 +186,18 @@ async def asyncio_detailed(
     Args:
         tenant_id (str):
         pool (str):
-        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021).
+        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021), as a
+            request
+            sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
 
             Each field is optional. A field that is absent means the server-wide
             default (`CLOACINA_AGENT_*` on the server). The settings apply to every
             managed agent of the pool: a pool has one size of agent.
+
+            A request with an unknown field is refused. The answers of the pool
+            routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+            so that an older client reads an answer of a newer server
+            (CLOACINA-T-1149).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -211,11 +232,18 @@ async def asyncio(
     Args:
         tenant_id (str):
         pool (str):
-        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021).
+        body (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021), as a
+            request
+            sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
 
             Each field is optional. A field that is absent means the server-wide
             default (`CLOACINA_AGENT_*` on the server). The settings apply to every
             managed agent of the pool: a pool has one size of agent.
+
+            A request with an unknown field is refused. The answers of the pool
+            routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+            so that an older client reads an answer of a newer server
+            (CLOACINA-T-1149).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

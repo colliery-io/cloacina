@@ -6026,6 +6026,28 @@
         },
         "additionalProperties": false
       },
+      "AgentEgressPortInfo": {
+        "type": "object",
+        "description": "One port of an [`AgentEgressRuleInfo`]. An unknown field is ignored\n(CLOACINA-T-1149).",
+        "required": [
+          "port"
+        ],
+        "properties": {
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Port number, 1 to 65535.",
+            "minimum": 0
+          },
+          "protocol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`TCP` (the default), `UDP` or `SCTP`."
+          }
+        }
+      },
       "AgentEgressRule": {
         "type": "object",
         "description": "One extra egress rule: a CIDR block the agent pods may reach, on the listed\nports. No ports means every port.",
@@ -6046,6 +6068,26 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentEgressRuleInfo": {
+        "type": "object",
+        "description": "One extra egress rule, as the pool routes return it. An unknown field is\nignored (CLOACINA-T-1149).",
+        "required": [
+          "cidr"
+        ],
+        "properties": {
+          "cidr": {
+            "type": "string",
+            "description": "IPv4 or IPv6 CIDR block."
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEgressPortInfo"
+            },
+            "description": "Ports the rule allows. Empty: every port."
+          }
+        }
       },
       "AgentInfo": {
         "type": "object",
@@ -6130,7 +6172,7 @@
             "description": "Pool name. Every tenant has `default`."
           },
           "settings": {
-            "$ref": "#/components/schemas/AgentPoolSettings",
+            "$ref": "#/components/schemas/AgentPoolSettingsInfo",
             "description": "The pool's settings as stored. A field that is absent means the\nserver-wide default."
           },
           "tenant_id": {
@@ -6140,7 +6182,7 @@
       },
       "AgentPoolSettings": {
         "type": "object",
-        "description": "Settings of one agent pool of a tenant (CLOACINA-T-1021).\n\nEach field is optional. A field that is absent means the server-wide\ndefault (`CLOACINA_AGENT_*` on the server). The settings apply to every\nmanaged agent of the pool: a pool has one size of agent.",
+        "description": "Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request\nsends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).\n\nEach field is optional. A field that is absent means the server-wide\ndefault (`CLOACINA_AGENT_*` on the server). The settings apply to every\nmanaged agent of the pool: a pool has one size of agent.\n\nA request with an unknown field is refused. The answers of the pool\nroutes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,\nso that an older client reads an answer of a newer server\n(CLOACINA-T-1149).",
         "properties": {
           "automount_service_account_token": {
             "type": [
@@ -6257,6 +6299,125 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentPoolSettingsInfo": {
+        "type": "object",
+        "description": "The settings of one agent pool, as the pool routes return them. The same\nfields and the same JSON as [`AgentPoolSettings`], but an unknown field is\nignored: a client reads an answer of a newer server (CLOACINA-T-1149).",
+        "properties": {
+          "automount_service_account_token": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "The pod's `automountServiceAccountToken`. Absent means `false`."
+          },
+          "cpu_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU limit of the agent container, a Kubernetes quantity (`4`)."
+          },
+          "cpu_request": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU request of the agent container, a Kubernetes quantity (`500m`)."
+          },
+          "extra_egress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEgressRuleInfo"
+            },
+            "description": "Extra egress rules for the pool's pods, added to the default (cluster\nDNS and the server only)."
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`."
+          },
+          "max_agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Most agents of the pool.",
+            "minimum": 0
+          },
+          "max_concurrency": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many tasks one agent runs at the same time. Absent: the agent's\nown default.",
+            "minimum": 0
+          },
+          "memory_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory limit of the agent container, a Kubernetes quantity (`32Gi`)."
+          },
+          "memory_request": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory request of the agent container, a Kubernetes quantity (`8Gi`)."
+          },
+          "min_agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Fewest agents of the pool. Absent: the pool keeps `max_agents` agents.",
+            "minimum": 0
+          },
+          "pod_annotations": {
+            "type": "object",
+            "description": "Annotations added to the pool's pods.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "pod_labels": {
+            "type": "object",
+            "description": "Labels added to the pool's pods.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "service_account_annotations": {
+            "type": "object",
+            "description": "Annotations the actuator puts on that ServiceAccount.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "service_account_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the Kubernetes ServiceAccount the agent pods run as. Absent:\nthe namespace's `default` ServiceAccount."
+          }
+        }
       },
       "AuditEventInfo": {
         "type": "object",
@@ -7787,7 +7948,7 @@
                   "description": "Pool name. Every tenant has `default`."
                 },
                 "settings": {
-                  "$ref": "#/components/schemas/AgentPoolSettings",
+                  "$ref": "#/components/schemas/AgentPoolSettingsInfo",
                   "description": "The pool's settings as stored. A field that is absent means the\nserver-wide default."
                 },
                 "tenant_id": {
