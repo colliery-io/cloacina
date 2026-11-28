@@ -86,6 +86,7 @@ pub mod actions {
     pub const BACKFILL_RETRY: Action = action("backfill.retry", "backfill");
     pub const KEY_CREATE: Action = action("key.create", "key");
     pub const KEY_REVOKE: Action = action("key.revoke", "key");
+    pub const KEY_UPDATE: Action = action("key.update", "key");
     pub const TENANT_CREATE: Action = action("tenant.create", "tenant");
     pub const TENANT_DELETE: Action = action("tenant.delete", "tenant");
     pub const SECRET_CREATE: Action = action("secret.create", "secret");

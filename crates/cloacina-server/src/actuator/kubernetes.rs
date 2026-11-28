@@ -3252,6 +3252,7 @@ mod tests {
             is_admin: false,
             expires_at,
             issued_via: None,
+            max_priority: None,
         }
     }
 

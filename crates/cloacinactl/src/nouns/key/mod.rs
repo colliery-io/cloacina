@@ -58,6 +58,24 @@ enum KeyVerb {
         /// example `2027-01-31T00:00:00Z`. Not set: the key does not expire.
         #[arg(long)]
         expires_at: Option<String>,
+        /// The highest priority the key may set, 0 (the highest) to 10
+        /// (CLOACINA-T-1123). Not set: the default of its role. Not on a
+        /// `read` or `agent` key.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=10))]
+        max_priority: Option<u8>,
+    },
+    /// Set the highest priority a key of the tenant may set
+    /// (`PATCH /v1/tenants/{tenant}/keys/{id}`, CLOACINA-T-1123). Applies to
+    /// the key's next request and to the next run of each package and
+    /// schedule it set a priority for.
+    SetPriority {
+        id: String,
+        /// 0 (the highest) to 10.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=10), required_unless_present = "clear")]
+        max_priority: Option<u8>,
+        /// Clear the key's own limit: the default of its role again.
+        #[arg(long, conflicts_with = "max_priority")]
+        clear: bool,
     },
     List,
     Revoke {
@@ -110,6 +128,7 @@ impl KeyCmd {
                 role,
                 platform_admin,
                 expires_at,
+                max_priority,
             },
             Some(tenant),
         ) = (&self.verb, tenant.as_deref())
@@ -125,21 +144,41 @@ impl KeyCmd {
                 name,
                 KeyVerb::role_str(*role),
                 expires_at.as_deref(),
+                *max_priority,
                 output,
             )
             .await;
         }
 
         match self.verb {
+            KeyVerb::SetPriority {
+                id,
+                max_priority,
+                clear,
+            } => {
+                let tenant = tenant.as_deref().unwrap_or("public");
+                let limit = if clear { None } else { max_priority };
+                let resp: serde_json::Value = client
+                    .patch(
+                        &format!("{}/{id}", tenant_key::tenant_keys_path(tenant)),
+                        &serde_json::json!({ "max_priority": limit }),
+                    )
+                    .await?;
+                render::object(&resp, output)
+            }
             KeyVerb::Create {
                 name,
                 role,
                 platform_admin,
                 expires_at,
+                max_priority,
             } => {
                 let mut body = KeyVerb::create_body(&name, role, platform_admin);
                 if let Some(at) = &expires_at {
                     body["expires_at"] = serde_json::Value::String(at.clone());
+                }
+                if let Some(limit) = max_priority {
+                    body["max_priority"] = limit.into();
                 }
                 let resp: serde_json::Value = client.post("/v1/auth/keys", &body).await?;
 

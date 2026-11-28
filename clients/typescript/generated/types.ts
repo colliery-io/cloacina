@@ -746,7 +746,14 @@ export interface paths {
         delete: operations["revoke_tenant_key"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * PATCH /tenants/:tenant_id/keys/:key_id — set or clear the highest priority
+         *     a key of the tenant may set (CLOACINA-T-1123). Needs `keys.manage` in the
+         *     tenant. The new limit applies to the key's next request, on every replica,
+         *     and to the next run of each package and schedule the key set a priority
+         *     for.
+         */
+        patch: operations["update_tenant_key"];
         trace?: never;
     };
     "/v1/tenants/{tenant_id}/pools": {
@@ -1721,6 +1728,12 @@ export interface components {
             max_active_runs: number;
             /** @description Parameter values for each run, as stored. */
             params?: unknown;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when `given` is lower than `asked`: what was asked, what is
+             *     given, and why.
+             */
+            priority_notice?: string | null;
             progress: components["schemas"]["BackfillProgress"];
             /** @description The id of the backfill whose failed intervals this one runs again. */
             retry_of?: string | null;
@@ -1800,6 +1813,14 @@ export interface components {
              */
             params?: unknown;
             /**
+             * Format: int32
+             * @description The workflow priority of each run, 0 (the highest) to 10
+             *     (CLOACINA-T-1123). Each run is held to the creator's limit when it
+             *     starts; a priority above the limit is not refused. Not set: the
+             *     priority the workflow declares.
+             */
+            priority?: number | null;
+            /**
              * @description Start of the range, an RFC 3339 timestamp. The backfill takes each
              *     fire time `F` of the expression with `start <= F <= end`.
              */
@@ -1840,6 +1861,14 @@ export interface components {
              *     workflow's declared `params(...)` slots.
              */
             params?: unknown;
+            /**
+             * Format: int32
+             * @description The workflow priority of each fire, 0 (the highest) to 10
+             *     (CLOACINA-T-1123). Each fire is held to the creator's limit at the
+             *     time of the fire; a priority above the limit is not refused. Not set:
+             *     the priority the workflow declares.
+             */
+            priority?: number | null;
             /** @description IANA timezone for `cron`. Defaults to `UTC`. */
             timezone?: string | null;
         };
@@ -1851,6 +1880,14 @@ export interface components {
              *     refused with 401 `key_expired`. Not set: the key does not expire.
              */
             expires_at?: string | null;
+            /**
+             * Format: int32
+             * @description Optional. The highest priority the key may set, 0 (the highest) to 10
+             *     (CLOACINA-T-1123). Not set: the default of its role (`write` 5,
+             *     `admin` 0). Not better than the caller's own limit (403); refused on a
+             *     `read` or `agent` key (400).
+             */
+            max_priority?: number | null;
             name: string;
             /**
              * @description `POST /auth/keys` only: make a platform admin key (no tenant, role
@@ -2211,6 +2248,12 @@ export interface components {
             is_admin: boolean;
             /** @description One-time plaintext API key. */
             key: string;
+            /**
+             * Format: int32
+             * @description The highest priority the key may set; `null`: the default of its
+             *     role (CLOACINA-T-1123).
+             */
+            max_priority?: number | null;
             name: string;
             /** @description Role string: `read` | `write` | `admin` | `agent`. */
             permissions: string;
@@ -2229,6 +2272,12 @@ export interface components {
             /** @description Key UUID. */
             id: string;
             is_admin: boolean;
+            /**
+             * Format: int32
+             * @description The highest priority the key may set; `null`: the default of its
+             *     role (CLOACINA-T-1123).
+             */
+            max_priority?: number | null;
             name: string;
             /** @description Role string: `read` | `write` | `admin` | `agent`. */
             permissions: string;
@@ -2455,6 +2504,12 @@ export interface components {
                 /** @description Key UUID. */
                 id: string;
                 is_admin: boolean;
+                /**
+                 * Format: int32
+                 * @description The highest priority the key may set; `null`: the default of its
+                 *     role (CLOACINA-T-1123).
+                 */
+                max_priority?: number | null;
                 name: string;
                 /** @description Role string: `read` | `write` | `admin` | `agent`. */
                 permissions: string;
@@ -2874,6 +2929,12 @@ export interface components {
                 max_active_runs: number;
                 /** @description Parameter values for each run, as stored. */
                 params?: unknown;
+                priority?: components["schemas"]["PriorityGrant"] | null;
+                /**
+                 * @description Set when `given` is lower than `asked`: what was asked, what is
+                 *     given, and why.
+                 */
+                priority_notice?: string | null;
                 progress: components["schemas"]["BackfillProgress"];
                 /** @description The id of the backfill whose failed intervals this one runs again. */
                 retry_of?: string | null;
@@ -2993,6 +3054,12 @@ export interface components {
                 params?: unknown;
                 /** @description Whether the schedule is paused (distinct from `enabled`). */
                 paused?: boolean;
+                priority?: components["schemas"]["PriorityGrant"] | null;
+                /**
+                 * @description Set when `given` is lower than `asked`: what was asked, what is
+                 *     given, and why.
+                 */
+                priority_notice?: string | null;
                 timezone?: string | null;
                 workflow_name: string;
             }[];
@@ -3217,6 +3284,19 @@ export interface components {
             trusted_at: string;
         };
         /**
+         * @description Request body for `PATCH /tenants/{tenant_id}/keys/{key_id}`
+         *     (CLOACINA-T-1123): the highest priority the key may set.
+         */
+        UpdateKeyRequest: {
+            /**
+             * Format: int32
+             * @description 0 (the highest) to 10; `null` clears it, and the key has the default
+             *     of its role again. Not better than the caller's own limit (403);
+             *     refused on a `read` or `agent` key (400).
+             */
+            max_priority?: number | null;
+        };
+        /**
          * @description The caller's own identity + role (CLOACI-T-0803) — lets the UI gate
          *     write/admin controls to the key's role instead of offering actions that
          *     would 403.
@@ -3281,6 +3361,12 @@ export interface components {
              *     new executions until resumed.
              */
             paused?: boolean;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when `given` is lower than `asked`: what was asked, what is
+             *     given, and why.
+             */
+            priority_notice?: string | null;
             /**
              * @description The task dependency graph (nodes + their upstream dependencies) for
              *     rendering the full workflow DAG. Empty for packages predating
@@ -3329,6 +3415,12 @@ export interface components {
             params?: unknown;
             /** @description Whether the schedule is paused (distinct from `enabled`). */
             paused?: boolean;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when `given` is lower than `asked`: what was asked, what is
+             *     given, and why.
+             */
+            priority_notice?: string | null;
             timezone?: string | null;
             workflow_name: string;
         };
@@ -3444,6 +3536,19 @@ export interface components {
         WorkflowUploadedResponse: {
             /** @description UUID of the registered package. */
             package_id: string;
+            /**
+             * Format: int32
+             * @description The highest priority the runs of this package may get, as its
+             *     publisher may set now (CLOACINA-T-1123). A workflow or task that
+             *     declares a higher priority (a smaller number) in its code runs at
+             *     this one. Absent in an answer from an older server.
+             */
+            priority_limit?: number | null;
+            /**
+             * @description Set when the limit is below the highest priority: one sentence that
+             *     says the limit and why. `cloacinactl` prints it as a warning.
+             */
+            priority_notice?: string | null;
             tenant_id: string;
         };
         /**
@@ -5340,6 +5445,71 @@ export interface operations {
                 };
             };
             /** @description Key not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_tenant_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Key UUID */
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description The key, with its new limit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyInfo"];
+                };
+            };
+            /** @description Invalid key ID, a priority outside 0 to 10, a `read` or `agent` key, or a body that is not a key update */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied, or a limit above the caller's own */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Key not found in this tenant, or revoked */
             404: {
                 headers: {
                     [name: string]: unknown;

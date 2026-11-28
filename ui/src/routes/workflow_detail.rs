@@ -348,7 +348,15 @@ pub fn WorkflowDetail() -> impl IntoView {
                             <RelativeTime iso=d.created_at.clone() />
                             " · workflow "
                             <span class="app-muted">{d.workflow_name.clone()}</span>
+                            // CLOACINA-T-1123: what the code declares and
+                            // what its runs get now.
+                            {d.priority.map(|p| crate::util::priority_label(p.asked, p.given))}
                         </span>
+                        {d.priority_notice.clone().map(|notice| view! {
+                            <span class="app-meta app-meta--md" style=format!("color:{}", token::GOLD)>
+                                {notice}
+                            </span>
+                        })}
                     })}
                 }.into_any())
                 actions=Box::new(move || view! {
@@ -581,6 +589,7 @@ pub fn WorkflowDetail() -> impl IntoView {
                             <th>"Instance"</th>
                             <th>"Schedule"</th>
                             <th>"Params"</th>
+                            <th>"Priority"</th>
                             <th>"Next run"</th>
                         </tr>
                     </thead>
@@ -595,6 +604,12 @@ pub fn WorkflowDetail() -> impl IntoView {
                                     .as_ref()
                                     .map(|p| p.to_string())
                                     .unwrap_or_else(|| "—".into());
+                                // CLOACINA-T-1123: asked, and given now.
+                                let priority = i
+                                    .priority
+                                    .map(|p| format!("asked {}, given {}", p.asked, p.given))
+                                    .unwrap_or_else(|| "—".into());
+                                let priority_notice = i.priority_notice.clone().unwrap_or_default();
                                 view! {
                                     <tr>
                                         <td class="app-mono app-small app-fg">{i.instance_name.clone()}</td>
@@ -613,6 +628,7 @@ pub fn WorkflowDetail() -> impl IntoView {
                                                 {params.clone()}
                                             </span>
                                         </td>
+                                        <td class="app-meta" title=priority_notice>{priority}</td>
                                         <td class="app-meta">
                                             {i.next_run_at.as_ref().map(|t| format!("next {t}")).unwrap_or_default()}
                                         </td>

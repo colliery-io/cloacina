@@ -82,7 +82,8 @@ pub use instances::{
     CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, WorkflowInstanceSummary,
 };
 pub use keys::{
-    CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
+    CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, UpdateKeyRequest,
+    WsTicketResponse,
 };
 pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 pub use priority::{

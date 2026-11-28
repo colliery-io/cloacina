@@ -41,6 +41,17 @@ pub struct ApiKeyInfo {
     /// CLOACI-T-0792: minted-key provenance (e.g. `oidc:<issuer>:<sub>` /
     /// `local:<account_id>`; `None` for manual keys).
     pub issued_via: Option<String>,
+    /// CLOACINA-T-1123: the highest priority the key may set, 0 (the
+    /// highest) to 10. `None`: the default of its role.
+    pub max_priority: Option<u8>,
+}
+
+impl ApiKeyInfo {
+    /// True when the key is not revoked and its expiry, if any, has not
+    /// passed.
+    pub fn is_live(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        !self.revoked && self.expires_at.is_none_or(|at| at > now)
+    }
 }
 
 /// The answer of [`ApiKeyDAL::revoke_key_keeping_platform_admin`]
@@ -93,7 +104,58 @@ impl<'a> ApiKeyDAL<'a> {
         is_admin: bool,
         role: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
-        crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role, None).await
+        crud::create_key(
+            self.dal, key_hash, name, tenant_id, is_admin, role, None, None,
+        )
+        .await
+    }
+
+    /// [`Self::create_key_expiring`] with the highest priority the key may
+    /// set (CLOACINA-T-1123). `None`: the default of its role.
+    #[cfg(feature = "postgres")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_key_limited(
+        &self,
+        key_hash: &str,
+        name: &str,
+        tenant_id: Option<&str>,
+        is_admin: bool,
+        role: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        max_priority: Option<u8>,
+    ) -> Result<ApiKeyInfo, ValidationError> {
+        crud::create_key(
+            self.dal,
+            key_hash,
+            name,
+            tenant_id,
+            is_admin,
+            role,
+            expires_at,
+            max_priority,
+        )
+        .await
+    }
+
+    /// Set or clear the highest priority a key may set (CLOACINA-T-1123).
+    /// False when no key that is not revoked has the id.
+    #[cfg(feature = "postgres")]
+    pub async fn set_max_priority(
+        &self,
+        id: uuid::Uuid,
+        max_priority: Option<u8>,
+    ) -> Result<bool, ValidationError> {
+        crud::set_max_priority(self.dal, id, max_priority).await
+    }
+
+    /// The keys minted for one login identity, newest first, revoked ones
+    /// too (CLOACINA-T-1123).
+    #[cfg(feature = "postgres")]
+    pub async fn keys_issued_via(
+        &self,
+        issued_via: &str,
+    ) -> Result<Vec<ApiKeyInfo>, ValidationError> {
+        crud::keys_issued_via(self.dal, issued_via).await
     }
 
     /// [`Self::create_key`] with an expiry (CLOACINA-T-1083). `None`: the key
@@ -109,7 +171,7 @@ impl<'a> ApiKeyDAL<'a> {
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<ApiKeyInfo, ValidationError> {
         crud::create_key(
-            self.dal, key_hash, name, tenant_id, is_admin, role, expires_at,
+            self.dal, key_hash, name, tenant_id, is_admin, role, expires_at, None,
         )
         .await
     }
@@ -135,7 +197,34 @@ impl<'a> ApiKeyDAL<'a> {
         issued_via: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
         crud::mint_key(
-            self.dal, key_hash, name, tenant_id, role, expires_at, issued_via,
+            self.dal, key_hash, name, tenant_id, role, expires_at, issued_via, None,
+        )
+        .await
+    }
+
+    /// [`Self::mint_key`] with the highest priority the key may set
+    /// (CLOACINA-T-1123): the limit of the OIDC mapping rule that matched.
+    #[cfg(feature = "postgres")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn mint_key_limited(
+        &self,
+        key_hash: &str,
+        name: &str,
+        tenant_id: Option<&str>,
+        role: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+        issued_via: &str,
+        max_priority: Option<u8>,
+    ) -> Result<ApiKeyInfo, ValidationError> {
+        crud::mint_key(
+            self.dal,
+            key_hash,
+            name,
+            tenant_id,
+            role,
+            expires_at,
+            issued_via,
+            max_priority,
         )
         .await
     }

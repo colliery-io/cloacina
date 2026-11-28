@@ -54,6 +54,10 @@ pub struct ResolvedPrincipal {
     /// Provenance recorded on the key, e.g. `oidc:<issuer>:<sub>` or
     /// `local:<account_id>`. Also used as the key's display name.
     pub provenance: String,
+    /// The highest priority the minted key may set (CLOACINA-T-1123): the
+    /// limit of the OIDC mapping rule that matched. `None`: the default of
+    /// the role.
+    pub max_priority: Option<u8>,
 }
 
 /// Mint a short-TTL key for a resolved principal. Returns the plaintext key
@@ -74,13 +78,14 @@ pub async fn mint_for_principal(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     let info = dal
         .api_keys()
-        .mint_key(
+        .mint_key_limited(
             &hash,
             &principal.provenance,
             principal.tenant.as_deref(),
             &principal.role,
             expires_at,
             &principal.provenance,
+            principal.max_priority,
         )
         .await
         .map_err(|e| ApiError::internal_logged("failed to mint key", &e))?;
@@ -103,6 +108,7 @@ mod tests {
             tenant: Some("acme".into()),
             role: "write".into(),
             provenance: "oidc:https://idp.example:sub-123".into(),
+            max_priority: None,
         };
         assert_eq!(p.tenant.as_deref(), Some("acme"));
         assert_eq!(p.role, "write");
@@ -113,6 +119,7 @@ mod tests {
             tenant: None,
             role: "read".into(),
             provenance: "local:42".into(),
+            max_priority: None,
         };
         assert!(g.tenant.is_none());
         assert!(g.provenance.starts_with("local:"));

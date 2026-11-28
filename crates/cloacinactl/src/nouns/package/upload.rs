@@ -71,6 +71,11 @@ pub async fn run(
     let status = response.status().as_u16();
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(CliError::from_reqwest)?;
+        // CLOACINA-T-1123: the limit that holds the runs of the package is a
+        // warning on stderr, not a quiet field of the answer.
+        if let Some(notice) = priority_warning(&body) {
+            eprintln!("{notice}");
+        }
         if let Some(id) = body
             .get("package_id")
             .or_else(|| body.get("id"))
@@ -87,4 +92,34 @@ pub async fn run(
         .await
         .unwrap_or(serde_json::Value::Null);
     Err(CliError::from_status(status, body))
+}
+
+/// The warning line of an upload answer: the server's `priority_notice`,
+/// with a `warning:` prefix. `None` when the answer has no notice.
+fn priority_warning(response: &serde_json::Value) -> Option<String> {
+    response
+        .get("priority_notice")
+        .and_then(|notice| notice.as_str())
+        .map(|notice| format!("warning: {notice}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_priority_notice_of_an_upload_is_a_warning() {
+        let held = serde_json::json!({
+            "package_id": "p",
+            "tenant_id": "acme",
+            "priority_limit": 5,
+            "priority_notice": "the runs of this package are held to priority 5 or lower",
+        });
+        assert_eq!(
+            priority_warning(&held).as_deref(),
+            Some("warning: the runs of this package are held to priority 5 or lower")
+        );
+        let admin = serde_json::json!({"package_id": "p", "priority_limit": 0});
+        assert_eq!(priority_warning(&admin), None);
+    }
 }

@@ -28,6 +28,10 @@ class CreateKeyRequest:
         expires_at (None | str | Unset): Optional. When the key expires, as an RFC 3339 timestamp in the
             future (for example `2027-01-31T00:00:00Z`). After it the key is
             refused with 401 `key_expired`. Not set: the key does not expire.
+        max_priority (int | None | Unset): Optional. The highest priority the key may set, 0 (the highest) to 10
+            (CLOACINA-T-1123). Not set: the default of its role (`write` 5,
+            `admin` 0). Not better than the caller's own limit (403); refused on a
+            `read` or `agent` key (400).
         platform_admin (bool | Unset): `POST /auth/keys` only: make a platform admin key (no tenant, role
             `admin`, the platform admin flag). Needs `role: admin`. The tenant
             route refuses `true` with 400 (CLOACINA-T-1065).
@@ -36,6 +40,7 @@ class CreateKeyRequest:
     name: str
     role: KeyRole
     expires_at: None | str | Unset = UNSET
+    max_priority: int | None | Unset = UNSET
     platform_admin: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -50,6 +55,12 @@ class CreateKeyRequest:
         else:
             expires_at = self.expires_at
 
+        max_priority: int | None | Unset
+        if isinstance(self.max_priority, Unset):
+            max_priority = UNSET
+        else:
+            max_priority = self.max_priority
+
         platform_admin = self.platform_admin
 
         field_dict: dict[str, Any] = {}
@@ -62,6 +73,8 @@ class CreateKeyRequest:
         )
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
+        if max_priority is not UNSET:
+            field_dict["max_priority"] = max_priority
         if platform_admin is not UNSET:
             field_dict["platform_admin"] = platform_admin
 
@@ -83,12 +96,22 @@ class CreateKeyRequest:
 
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
+        def _parse_max_priority(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        max_priority = _parse_max_priority(d.pop("max_priority", UNSET))
+
         platform_admin = d.pop("platform_admin", UNSET)
 
         create_key_request = cls(
             name=name,
             role=role,
             expires_at=expires_at,
+            max_priority=max_priority,
             platform_admin=platform_admin,
         )
 

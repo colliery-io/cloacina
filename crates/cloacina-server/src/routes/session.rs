@@ -142,8 +142,9 @@ fn open_refresh_token(sealed: &[u8], login_id: uuid::Uuid) -> Result<String, Str
 /// What a refresh of an OIDC session does (CLOACINA-T-1082).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum OidcScope {
-    /// Mint the new key with this role.
-    Role(String),
+    /// Mint the new key with this role and the highest priority it may set
+    /// (CLOACINA-T-1123; `None` is the role's default).
+    Role(String, Option<u8>),
     /// End this row: the tenant is no longer mapped.
     EndRow(&'static str),
     /// End every row of the login: the IdP ended it.
@@ -164,7 +165,7 @@ pub(crate) async fn oidc_scope_at_refresh(
 
     // Opened before CLOACINA-T-1082: the role of the key, to the deadline.
     let Some(raw) = session.claims.as_deref() else {
-        return Ok(OidcScope::Role(key.permissions.clone()));
+        return Ok(OidcScope::Role(key.permissions.clone(), key.max_priority));
     };
     let mut claims: IdentityClaims = match serde_json::from_str(raw) {
         Ok(c) => c,
@@ -234,7 +235,7 @@ pub(crate) async fn oidc_scope_at_refresh(
 
     let principals = state.oidc_policy.resolve_all(&claims, &session.provider);
     match principals.into_iter().find(|p| p.tenant == key.tenant_id) {
-        Some(p) => Ok(OidcScope::Role(p.role)),
+        Some(p) => Ok(OidcScope::Role(p.role, p.max_priority)),
         None => Ok(OidcScope::EndRow(
             "your identity is no longer mapped to this tenant — sign in again",
         )),
@@ -356,6 +357,7 @@ pub(crate) async fn refresh_with(
             tenant: info.tenant_id.clone(),
             role: info.permissions.clone(),
             provenance: provenance.clone(),
+            max_priority: info.max_priority,
         };
         return match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
             Ok((plaintext, new_info)) => {
@@ -404,39 +406,41 @@ pub(crate) async fn refresh_with(
         // The tenant comes from the persisted key row; the role from the
         // current allowlist run on the login's claims (CLOACINA-T-1082), never
         // from the request. `is_admin` is not a parameter of the mint path.
-        let role = match oidc_scope_at_refresh(&state, checker, &session, &info, now).await {
-            Ok(OidcScope::Role(role)) => role,
-            Ok(OidcScope::EndRow(reason)) => {
-                let _ = dal.api_keys().revoke_key(auth.key_id).await;
-                let _ = dal.oidc_sessions().delete(auth.key_id).await;
-                crate::routes::auth::announce_key_revocation_or_warn(&state).await;
-                info!(provenance = %provenance, "refresh: OIDC session ended: {reason}");
-                return ApiError::unauthorized(reason).into_response();
-            }
-            Ok(OidcScope::EndLogin(reason)) => {
-                let mut keys = vec![auth.key_id];
-                if let Some(login_id) = session.login_id {
-                    keys.extend(
-                        dal.oidc_sessions()
-                            .delete_login(login_id)
-                            .await
-                            .unwrap_or_default(),
-                    );
+        let (role, max_priority) =
+            match oidc_scope_at_refresh(&state, checker, &session, &info, now).await {
+                Ok(OidcScope::Role(role, max_priority)) => (role, max_priority),
+                Ok(OidcScope::EndRow(reason)) => {
+                    let _ = dal.api_keys().revoke_key(auth.key_id).await;
+                    let _ = dal.oidc_sessions().delete(auth.key_id).await;
+                    crate::routes::auth::announce_key_revocation_or_warn(&state).await;
+                    info!(provenance = %provenance, "refresh: OIDC session ended: {reason}");
+                    return ApiError::unauthorized(reason).into_response();
                 }
-                let _ = dal.oidc_sessions().delete(auth.key_id).await;
-                for key in keys {
-                    let _ = dal.api_keys().revoke_key(key).await;
+                Ok(OidcScope::EndLogin(reason)) => {
+                    let mut keys = vec![auth.key_id];
+                    if let Some(login_id) = session.login_id {
+                        keys.extend(
+                            dal.oidc_sessions()
+                                .delete_login(login_id)
+                                .await
+                                .unwrap_or_default(),
+                        );
+                    }
+                    let _ = dal.oidc_sessions().delete(auth.key_id).await;
+                    for key in keys {
+                        let _ = dal.api_keys().revoke_key(key).await;
+                    }
+                    crate::routes::auth::announce_key_revocation_or_warn(&state).await;
+                    info!(provenance = %provenance, "refresh: OIDC login ended: {reason}");
+                    return ApiError::unauthorized(reason).into_response();
                 }
-                crate::routes::auth::announce_key_revocation_or_warn(&state).await;
-                info!(provenance = %provenance, "refresh: OIDC login ended: {reason}");
-                return ApiError::unauthorized(reason).into_response();
-            }
-            Err(e) => return e.into_response(),
-        };
+                Err(e) => return e.into_response(),
+            };
         let principal = ResolvedPrincipal {
             tenant: info.tenant_id.clone(),
             role,
             provenance: provenance.clone(),
+            max_priority,
         };
         return match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
             Ok((plaintext, new_info)) => {

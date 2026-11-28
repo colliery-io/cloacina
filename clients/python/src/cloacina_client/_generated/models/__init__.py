@@ -147,6 +147,7 @@ from .trigger_schedule_info import TriggerScheduleInfo
 from .trigger_schedule_summary import TriggerScheduleSummary
 from .trusted_key_revoked_response import TrustedKeyRevokedResponse
 from .trusted_key_summary import TrustedKeySummary
+from .update_key_request import UpdateKeyRequest
 from .whoami_response import WhoamiResponse
 from .workflow_deleted_response import WorkflowDeletedResponse
 from .workflow_detail import WorkflowDetail
@@ -281,6 +282,7 @@ __all__ = (
     "TriggerScheduleSummary",
     "TrustedKeyRevokedResponse",
     "TrustedKeySummary",
+    "UpdateKeyRequest",
     "WhoamiResponse",
     "WorkflowDeletedResponse",
     "WorkflowDetail",

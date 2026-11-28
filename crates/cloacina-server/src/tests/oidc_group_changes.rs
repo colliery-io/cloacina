@@ -34,6 +34,7 @@ async fn open_login_session(
         tenant: Some("public".to_string()),
         role: role.to_string(),
         provenance: format!("oidc:{TEST_ISSUER}:{subject}"),
+        max_priority: None,
     };
     let (plaintext, info) =
         mint_for_principal(state, &principal, std::time::Duration::from_secs(900))
