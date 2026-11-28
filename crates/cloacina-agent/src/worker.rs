@@ -2618,15 +2618,16 @@ pub(crate) mod tests {
         let settings = warm_settings(
             "warm-grew",
             WarmConfig {
-                max_memory_percent: 10,
+                max_memory_percent: 1,
                 ..warm_config()
             },
         );
         let mut grow = job("g-1", TestAction::Report { secret: None });
-        // Over 10% of 100Mi after any job: the test binary itself is larger.
+        // Over 1% of 100Mi after any job. On Linux only anonymous and shared
+        // memory counts, which stays under 10Mi for the test binary.
         grow.packet.memory_bytes = Some(100 << 20);
         let first = pid_of(run_here_or_in_worker(grow, &settings).await);
-        assert_eq!(settings.warm.idle_len(), 0);
+        assert_eq!(settings.warm.idle_len(), 0, "retired for its memory");
         assert!(!is_alive(first as u32));
         assert_eq!(counts(&settings).retired.get("memory"), Some(&1));
     }
