@@ -233,7 +233,7 @@ def _agent_key_count(soak_override):
         r = _compose(
             soak_override, "exec", "-T", "postgres",
             "psql", "-U", "cloacina", "-d", "cloacina", "-tAc",
-            "SELECT count(*) FROM api_keys WHERE name LIKE 'agent:%'",
+            "SELECT count(*) FROM cloacina_global.api_keys WHERE name LIKE 'agent:%'",
             check=False, capture=True,
         )
         return int((r.stdout or "0").strip() or "0")

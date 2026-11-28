@@ -573,7 +573,8 @@ def cli():
             # trigger from migration 028), so we exercise the wake →
             # relay → sink → WS push → CLI ack → mark_acked path with a
             # synthetic event. Admin (bootstrap) auth → tenant=NULL →
-            # public-schema delivery_outbox.
+            # the global outbox, `cloacina_global.delivery_outbox` since
+            # CLOACINA-T-1080 moved it out of `public`.
             # ─────────────────────────────────────────────────────────
             import uuid as _uuid
             fake_exec_id = str(_uuid.uuid4())
@@ -617,7 +618,7 @@ def cli():
                 # Insert a substrate row directly. tenant_id NULL (admin auth
                 # context); payload = JSON event the CLI will print.
                 _psql(
-                    "INSERT INTO delivery_outbox "
+                    "INSERT INTO cloacina_global.delivery_outbox "
                     "(recipient, kind, tenant_id, payload, delivery_state, "
                     "delivery_attempts, created_at) VALUES "
                     f"('{recipient}', 'execution_event', NULL, "
@@ -632,7 +633,7 @@ def cli():
                 while time.time() < deadline:
                     time.sleep(0.5)
                     state = _psql(
-                        "SELECT delivery_state FROM delivery_outbox "
+                        "SELECT delivery_state FROM cloacina_global.delivery_outbox "
                         f"WHERE recipient = '{recipient}' ORDER BY id DESC LIMIT 1;"
                     ).strip()
                     if state == "acked":
