@@ -55,10 +55,10 @@ class FeatureTest(unittest.TestCase):
         problems, _notes = gherkin.check(self.feature, chapter.steps)
         self.assertEqual(problems, [])
 
-    def test_the_only_gap_is_the_attempt_output(self):
+    def test_no_scenario_is_a_gap(self):
+        # The attempt output is CLOACINA-T-1091, which is in.
         gaps = {s.name: s.gap_tasks for s in self.feature.scenarios if s.is_gap}
-        self.assertEqual(gaps, {"An operator reads the output of a failed attempt with its run":
-                                ["CLOACINA-T-1091"]})
+        self.assertEqual(gaps, {})
 
     def test_the_fixtures(self):
         with contextlib.redirect_stdout(io.StringIO()) as printed:

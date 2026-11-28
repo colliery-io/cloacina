@@ -81,9 +81,7 @@ Feature: The people who run the orchestrator see what it does
     And the server log since the scenario began holds no line a task printed
     And the server log holds no value of team A's secret
 
-  # The output of each attempt is CLOACINA-T-1091 (PR #474), which lands with
-  # the fifth integration branch.
-  @gap @CLOACINA-T-1091
+  # The output of each attempt is CLOACINA-T-1091: the task output route.
   Scenario: An operator reads the output of a failed attempt with its run
     Given team A has published the operations packages
     When team A starts a run of the failing job that fails for good
