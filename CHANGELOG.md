@@ -428,6 +428,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   background (a load-only job, with no secrets and no job data), the old one
   takes the jobs of its key until then, and the new one takes its place. A
   poll's worker is still retired at the cap.
+- **A pool with work steps down one idle agent at a time** (CLOACINA-T-1145).
+  A pool with work in flight that has had an idle agent, and nothing waiting
+  that needs one, for `CLOACINA_AUTOSCALE_IDLE_S` loses one agent per
+  `CLOACINA_AUTOSCALE_COOLDOWN_S`, down to its min. An idle pool still goes
+  straight to its min. Whenever a count is lowered, the actuator removes idle
+  agents first, the one registered last first: the Kubernetes actuator sets
+  `controller.kubernetes.io/pod-deletion-cost` on the pool's pods, the Docker
+  actuator stops the idle agents' containers by id. A busy agent is never
+  removed while an idle one exists. The agent takes `CLOACINA_AGENT_ID` for
+  `--agent-id`.
 
 ### Fixed
 
@@ -471,6 +481,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
+- **Every Kubernetes agent pod rolls once, and the server needs two pod
+  verbs** (CLOACINA-T-1145). The actuator now starts each agent with
+  `CLOACINA_AGENT_ID` set to its pod's name, so the pod template of every
+  pool changes on the first reconcile after the upgrade; the agents drain
+  and restart. The server's ClusterRole needs `list` and `patch` on `pods`;
+  the chart renders them. Without them a pool with a busy agent keeps its
+  pods, and a pool with no busy agent scales down as before.
 - **Database migrations 051 to 079.** The server applies them at start:
   `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
   `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,

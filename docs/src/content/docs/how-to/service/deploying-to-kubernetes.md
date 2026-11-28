@@ -441,6 +441,11 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
 | `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
 | (core) | `persistentvolumeclaims` | `create`, `delete`, `get` | The cache claim `cloacina-compiler-cache` of a tenant's compiler: read to see whether it exists, made once, deleted with the tenant. No `patch`: a claim that exists is never changed. No `list`/`update`. |
+| (core) | `pods` | `list`, `patch` | Before a pool loses agents, list its agent pods by their app label and set `controller.kubernetes.io/pod-deletion-cost` on them, so the ReplicaSet deletes the pods of idle agents first. No `get`/`delete`: the ReplicaSet deletes the pod when the replica count drops. |
+
+Without the `pods` rule (a ClusterRole from an older chart) the actuator
+cannot steer which pod goes: a pool with a busy agent then keeps its pods,
+and a pool with no busy agent scales down as before.
 
 The ClusterRole is cluster-wide, so the `serviceaccounts` rule lets the server
 write a ServiceAccount's annotations in any namespace, as the `secrets` rule

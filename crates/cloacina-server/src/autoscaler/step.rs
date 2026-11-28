@@ -32,8 +32,8 @@ use cloacina_api_types::{AgentPoolSettings, DEFAULT_AGENT_POOL, agent_pool_of};
 use tracing::{info, warn};
 
 use super::{
-    AgentSize, DemandGroup, PoolDecision, PoolView, Room, ScaleConfig, TaskSize, decide_pool,
-    pack_waiting,
+    AgentSize, DemandGroup, PoolDecision, PoolView, Room, ScaleConfig, SpareTimers, TaskSize,
+    decide_pool, pack_waiting,
 };
 use crate::agent_registry::{AgentLoad, fleet_load, free_slots};
 
@@ -92,6 +92,17 @@ pub struct PoolNow {
     pub cpu_offered_millis: u64,
     pub memory_requested_bytes: u64,
     pub memory_offered_bytes: u64,
+    /// Live agents with no task in flight and none placed (CLOACINA-T-1145).
+    pub idle: u32,
+}
+
+impl PoolNow {
+    /// A spare agent (CLOACINA-T-1145): work in flight, an idle agent, and
+    /// nothing waiting that needs one (only work no agent of the pool can
+    /// hold, or none).
+    pub fn spare(&self) -> bool {
+        self.busy && self.idle > 0 && self.needed == 0 && self.waiting <= self.unplaceable
+    }
 }
 
 /// Work out [`PoolNow`] for one pool of a tenant. Pure.
@@ -131,6 +142,10 @@ pub fn pool_now(
     let packing = pack_waiting(&rooms, size, &groups, max_new);
     let waiting: u64 = groups.iter().map(|g| g.count).sum();
     let in_flight = live.iter().any(|a| a.in_flight > 0) || load.values().any(|l| l.tasks > 0);
+    let idle = live
+        .iter()
+        .filter(|a| a.in_flight == 0 && load.get(&a.agent_id).is_none_or(|l| l.tasks == 0))
+        .count() as u32;
 
     // Requested: what is in flight and what waits, each as it counts on an
     // agent of the pool's size. Offered: the totals of the live agents.
@@ -159,6 +174,7 @@ pub fn pool_now(
         cpu_offered_millis: live.iter().filter_map(|a| a.cpu_millis).sum(),
         memory_requested_bytes: mem_req,
         memory_offered_bytes: live.iter().filter_map(|a| a.memory_bytes).sum(),
+        idle,
     }
 }
 
@@ -179,6 +195,9 @@ pub struct StepInputs<'a> {
     pub poll_tenants: &'a HashSet<String>,
     pub default_max_agents: u32,
     pub cfg: &'a ScaleConfig,
+    /// The spare timers of the pools (CLOACINA-T-1145), in this replica's
+    /// memory.
+    pub spare: &'a SpareTimers,
 }
 
 /// Run the autoscale step for every tenant. Errors are logged per tenant and
@@ -294,6 +313,11 @@ pub async fn run(inputs: StepInputs<'_>) {
                 &demand,
                 max.saturating_sub(live_count),
             );
+            // CLOACINA-T-1145: which agents go first if the count is lowered,
+            // for the actuator that reconciles right after this step.
+            let agents = super::removal::PoolAgents::of(pool, &tenant_live, &placements);
+            let ttl = inputs.cfg.interval.saturating_mul(2);
+            super::removal::set_pool_agents(&tenant, pool, agents.clone(), ttl);
             let view = PoolView {
                 desired,
                 live: now_view.live,
@@ -303,6 +327,9 @@ pub async fn run(inputs: StepInputs<'_>) {
                 busy: now_view.busy,
                 idle_since: state.and_then(|s| s.idle_since),
                 last_scaled_down_at: state.and_then(|s| s.last_scaled_down_at),
+                spare_since: inputs
+                    .spare
+                    .observe(&tenant, pool, now_view.spare(), now, ttl),
             };
             let decision = decide_pool(&view, now, inputs.cfg);
             set_gauges(&tenant, pool, &now_view, &view, decision);
@@ -354,33 +381,41 @@ pub async fn run(inputs: StepInputs<'_>) {
                         }
                     }
                 }
+                PoolDecision::StepDown(to) => {
+                    // Read the work again just before the write: the agent
+                    // that goes must still be idle, and nothing wait.
+                    let Some(chosen) = agents.first_idle().cloned() else {
+                        continue;
+                    };
+                    let Some(fresh) =
+                        still_spare(&tenant_dal, pool, settings, &tenant_live, &chosen, max).await
+                    else {
+                        continue;
+                    };
+                    super::removal::set_pool_agents(&tenant, pool, fresh, ttl);
+                    if let Err(e) = write_scale_down(&admin_dal, &tenant, pool, to).await {
+                        warn!(tenant = %tenant, pool = %pool, error = %e, "fleet autoscale: step-down not written");
+                        continue;
+                    }
+                    metrics::counter!("cloacina_fleet_pool_scaled_total", "direction" => "down")
+                        .increment(1);
+                    info!(
+                        tenant = %tenant,
+                        pool = %pool,
+                        from = desired,
+                        to,
+                        agent = %chosen.agent_id,
+                        spare_s = inputs.cfg.idle.as_secs(),
+                        "fleet autoscale: one idle agent of a pool with work goes"
+                    );
+                }
                 PoolDecision::Down(to) => {
                     // Read the work again just before the write: a task placed
                     // since the first read keeps the pool.
                     if still_busy(&tenant_dal, pool, &tenant_live).await {
                         continue;
                     }
-                    let written = if pool == DEFAULT_AGENT_POOL {
-                        match admin_dal
-                            .agent_desired()
-                            .set_desired_autoscaled(&tenant, to)
-                            .await
-                        {
-                            Ok(()) => {
-                                admin_dal
-                                    .agent_pool_scale()
-                                    .record_scale_down(&tenant, pool, None)
-                                    .await
-                            }
-                            Err(e) => Err(e),
-                        }
-                    } else {
-                        admin_dal
-                            .agent_pool_scale()
-                            .record_scale_down(&tenant, pool, Some(to))
-                            .await
-                    };
-                    match written {
+                    match write_scale_down(&admin_dal, &tenant, pool, to).await {
                         Ok(()) => {
                             metrics::counter!("cloacina_fleet_pool_scaled_total", "direction" => "down")
                                 .increment(1);
@@ -401,6 +436,67 @@ pub async fn run(inputs: StepInputs<'_>) {
             }
         }
     }
+}
+
+/// Write a lower count of a pool, and the time of the scale-down. The count
+/// of `default` is its desired count; another pool's is in its scale row.
+#[cfg(feature = "postgres")]
+async fn write_scale_down(
+    admin_dal: &DAL,
+    tenant: &str,
+    pool: &str,
+    to: u32,
+) -> Result<(), cloacina::error::ValidationError> {
+    if pool == DEFAULT_AGENT_POOL {
+        admin_dal
+            .agent_desired()
+            .set_desired_autoscaled(tenant, to)
+            .await?;
+        admin_dal
+            .agent_pool_scale()
+            .record_scale_down(tenant, pool, None)
+            .await
+    } else {
+        admin_dal
+            .agent_pool_scale()
+            .record_scale_down(tenant, pool, Some(to))
+            .await
+    }
+}
+
+/// Is the pool still spare (CLOACINA-T-1145), read again just before a
+/// step-down: `chosen` still idle, and nothing waiting that needs an agent.
+/// Gives the pool's agents as read now. A read that fails counts as not
+/// spare.
+#[cfg(feature = "postgres")]
+async fn still_spare(
+    tenant_dal: &DAL,
+    pool: &str,
+    settings: &AgentPoolSettings,
+    tenant_live: &[FleetAgent],
+    chosen: &super::removal::AgentRef,
+    max: u32,
+) -> Option<super::removal::PoolAgents> {
+    let placements = tenant_dal.task_execution().fleet_placements().await.ok()?;
+    let demand = tenant_dal
+        .task_execution()
+        .waiting_demand_by_pool()
+        .await
+        .ok()?;
+    let live = tenant_live
+        .iter()
+        .filter(|a| agent_pool_of(&a.capabilities) == pool)
+        .count() as u32;
+    let now = pool_now(
+        pool,
+        settings,
+        tenant_live,
+        &placements,
+        &demand,
+        max.saturating_sub(live),
+    );
+    let agents = super::removal::PoolAgents::of(pool, tenant_live, &placements);
+    (now.spare() && agents.idle.first() == Some(chosen)).then_some(agents)
 }
 
 /// Is there work on the pool now: a task placed on one of its agents, or a
@@ -430,7 +526,7 @@ async fn still_busy(tenant_dal: &DAL, pool: &str, tenant_live: &[FleetAgent]) ->
 
 fn set_gauges(tenant: &str, pool: &str, now: &PoolNow, view: &PoolView, decision: PoolDecision) {
     let desired = match decision {
-        PoolDecision::Up(n) | PoolDecision::Down(n) => n,
+        PoolDecision::Up(n) | PoolDecision::Down(n) | PoolDecision::StepDown(n) => n,
         PoolDecision::Hold => view.desired,
     };
     let labels = [("tenant", tenant.to_string()), ("pool", pool.to_string())];
@@ -613,6 +709,50 @@ mod tests {
             3,
         );
         assert_eq!((now.needed, now.unplaceable, now.busy), (0, 1, false));
+    }
+
+    /// CLOACINA-T-1145: a pool with a busy agent and an idle one, and
+    /// nothing waiting, has a spare agent; waiting work that fits, or no idle
+    /// agent, is not spare; an unplaceable task does not count.
+    #[test]
+    fn a_busy_pool_with_an_idle_agent_and_nothing_waiting_is_spare() {
+        let mut busy = agent("a1", "big", 8, Some(8 * GI));
+        busy.in_flight = 1;
+        let idle = agent("a2", "big", 8, Some(8 * GI));
+        let pool = vec![busy.clone(), idle];
+        let now = pool_now("big", &sized("8Gi", 8), &pool, &[], &[], 1);
+        assert_eq!((now.busy, now.idle), (true, 1));
+        assert!(now.spare());
+        let waiting = pool_now(
+            "big",
+            &sized("8Gi", 8),
+            &pool,
+            &[],
+            &[demand("big", Some(GI), 1)],
+            1,
+        );
+        assert!(!waiting.spare(), "a waiting task needs the idle agent");
+        let unplaceable = pool_now(
+            "big",
+            &sized("8Gi", 8),
+            &pool,
+            &[],
+            &[demand("big", Some(16 * GI), 1)],
+            1,
+        );
+        assert!(unplaceable.spare(), "no agent of the pool can hold it");
+        let all_busy = pool_now("big", &sized("8Gi", 8), &[busy], &[], &[], 1);
+        assert!(!all_busy.spare());
+        // A whole idle pool is idle, not spare.
+        let none_busy = pool_now(
+            "big",
+            &sized("8Gi", 8),
+            &[agent("a3", "big", 8, Some(8 * GI))],
+            &[],
+            &[],
+            1,
+        );
+        assert!(!none_busy.busy && !none_busy.spare());
     }
 
     #[test]

@@ -2044,6 +2044,10 @@ pub async fn run(
             // DB (`agent_pool_scale`), not in a per-replica in-memory map:
             // leadership rotates per tick, so the rules hold whichever replica
             // leads (CLOACI-A-0008 refinement).
+            // CLOACINA-T-1145: the spare timers of the pools are the one part
+            // in this replica's memory; a replica that did not lead for a
+            // while starts them again (later, never sooner).
+            let spare_timers = crate::autoscaler::SpareTimers::default();
             let mut ticker = tokio::time::interval(tick);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -2087,6 +2091,7 @@ pub async fn run(
                                             poll_tenants: &poll_tenants,
                                             default_max_agents: default_max,
                                             cfg: &scale_cfg,
+                                            spare: &spare_timers,
                                         })
                                         .await;
                                     }

@@ -162,6 +162,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_SERVER` | Base URL of the `cloacina-server` the agent registers with (used for both REST and the WebSocket ticket mint). Equivalent to `--server`. | None | `http://cloacina-server:8080` | Agent | Yes |
 | `CLOACINA_API_KEY` | API key the agent authenticates with. Its tenant scope determines which tenants' work the agent may receive (REQ-008 tenant isolation). Equivalent to `--api-key`. The agent removes it from its environment at start. | None | `sk-...` | Agent | Yes, or `CLOACINA_API_KEY_FILE` |
 | `CLOACINA_API_KEY_FILE` | Path of a file that holds the agent's API key (surrounding whitespace is ignored). Use it in place of `CLOACINA_API_KEY`; setting both is an error. The agent does not delete the file. Equivalent to `--api-key-file`. | None | `/run/secrets/cloacina/api-key` | Agent | No |
+| `CLOACINA_AGENT_ID` | The agent's id, in place of one the server assigns. Equivalent to `--agent-id`. The Kubernetes actuator sets it to the pod's name, so the server can steer which pod goes when a pool steps down. | (server-assigned) | `cloacina-agent-7d9f8-x2k4p` | Agent | No |
 | `CLOACINA_AGENT_CA_FILE` | PEM file of CA certificates the agent trusts for an `https://` server, in addition to the system roots (CLOACINA-T-1069). A file that cannot be read or holds no certificate stops the agent at start. Equivalent to `--ca-file`. | None | `/etc/cloacina/ca/ca.crt` | Agent | No |
 | `CLOACINA_AGENT_CACHE_DIR` | Directory used to cache fetched workflow cdylibs by digest, so a cache hit skips the REST fetch. Equivalent to `--cache-dir`. | `<TMPDIR>/cloacina-agent-cache` | `/var/lib/cloacina-agent/cache` | Agent | No |
 | `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package or provider archive may unpack to. The agent refuses to load a larger one. Equivalent to `--max-unpacked-bytes`. Use the value of the server. The fleet actuator sets it to the server's value when that is not the default. | `524288000` | `629145600` | Agent | No |
@@ -179,7 +180,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator sets it to `json` on the agents it starts when the server's own `CLOACINA_AGENT_LOG_FORMAT` is `json` (see [Actuator selection](#actuator-selection)). See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 | `CLOACINA_AGENT_TASK_OUTPUT_MASKING` | Replace the exact values of a task's own secrets by `***` in its output, in the agent's log and in the output kept with the result. Exact values only: see [What masking covers](../../how-to/service/find-a-tasks-logs/#what-masking-covers). Equivalent to `--task-output-masking`. The fleet actuator does not set it. | `true` | `false` | Agent | No |
 
-The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
+The remaining agent options — `--capabilities` and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
 
 ---
 
