@@ -107,6 +107,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the compiler is building is refused with `409 package_building`, and
   nothing is removed. A version in any other build state is removed with its
   stored archives.
+- **Fleet: poll triggers run in worker processes** (CLOACINA-T-1143). An
+  agent runs each poll of a poll trigger in a worker process, as a task: with
+  the agent's memory share for a task with no request, and a kill of its
+  process group at `--fleet-poll-timeout-s`. Errors: `poll exceeded its memory
+  limit of <limit>`, `poll exceeded timeout of <n>s`. Warm workers keep a
+  poll's package loaded under a key of their own (kind `poll`): a task never
+  takes a poll's warm worker. A trigger's state in memory lasts as long as
+  its warm worker, so a trigger whose interval is longer than
+  `--warm-worker-idle-seconds` starts fresh at each poll. Measured on a debug
+  build, median of 20: a warm poll under 1 ms, a poll in a new worker 17 ms
+  (Rust) and 90 ms (Python).
 
 ### Fixed
 

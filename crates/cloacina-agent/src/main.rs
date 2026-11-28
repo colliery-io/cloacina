@@ -1276,6 +1276,7 @@ async fn handle_text_frame(
                     ack_tx.clone(),
                     push_id,
                     cache_dir.clone(),
+                    worker::settings(),
                 );
                 return Ok(());
             }
@@ -1913,7 +1914,9 @@ fn spawn_poll_report(
 }
 
 /// CLOACINA-T-1077: run one poll of a poll trigger and report fire or skip.
-/// A poll counts as one packet in flight while it runs.
+/// A poll counts as one packet in flight while it runs. CLOACINA-T-1143: the
+/// poll runs in a worker process; the slot is counted free after the worker
+/// has exited or gone back to the warm pool.
 #[allow(clippy::too_many_arguments)]
 fn spawn_poll_worker(
     http: reqwest::Client,
@@ -1926,25 +1929,32 @@ fn spawn_poll_worker(
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
     cache_dir: Arc<std::path::PathBuf>,
+    settings: Arc<worker::WorkerSettings>,
 ) {
     in_flight.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
         let start = Instant::now();
-        let prepared = prepare_poll(
+        let end = process_poll_packet(
             &packet,
             &target_triple,
             &http,
             &server,
             &api_key,
             cache_dir.as_path(),
+            &settings,
         )
         .await;
-        let outcome = match prepared {
-            poll::Prepared::Run(trigger) => {
-                Some(poll::run_poll(trigger, packet.timeout_seconds).await)
+        let outcome = match end {
+            Some(worker::PacketEnd::Report(outcome)) => Some(outcome),
+            // The server sends no cancel for a poll; an id it named anyway
+            // ends the poll with no report, as for a task.
+            Some(worker::PacketEnd::Cancelled) => {
+                debug!(poll_id = %packet.poll_id, "poll cancelled; no report");
+                finish_and_ack(&ack_tx, push_id);
+                in_flight.fetch_sub(1, Ordering::SeqCst);
+                return;
             }
-            poll::Prepared::Answer(outcome) => Some(outcome),
-            poll::Prepared::Late => None,
+            None => None,
         };
         match outcome {
             Some(outcome) => {
@@ -1980,9 +1990,10 @@ fn spawn_poll_worker(
     });
 }
 
-/// Process-wide cache of the Rust poll triggers this agent opened, keyed by
-/// build digest and trigger name (CLOACINA-T-1077). The library is opened
-/// once per build, so a trigger keeps its state between polls on this agent.
+/// Process-wide cache of the Rust poll triggers this process opened, keyed
+/// by build digest and trigger name (CLOACINA-T-1077). The library is opened
+/// once per build in a process. CLOACINA-T-1143: the process is the poll's
+/// worker, so a trigger keeps its state between the polls of one warm worker.
 type PollTriggerCache = tokio::sync::Mutex<
     std::collections::HashMap<(String, String), Arc<dyn cloacina::cloacina_workflow::Trigger>>,
 >;
@@ -1992,79 +2003,127 @@ fn loaded_poll_triggers() -> &'static PollTriggerCache {
     CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// CLOACINA-T-1077: check a poll packet and give the trigger to run, in the
-/// agent process. A Python package is imported into the per-build runtime the
-/// task path uses (a poll and a task of one build share the import); a Rust
-/// build's library is opened from the artifact cache.
-async fn prepare_poll(
+/// CLOACINA-T-1077, CLOACINA-T-1143: one poll on the agent. The agent
+/// checks the packet and fetches the package files, one time per digest; a
+/// worker process loads the package and runs the poll ([`run_poll_job`]).
+/// `None`: the packet came after the server stopped waiting, and is not run.
+async fn process_poll_packet(
     packet: &PollWorkPacket,
     agent_triple: &str,
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     cache_dir: &std::path::Path,
-) -> poll::Prepared {
+    settings: &worker::WorkerSettings,
+) -> Option<worker::PacketEnd> {
+    use worker::PacketEnd::Report;
     if !poll::still_wanted(packet) {
-        return poll::Prepared::Late;
+        return None;
     }
     if let Some(refusal) = poll::wrong_arch(packet, agent_triple) {
-        return poll::Prepared::Answer(refusal);
+        return Some(Report(refusal));
     }
-    let digest = packet.artifact.digest.clone();
+    let package = match prepare_package(
+        &packet.artifact,
+        packet.language.as_deref(),
+        http,
+        server,
+        api_key,
+        cache_dir,
+    )
+    .await
+    {
+        Ok(package) => package,
+        Err(outcome) => return Some(Report(outcome)),
+    };
+    let job = worker::PollJob {
+        packet: packet.clone(),
+        // A worker gets a directory of its own (set at its start).
+        work_dir: cache_dir.join(format!("pysrc-{}", package.digest)),
+        package,
+        log_format: settings.log_format.to_string(),
+        max_unpacked_bytes: settings.max_unpacked_bytes,
+        #[cfg(test)]
+        test_action: None,
+    };
+    Some(worker::run_poll_in_worker(job, settings).await)
+}
 
+/// Load the package of a poll and run the poll (CLOACINA-T-1143), in the
+/// poll's worker process.
+///
+/// `started` is called when the trigger is loaded. `time_limit` is given
+/// when the poll runs in the agent process: its future is dropped at the
+/// limit. A worker is given none: the agent holds the clock and kills it.
+pub(crate) async fn run_poll_job(
+    job: worker::PollJob,
+    time_limit: Option<Duration>,
+    started: impl FnOnce(),
+) -> cloacina::fleet::AgentOutcome {
+    let worker::PollJob {
+        packet,
+        package,
+        work_dir,
+        #[cfg(test)]
+        test_action,
+        ..
+    } = job;
+
+    #[cfg(test)]
+    if let Some(action) = test_action {
+        started();
+        return worker::tests::run_test_action(action, None).await;
+    }
+
+    let trigger = match load_poll_trigger(&packet, &package, &work_dir).await {
+        Ok(trigger) => trigger,
+        Err(outcome) => return outcome,
+    };
+    started();
+    poll::run_poll(trigger, time_limit, packet.timeout_seconds).await
+}
+
+/// The trigger of a poll. A Python package is imported into the per-build
+/// runtime of this process (a poll and a task of one build share it when
+/// they run in one process); a Rust build's library is opened once per build
+/// and trigger in this process.
+async fn load_poll_trigger(
+    packet: &PollWorkPacket,
+    package: &worker::PreparedPackage,
+    work_dir: &std::path::Path,
+) -> std::result::Result<Arc<dyn cloacina::cloacina_workflow::Trigger>, cloacina::fleet::AgentOutcome>
+{
+    let digest = package.digest.clone();
     if packet.language.as_deref() == Some("python") {
         let load = poll::load_packet_for(packet);
-        // CLOACINA-T-1028: the agent fetches the package files one time per
-        // digest; the poll imports them in the agent process, as an inline
-        // task does.
-        let package = match prepare_package(
-            &packet.artifact,
-            packet.language.as_deref(),
-            http,
-            server,
-            api_key,
-            cache_dir,
-        )
-        .await
-        {
-            Ok(package) => package,
-            Err(out) => return poll::Prepared::Answer(out),
-        };
         let runtime = {
             let mut cache = loaded_runtimes().lock().await;
             if let Some(rt) = cache.get(&digest) {
                 rt.clone()
             } else {
                 let rt = Arc::new(cloacina::Runtime::new());
-                let staging = cache_dir.join(format!("pysrc-{digest}"));
-                if let Err(out) = load_python_package(&load, &package, &staging, &rt).await {
-                    return poll::Prepared::Answer(out);
-                }
+                load_python_package(&load, package, work_dir, &rt).await?;
                 cache.insert(digest.clone(), rt.clone());
                 rt
             }
         };
-        return match runtime.get_trigger(&packet.trigger_name) {
-            Some(trigger) => poll::Prepared::Run(trigger),
-            None => poll::Prepared::Answer(poll::no_such_trigger(packet)),
-        };
+        return runtime
+            .get_trigger(&packet.trigger_name)
+            .ok_or_else(|| poll::no_such_trigger(packet));
     }
 
-    let key = (digest.clone(), packet.trigger_name.clone());
+    let key = (digest, packet.trigger_name.clone());
     let mut cache = loaded_poll_triggers().lock().await;
     if let Some(trigger) = cache.get(&key) {
-        return poll::Prepared::Run(trigger.clone());
+        return Ok(trigger.clone());
     }
-    let path =
-        match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir).await {
-            Ok(path) => path,
-            Err(e) => {
-                return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::ArtifactFetchFailed,
-                    message: format!("artifact fetch failed: {e}"),
-                });
-            }
-        };
+    let path = package
+        .library
+        .clone()
+        .ok_or_else(|| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: "the poll's package has no fetched library".to_string(),
+        })?;
     let name = packet.trigger_name.clone();
     let opened = tokio::task::spawn_blocking(move || {
         cloacina::registry::loader::ffi_trigger::FfiTriggerImpl::open(
@@ -2078,20 +2137,20 @@ async fn prepare_poll(
     let trigger: Arc<dyn cloacina::cloacina_workflow::Trigger> = match opened {
         Ok(Ok(trigger)) => Arc::new(trigger),
         Ok(Err(e)) => {
-            return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
+            return Err(cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::RuntimeLoadFailed,
                 message: e,
             });
         }
         Err(e) => {
-            return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
+            return Err(cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::RuntimeLoadFailed,
                 message: format!("open the library: {e}"),
             });
         }
     };
     cache.insert(key, trigger.clone());
-    poll::Prepared::Run(trigger)
+    Ok(trigger)
 }
 
 /// One whole-graph firing on the agent (CLOACI-T-0722). The agent fetches

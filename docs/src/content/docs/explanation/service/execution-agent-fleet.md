@@ -711,7 +711,8 @@ imports it. That load is most of what a task in a worker costs. So after a
 task the worker waits, with the package still loaded, and the agent gives it
 the next task of the same **key**:
 
-- the same kind of job (a task, or a graph firing),
+- the same kind of job (a task, a graph firing, or a
+  [poll](#poll-triggers-on-agents)),
 - the same package version (the package's digest),
 - the same tenant,
 - the same memory limit.
@@ -989,10 +990,11 @@ no tenant code, so a poll trigger's code runs on an agent of its tenant
    `default`, with a free slot, a runnable arch and the capability
    `job:poll`, and sends a poll packet (kind `agent_poll`) on the delivery
    outbox. A poll takes one slot of the agent while it runs.
-4. **On the agent.** The agent loads the package as for a task (a Python
-   package is imported into the same runtime its tasks use; a Rust build's
-   library is opened once and kept), calls the trigger under the poll time
-   limit and reports fire, with the trigger's context, or skip.
+4. **On the agent.** The agent fetches the package as for a task and runs
+   the poll in a [worker process](#worker-processes-and-limits): the worker
+   loads the package (a Python package is imported, a Rust build's library is
+   opened), calls the trigger and hands back fire, with the trigger's
+   context, or skip. The agent reports the answer.
 5. **Fire.** On a fire the server starts the workflow with the context, as
    for a poll in the server: the dedup by context hash and the execution row
    are the same.
@@ -1000,6 +1002,26 @@ no tenant code, so a poll trigger's code runs on an agent of its tenant
 **Settings.** `--fleet-poll-timeout-s` / `CLOACINA_FLEET_POLL_TIMEOUT_S`
 (default 30) is the time an agent lets one poll run. The server waits that
 plus 10 s for the answer.
+
+**Limits of a poll.** A poll is held as a task with no memory request:
+
+- its memory limit is the agent's share for a task with no request; a poll
+  over it is killed and fails with `poll exceeded its memory limit of
+  <limit>`, and the other work on the agent goes on;
+- at `--fleet-poll-timeout-s` the agent kills the poll's worker, with every
+  process the poll started, and the poll fails with `poll exceeded timeout of
+  <n>s`;
+- a crash in a poll ends its worker only.
+
+**Warm workers for polls.** After a poll the worker waits for the next poll
+of the same build, tenant and memory limit, with the package loaded, under
+the [rules of warm workers](#warm-workers). A poll never takes the warm
+worker of a task or a graph firing, and a task never takes a poll's. A
+trigger's state in memory (a Rust static, a Python module global) lasts as
+long as its warm worker: up to `--warm-worker-max-jobs` polls, and no longer
+than `--warm-worker-idle-seconds` between two polls. A trigger whose interval
+is longer than the idle time gets a new worker, and a fresh state, at each
+poll. Keep state that must last in a store outside the process.
 
 **A poll that gets no answer** fires nothing, and the reason is in
 `last_poll_error` of the trigger in the triggers routes and the UI:
@@ -1024,8 +1046,17 @@ The loop runs only with an actuator; with agents that register themselves,
 keep one agent of each such tenant running.
 
 **Cost.** Each poll is one dispatch: a trigger with a 10 s interval sends 360
-packets an hour, each with a package load on an agent that has not loaded the
-build yet.
+packets an hour. A poll in a warm worker adds under a millisecond; a poll in a
+new worker loads the package. Measured on a development machine (Apple
+silicon, a debug build, the test binary as the worker), 20 runs each, median:
+
+| Poll | New worker | Warm worker | In the agent process | Memory of an idle warm worker |
+|---|---|---|---|---|
+| Python, one module | 90 ms | 0.46 ms | 0.03 ms | 27Mi |
+| Rust, a small library | 17 ms | 0.65 ms | 0.03 ms | 18Mi |
+
+There is no setting to run a poll in the agent process: unlike a graph
+firing, no other work waits for a poll to end.
 
 **Metrics.** `cloacina_trigger_polls_total{outcome}` (`fire`, `skip`,
 `error`, `in_flight`), `cloacina_fleet_polls_total{answer}` (`fire`, `skip`,
