@@ -364,13 +364,6 @@ pub struct RegistryReconciler {
     /// where packaged cron triggers never fired under cloacina-server.
     pub(super) cron_registrar: Option<Arc<dyn CronWorkflowRegistrar>>,
 
-    /// CLOACI-T-0835: packages this process already asked the compiler to
-    /// rebuild after a stale-artifact load failure. One request per package
-    /// per process — if the rebuilt artifact STILL fails (e.g. the compiler
-    /// itself is the stale side), we do not ping-pong the row back to
-    /// `pending` forever.
-    recompile_requested: std::sync::Mutex<std::collections::HashSet<WorkflowPackageId>>,
-
     /// CLOACINA-T-1027: the check of a package's task placements (agent pool,
     /// CPU and memory requests) at load. `None` loads every package. Taken
     /// from the process-wide registration
@@ -410,7 +403,6 @@ impl RegistryReconciler {
             interval,
             graph_scheduler: Arc::new(tokio::sync::RwLock::new(None)),
             cron_registrar: None,
-            recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
             placement_check: crate::registry::task_placement_check(),
             poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
         })
@@ -687,30 +679,42 @@ impl RegistryReconciler {
                         );
                         error!("{}", error_msg);
 
-                        // CLOACI-T-0835: a STALE-ARTIFACT failure (the cdylib
-                        // was built against an older plugin ABI / interface
-                        // version than this host expects) is fixable by a
-                        // rebuild from retained source — signal the compiler
-                        // by flipping the row back to `pending`. Once per
-                        // package per process, so a rebuild that comes back
-                        // still-stale doesn't ping-pong forever.
-                        if is_stale_artifact_error(&error_msg)
-                            && self.recompile_requested.lock().unwrap().insert(*package_id)
-                        {
-                            match self.registry.request_recompile(*package_id).await {
-                                Ok(true) => warn!(
-                                    "Package {} v{} has a STALE compiled artifact (ABI/interface \
-                                     mismatch) — requested a recompile from retained source; it \
-                                     will reload once the compiler rebuilds it",
+                        // CLOACI-T-0835, CLOACINA-T-1085: a library built for
+                        // another plugin interface or fidius ABI may be fixed
+                        // by a rebuild from kept source. One rebuild per
+                        // package per interface version, recorded on the row:
+                        // after it, the row is marked as needing a new
+                        // publish and no rebuild is asked for again, in this
+                        // process or another.
+                        if is_stale_artifact_error(&error_msg) {
+                            let built_for =
+                                crate::registry::plugin_interface::built_for_of_error(&error_msg);
+                            let reason = crate::registry::plugin_interface::needs_new_build_reason(
+                                built_for,
+                                &format!("the rebuilt library still fails to load: {e}"),
+                            );
+                            use crate::registry::workflow_registry::InterfaceRebuild;
+                            match self
+                                .registry
+                                .request_interface_rebuild(*package_id, built_for, &reason)
+                                .await
+                            {
+                                Ok(InterfaceRebuild::Requested) => warn!(
+                                    "Package {} v{} was built for another plugin interface or \
+                                     fidius ABI; asked for one rebuild from its kept source",
                                     package_metadata.package_name, package_metadata.version
                                 ),
-                                Ok(false) => debug!(
+                                Ok(InterfaceRebuild::Marked) => warn!(
+                                    "Package {} v{} needs a new publish: {}",
+                                    package_metadata.package_name, package_metadata.version, reason
+                                ),
+                                Ok(InterfaceRebuild::Unchanged) => debug!(
                                     "Stale artifact for {} v{}, but this registry cannot \
-                                     schedule recompiles",
+                                     schedule a rebuild",
                                     package_metadata.package_name, package_metadata.version
                                 ),
                                 Err(req_err) => warn!(
-                                    "Failed to request recompile for {} v{}: {}",
+                                    "Failed to record the interface check of {} v{}: {}",
                                     package_metadata.package_name,
                                     package_metadata.version,
                                     req_err
@@ -784,15 +788,11 @@ impl RegistryReconciler {
     }
 }
 
-/// CLOACI-T-0835: does this load failure mean the compiled artifact is STALE
-/// (built against an older plugin ABI / interface version than this host
-/// expects) — i.e. a rebuild from source would fix it? Matches the two gates a
-/// version bump trips: fidius's ABI check ("incompatible ABI version") and its
-/// per-interface hash check ("interface hash mismatch"). Message-based because
-/// the typed fidius error is stringly-flattened by the loader layers; both
-/// strings are fidius-host error display texts, stable within a pinned fidius.
+/// CLOACI-T-0835: does this load failure mean the compiled artifact is STALE?
+/// The rule is [`crate::registry::plugin_interface::is_stale_artifact_error`]
+/// (CLOACINA-T-1085: also a library of another plugin interface version).
 fn is_stale_artifact_error(message: &str) -> bool {
-    message.contains("incompatible ABI version") || message.contains("interface hash mismatch")
+    crate::registry::plugin_interface::is_stale_artifact_error(message)
 }
 
 #[cfg(test)]
@@ -806,6 +806,9 @@ mod tests {
         ));
         assert!(is_stale_artifact_error(
             "interface hash mismatch: got 0xdead, expected 0xbeef"
+        ));
+        assert!(is_stale_artifact_error(
+            &crate::registry::plugin_interface::interface_mismatch(7, 8)
         ));
         // Ordinary failures must NOT trigger a rebuild.
         assert!(!is_stale_artifact_error("No space left on device"));

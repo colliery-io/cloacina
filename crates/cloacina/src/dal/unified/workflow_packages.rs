@@ -1287,6 +1287,10 @@ pub struct DispatchPackage {
     /// the same number. `None`: a Python package, or a build from before the
     /// column; it goes to any agent, as before.
     pub plugin_interface_version: Option<u32>,
+    /// CLOACINA-T-1085: why the package needs a new publish, with the step:
+    /// its rebuild from kept source still had another plugin interface.
+    /// `None`: it needs nothing.
+    pub needs_new_build: Option<String>,
 }
 
 impl DispatchPackage {
@@ -1314,6 +1318,11 @@ impl DispatchPackage {
             plugin_interface_version: if has_cdylib {
                 row.plugin_interface_version
                     .and_then(|v| u32::try_from(v).ok())
+            } else {
+                None
+            },
+            needs_new_build: if has_cdylib {
+                row.needs_new_build
             } else {
                 None
             },

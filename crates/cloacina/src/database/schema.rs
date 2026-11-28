@@ -374,6 +374,10 @@ mod unified_schema {
             describe_error -> Nullable<Text>,
             // CLOACINA-T-1086: the plugin interface version of a Rust build.
             plugin_interface_version -> Nullable<Integer>,
+            // CLOACINA-T-1085: the interface version the row was checked for,
+            // and why it needs a new publish.
+            interface_checked_for -> Nullable<Integer>,
+            needs_new_build -> Nullable<Text>,
         }
     }
 

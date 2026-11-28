@@ -989,6 +989,7 @@ impl TaskExecutor for FleetExecutor {
                 python_platforms,
                 declared_secrets,
                 package_interface,
+                needs_new_build,
             ) = match self
                 .dal
                 .workflow_packages()
@@ -1007,6 +1008,7 @@ impl TaskExecutor for FleetExecutor {
                     pkg.python_platforms,
                     pkg.declared_secrets,
                     pkg.plugin_interface_version,
+                    pkg.needs_new_build,
                 ),
                 Ok(None) => {
                     return Ok(self
@@ -1114,6 +1116,35 @@ impl TaskExecutor for FleetExecutor {
                     demand.pool,
                     package_interface,
                 ) {
+                    // CLOACINA-T-1085: a package of another interface than
+                    // this server's has no agent of its interface live: it
+                    // fails at once, with the reason and the step, not
+                    // through its retries. One of the server's own interface
+                    // waits for an agent, as above.
+                    if let Some(message) = crate::agent_registry::fails_at_once_reason(
+                        &reason,
+                        package_interface,
+                        needs_new_build.as_deref(),
+                    ) {
+                        warn!(
+                            task_id = %event.task_execution_id,
+                            package = %namespace.package_name,
+                            "fleet: the task fails: {message}"
+                        );
+                        let no_retries = RetryPolicy {
+                            max_attempts: 0,
+                            ..retry_policy.clone()
+                        };
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &no_retries,
+                                start.elapsed(),
+                                message,
+                            )
+                            .await);
+                    }
                     info!(
                         task_id = %event.task_execution_id,
                         "fleet: the task waits: {reason}"

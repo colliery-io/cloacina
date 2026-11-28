@@ -1049,6 +1049,173 @@ static T1074_MARK: extern "C" fn() = {{
     }
 
     // -----------------------------------------------------------------------
+    // CLOACINA-T-1085: packages across a plugin interface change
+    // -----------------------------------------------------------------------
+
+    use cloacina::fleet::PLUGIN_INTERFACE_VERSION;
+    use cloacina::registry::plugin_interface::interface_mismatch;
+    use cloacina_compiler::interface_pass;
+
+    /// Build the compiler fixture and record it in service the way a
+    /// compiler before the interface column recorded it: no interface.
+    async fn built_with_no_interface(
+        registry: &mut Registry,
+        config: &CompilerConfig,
+    ) -> uuid::Uuid {
+        let (_stage, pkg) = stage_rust_fixture("compiler-happy-rust", "");
+        let id = register_and_claim(registry, pack_dir(&pkg)).await;
+        let outcome = cloacina_compiler::execute_build(registry, id, config).await;
+        let BuildOutcome::Success { artifact, .. } = outcome else {
+            panic!("the first build of the fixture failed");
+        };
+        registry.mark_build_success(id, artifact).await.unwrap();
+        let status = registry.interface_status(id).await.unwrap().unwrap();
+        assert_eq!(status.plugin_interface_version, None);
+        id
+    }
+
+    /// A describe program that refuses every library as one of the
+    /// interface before this build's. `then` is run from the second call on,
+    /// when given.
+    fn old_interface_describer(dir: &Path, then: Option<&Path>) -> PathBuf {
+        let mismatch = interface_mismatch(PLUGIN_INTERFACE_VERSION - 1, PLUGIN_INTERFACE_VERSION);
+        let refuse = format!("echo '{mismatch}' >&2\nexit 1");
+        let body = match then {
+            None => refuse,
+            Some(program) => {
+                let flag = dir.join("described-once");
+                format!(
+                    "if [ -f {flag} ]; then exec {program} \"$@\"; fi\n: > {flag}\n{refuse}",
+                    flag = flag.display(),
+                    program = program.display()
+                )
+            }
+        };
+        script(dir, "old-interface-describe", &body)
+    }
+
+    /// A Rust package built for another plugin interface, whose rebuild from
+    /// kept source has that interface again (here: the describe child refuses
+    /// both libraries as interface N-1, as it does for a package pinned to
+    /// the old minor), is listed as needing a new build, with both versions
+    /// and the step. It stays in service, and is not rebuilt again.
+    #[tokio::test]
+    #[serial]
+    async fn a_rust_package_built_for_another_plugin_interface_is_listed_as_needing_a_new_build() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mut registry = sqlite_registry().await;
+        let mut config = test_config(home.path());
+        let id = built_with_no_interface(&mut registry, &config).await;
+
+        config.describe_program = Some(old_interface_describer(home.path(), None));
+        assert_eq!(interface_pass(&registry, &config).await, 1);
+
+        let listed = registry.list_packages_needing_new_build().await.unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        let entry = &listed[0];
+        assert_eq!(entry.id, id);
+        assert_eq!(entry.package_name, "compiler-happy-rust");
+        assert_eq!(entry.built_for, Some(PLUGIN_INTERFACE_VERSION - 1));
+        let old = format!(
+            "built for plugin interface {}",
+            PLUGIN_INTERFACE_VERSION - 1
+        );
+        let new = format!("loads plugin interface {PLUGIN_INTERFACE_VERSION}");
+        assert!(entry.reason.contains(&old), "{}", entry.reason);
+        assert!(entry.reason.contains(&new), "{}", entry.reason);
+        assert!(
+            entry.reason.contains("publish the package again"),
+            "{}",
+            entry.reason
+        );
+
+        // In service, with the interface it was built for: dispatch sends it
+        // to agents of that interface during a roll.
+        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
+        assert_eq!(inspected.build_status, "success");
+        let status = registry.interface_status(id).await.unwrap().unwrap();
+        assert_eq!(
+            status.plugin_interface_version,
+            Some(PLUGIN_INTERFACE_VERSION - 1)
+        );
+        assert!(status.needs_new_build.is_some());
+
+        // One try per interface version: the next pass does nothing.
+        assert_eq!(interface_pass(&registry, &config).await, 0);
+    }
+
+    /// A Rust package whose stored library is of another interface, and
+    /// whose rebuild from kept source has this build's interface, is rebuilt
+    /// in place and runs with no publish: it is not listed.
+    #[tokio::test]
+    #[serial]
+    async fn a_rust_package_whose_rebuild_has_this_interface_runs_with_no_publish() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mut registry = sqlite_registry().await;
+        let mut config = test_config(home.path());
+        let id = built_with_no_interface(&mut registry, &config).await;
+
+        // The stored library is refused; the rebuilt one is described by the
+        // real describe child.
+        config.describe_program = Some(old_interface_describer(home.path(), Some(&compiler_bin())));
+        assert_eq!(interface_pass(&registry, &config).await, 1);
+
+        assert!(
+            registry
+                .list_packages_needing_new_build()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let status = registry.interface_status(id).await.unwrap().unwrap();
+        assert_eq!(
+            status.plugin_interface_version,
+            Some(PLUGIN_INTERFACE_VERSION)
+        );
+        assert_eq!(status.needs_new_build, None);
+        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
+        assert_eq!(inspected.build_status, "success");
+        let stored = registry.get_package_description(id).await.unwrap().unwrap();
+        assert!(stored.document.is_some());
+        assert_eq!(interface_pass(&registry, &config).await, 0);
+    }
+
+    /// A package whose stored library opens with this build's interface gets
+    /// the interface recorded, with no rebuild; a Python package is recorded
+    /// as checked. Neither is listed.
+    #[tokio::test]
+    #[serial]
+    async fn a_package_of_this_interface_and_a_python_package_are_not_listed() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mut registry = sqlite_registry().await;
+        let config = test_config(home.path());
+        let rust_id = built_with_no_interface(&mut registry, &config).await;
+        let python_id =
+            register_and_claim(&mut registry, fixture_archive("demo-py-workflow")).await;
+        registry
+            .mark_build_success(python_id, Vec::new())
+            .await
+            .unwrap();
+
+        assert_eq!(interface_pass(&registry, &config).await, 2);
+        assert!(
+            registry
+                .list_packages_needing_new_build()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let rust = registry.interface_status(rust_id).await.unwrap().unwrap();
+        assert_eq!(
+            rust.plugin_interface_version,
+            Some(PLUGIN_INTERFACE_VERSION)
+        );
+        let python = registry.interface_status(python_id).await.unwrap().unwrap();
+        assert_eq!(python.plugin_interface_version, None);
+        assert_eq!(interface_pass(&registry, &config).await, 0);
+    }
+
+    // -----------------------------------------------------------------------
     // CLOACINA-T-1075: the server loads from the document only
     // -----------------------------------------------------------------------
 

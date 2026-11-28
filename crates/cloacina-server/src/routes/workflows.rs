@@ -29,9 +29,10 @@ use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::{PackageVersionDelete, WorkflowRegistryImpl};
 use cloacina::security::audit;
 use cloacina_api_types::{
-    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse,
-    WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode,
-    WorkflowUploadedResponse, WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    ListResponse, PackageNeedingNewBuild, TenantListResponse, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse,
+    WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
+    WorkflowVersionSummary,
 };
 
 use crate::AppState;
@@ -352,18 +353,32 @@ pub async fn list_workflows(
         Ok(workflows) => {
             let ids = workflows.iter().map(|w| w.id.to_string()).collect();
             let uploaders = audit_record::package_uploaders(&state, &tenant_id, ids).await;
+            // CLOACINA-T-1085: the plugin interface of each build.
+            let interfaces = match registry.interface_statuses().await {
+                Ok(statuses) => statuses,
+                Err(e) => {
+                    warn!(tenant = %tenant_id, error = %e, "could not read the package interfaces");
+                    Default::default()
+                }
+            };
             let items: Vec<WorkflowSummary> = workflows
                 .into_iter()
-                .map(|w| WorkflowSummary {
-                    uploaded_by: uploaders.get(&w.id.to_string()).cloned(),
-                    id: w.id.to_string(),
-                    package_name: w.package_name,
-                    workflow_name: w.workflow_name,
-                    version: w.version,
-                    description: w.description,
-                    tasks: w.tasks,
-                    created_at: w.created_at.to_rfc3339(),
-                    paused: w.paused,
+                .map(|w| {
+                    let (plugin_interface_version, needs_new_build) =
+                        interface_fields(interfaces.get(&w.id));
+                    WorkflowSummary {
+                        plugin_interface_version,
+                        needs_new_build,
+                        uploaded_by: uploaders.get(&w.id.to_string()).cloned(),
+                        id: w.id.to_string(),
+                        package_name: w.package_name,
+                        workflow_name: w.workflow_name,
+                        version: w.version,
+                        description: w.description,
+                        tasks: w.tasks,
+                        created_at: w.created_at.to_rfc3339(),
+                        paused: w.paused,
+                    }
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
@@ -372,6 +387,111 @@ pub async fn list_workflows(
         Err(e) => {
             warn!("Failed to list workflows for tenant '{}': {}", tenant_id, e);
             ApiError::internal_logged("list workflows failed", &e).into_response()
+        }
+    }
+}
+
+/// GET /packages/needs-new-build — the packages of every tenant that need a
+/// new publish (CLOACINA-T-1085).
+///
+/// After a minor release that changes the plugin interface, each Rust package
+/// built for the old interface gets one rebuild from its kept source. A
+/// package that pins the old minor rebuilds with the old interface again and
+/// is listed here, with its tenant, name, version, both interface versions
+/// and the step. A platform admin reads it during an upgrade.
+#[utoipa::path(
+    get,
+    path = "/v1/packages/needs-new-build",
+    tag = "workflows",
+    responses(
+        (status = 200, description = "Packages in service that need a new publish, across tenants", body = ListResponse<PackageNeedingNewBuild>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Platform admin required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_packages_needing_new_build(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    let mut tenants: Vec<String> = vec!["public".to_string()];
+    match cloacina::database::DatabaseAdmin::new(state.database.clone())
+        .list_tenant_schemas()
+        .await
+    {
+        Ok(schemas) => tenants.extend(schemas.into_iter().filter(|s| s != "public")),
+        Err(e) => {
+            return ApiError::internal_logged("list tenant schemas failed", &e).into_response();
+        }
+    }
+    let current = cloacina::fleet::PLUGIN_INTERFACE_VERSION;
+    let mut items: Vec<PackageNeedingNewBuild> = Vec::new();
+    for tenant_id in tenants {
+        let db = match state
+            .tenant_databases
+            .resolve(&tenant_id, &state.database)
+            .await
+        {
+            Ok(db) => db,
+            Err(e) => {
+                return ApiError::internal_logged("tenant database error", &e).into_response();
+            }
+        };
+        let storage = UnifiedRegistryStorage::new(db.clone());
+        let registry = match WorkflowRegistryImpl::new(storage, db) {
+            Ok(r) => r,
+            Err(e) => {
+                return ApiError::internal_logged("list packages failed", &e).into_response();
+            }
+        };
+        match registry.list_packages_needing_new_build().await {
+            Ok(rows) => items.extend(rows.into_iter().map(|p| PackageNeedingNewBuild {
+                tenant_id: tenant_id.clone(),
+                id: p.id.to_string(),
+                package_name: p.package_name,
+                version: p.version,
+                built_for: p.built_for,
+                current,
+                reason: p.reason,
+            })),
+            Err(e) => {
+                return ApiError::internal_logged("list packages failed", &e).into_response();
+            }
+        }
+    }
+    Json(ListResponse::new(items)).into_response()
+}
+
+/// The API fields of a row's plugin interface (CLOACINA-T-1085): its version,
+/// and the mark of a package that needs a new publish.
+fn interface_fields(
+    status: Option<&cloacina::registry::workflow_registry::InterfaceStatus>,
+) -> (Option<u32>, Option<cloacina_api_types::NeedsNewBuild>) {
+    let Some(status) = status else {
+        return (None, None);
+    };
+    let needs = status
+        .needs_new_build
+        .clone()
+        .map(|reason| cloacina_api_types::NeedsNewBuild {
+            reason,
+            built_for: status.plugin_interface_version,
+            current: cloacina::fleet::PLUGIN_INTERFACE_VERSION,
+        });
+    (status.plugin_interface_version, needs)
+}
+
+/// The interface fields of one row, read for the detail route.
+async fn interface_fields_of(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package_id: uuid::Uuid,
+) -> (Option<u32>, Option<cloacina_api_types::NeedsNewBuild>) {
+    match registry.interface_status(package_id).await {
+        Ok(status) => interface_fields(status.as_ref()),
+        Err(e) => {
+            warn!(package = %package_id, error = %e, "could not read the package interface");
+            (None, None)
         }
     }
 }
@@ -460,7 +580,11 @@ pub async fn get_workflow(
             Ok(Some(ins)) => {
                 let not_loaded_reason =
                     not_loaded_reason(&state, &registry, ins.metadata.id, &ins.build_status).await;
+                let (plugin_interface_version, needs_new_build) =
+                    interface_fields_of(&registry, ins.metadata.id).await;
                 return Json(WorkflowDetail {
+                    plugin_interface_version,
+                    needs_new_build,
                     not_loaded_reason,
                     uploaded_by: audit_record::package_uploader(
                         &state,
@@ -518,8 +642,12 @@ pub async fn get_workflow(
                     // UUID-lookup path uses so the response reflects
                     // real build state (pending/building/failed in
                     // addition to success).
+                    let (plugin_interface_version, needs_new_build) =
+                        interface_fields_of(&registry, w.id).await;
                     match registry.inspect_package_by_id(w.id).await {
                         Ok(Some(ins)) => Json(WorkflowDetail {
+                            plugin_interface_version,
+                            needs_new_build,
                             not_loaded_reason: not_loaded_reason(
                                 &state,
                                 &registry,
