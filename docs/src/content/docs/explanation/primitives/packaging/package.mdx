@@ -63,6 +63,12 @@ cloacinactl --tenant acme package upload my-pipeline-0.1.0.cloacina
   The swap happens when the new build succeeds; a failed build leaves the old
   version running. `cloacinactl package versions <name>` lists them and
   `cloacinactl package activate <name> <version>` goes back to an earlier one.
+- **A running execution and an upload:** on the agent fleet, an execution
+  runs all its tasks on the version its first task was dispatched on, and
+  each task gets the input context of its dependencies in that version. The
+  in-process executor (single trust, or embedded use) holds one loaded
+  version of a package: after the swap, the later tasks of a running
+  execution run the code of the new version.
 
 ## See also
 

@@ -90,6 +90,83 @@ pub struct CompilerSettingArgs {
     /// Python packages: the `uv` program. Overrides `[compiler].uv`.
     #[arg(long, env = "CLOACINA_UV", value_name = "PATH")]
     pub uv: Option<String>,
+
+    // CLOACINA-T-1124: the other flags of `cloacina-compiler`, but its two
+    // time limits.
+    /// Build only this tenant's packages (one compiler per tenant). Overrides
+    /// `[compiler].tenant_schema`.
+    #[arg(long, env = "CLOACINA_TENANT_SCHEMA", value_name = "SCHEMA")]
+    pub tenant_schema: Option<String>,
+
+    /// Run as a per-target compiler that builds for this triple. Overrides
+    /// `[compiler].build_target`.
+    #[arg(long, env = "CLOACINA_BUILD_TARGET", value_name = "TRIPLE")]
+    pub build_target: Option<String>,
+
+    /// With `--build-target`: build only this package. Overrides
+    /// `[compiler].build_target_package`.
+    #[arg(long, env = "CLOACINA_BUILD_TARGET_PACKAGE", value_name = "NAME")]
+    pub build_target_package: Option<String>,
+
+    /// A cargo flag added to the default list. Repeat it; write a value that
+    /// starts with `-` as `--cargo-flag=<value>`. Overrides
+    /// `[compiler].cargo_flags`.
+    #[arg(
+        long = "cargo-flag",
+        value_name = "FLAG",
+        conflicts_with = "cargo_flags_replace"
+    )]
+    pub cargo_flag: Vec<String>,
+
+    /// The whole cargo flag list, defaults replaced (it starts with the
+    /// cargo subcommand, usually `build`). Repeat it. Overrides
+    /// `[compiler].cargo_flags_replace`.
+    #[arg(long = "cargo-flags-replace", value_name = "FLAG")]
+    pub cargo_flags_replace: Vec<String>,
+
+    /// A shared cargo target folder for package builds. Overrides
+    /// `[compiler].cargo_target_dir`.
+    #[arg(long, value_name = "DIR")]
+    pub cargo_target_dir: Option<String>,
+
+    /// `CARGO_HOME` of the cargo build: a vendored cargo home. Overrides
+    /// `[compiler].vendor_dir`.
+    #[arg(long, env = "CLOACINA_COMPILER_VENDOR_DIR", value_name = "DIR")]
+    pub vendor_dir: Option<String>,
+
+    /// Dev only: a local cloacina workspace that builds patch to. Overrides
+    /// `[compiler].dev_workspace`.
+    #[arg(long, env = "CLOACINA_COMPILER_DEV_WORKSPACE", value_name = "DIR")]
+    pub dev_workspace: Option<String>,
+
+    /// `RLIMIT_CPU` of the cargo build, CPU-seconds (Linux). Overrides
+    /// `[compiler].build_rlimit_cpu`.
+    #[arg(
+        long,
+        env = "CLOACINA_COMPILER_BUILD_RLIMIT_CPU",
+        value_name = "SECONDS"
+    )]
+    pub build_rlimit_cpu: Option<u64>,
+
+    /// `RLIMIT_AS` of the cargo build: bytes, or a size with `K`, `M` or `G`
+    /// (Linux). Overrides `[compiler].build_rlimit_mem`.
+    #[arg(long, env = "CLOACINA_COMPILER_BUILD_RLIMIT_MEM", value_name = "SIZE")]
+    pub build_rlimit_mem: Option<String>,
+
+    /// `RLIMIT_NOFILE` of the cargo build (Linux). Overrides
+    /// `[compiler].build_rlimit_files`.
+    #[arg(long, env = "CLOACINA_COMPILER_BUILD_RLIMIT_FILES", value_name = "N")]
+    pub build_rlimit_files: Option<u64>,
+
+    /// `RLIMIT_NPROC` of the cargo build (Linux). Overrides
+    /// `[compiler].build_rlimit_procs`.
+    #[arg(long, env = "CLOACINA_COMPILER_BUILD_RLIMIT_PROCS", value_name = "N")]
+    pub build_rlimit_procs: Option<u64>,
+
+    /// Daily log files to keep; `0` keeps all. Overrides
+    /// `[compiler].log_retention_days`.
+    #[arg(long, value_name = "DAYS")]
+    pub log_retention_days: Option<u64>,
 }
 
 /// What `compiler start` adds to the `cloacina-compiler` command for the
@@ -104,11 +181,29 @@ pub(crate) struct ForwardedCompilerSettings {
 
 /// Resolve each setting (flag or env var first, then `[compiler]` in
 /// `config.toml`) and give what to forward. A setting with no value gives
-/// nothing.
+/// nothing. Cargo flags added to the defaults and a full replacement of them
+/// cannot both be given (CLOACINA-T-1124).
 pub(crate) fn forwarded_compiler_settings(
     cli: &CompilerSettingArgs,
     config: &CompilerSection,
-) -> ForwardedCompilerSettings {
+) -> Result<ForwardedCompilerSettings> {
+    let list = |cli: &Vec<String>, config: &Vec<String>| {
+        if cli.is_empty() {
+            config.clone()
+        } else {
+            cli.clone()
+        }
+    };
+    let cargo_flags = list(&cli.cargo_flag, &config.cargo_flags);
+    let cargo_flags_replace = list(&cli.cargo_flags_replace, &config.cargo_flags_replace);
+    if !cargo_flags.is_empty() && !cargo_flags_replace.is_empty() {
+        bail!(
+            "cargo flags are given both as additions (--cargo-flag / [compiler].cargo_flags) \
+             and as a full replacement (--cargo-flags-replace / \
+             [compiler].cargo_flags_replace); give one of them"
+        );
+    }
+
     let mut out = ForwardedCompilerSettings::default();
     let not_blank = |t: &String| !t.trim().is_empty();
     let text = |cli: &Option<String>, config: &Option<String>| {
@@ -151,6 +246,59 @@ pub(crate) fn forwarded_compiler_settings(
         text(&cli.python_uv_cache_dir, &config.python_uv_cache_dir),
     );
     arg("--uv", text(&cli.uv, &config.uv));
+
+    // CLOACINA-T-1124.
+    let number = |cli: Option<u64>, config: Option<u64>| cli.or(config).map(|n| n.to_string());
+    arg(
+        "--tenant-schema",
+        text(&cli.tenant_schema, &config.tenant_schema),
+    );
+    arg(
+        "--build-target",
+        text(&cli.build_target, &config.build_target),
+    );
+    arg(
+        "--build-target-package",
+        text(&cli.build_target_package, &config.build_target_package),
+    );
+    arg(
+        "--cargo-target-dir",
+        text(&cli.cargo_target_dir, &config.cargo_target_dir),
+    );
+    arg("--vendor-dir", text(&cli.vendor_dir, &config.vendor_dir));
+    arg(
+        "--dev-workspace",
+        text(&cli.dev_workspace, &config.dev_workspace),
+    );
+    arg(
+        "--build-rlimit-cpu",
+        number(cli.build_rlimit_cpu, config.build_rlimit_cpu),
+    );
+    arg(
+        "--build-rlimit-mem",
+        text(&cli.build_rlimit_mem, &config.build_rlimit_mem),
+    );
+    arg(
+        "--build-rlimit-files",
+        number(cli.build_rlimit_files, config.build_rlimit_files),
+    );
+    arg(
+        "--build-rlimit-procs",
+        number(cli.build_rlimit_procs, config.build_rlimit_procs),
+    );
+    arg(
+        "--log-retention-days",
+        number(cli.log_retention_days, config.log_retention_days),
+    );
+    // `--flag=value`: a cargo flag starts with `-`, and as a separate
+    // argument the compiler would read it as a flag of its own.
+    for flag in &cargo_flags {
+        out.args.push(format!("--cargo-flag={flag}"));
+    }
+    for flag in &cargo_flags_replace {
+        out.args.push(format!("--cargo-flags-replace={flag}"));
+    }
+
     if cli.python_offline || config.python_offline == Some(true) {
         out.args.push("--python-offline".to_string());
     }
@@ -160,7 +308,7 @@ pub(crate) fn forwarded_compiler_settings(
     if let Some(url) = text(&cli.python_index_url, &config.python_index_url) {
         out.env.push(("CLOACINA_COMPILER_PYTHON_INDEX_URL", url));
     }
-    out
+    Ok(out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -178,7 +326,7 @@ pub async fn run(
     let config_path = globals.home.join("config.toml");
     let db_url = config::resolve_database_url(database_url.as_deref(), &config_path)?;
     let forwarded =
-        forwarded_compiler_settings(&settings, &CloacinaConfig::load(&config_path).compiler);
+        forwarded_compiler_settings(&settings, &CloacinaConfig::load(&config_path).compiler)?;
 
     // Write PID file before exec — we're the process about to become compiler.
     pid::write(&globals.home.join("compiler.pid"))?;
@@ -281,7 +429,8 @@ uv = "/usr/local/bin/uv"
         let forwarded = forwarded_compiler_settings(
             &CompilerSettingArgs::default(),
             &CompilerSection::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(forwarded, ForwardedCompilerSettings::default());
     }
 
@@ -290,7 +439,8 @@ uv = "/usr/local/bin/uv"
     #[test]
     fn config_toml_compiler_settings_are_forwarded() {
         let forwarded =
-            forwarded_compiler_settings(&CompilerSettingArgs::default(), &section(FULL_CONFIG));
+            forwarded_compiler_settings(&CompilerSettingArgs::default(), &section(FULL_CONFIG))
+                .unwrap();
         assert_eq!(
             forwarded.args,
             [
@@ -327,7 +477,7 @@ uv = "/usr/local/bin/uv"
             max_unpacked_bytes: Some(1),
             ..CompilerSettingArgs::default()
         };
-        let forwarded = forwarded_compiler_settings(&cli, &section(FULL_CONFIG));
+        let forwarded = forwarded_compiler_settings(&cli, &section(FULL_CONFIG)).unwrap();
         let value_of = |flag: &str| {
             let at = forwarded.args.iter().position(|a| a == flag).unwrap();
             forwarded.args[at + 1].clone()
@@ -343,30 +493,169 @@ uv = "/usr/local/bin/uv"
         let forwarded = forwarded_compiler_settings(
             &CompilerSettingArgs::default(),
             &section("[compiler]\npython_offline = false\n"),
-        );
+        )
+        .unwrap();
         assert!(forwarded.args.is_empty());
     }
 
-    /// The flags of `cloacina-compiler` that `compiler start` does not take
-    /// (CLOACINA-T-1106). Set them on `cloacina-compiler` itself, or through
-    /// their env var where they have one.
-    const NOT_ON_COMPILER_START: [&str; 15] = [
-        "--build-rlimit-cpu",
-        "--build-rlimit-files",
-        "--build-rlimit-mem",
-        "--build-rlimit-procs",
-        "--build-target",
-        "--build-target-package",
+    const BUILD_CONFIG: &str = r#"
+[compiler]
+tenant_schema = "team_a"
+build_target = "x86_64-linux"
+build_target_package = "etl"
+cargo_flags = ["--features", "fast"]
+cargo_target_dir = "/var/cache/cargo-target"
+vendor_dir = "/opt/cargo-home"
+dev_workspace = "/src/cloacina"
+build_rlimit_cpu = 900
+build_rlimit_mem = "8G"
+build_rlimit_files = 2048
+build_rlimit_procs = 512
+log_retention_days = 7
+"#;
+
+    /// CLOACINA-T-1124: each of the other compiler keys is forwarded once, as
+    /// its flag; cargo flags as `--cargo-flag=<value>`.
+    #[test]
+    fn config_toml_build_settings_are_forwarded() {
+        let forwarded =
+            forwarded_compiler_settings(&CompilerSettingArgs::default(), &section(BUILD_CONFIG))
+                .unwrap();
+        assert_eq!(
+            forwarded.args,
+            [
+                "--tenant-schema",
+                "team_a",
+                "--build-target",
+                "x86_64-linux",
+                "--build-target-package",
+                "etl",
+                "--cargo-target-dir",
+                "/var/cache/cargo-target",
+                "--vendor-dir",
+                "/opt/cargo-home",
+                "--dev-workspace",
+                "/src/cloacina",
+                "--build-rlimit-cpu",
+                "900",
+                "--build-rlimit-mem",
+                "8G",
+                "--build-rlimit-files",
+                "2048",
+                "--build-rlimit-procs",
+                "512",
+                "--log-retention-days",
+                "7",
+                "--cargo-flag=--features",
+                "--cargo-flag=fast",
+            ]
+        );
+        assert!(forwarded.env.is_empty());
+    }
+
+    /// The forwarded cargo flags parse on the compiler's side as values, a
+    /// value that starts with `-` too.
+    #[test]
+    fn forwarded_cargo_flags_reach_the_compiler_as_values() {
+        #[derive(clap::Parser)]
+        struct Compiler {
+            #[arg(long = "cargo-flag")]
+            cargo_flags: Vec<String>,
+        }
+        let forwarded =
+            forwarded_compiler_settings(&CompilerSettingArgs::default(), &section(BUILD_CONFIG))
+                .unwrap();
+        let cargo: Vec<&String> = forwarded
+            .args
+            .iter()
+            .filter(|a| a.starts_with("--cargo-flag="))
+            .collect();
+        let parsed = <Compiler as clap::Parser>::try_parse_from(
+            std::iter::once(&"cloacina-compiler".to_string()).chain(cargo),
+        )
+        .unwrap();
+        assert_eq!(parsed.cargo_flags, ["--features", "fast"]);
+    }
+
+    #[test]
+    fn a_build_flag_wins_over_config_toml() {
+        let cli = CompilerSettingArgs {
+            tenant_schema: Some("team_b".to_string()),
+            build_rlimit_mem: Some("2G".to_string()),
+            log_retention_days: Some(0),
+            cargo_flag: vec!["--locked".to_string()],
+            ..CompilerSettingArgs::default()
+        };
+        let forwarded = forwarded_compiler_settings(&cli, &section(BUILD_CONFIG)).unwrap();
+        let value_of = |flag: &str| {
+            let at = forwarded.args.iter().position(|a| a == flag).unwrap();
+            forwarded.args[at + 1].clone()
+        };
+        assert_eq!(value_of("--tenant-schema"), "team_b");
+        assert_eq!(value_of("--build-rlimit-mem"), "2G");
+        assert_eq!(value_of("--log-retention-days"), "0");
+        assert_eq!(value_of("--vendor-dir"), "/opt/cargo-home");
+        let cargo: Vec<&String> = forwarded
+            .args
+            .iter()
+            .filter(|a| a.starts_with("--cargo-flag"))
+            .collect();
+        assert_eq!(cargo, ["--cargo-flag=--locked"]);
+        assert_eq!(
+            forwarded
+                .args
+                .iter()
+                .filter(|a| *a == "--tenant-schema")
+                .count(),
+            1
+        );
+    }
+
+    /// Cargo flag additions and a full replacement cannot both be given: by
+    /// flags, by keys, or one of each.
+    #[test]
+    fn cargo_flags_and_their_replacement_conflict() {
+        let replace = CompilerSettingArgs {
+            cargo_flags_replace: vec!["build".to_string(), "--lib".to_string()],
+            ..CompilerSettingArgs::default()
+        };
+        let err = forwarded_compiler_settings(&replace, &section(BUILD_CONFIG)).unwrap_err();
+        assert!(err.to_string().contains("--cargo-flags-replace"), "{err}");
+        assert!(
+            forwarded_compiler_settings(
+                &CompilerSettingArgs::default(),
+                &section(
+                    "[compiler]\ncargo_flags = [\"--locked\"]\ncargo_flags_replace = [\"build\"]\n"
+                ),
+            )
+            .is_err()
+        );
+        // The replacement alone is forwarded.
+        let forwarded = forwarded_compiler_settings(&replace, &CompilerSection::default()).unwrap();
+        assert_eq!(
+            forwarded.args,
+            ["--cargo-flags-replace=build", "--cargo-flags-replace=--lib"]
+        );
+        // On the command line clap refuses both.
+        use clap::Args;
+        let cmd = CompilerSettingArgs::augment_args(clap::Command::new("start"));
+        assert!(
+            cmd.try_get_matches_from([
+                "start",
+                "--cargo-flag=--locked",
+                "--cargo-flags-replace=build"
+            ])
+            .is_err()
+        );
+    }
+
+    /// The flags of `cloacina-compiler` that `compiler start` does not take:
+    /// its two time limits, by Dylan's decision (CLOACINA-T-1124 note n-1).
+    /// Set them on `cloacina-compiler` itself or through their env var.
+    const NOT_ON_COMPILER_START: [&str; 2] = [
         "--build-timeout-s",
-        "--cargo-flag",
-        "--cargo-flags-replace",
-        "--cargo-target-dir",
         // CLOACINA-T-1074, as `--build-timeout-s`.
         "--describe-timeout-s",
-        "--dev-workspace",
-        "--log-retention-days",
-        "--tenant-schema",
-        "--vendor-dir",
     ];
 
     /// CLOACINA-T-1106: each flag of `cloacina-compiler` is a flag of

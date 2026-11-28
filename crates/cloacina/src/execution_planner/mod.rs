@@ -157,6 +157,9 @@ struct PlannedTaskRow {
     memory_request_bytes: Option<i64>,
     /// CLOACINA-T-1045: the task's own priority, as given.
     task_priority: i32,
+    /// CLOACINA-T-1123: the priority the task declares, as asked; `None`
+    /// when it declares none.
+    task_priority_asked: Option<i32>,
 }
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
@@ -492,6 +495,7 @@ impl TaskScheduler {
                     declared_limit,
                     workflow_priority.given,
                 )),
+                task_priority_asked: placement.priority.map(i32::from),
             });
         }
 
@@ -608,6 +612,7 @@ impl TaskScheduler {
                             updated_at: now,
                             workflow_priority: Some(i32::from(workflow_priority.given)),
                             task_priority: Some(task.task_priority),
+                            task_priority_asked: task.task_priority_asked,
                         })
                         .execute(conn)?;
                 }
@@ -677,6 +682,7 @@ impl TaskScheduler {
                             updated_at: now,
                             workflow_priority: Some(i32::from(workflow_priority.given)),
                             task_priority: Some(task.task_priority),
+                            task_priority_asked: task.task_priority_asked,
                         })
                         .execute(conn)?;
                 }

@@ -352,6 +352,104 @@ mod tests {
         assert!(repr.contains("wf1"));
     }
 
+    /// CLOACINA-T-1123: `builder.priority(n)` takes 0 to 10; a value outside
+    /// raises `ValueError` and leaves the builder as it was.
+    #[test]
+    fn test_workflow_builder_priority_takes_the_scale_and_refuses_the_rest() {
+        Python::initialize();
+        Python::attach(|py| {
+            let mut builder = PyWorkflowBuilder::new("prio_wf", None, None, None);
+            builder.priority(2).expect("2 is on the scale");
+            assert_eq!(builder.inner.get_priority(), Some(2));
+            for outside in [11, -1] {
+                let err = builder.priority(outside).expect_err("outside the scale");
+                assert!(err.is_instance_of::<PyValueError>(py), "{err}");
+            }
+            assert_eq!(builder.inner.get_priority(), Some(2));
+        });
+    }
+
+    /// `@task` with a priority, as Python calls it.
+    fn task_with_priority(
+        py: Python,
+        id: &str,
+        priority: Option<i64>,
+    ) -> PyResult<crate::task::TaskDecorator> {
+        crate::task::task_py(
+            py,
+            Some(id.to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            priority,
+        )
+    }
+
+    /// CLOACINA-T-1123: `@task(priority=n)` puts n on the task; a value
+    /// outside 0 to 10 raises `ValueError` when the decorator is made.
+    #[test]
+    fn test_task_priority_is_on_the_task_and_one_outside_the_scale_raises() {
+        Python::initialize();
+        Python::attach(|py| {
+            for outside in [11, -1] {
+                let err = task_with_priority(py, "bad", Some(outside))
+                    .err()
+                    .expect("outside the scale");
+                assert!(err.is_instance_of::<PyValueError>(py), "{err}");
+            }
+
+            let rt = std::sync::Arc::new(cloacina::Runtime::empty());
+            let _scope = crate::runtime_scope::ScopedRuntime::new(rt.clone())
+                .expect("ScopedRuntime install");
+            crate::task::push_workflow_context(crate::workflow_context::PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "prio_task_wf",
+            ));
+            let func = py
+                .eval(pyo3::ffi::c_str!("lambda ctx: ctx"), None, None)
+                .unwrap();
+            task_with_priority(py, "urgent", Some(0))
+                .unwrap()
+                .__call__(py, func.clone().into())
+                .unwrap();
+            task_with_priority(py, "plain", None)
+                .unwrap()
+                .__call__(py, func.into())
+                .unwrap();
+            crate::task::pop_workflow_context();
+
+            let priority_of = |id: &str| {
+                rt.get_task(&cloacina::TaskNamespace::new(
+                    "public",
+                    "embedded",
+                    "prio_task_wf",
+                    id,
+                ))
+                .expect("the task is registered")
+                .placement()
+                .priority
+            };
+            assert_eq!(priority_of("urgent"), Some(0));
+            assert_eq!(priority_of("plain"), None);
+        });
+    }
+
     #[test]
     fn test_workflow_builder_build_empty_returns_error() {
         Python::initialize();

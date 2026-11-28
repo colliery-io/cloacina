@@ -1,0 +1,20 @@
+# Fixture of the behaviour suite chapter "tenant_code" (CLOACINA-T-1079,
+# features/tenant_code/tenant_code_boundary.feature): a Python graph whose
+# source is a polling accumulator. Its poll function would run in the server,
+# so a server without single trust refuses the package at build time. The
+# poll function writes a marked line to stderr, so the chapter can look for it
+# in the server's log too.
+[package]
+name = "tenant-code-polling-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "tenant_code_polling"
+language = "python"
+description = "tenant_code chapter fixture: a polling accumulator a server refuses"
+entry_module = "tenant_code_polling.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"

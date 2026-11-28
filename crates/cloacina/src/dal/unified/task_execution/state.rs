@@ -20,8 +20,10 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::TaskExecutionDAL;
-use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
-use crate::database::schema::unified::{execution_events, task_executions};
+use crate::dal::unified::models::{
+    NewUnifiedExecutionEvent, TaskAttemptError, UnifiedTaskExecution,
+};
+use crate::database::schema::unified::{execution_events, task_attempt_errors, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
@@ -127,6 +129,8 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Get task info for event
                 let task: UnifiedTaskExecution =
                     task_executions::table.find(task_id).first(conn)?;
+                // The details of this attempt only (CLOACINA-T-1100).
+                let attempt_details = error_details.clone();
                 // A failure with no details keeps what the column holds.
                 let error_details = error_details.clone().or(task.error_details.clone());
 
@@ -155,6 +159,20 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 // Only insert event if the update was applied
                 if rows > 0 {
+                    // CLOACINA-T-1100: the error of this attempt, kept with
+                    // those of the attempts before it.
+                    diesel::insert_into(task_attempt_errors::table)
+                        .values(&TaskAttemptError {
+                            id: UniversalUuid::new_v4(),
+                            task_execution_id: task_id,
+                            workflow_execution_id: task.workflow_execution_id,
+                            attempt: task.attempt,
+                            message: error_message.clone(),
+                            details: attempt_details,
+                            failed_at: now,
+                        })
+                        .execute(conn)?;
+
                     let event_data = serde_json::json!({ "error": error_message }).to_string();
                     let event = NewUnifiedExecutionEvent {
                         id: UniversalUuid::new_v4(),
