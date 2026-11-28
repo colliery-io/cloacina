@@ -332,6 +332,22 @@ impl Client {
         Self::parse(response).await
     }
 
+    /// PATCH a JSON body to an arbitrary path (CLOACINA-T-1123).
+    pub async fn patch_json<B: serde::Serialize + ?Sized, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ClientError> {
+        let response = self
+            .request(Method::PATCH, path)
+            .json(body)
+            .send()
+            .await
+            .map(|r| self.observe(r))
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
     /// DELETE an arbitrary path, discarding any response body.
     pub async fn delete_path(&self, path: &str) -> Result<(), ClientError> {
         let response = self
@@ -385,6 +401,7 @@ impl Client {
                 role,
                 platform_admin: false,
                 expires_at: None,
+                max_priority: None,
             },
         )
         .await
@@ -403,6 +420,7 @@ impl Client {
                 role: KeyRole::Admin,
                 platform_admin: true,
                 expires_at: None,
+                max_priority: None,
             },
         )
         .await
@@ -428,6 +446,19 @@ impl Client {
         role: KeyRole,
         tenant: Option<&str>,
     ) -> Result<KeyCreatedResponse, ClientError> {
+        self.create_tenant_key_limited(name, role, tenant, None)
+            .await
+    }
+
+    /// [`Self::create_tenant_key`] with the highest priority the key may set
+    /// (CLOACINA-T-1123). `None`: the default of its role.
+    pub async fn create_tenant_key_limited(
+        &self,
+        name: &str,
+        role: KeyRole,
+        tenant: Option<&str>,
+        max_priority: Option<u8>,
+    ) -> Result<KeyCreatedResponse, ClientError> {
         let t = self.tenant_of(tenant);
         self.post_json(
             &format!("/v1/tenants/{t}/keys"),
@@ -436,7 +467,24 @@ impl Client {
                 role,
                 platform_admin: false,
                 expires_at: None,
+                max_priority,
             },
+        )
+        .await
+    }
+
+    /// Set or clear (`None`) the highest priority a key of one tenant may
+    /// set (CLOACINA-T-1123).
+    pub async fn update_tenant_key(
+        &self,
+        key_id: &str,
+        max_priority: Option<u8>,
+        tenant: Option<&str>,
+    ) -> Result<KeyInfo, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.patch_json(
+            &format!("/v1/tenants/{t}/keys/{key_id}"),
+            &cloacina_api_types::UpdateKeyRequest { max_priority },
         )
         .await
     }

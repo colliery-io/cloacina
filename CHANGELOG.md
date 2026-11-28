@@ -47,6 +47,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     before; `public`'s pool has the global runner's pool size, in addition to
     the admin pool.
 
+- **A package's priority is held to its publisher's limit, not to 5**
+  (CLOACINA-T-1123). The server keeps who uploaded a package and, at each run
+  start, holds the priority its code declares to that principal's limit as
+  it is then: the key's own `max_priority`, else its role's default; a
+  person's OIDC mapping rule; a local account's role. A package an admin
+  publishes now runs at the priority it declares. A package uploaded before
+  this change has no record of its publisher and stays held to 5 until it is
+  uploaded again. Migration 076 adds `api_keys.max_priority` and the tenant
+  table `priority_grants`.
+  - Keys take `max_priority` (0 to 10) on create, and
+    `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` changes it
+    (`cloacinactl key create --max-priority`, `key set-priority`).
+  - An OIDC mapping rule takes a third field, the limit of the logins it
+    matches: `group:ops=acme:write:2`. A third field that is not 0 to 10
+    stops the server at start.
+  - Named instances and backfills take `priority`; each run is held to the
+    creator's limit at the time of the run.
+  - The upload answer has `priority_limit` and `priority_notice`;
+    `cloacinactl package upload` and `package publish` print the notice as a
+    warning. The workflow, instance and backfill views show `priority`
+    (asked and given now).
+  - A held package or schedule run writes the audit event `priority.held`
+    once for each change of its given priority.
+
 - **Agent keys of the Kubernetes actuator expire and are rotated**
   (CLOACINA-T-1083). A key the actuator mints for a tenant's agents expires
   after 30 days (`--agent-key-lifetime-days`). When 10 days are left

@@ -64,6 +64,23 @@ pub struct CreateKeyRequest {
     /// refused with 401 `key_expired`. Not set: the key does not expire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
+    /// Optional. The highest priority the key may set, 0 (the highest) to 10
+    /// (CLOACINA-T-1123). Not set: the default of its role (`write` 5,
+    /// `admin` 0). Not better than the caller's own limit (403); refused on a
+    /// `read` or `agent` key (400).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_priority: Option<u8>,
+}
+
+/// Request body for `PATCH /tenants/{tenant_id}/keys/{key_id}`
+/// (CLOACINA-T-1123): the highest priority the key may set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UpdateKeyRequest {
+    /// 0 (the highest) to 10; `null` clears it, and the key has the default
+    /// of its role again. Not better than the caller's own limit (403);
+    /// refused on a `read` or `agent` key (400).
+    pub max_priority: Option<u8>,
 }
 
 /// `201 Created` body for a new API key. The plaintext `key` is returned
@@ -88,6 +105,10 @@ pub struct KeyCreatedResponse {
     /// When the key expires (RFC 3339); `null`: it does not expire.
     #[serde(default)]
     pub expires_at: Option<String>,
+    /// The highest priority the key may set; `null`: the default of its
+    /// role (CLOACINA-T-1123).
+    #[serde(default)]
+    pub max_priority: Option<u8>,
 }
 
 /// One row in the key list (`GET /auth/keys`). No hashes or plaintext.
@@ -109,6 +130,10 @@ pub struct KeyInfo {
     /// keys the Kubernetes actuator mints for agents expire.
     #[serde(default)]
     pub expires_at: Option<String>,
+    /// The highest priority the key may set; `null`: the default of its
+    /// role (CLOACINA-T-1123).
+    #[serde(default)]
+    pub max_priority: Option<u8>,
 }
 
 /// `DELETE /auth/keys/{key_id}` response.

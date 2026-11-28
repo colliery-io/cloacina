@@ -26,6 +26,16 @@ pub struct WorkflowUploadedResponse {
     /// UUID of the registered package.
     pub package_id: String,
     pub tenant_id: String,
+    /// The highest priority the runs of this package may get, as its
+    /// publisher may set now (CLOACINA-T-1123). A workflow or task that
+    /// declares a higher priority (a smaller number) in its code runs at
+    /// this one. Absent in an answer from an older server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_limit: Option<u8>,
+    /// Set when the limit is below the highest priority: one sentence that
+    /// says the limit and why. `cloacinactl` prints it as a warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_notice: Option<String>,
 }
 
 /// One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).
@@ -239,6 +249,16 @@ pub struct WorkflowDetail {
     /// As in [`WorkflowSummary::needs_new_build`] (CLOACINA-T-1085).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub needs_new_build: Option<NeedsNewBuild>,
+    /// The workflow priority its code declares (`asked`, 5 when it declares
+    /// none) and the one its runs get now (`given`): the asked one held to
+    /// the limit of the publisher at this time (CLOACINA-T-1123). Absent for
+    /// a package that is not built yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::priority::PriorityGrant>,
+    /// Set when `given` is lower than `asked`: what was asked, what is
+    /// given, and why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_notice: Option<String>,
 }
 
 /// `POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response

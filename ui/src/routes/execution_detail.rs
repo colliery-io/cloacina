@@ -136,6 +136,21 @@ pub fn ExecutionView(
             .unwrap_or_default()
     });
     let terminal = Signal::derive(move || status.get().is_empty() || is_terminal(&status.get()));
+    // CLOACINA-T-1123: the workflow priority asked and given.
+    let priority = Signal::derive(move || {
+        detail
+            .get()
+            .and_then(|r| r.ok())
+            .and_then(|d| d.priority)
+            .map(|p| {
+                if p.asked == p.given {
+                    p.given.to_string()
+                } else {
+                    format!("asked {}, given {}", p.asked, p.given)
+                }
+            })
+            .unwrap_or_else(|| "—".to_string())
+    });
 
     // Task rows: polled while live (they also drive start/duration + DAG colors).
     let tasks = poll_resource(move |c| {
@@ -420,6 +435,7 @@ pub fn ExecutionView(
                             {move || format_duration(started_at.get().as_deref(), ended_at.get().as_deref())}
                         </KeyValue>
                         <KeyValue label="Tasks">{move || completed_of.get()}</KeyValue>
+                        <KeyValue label="Priority">{move || priority.get()}</KeyValue>
                     </DetailList>
                 </div>
             </Show>

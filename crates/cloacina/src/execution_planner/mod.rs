@@ -121,7 +121,7 @@ mod state_manager;
 mod trigger_rules;
 
 // Re-export public types
-pub use priority::{PriorityAuthority, RunPriority, WaitingOrder};
+pub use priority::{PriorityAuthority, PriorityChange, RunPriority, WaitingOrder};
 pub use trigger_rules::{TriggerCondition, TriggerRule, ValueOperator};
 
 use std::sync::Arc;
@@ -129,7 +129,7 @@ use std::time::Duration;
 
 use diesel::Connection;
 use diesel::prelude::*;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::Runtime;
@@ -160,6 +160,16 @@ struct PlannedTaskRow {
     /// CLOACINA-T-1123: the priority the task declares, as asked; `None`
     /// when it declares none.
     task_priority_asked: Option<i32>,
+}
+
+/// The priority of a run as the planner worked it out (CLOACINA-T-1123).
+struct ResolvedPriority {
+    /// The workflow priority: asked and given.
+    grant: cloacina_api_types::PriorityGrant,
+    /// The limit of what the package's code declares, for the tasks.
+    declared_limit: Option<u8>,
+    /// The record whose last given value this run sets: kind, target, setter.
+    tracked: Option<(&'static str, String, crate::dal::unified::PrioritySetter)>,
 }
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
@@ -455,12 +465,14 @@ impl TaskScheduler {
         // CLOACINA-T-1045: the priority of the run. The limit of what the
         // package's code may declare is read now, at the start of the run:
         // a limit that was raised or lowered since the publish applies.
+        // CLOACINA-T-1123: the limit is the one of who published the package
+        // (or created the schedule), as it is now.
         let authority = self.priority_authority();
-        let declared_limit = match &authority {
-            Some(authority) => authority.declared_limit(workflow_name).await,
-            None => None,
-        };
-        let workflow_priority = priority::workflow_grant(run, workflow.priority(), declared_limit);
+        let resolved = self
+            .resolve_run_priority(run, &workflow, workflow_name, authority.as_deref())
+            .await;
+        let declared_limit = resolved.declared_limit;
+        let workflow_priority = resolved.grant;
 
         // Build all task data BEFORE the transaction
         let task_ids = workflow.topological_sort()?;
@@ -542,6 +554,35 @@ impl TaskScheduler {
             }
         }
 
+        // CLOACINA-T-1123: the given priority of a package or a schedule is
+        // stored; the one run start that changes it, on any replica, reports
+        // the change.
+        if let (Some(authority), Some((kind, target, setter))) = (&authority, resolved.tracked) {
+            match self
+                .dal
+                .priority_grants()
+                .set_last_given(kind, &target, workflow_priority.given)
+                .await
+            {
+                Ok(true) => {
+                    authority
+                        .given_changed(&priority::PriorityChange {
+                            kind: kind.to_string(),
+                            target,
+                            workflow_name: workflow_name.to_string(),
+                            setter,
+                            grant: workflow_priority,
+                        })
+                        .await
+                }
+                Ok(false) => {}
+                Err(e) => warn!(
+                    workflow = %workflow_name,
+                    "the given priority of the run was not stored: {e}"
+                ),
+            }
+        }
+
         // NOTE: cloacina_active_workflows gauge is SQL-derived — re-seeded
         // each tick in SchedulerLoop::process_active_executions from the
         // workflow_executions row count. We intentionally do NOT increment
@@ -554,6 +595,86 @@ impl TaskScheduler {
             workflow_execution_id
         );
         Ok((workflow_execution_id.into(), workflow_priority))
+    }
+
+    /// The priority of a run (CLOACINA-T-1045, CLOACINA-T-1123).
+    ///
+    /// - A schedule that fires the run and was created with a priority: that
+    ///   priority, held to the limit of its creator now.
+    /// - A run that asks for a priority: that, held to `run.limit`.
+    /// - Else what the workflow declares, held to the limit of who published
+    ///   the package now. A package with no record of its publisher (one
+    ///   published before CLOACINA-T-1123) is held to
+    ///   [`PriorityAuthority::declared_limit`].
+    ///
+    /// With no authority (the embedded use) nothing is held and nothing is
+    /// tracked.
+    async fn resolve_run_priority(
+        &self,
+        run: RunPriority,
+        workflow: &Workflow,
+        workflow_name: &str,
+        authority: Option<&dyn PriorityAuthority>,
+    ) -> ResolvedPriority {
+        use crate::dal::unified::priority_grants::{KIND_PACKAGE, KIND_SCHEDULE};
+
+        let Some(authority) = authority else {
+            return ResolvedPriority {
+                grant: priority::workflow_grant(run, workflow.priority(), None),
+                declared_limit: None,
+                tracked: None,
+            };
+        };
+        let grants = self.dal.priority_grants();
+        let read = |result: Result<
+            Option<crate::dal::unified::PriorityGrantRow>,
+            ValidationError,
+        >| {
+            result.unwrap_or_else(|e| {
+                warn!(workflow = %workflow_name, "the record of who set the priority was not read: {e}");
+                None
+            })
+        };
+
+        // The package: the limit of its publisher, else the old default.
+        let package = workflow.package().to_string();
+        let package_row = if package.is_empty() {
+            None
+        } else {
+            read(grants.get(KIND_PACKAGE, &package).await)
+        };
+        let declared_limit = match &package_row {
+            Some(row) => authority.limit_of(&row.setter()).await,
+            None => authority.declared_limit(workflow_name).await,
+        };
+
+        // A schedule created with a priority.
+        if let Some(schedule) = run.schedule {
+            let target = schedule.to_string();
+            if let Some(row) = read(grants.get(KIND_SCHEDULE, &target).await)
+                && let Some(asked) = row.asked()
+            {
+                let limit = authority.limit_of(&row.setter()).await;
+                return ResolvedPriority {
+                    grant: priority::grant_under(asked, limit),
+                    declared_limit,
+                    tracked: Some((KIND_SCHEDULE, target, row.setter())),
+                };
+            }
+        }
+
+        if run.asked.is_some() {
+            return ResolvedPriority {
+                grant: priority::workflow_grant(run, workflow.priority(), declared_limit),
+                declared_limit,
+                tracked: None,
+            };
+        }
+        ResolvedPriority {
+            grant: priority::workflow_grant(run, workflow.priority(), declared_limit),
+            declared_limit,
+            tracked: package_row.map(|row| (KIND_PACKAGE, package, row.setter())),
+        }
     }
 
     /// Creates workflow execution and tasks in PostgreSQL.

@@ -1176,10 +1176,18 @@ pub async fn run(
     )
     .await
     .context("Failed to connect to database")?;
-    // CLOACINA-T-1045: a priority that a package of the `public` tenant
-    // declares in its code is held to the limit of the role that may publish.
-    runner.set_priority_authority(Arc::new(priority_authority::PublisherLimit::for_tenant(
+    // CLOACINA-T-1045, CLOACINA-T-1123: a priority that a package of the
+    // `public` tenant declares, or a schedule asks for, is held to the limit
+    // of who published or created it, at each run start. The OIDC map is
+    // read once here and shared with the routes.
+    let oidc_policy = Arc::new(crate::oidc::MappingPolicy::from_env());
+    let priority_lookup = priority_authority::PrincipalLookup {
+        admin: runner.database().clone(),
+        oidc_policy: oidc_policy.clone(),
+    };
+    runner.set_priority_authority(Arc::new(priority_authority::PublisherLimit::with_lookup(
         "public",
+        priority_lookup.clone(),
     )));
 
     info!("Connected to Postgres, migrations applied");
@@ -1449,7 +1457,8 @@ pub async fn run(
         // scheduler so their reconcilers can route packaged CGs. The scheduler
         // stores tenant_id per graph (T-0579), so health-endpoint filtering
         // still works.
-        .with_graph_scheduler(graph_scheduler.clone());
+        .with_graph_scheduler(graph_scheduler.clone())
+        .with_priority_lookup(priority_lookup.clone());
         if use_fleet {
             let reg_registry = agent_registry.clone();
             let reg_coordinator = fleet_coordinator.clone();
@@ -1530,7 +1539,6 @@ pub async fn run(
         },
         None => None,
     };
-    let oidc_policy = Arc::new(crate::oidc::MappingPolicy::from_env());
     // CLOACI-T-0801: Postgres-backed login-flow state (multi-replica safe).
     let oidc_login = Arc::new(crate::oidc::LoginFlowStore::with_db(
         admin_database.clone(),
@@ -2545,6 +2553,11 @@ fn registered_routes(
             "/tenants/{tenant_id}/keys/{key_id}",
             crate::routes::keys::revoke_tenant_key,
         )
+        // CLOACINA-T-1123: the highest priority a key may set.
+        .patch(
+            "/tenants/{tenant_id}/keys/{key_id}",
+            crate::routes::keys::update_tenant_key,
+        )
         // CLOACI-T-0797: tenant-admin local-account management.
         .post(
             "/tenants/{tenant_id}/accounts",
@@ -3321,6 +3334,7 @@ mod tests {
                 is_admin: false,
                 expires_at: None,
                 issued_via: None,
+                max_priority: None,
             };
         let keys = vec![
             key("a", "read", false),
@@ -3378,6 +3392,8 @@ mod tests {
     mod backfill_routes;
     /// The package delete in each build state (CLOACINA-T-1122).
     mod package_delete;
+    /// Who set a priority, and the limit that holds it (CLOACINA-T-1123).
+    mod priority_publisher;
     /// A run with a priority through the router (CLOACINA-T-1123).
     mod priority_routes;
 
@@ -4056,6 +4072,7 @@ mod tests {
             // CLOACINA-T-1118: an agent registers with a key of a tenant.
             tenant_id: Some("public".to_string()),
             is_admin: false,
+            max_priority: None,
         };
         // CLOACINA-T-1050: a report is taken only from a registered agent
         // that the caller key holds, so the agent registers first (through
@@ -4191,6 +4208,7 @@ mod tests {
             permissions: "read".to_string(),
             tenant_id: Some("acme".to_string()),
             is_admin: false,
+            max_priority: None,
         };
         let ticket = store_a.issue(auth).await;
 
@@ -4228,6 +4246,7 @@ mod tests {
             permissions: "read".to_string(),
             tenant_id: None,
             is_admin: false,
+            max_priority: None,
         };
         let ticket = store_a.issue(auth).await;
 
@@ -8344,6 +8363,7 @@ mod tests {
             tenant: tenant.map(str::to_string),
             role: role.to_string(),
             provenance: format!("oidc:{TEST_ISSUER}:sub-{}", uuid::Uuid::new_v4()),
+            max_priority: None,
         };
         let (plaintext, info) = mint_for_principal(state, &principal, key_ttl)
             .await
@@ -8515,6 +8535,7 @@ mod tests {
             tenant: Some("public".into()),
             role: "read".into(),
             provenance: format!("oidc:{TEST_ISSUER}:sub-{}", uuid::Uuid::new_v4()),
+            max_priority: None,
         };
         let (token, _) =
             mint_for_principal(&state, &principal, std::time::Duration::from_secs(900))

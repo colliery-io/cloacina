@@ -58,6 +58,13 @@ pub struct CreateInstanceRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(minimum = 1))]
     pub max_active_runs: Option<u32>,
+    /// The workflow priority of each fire, 0 (the highest) to 10
+    /// (CLOACINA-T-1123). Each fire is held to the creator's limit at the
+    /// time of the fire; a priority above the limit is not refused. Not set:
+    /// the priority the workflow declares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(minimum = 0, maximum = 10))]
+    pub priority: Option<u8>,
 }
 
 /// One row in the instance list, and the body of a single-instance GET.
@@ -88,6 +95,15 @@ pub struct WorkflowInstanceSummary {
     pub last_run_at: Option<String>,
     /// RFC 3339 timestamp.
     pub created_at: String,
+    /// The priority the instance asks for and the one its fires get now,
+    /// held to the creator's limit at this time (CLOACINA-T-1123). Absent
+    /// for an instance created with no priority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::priority::PriorityGrant>,
+    /// Set when `given` is lower than `asked`: what was asked, what is
+    /// given, and why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_notice: Option<String>,
 }
 
 /// Response for a delete.

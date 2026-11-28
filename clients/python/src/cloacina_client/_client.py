@@ -80,6 +80,7 @@ from ._generated.api.keys import (
     list_tenant_keys,
     revoke_key,
     revoke_tenant_key,
+    update_tenant_key,
 )
 from ._generated.api.operational import health, ready
 from ._generated.api.secrets import (
@@ -134,6 +135,7 @@ from ._generated.models import (
     RetryBackfillRequest,
     RotateSecretRequest,
     RotateSecretRequestFields,
+    UpdateKeyRequest,
 )
 from ._generated.types import UNSET, File, Response, Unset
 
@@ -257,6 +259,18 @@ class Client(_Base):
         return _unwrap(
             revoke_tenant_key.sync_detailed(
                 self.tenant_segment(tenant), key_id, client=self._gen
+            )
+        )
+
+    def update_tenant_key(
+        self, key_id: str, max_priority: int | None, tenant: str | None = None
+    ):
+        """Set (0 to 10) or clear (`None`) the highest priority a key of the
+        tenant may set (tenant-admin, CLOACINA-T-1123)."""
+        body = UpdateKeyRequest(max_priority=max_priority)
+        return _unwrap(
+            update_tenant_key.sync_detailed(
+                self.tenant_segment(tenant), key_id, client=self._gen, body=body
             )
         )
 

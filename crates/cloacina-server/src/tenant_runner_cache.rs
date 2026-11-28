@@ -187,6 +187,10 @@ pub struct TenantRunnerCache {
     /// cross-tenant filtering at the health-endpoint layer still works
     /// even with a shared scheduler.
     graph_scheduler: Option<Arc<ComputationGraphScheduler>>,
+    /// CLOACINA-T-1123: where the limit of who published a package or
+    /// created a schedule is read from. `None`: the default of the role
+    /// recorded.
+    priority_lookup: Option<crate::priority_authority::PrincipalLookup>,
 }
 
 impl TenantRunnerCache {
@@ -203,7 +207,18 @@ impl TenantRunnerCache {
             base_config,
             graph_scheduler: None,
             fleet_registrar: None,
+            priority_lookup: None,
         }
+    }
+
+    /// CLOACINA-T-1123: read the limit of who published a package or created
+    /// a schedule from the keys, login sessions and accounts of `lookup`.
+    pub fn with_priority_lookup(
+        mut self,
+        lookup: crate::priority_authority::PrincipalLookup,
+    ) -> Self {
+        self.priority_lookup = Some(lookup);
+        self
     }
 
     /// CLOACI-T-0634: install a fleet-executor registrar. Every per-tenant
@@ -300,11 +315,16 @@ impl TenantRunnerCache {
         if let Some(registrar) = &self.fleet_registrar {
             registrar(&runner);
         }
-        // CLOACINA-T-1045: a priority that a package of this tenant declares
-        // in its code is held to the limit of the role that may publish.
-        runner.set_priority_authority(Arc::new(
-            crate::priority_authority::PublisherLimit::for_tenant(tenant_id),
-        ));
+        // CLOACINA-T-1045, CLOACINA-T-1123: a priority that a package of this
+        // tenant declares, or a schedule asks for, is held to the limit of
+        // who published or created it, at each run start.
+        let authority = match &self.priority_lookup {
+            Some(lookup) => {
+                crate::priority_authority::PublisherLimit::with_lookup(tenant_id, lookup.clone())
+            }
+            None => crate::priority_authority::PublisherLimit::for_tenant(tenant_id),
+        };
+        runner.set_priority_authority(Arc::new(authority));
         let runner = Arc::new(runner);
 
         let held = {

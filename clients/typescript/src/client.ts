@@ -243,6 +243,21 @@ export class CloacinaClient {
     );
   }
 
+  /** Set (0 to 10) or clear (`null`) the highest priority a key of the
+   * tenant may set (CLOACINA-T-1123). */
+  async updateTenantKey(
+    keyId: string,
+    maxPriority: number | null,
+    tenant?: string,
+  ): Promise<schemas["KeyInfo"]> {
+    return unwrap(
+      await this.api.PATCH("/v1/tenants/{tenant_id}/keys/{key_id}", {
+        params: { path: { tenant_id: this.#tenant(tenant), key_id: keyId } },
+        body: { max_priority: maxPriority },
+      }),
+    );
+  }
+
   /** Mint a single-use, short-lived WebSocket ticket. */
   async createWsTicket(): Promise<schemas["WsTicketResponse"]> {
     return unwrap(await this.api.POST("/v1/auth/ws-ticket"));

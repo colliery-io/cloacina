@@ -491,6 +491,22 @@ mod unified_schema {
         }
     }
 
+    // CLOACINA-T-1123: who set the priority of a package or a schedule, and
+    // the priority its last run was given. `updated_at` is in the table and
+    // set by its default; the code does not read it.
+    diesel::table! {
+        use diesel::sql_types::*;
+
+        priority_grants (kind, target) {
+            kind -> Text,
+            target -> Text,
+            set_by -> Text,
+            set_by_role -> Text,
+            asked -> Nullable<Integer>,
+            last_given -> Nullable<Integer>,
+        }
+    }
+
     diesel::table! {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
@@ -1092,6 +1108,9 @@ mod postgres_schema {
             is_admin -> Bool,
             expires_at -> Nullable<Timestamptz>,
             issued_via -> Nullable<Text>,
+            // CLOACINA-T-1123: the highest priority the key may set; NULL is
+            // the default of its role.
+            max_priority -> Nullable<Integer>,
         }
     }
 

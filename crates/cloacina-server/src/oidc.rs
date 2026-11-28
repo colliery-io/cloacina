@@ -152,6 +152,9 @@ pub struct MappingRule {
     pub tenant: Option<String>,
     /// Role within that tenant (`read` | `write` | `admin`).
     pub role: String,
+    /// The highest priority a login matched by this rule may set, 0 (the
+    /// highest) to 10 (CLOACINA-T-1123). `None`: the default of the role.
+    pub max_priority: Option<u8>,
 }
 
 impl MappingRule {
@@ -204,6 +207,7 @@ impl MappingPolicy {
                 tenant: r.tenant.clone(),
                 role: r.role.clone(),
                 provenance: format!("oidc:{issuer}:{}", claims.subject),
+                max_priority: r.max_priority,
             })
     }
 
@@ -221,6 +225,7 @@ impl MappingPolicy {
                     tenant: r.tenant.clone(),
                     role: r.role.clone(),
                     provenance: format!("oidc:{issuer}:{}", claims.subject),
+                    max_priority: r.max_priority,
                 });
             }
         }
@@ -237,6 +242,27 @@ impl MappingPolicy {
     /// with an unknown role would grant nothing, and to skip it would let a
     /// later rule win for the same identity (CLOACINA-T-1055).
     pub fn check(raw: &str) -> Result<(), String> {
+        // CLOACINA-T-1123: a third field that is not a priority from 0 to 10
+        // would drop the rule, and a later rule would win.
+        let bad_limits: Vec<String> = raw
+            .split(';')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter_map(|clause| {
+                let (_, grant) = clause.split_once('=')?;
+                let (_, role_and_limit) = grant.trim().split_once(':')?;
+                let (_, limit) = role_and_limit.split_once(':')?;
+                parse_rule_limit(limit)
+                    .is_none()
+                    .then(|| format!("{limit:?} in {clause:?}"))
+            })
+            .collect();
+        if !bad_limits.is_empty() {
+            return Err(format!(
+                "a rule's priority limit is not a whole number from 0 to 10: {}",
+                bad_limits.join(", ")
+            ));
+        }
         let bad: Vec<String> = MappingPolicy::parse(raw)
             .rules
             .iter()
@@ -255,11 +281,14 @@ impl MappingPolicy {
         }
     }
 
-    /// Parse a `;`-separated allowlist: each rule `<match>=<tenant>:<role>`,
-    /// where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and
-    /// `<tenant>` may be `_` for a global principal. A `domain:` rule matches
-    /// only an identity with `email_verified` true. Malformed clauses are
-    /// skipped. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`.
+    /// Parse a `;`-separated allowlist: each rule
+    /// `<match>=<tenant>:<role>[:<max_priority>]`, where `<match>` is
+    /// `group:NAME` / `domain:NAME` / `sub:NAME`, `<tenant>` may be `_` for a
+    /// global principal, and `<max_priority>` (CLOACINA-T-1123) is the
+    /// highest priority a matched login may set, 0 to 10. A `domain:` rule
+    /// matches only an identity with `email_verified` true. Malformed clauses
+    /// are skipped. Example:
+    /// `group:acme-admins=acme:admin;group:acme-ops=acme:write:2;domain:acme.com=acme:write`.
     pub fn parse(raw: &str) -> MappingPolicy {
         let mut rules = Vec::new();
         for clause in raw.split(';').map(str::trim).filter(|s| !s.is_empty()) {
@@ -279,14 +308,35 @@ impl MappingPolicy {
                 "_" | "" => None,
                 t => Some(t.to_string()),
             };
+            let (role, max_priority) = match role.split_once(':') {
+                Some((role, limit)) => match parse_rule_limit(limit) {
+                    Some(limit) => (role, Some(limit)),
+                    None => continue,
+                },
+                None => (role, None),
+            };
             rules.push(MappingRule {
                 claim,
                 tenant,
                 role: role.trim().to_string(),
+                max_priority,
             });
         }
         MappingPolicy::new(rules)
     }
+
+    /// The rules, in order.
+    pub fn rules(&self) -> &[MappingRule] {
+        &self.rules
+    }
+}
+
+/// The third field of a rule: a priority from 0 to 10 (CLOACINA-T-1123).
+fn parse_rule_limit(raw: &str) -> Option<u8> {
+    raw.trim()
+        .parse::<i64>()
+        .ok()
+        .and_then(|n| cloacina_api_types::validate_priority(n).ok())
 }
 
 // ---------------------------------------------------------------------------
@@ -660,18 +710,48 @@ mod tests {
                 claim: ClaimMatch::Group("acme-admins".into()),
                 tenant: Some("acme".into()),
                 role: "admin".into(),
+                max_priority: None,
             },
             MappingRule {
                 claim: ClaimMatch::EmailDomain("acme.com".into()),
                 tenant: Some("acme".into()),
                 role: "write".into(),
+                max_priority: None,
             },
             MappingRule {
                 claim: ClaimMatch::Subject("sub-root".into()),
                 tenant: None,
                 role: "admin".into(),
+                max_priority: None,
             },
         ])
+    }
+
+    /// CLOACINA-T-1123: a rule's third field is the highest priority a
+    /// matched login may set; one that is not 0 to 10 stops the start.
+    #[test]
+    fn a_rule_may_carry_a_priority_limit() {
+        let policy = MappingPolicy::parse("group:ops=acme:write:2;group:dev=acme:write");
+        let rules = policy.rules();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].role, "write");
+        assert_eq!(rules[0].max_priority, Some(2));
+        assert_eq!(rules[1].max_priority, None);
+        let p = policy
+            .resolve(&claims("s", None, &["ops"]), "https://idp.example")
+            .expect("mapped");
+        assert_eq!(p.max_priority, Some(2));
+
+        assert!(MappingPolicy::check("group:ops=acme:write:2").is_ok());
+        let err = MappingPolicy::check("group:ops=acme:write:11").unwrap_err();
+        assert!(err.contains("priority limit"), "{err}");
+        assert!(MappingPolicy::check("group:ops=acme:write:x").is_err());
+        // A rule with a bad limit is not used.
+        assert!(
+            MappingPolicy::parse("group:ops=acme:write:11")
+                .rules()
+                .is_empty()
+        );
     }
 
     #[test]

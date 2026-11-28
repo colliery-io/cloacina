@@ -86,6 +86,11 @@ enum BackfillVerb {
         /// Merged under `--param`.
         #[arg(long = "params", value_name = "FILE")]
         params_file: Option<String>,
+        /// The workflow priority of each run, 0 (the highest) to 10
+        /// (CLOACINA-T-1123). Each run is held to your limit when it starts.
+        /// Not set: the priority the workflow declares.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=10))]
+        priority: Option<u8>,
     },
     /// List the backfills of a workflow, newest first, with their progress.
     List {
@@ -167,9 +172,10 @@ impl BackfillCmd {
                 max_active_runs,
                 params,
                 params_file,
+                priority,
             } => {
                 let merged = merge_params(&params, params_file.as_deref())?;
-                let body = create_body(
+                let mut body = create_body(
                     start,
                     end,
                     interval,
@@ -178,12 +184,20 @@ impl BackfillCmd {
                     max_active_runs,
                     merged,
                 )?;
+                if let Some(priority) = priority {
+                    body["priority"] = serde_json::json!(priority);
+                }
                 let resp: serde_json::Value = client
                     .post(
                         &format!("/v1/tenants/{tenant}/workflows/{workflow}/backfills"),
                         &body,
                     )
                     .await?;
+                // CLOACINA-T-1123: a priority above the creator's limit is a
+                // warning on stderr.
+                if let Some(notice) = resp.get("priority_notice").and_then(|n| n.as_str()) {
+                    eprintln!("warning: {notice}");
+                }
                 render::object(&resp, output)
             }
             BackfillVerb::List {
@@ -265,6 +279,7 @@ mod tests {
             max_active_runs,
             params,
             params_file,
+            priority,
         }) = parse(&[
             "create",
             "hourly_build",
@@ -278,11 +293,25 @@ mod tests {
             "8",
             "--param",
             "region=eu",
+            "--priority",
+            "9",
         ])
         else {
             panic!("create must parse");
         };
         assert_eq!(workflow, "hourly_build");
+        assert_eq!(priority, Some(9), "CLOACINA-T-1123");
+        assert!(
+            parse(&[
+                "create",
+                "w",
+                "--interval",
+                "2026-01-01T00:00:00Z",
+                "--priority",
+                "11"
+            ])
+            .is_err()
+        );
         let merged = merge_params(&params, params_file.as_deref()).unwrap();
         let body = create_body(
             start,
