@@ -771,15 +771,18 @@ def then_build_role_other_tenant(world):
     assert not wrong, f"Postgres let {role} read: {', '.join(wrong)}"
 
 
-@steps.then("Postgres refuses that role a read of the server's own tables in public")
+@steps.then("Postgres refuses that role a read of the server's own tables in public and cloacina_global")
 def then_build_role_public(world):
     role = f"{TEAM_D}$build"
     wrong = []
-    for table in ("api_keys", "tenant_secrets", "fleet_agents"):
-        refused, said = _refused(world, role, f"SELECT count(*) FROM public.{table}")
-        world.note(f"{role} reads public.{table}: {said if refused else 'allowed'}")
+    # The global tables are in the schema `cloacina_global` (CLOACINA-T-1080);
+    # `public` keeps the public tenant's own tables.
+    for table in ("cloacina_global.api_keys", "cloacina_global.fleet_agents",
+                  "public.tenant_secrets", "public.workflow_executions"):
+        refused, said = _refused(world, role, f"SELECT count(*) FROM {table}")
+        world.note(f"{role} reads {table}: {said if refused else 'allowed'}")
         if not refused and "does not exist" not in said:
-            wrong.append(f"public.{table}")
+            wrong.append(table)
     assert not wrong, f"Postgres let {role} read: {', '.join(wrong)}"
 
 

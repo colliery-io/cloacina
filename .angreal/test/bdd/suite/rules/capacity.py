@@ -100,10 +100,11 @@ IN_FLIGHT_SQL = (
 )
 
 # The live agents, with their pool (a `pool:<name>` capability) and totals.
+# A global table, in the schema `cloacina_global` (CLOACINA-T-1080).
 LIVE_AGENTS_SQL = (
     "SELECT agent_id, tenant_id, capabilities, max_concurrency, available_capacity, "
     "cpu_millis, memory_bytes, last_heartbeat_at "
-    "FROM public.fleet_agents "
+    "FROM cloacina_global.fleet_agents "
     "WHERE last_heartbeat_at > now() - interval '2 minutes'"
 )
 

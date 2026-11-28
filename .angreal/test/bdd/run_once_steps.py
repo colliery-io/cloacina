@@ -12,7 +12,6 @@ The world is the standing workload's (`standing_world.StandingWorld`).
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 
@@ -295,12 +294,9 @@ def s3_one_start(world):
 def s3_inbox(world):
     _execution, _tag, task, _pod = world.scratch["elsewhere"]
     task_id = str(task.get("id"))
-    # Read from postgres: the API has no view of the inbox.
-    counts = {}
-    for schema in (TENANT, "public"):
-        raw = world.psql(f"SELECT count(*) FROM {schema}.fleet_result_inbox "
-                         f"WHERE task_execution_id = '{task_id}';")
-        counts[schema] = raw
-    world.note("inbox rows of the task: " + json.dumps(counts))
-    left = {schema: raw for schema, raw in counts.items() if raw not in ("0", "")}
-    assert not left, f"stored results of the task are left: {left}"
+    # Read from postgres: the API has no view of the inbox. It is a global
+    # table, in the schema `cloacina_global` (CLOACINA-T-1080).
+    raw = world.psql("SELECT count(*) FROM cloacina_global.fleet_result_inbox "
+                     f"WHERE task_execution_id = '{task_id}';")
+    world.note(f"inbox rows of the task: {raw}")
+    assert raw in ("0", ""), f"stored results of the task are left: {raw}"

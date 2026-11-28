@@ -171,7 +171,7 @@ class RuleTest(unittest.TestCase):
     def test_a_stored_result_that_nobody_took(self):
         data = healthy()
         task_row(data, "a004")["status"] = "Running"
-        team_a(data)["db"]["run_once_inbox"]["rows"].append(
+        data["admin"]["db"]["run_once_global_inbox"]["rows"].append(
             {"task_execution_id": "7a500000-0000-4000-8000-00000000a004",
              "created_at": "2026-11-27T12:05:01"})
         verdict = judge(data)[OTHER]
@@ -180,7 +180,7 @@ class RuleTest(unittest.TestCase):
 
     def test_a_stored_duplicate_of_a_completed_task_is_not_a_fault(self):
         data = healthy()
-        data["admin"]["db"]["run_once_public_inbox"]["rows"].append(
+        data["admin"]["db"]["run_once_global_inbox"]["rows"].append(
             {"task_execution_id": "7a500000-0000-4000-8000-00000000a003",
              "created_at": "2026-11-27T12:05:01"})
         self.assertEqual(judge(data)[OTHER].state, engine.HOLDS)

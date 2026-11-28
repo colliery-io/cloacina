@@ -89,7 +89,7 @@ Feature: Tenant code runs only on the tenant's agents and in the tenant's compil
     Then team D's compiler connects to Postgres with the role team_d$build
     And that role can read team D's build tables
     And Postgres refuses that role a read of another tenant's tables
-    And Postgres refuses that role a read of the server's own tables in public
+    And Postgres refuses that role a read of the server's own tables in public and cloacina_global
     And no build role has a right outside its own tenant's build tables
 
   # The real path, a new server image over packages that an older compiler

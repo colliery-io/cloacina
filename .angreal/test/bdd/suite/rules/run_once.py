@@ -71,13 +71,12 @@ TASKS_SQL = (
     "ORDER BY te.created_at"
 )
 
-# Results stored for another replica and not taken. The inbox of a tenant's
-# schema, and the one in public for a server that writes there.
-INBOX_SQL = (
-    "SELECT task_execution_id, created_at FROM {schema}.fleet_result_inbox "
+# Results stored for another replica and not taken. The inbox is a global
+# table, in the schema `cloacina_global` (CLOACINA-T-1080).
+GLOBAL_INBOX_SQL = (
+    "SELECT task_execution_id, created_at FROM cloacina_global.fleet_result_inbox "
     f"WHERE created_at < now() - interval '{INBOX_STALE_SECONDS} seconds'"
 )
-PUBLIC_INBOX_SQL = INBOX_SQL.replace("{schema}", "public")
 
 
 def parse_mark(text):
@@ -218,8 +217,7 @@ def judge_counts(snapshot, counts, what):
 def register(registry):
     _shared.need_clock(registry)
     registry.need_db("run_once_tasks", TASKS_SQL)
-    registry.need_db("run_once_inbox", INBOX_SQL)
-    registry.need_admin_db("run_once_public_inbox", PUBLIC_INBOX_SQL)
+    registry.need_admin_db("run_once_global_inbox", GLOBAL_INBOX_SQL)
     registry.need_logs("marks", "agents", workload.MARK.strip())
     registry.need_logs("results_elsewhere", "server", RESULT_STORED)
 
@@ -286,10 +284,7 @@ def register(registry):
             counts.extend(count for count in ended_tasks(snapshot, tenant)
                           if str(count.row.get("task_id")).lower() in stored)
         left = []
-        inbox = list(snapshot.db(None, "run_once_public_inbox"))
-        for tenant in _shared.workload_tenants(snapshot):
-            inbox.extend(snapshot.db(tenant, "run_once_inbox"))
-        for item in inbox:
+        for item in snapshot.db(None, "run_once_global_inbox"):
             task_id = str(item.get("task_execution_id")).lower()
             tenant, row = rows.get(task_id, (None, None))
             if row is not None and row.get("status") != "Completed":

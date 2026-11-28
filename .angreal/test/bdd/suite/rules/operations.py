@@ -93,10 +93,11 @@ RETENTION_SQL = (
     "(SELECT min(created_at) FROM {schema}.schedules) AS tenant_since"
 )
 
-# The audit record of the last three hours.
+# The audit record of the last three hours. A global table, in the schema
+# `cloacina_global` (CLOACINA-T-1080).
 AUDIT_SQL = (
     "SELECT id, created_at, tenant_id, actor_key_id, actor_key_name, action, target, "
-    "outcome, detail FROM public.audit_events "
+    "outcome, detail FROM cloacina_global.audit_events "
     "WHERE created_at > now() - interval '3 hours' ORDER BY id"
 )
 

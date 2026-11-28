@@ -76,7 +76,7 @@
         {"role": "team_c", "connections": 2},
         {"role": "team_c$build", "connections": 1}
       ]},
-      "run_once_public_inbox": {"rows": []}
+      "run_once_global_inbox": {"rows": []}
     },
     "logs": {
       "results_elsewhere": {"pods": ["bdd-standing-cloacina-server-5f7c9-a", "bdd-standing-cloacina-server-5f7c9-b"], "rows": [
@@ -177,7 +177,6 @@
            "created_at": "2026-11-27T12:15:01.004", "started_at": "2026-11-27T12:15:01.200", "completed_at": null, "waiting_since": null,
            "schedule_id": "5c4e0000-0000-4000-8000-00000000a003", "scheduled_time": "2026-11-27T12:15:00+00:00", "run_once_tag": null, "held_seconds": null}
         ]},
-        "run_once_inbox": {"rows": []},
         "schedules": {"rows": [
           {"id": "5c5e0000-0000-4000-8000-00000000a101", "workflow_name": "standing_rollup", "instance_name": null, "trigger_name": "standing_rollup_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
           {"id": "5c5e0000-0000-4000-8000-00000000a102", "workflow_name": "standing_extract", "instance_name": null, "trigger_name": "standing_extract_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
@@ -272,7 +271,6 @@
              {"action": "other_tenant", "other_tenant": "team_c", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
         ]},
         "run_once_tasks": {"rows": []},
-        "run_once_inbox": {"rows": []},
         "schedules": {"rows": [
           {"id": "5c5e0000-0000-4000-8000-00000000b101", "workflow_name": "standing_rollup", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
           {"id": "5c5e0000-0000-4000-8000-00000000b102", "workflow_name": "standing_extract", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
@@ -348,7 +346,6 @@
              {"action": "other_tenant", "other_tenant": "team_a", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
         ]},
         "run_once_tasks": {"rows": []},
-        "run_once_inbox": {"rows": []},
         "schedules": {"rows": [
           {"id": "5c5e0000-0000-4000-8000-00000000c101", "workflow_name": "standing_rollup", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
           {"id": "5c5e0000-0000-4000-8000-00000000c102", "workflow_name": "standing_extract", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
