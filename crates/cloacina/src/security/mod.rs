@@ -61,4 +61,5 @@ pub use verification::{
     SecurityConfig, SignatureSource, VerificationError, VerificationResult,
     verify_detached_signature_for_orgs, verify_package, verify_package_bytes,
     verify_package_bytes_for_orgs, verify_package_offline, verify_stored_signature_for_orgs,
+    verify_stored_signature_hash_for_orgs,
 };

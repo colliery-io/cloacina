@@ -85,7 +85,9 @@ pub use reconciler::{
     CronWorkflowRegistrar, PackageLoadMode, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
     ReconcilerStatus, RegistryReconciler,
 };
-pub use traits::{LoadSignature, LoadSignatureRefusal, RegistryStorage, WorkflowRegistry};
+pub use traits::{
+    LoadSignature, LoadSignatureRefusal, RegistryStorage, SignerRevokeMarker, WorkflowRegistry,
+};
 pub use types::{
     LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId, WorkflowSourceFile,
 };

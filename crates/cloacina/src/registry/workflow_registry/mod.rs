@@ -857,46 +857,20 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         >,
         RegistryError,
     > {
-        use crate::registry::traits::{LoadSignature, LoadSignatureRefusal};
-        use crate::security::{DbKeyManager, DbPackageSigner, VerificationError};
+        use crate::security::{DbKeyManager, DbPackageSigner};
 
         let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
         let trust = trust_database.unwrap_or(&self.database).clone();
         let key_manager = DbKeyManager::new(crate::dal::DAL::new(trust));
-        match crate::security::verify_stored_signature_for_orgs(
-            package_data,
-            org_ids,
-            &signer,
-            &key_manager,
+        load_signature_answer(
+            crate::security::verify_stored_signature_for_orgs(
+                package_data,
+                org_ids,
+                &signer,
+                &key_manager,
+            )
+            .await,
         )
-        .await
-        {
-            Ok((result, trusted_by)) => Ok(Ok(LoadSignature {
-                package_hash: result.package_hash,
-                signer_fingerprint: result.signer_fingerprint,
-                trusted_by,
-            })),
-            Err(e) => {
-                let code = match &e {
-                    VerificationError::SignatureNotFound { .. } => "missing_signature",
-                    VerificationError::UntrustedSigner { .. } => "untrusted_signer",
-                    VerificationError::RevokedSigner { .. } => "revoked_signer",
-                    VerificationError::InvalidSignature
-                    | VerificationError::TamperedPackage { .. }
-                    | VerificationError::MalformedSignature { .. } => "invalid_signature",
-                    // The check could not run: a database or key store error.
-                    _ => {
-                        return Err(RegistryError::Internal(format!(
-                            "signature check failed: {e}"
-                        )));
-                    }
-                };
-                Ok(Err(LoadSignatureRefusal {
-                    code,
-                    reason: e.to_string(),
-                }))
-            }
-        }
     }
 
     /// CLOACI-T-0905 (multi-arch): version-scoped per-target artifact lookup.
@@ -985,6 +959,125 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         package_id: crate::registry::types::WorkflowPackageId,
     ) -> Result<Option<StoredDescription>, RegistryError> {
         self.get_package_description(package_id).await
+    }
+
+    /// CLOACINA-T-1119: read from the trusted keys of `trust_database`, or
+    /// of this registry's database when there is none.
+    async fn signer_revoke_marker(
+        &self,
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<Option<crate::registry::traits::SignerRevokeMarker>, RegistryError> {
+        let trust = trust_database.unwrap_or(&self.database).clone();
+        let key_manager = crate::security::DbKeyManager::new(crate::dal::DAL::new(trust));
+        let (revoked_keys, latest) = key_manager
+            .revoked_key_marker(org_ids)
+            .await
+            .map_err(|e| RegistryError::Internal(format!("revoke marker: {e}")))?;
+        Ok(Some(crate::registry::traits::SignerRevokeMarker {
+            revoked_keys,
+            last_revoked_at: latest.map(|t| t.0),
+        }))
+    }
+
+    async fn recheck_package_signature(
+        &self,
+        package_hash: &str,
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<
+        Result<
+            crate::registry::traits::LoadSignature,
+            crate::registry::traits::LoadSignatureRefusal,
+        >,
+        RegistryError,
+    > {
+        use crate::security::{DbKeyManager, DbPackageSigner};
+
+        let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
+        let trust = trust_database.unwrap_or(&self.database).clone();
+        let key_manager = DbKeyManager::new(crate::dal::DAL::new(trust));
+        load_signature_answer(
+            crate::security::verify_stored_signature_hash_for_orgs(
+                package_hash,
+                org_ids,
+                &signer,
+                &key_manager,
+            )
+            .await,
+        )
+    }
+
+    async fn cancel_package_runs(
+        &self,
+        package_name: &str,
+        version: &str,
+        workflow_name: Option<&str>,
+        reason: &str,
+    ) -> Result<usize, RegistryError> {
+        crate::dal::DAL::new(self.database.clone())
+            .workflow_execution()
+            .cancel_package_runs(package_name, version, workflow_name, reason)
+            .await
+            .map_err(|e| RegistryError::Database(format!("cancel the runs of a package: {e}")))
+    }
+
+    async fn write_audit_event(
+        &self,
+        event: crate::dal::unified::audit_events::NewAuditEvent,
+        trust_database: Option<&crate::Database>,
+    ) -> Result<(), RegistryError> {
+        let database = trust_database.unwrap_or(&self.database).clone();
+        crate::dal::DAL::new(database)
+            .audit_events()
+            .insert(event)
+            .await
+            .map_err(|e| RegistryError::Database(format!("audit row: {e}")))
+    }
+}
+
+/// The answer of a check of a stored signature, as the load check gives it
+/// (CLOACINA-T-1062, CLOACINA-T-1119): `Ok(Ok)` a package that passes,
+/// `Ok(Err)` one that does not, with its code, `Err` a check that could not
+/// run.
+fn load_signature_answer(
+    checked: Result<
+        (crate::security::VerificationResult, crate::UniversalUuid),
+        crate::security::VerificationError,
+    >,
+) -> Result<
+    Result<crate::registry::traits::LoadSignature, crate::registry::traits::LoadSignatureRefusal>,
+    RegistryError,
+> {
+    use crate::registry::traits::{LoadSignature, LoadSignatureRefusal};
+    use crate::security::VerificationError;
+
+    match checked {
+        Ok((result, trusted_by)) => Ok(Ok(LoadSignature {
+            package_hash: result.package_hash,
+            signer_fingerprint: result.signer_fingerprint,
+            trusted_by,
+        })),
+        Err(e) => {
+            let code = match &e {
+                VerificationError::SignatureNotFound { .. } => "missing_signature",
+                VerificationError::UntrustedSigner { .. } => "untrusted_signer",
+                VerificationError::RevokedSigner { .. } => "revoked_signer",
+                VerificationError::InvalidSignature
+                | VerificationError::TamperedPackage { .. }
+                | VerificationError::MalformedSignature { .. } => "invalid_signature",
+                // The check could not run: a database or key store error.
+                _ => {
+                    return Err(RegistryError::Internal(format!(
+                        "signature check failed: {e}"
+                    )));
+                }
+            };
+            Ok(Err(LoadSignatureRefusal {
+                code,
+                reason: e.to_string(),
+            }))
+        }
     }
 }
 

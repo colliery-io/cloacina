@@ -122,6 +122,17 @@ The row names the secret, never its value. A name a task asks for on an agent,
 and that the work packet does not carry, is refused by the agent; that refusal
 is in the task's error and the agent's log, not in the audit record.
 
+### Packages refused after a revoke
+
+With `--require-signatures`, a package whose only valid signature was by a
+trusted key that is then revoked is unloaded on every replica, and that version
+is refused (see [Package signing](../package-signing/#manage-a-tenants-trusted-keys-on-a-server)).
+One row records it, written by the replica that refused the version:
+
+| Action | `actor_key_id`, `actor_key_name` | `target_kind`, `target` | `outcome` | `detail` |
+|---|---|---|---|---|
+| `package.signer_revoked` | `server` | `package`, the package id | `denied` | `package`, `version`, `fingerprint` (of the revoked key), `code` (`revoked_signer` or `untrusted_signer`), `cancelled_runs` |
+
 ### Denied requests
 
 When authorization refuses a request on one of the routes above (wrong tenant,

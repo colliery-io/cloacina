@@ -699,6 +699,12 @@ mod tests {
         stored: Mutex<Option<StoredDescription>>,
         refused: Mutex<Vec<(WorkflowPackageId, String)>>,
         task_graphs: Mutex<Vec<(WorkflowPackageId, TaskGraph)>>,
+        /// CLOACINA-T-1119: the revoke marker, and the answer of the check
+        /// after a revoke (`None`: a check that cannot run), with a count of
+        /// the checks.
+        revoke_marker: Mutex<Option<crate::registry::traits::SignerRevokeMarker>>,
+        recheck: Mutex<Option<&'static str>>,
+        rechecks: Mutex<usize>,
     }
 
     #[async_trait]
@@ -751,6 +757,110 @@ mod tests {
         ) -> Result<Option<StoredDescription>, RegistryError> {
             Ok(self.stored.lock().unwrap().clone())
         }
+        async fn signer_revoke_marker(
+            &self,
+            _org_ids: &[crate::UniversalUuid],
+            _trust_database: Option<&crate::Database>,
+        ) -> Result<Option<crate::registry::traits::SignerRevokeMarker>, RegistryError> {
+            Ok(self.revoke_marker.lock().unwrap().clone())
+        }
+        async fn recheck_package_signature(
+            &self,
+            package_hash: &str,
+            _org_ids: &[crate::UniversalUuid],
+            _trust_database: Option<&crate::Database>,
+        ) -> Result<
+            Result<
+                crate::registry::traits::LoadSignature,
+                crate::registry::traits::LoadSignatureRefusal,
+            >,
+            RegistryError,
+        > {
+            *self.rechecks.lock().unwrap() += 1;
+            match *self.recheck.lock().unwrap() {
+                None => Err(RegistryError::Internal("database down".to_string())),
+                Some("ok") => Ok(Ok(crate::registry::traits::LoadSignature {
+                    package_hash: package_hash.to_string(),
+                    signer_fingerprint: "fp-live".to_string(),
+                    trusted_by: crate::UniversalUuid::new_v4(),
+                })),
+                Some(code) => Ok(Err(crate::registry::traits::LoadSignatureRefusal {
+                    code,
+                    reason: format!("refused: {code}"),
+                })),
+            }
+        }
+    }
+
+    /// CLOACINA-T-1119: the check after a revoke. A check that cannot run
+    /// refuses nothing and runs again at the next pass; an unchanged marker
+    /// checks nothing; a code that is not a revoke leaves the package; a
+    /// revoked signer refuses it, with the fingerprint, and unloads it.
+    #[tokio::test]
+    async fn the_check_after_a_revoke_refuses_only_a_revoked_signer() {
+        use crate::registry::traits::{LoadSignature, SignerRevokeMarker};
+
+        let registry = Arc::new(DocumentRegistry::default());
+        let schedules = Arc::new(Schedules::default());
+        let mut reconciler = reconciler("acme", registry.clone(), schedules);
+        reconciler.config.require_signatures = true;
+        let meta = metadata("pkg");
+        *registry.stored.lock().unwrap() = Some(stored(document("rust", vec![task("only", &[])])));
+        load(&reconciler, &meta, "rust").await.expect("loads");
+        reconciler.loaded_signatures.write().await.insert(
+            meta.id,
+            LoadSignature {
+                package_hash: "hash-1".to_string(),
+                signer_fingerprint: "fp-old".to_string(),
+                trusted_by: crate::UniversalUuid::new_v4(),
+            },
+        );
+        let marker = |n| SignerRevokeMarker {
+            revoked_keys: n,
+            last_revoked_at: None,
+        };
+        let loaded = |r: &RegistryReconciler| {
+            let runtime = r.runtime.clone().unwrap();
+            runtime.get_workflow("wf").is_some()
+        };
+
+        // The first pass checks; the check cannot run: nothing is refused.
+        *registry.revoke_marker.lock().unwrap() = Some(marker(0));
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 1);
+        assert!(loaded(&reconciler));
+        // The marker was not taken, so the next pass checks again.
+        *registry.recheck.lock().unwrap() = Some("ok");
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 2);
+        // The same marker: no check.
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 2);
+
+        // A revoke; an answer that is not a revoke leaves the package.
+        *registry.revoke_marker.lock().unwrap() = Some(marker(1));
+        *registry.recheck.lock().unwrap() = Some("missing_signature");
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert!(loaded(&reconciler));
+        assert!(registry.refused.lock().unwrap().is_empty());
+
+        // Another revoke, of the signer: refused and unloaded.
+        *registry.revoke_marker.lock().unwrap() = Some(marker(2));
+        *registry.recheck.lock().unwrap() = Some("revoked_signer");
+        assert_eq!(reconciler.recheck_after_revoke().await, vec![meta.id]);
+        assert!(!loaded(&reconciler));
+        assert!(reconciler.loaded_packages.read().await.is_empty());
+        assert!(reconciler.loaded_signatures.read().await.is_empty());
+        let refused = registry.refused.lock().unwrap().clone();
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].0, meta.id);
+        assert!(refused[0].1.contains("fp-old"), "{}", refused[0].1);
+
+        // With signatures not required, nothing is read.
+        reconciler.config.require_signatures = false;
+        *registry.revoke_marker.lock().unwrap() = Some(marker(3));
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 4);
     }
 
     /// A poll row as the registrar gets it: trigger, workflow, interval in

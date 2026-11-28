@@ -413,6 +413,80 @@ impl<'a> WorkflowExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Cancels the runs of a package version that have not ended
+    /// (CLOACINA-T-1119): the executions pinned to `(package_name, version)`
+    /// (CLOACINA-T-1018), and the executions of `workflow_name` that no
+    /// version of the package is pinned to yet (a run whose first task was
+    /// not sent). Each ends `Cancelled`, with `reason` as its error, in one
+    /// transaction. Returns how many were cancelled.
+    pub async fn cancel_package_runs(
+        &self,
+        package_name: &str,
+        version: &str,
+        workflow_name: Option<&str>,
+        reason: &str,
+    ) -> Result<usize, ValidationError> {
+        use crate::dal::unified::retention::TERMINAL_EXECUTION_STATUSES;
+        use crate::database::schema::unified::workflow_execution_package_pins as pins;
+        use diesel::connection::Connection;
+
+        let (name, ver) = (package_name.to_string(), version.to_string());
+        let workflow = workflow_name.map(str::to_string);
+        let reason = reason.to_string();
+        let cancelled = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<usize, diesel::result::Error, _>(|conn| {
+                let mut ids: Vec<UniversalUuid> = pins::table
+                    .filter(pins::package_name.eq(&name))
+                    .filter(pins::version.eq(&ver))
+                    .select(pins::workflow_execution_id)
+                    .load(conn)?;
+                if let Some(workflow) = &workflow {
+                    let pinned_to_package: std::collections::HashSet<UniversalUuid> = pins::table
+                        .filter(pins::package_name.eq(&name))
+                        .select(pins::workflow_execution_id)
+                        .load::<UniversalUuid>(conn)?
+                        .into_iter()
+                        .collect();
+                    let open: Vec<UniversalUuid> = workflow_executions::table
+                        .filter(workflow_executions::workflow_name.eq(workflow))
+                        .filter(
+                            workflow_executions::status
+                                .ne_all(TERMINAL_EXECUTION_STATUSES.to_vec()),
+                        )
+                        .select(workflow_executions::id)
+                        .load(conn)?;
+                    ids.extend(
+                        open.into_iter()
+                            .filter(|id| !pinned_to_package.contains(id)),
+                    );
+                }
+                let now = UniversalTimestamp::now();
+                let mut cancelled = 0usize;
+                // Pins of ended runs stay, so the ids go in chunks to keep
+                // under the bind limits.
+                for chunk in ids.chunks(500) {
+                    cancelled += diesel::update(
+                        workflow_executions::table
+                            .filter(workflow_executions::id.eq_any(chunk.to_vec()))
+                            .filter(
+                                workflow_executions::status
+                                    .ne_all(TERMINAL_EXECUTION_STATUSES.to_vec()),
+                            ),
+                    )
+                    .set((
+                        workflow_executions::status.eq("Cancelled"),
+                        workflow_executions::completed_at.eq(Some(now)),
+                        workflow_executions::error_details.eq(Some(reason.clone())),
+                        workflow_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+                }
+                Ok(cancelled)
+            })
+        })?;
+        Ok(cancelled)
+    }
+
     /// Pauses a running workflow execution.
     ///
     /// Sets the workflow status to 'Paused', records the pause timestamp,
