@@ -88,6 +88,14 @@ impl KeyVerb {
     }
 }
 
+/// The refusal of `key create --platform-admin --tenant <name>`.
+fn platform_admin_with_tenant(tenant: &str) -> CliError {
+    CliError::UserError(format!(
+        "--platform-admin makes a key with no tenant; it cannot be combined with --tenant \
+         {tenant}"
+    ))
+}
+
 impl KeyCmd {
     pub async fn run(self, globals: &GlobalOpts) -> Result<(), CliError> {
         let config = CloacinaConfig::load(&globals.home.join("config.toml"));
@@ -96,10 +104,30 @@ impl KeyCmd {
         let tenant = ctx.tenant.clone();
         let client = CliClient::new(ctx)?;
         // CLOACINA-T-1140: `--tenant <name>` makes a key of that tenant.
-        if let (KeyVerb::Create { name, role, .. }, Some(tenant)) = (&self.verb, tenant.as_deref())
+        if let (
+            KeyVerb::Create {
+                name,
+                role,
+                platform_admin,
+                expires_at,
+            },
+            Some(tenant),
+        ) = (&self.verb, tenant.as_deref())
         {
-            return tenant_key::create(&client, tenant, name, KeyVerb::role_str(*role), output)
-                .await;
+            // A platform admin key has no tenant (CLOACINA-T-1065). `--tenant`
+            // is a global flag, so clap cannot refuse the pair.
+            if *platform_admin {
+                return Err(platform_admin_with_tenant(tenant));
+            }
+            return tenant_key::create(
+                &client,
+                tenant,
+                name,
+                KeyVerb::role_str(*role),
+                expires_at.as_deref(),
+                output,
+            )
+            .await;
         }
 
         match self.verb {

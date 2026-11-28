@@ -27,15 +27,20 @@ pub(super) fn tenant_keys_path(tenant: &str) -> String {
     format!("/v1/tenants/{tenant}/keys")
 }
 
-/// Make the key `name` with `role` in `tenant`, and show it once.
+/// Make the key `name` with `role` in `tenant`, with the optional expiry
+/// (CLOACINA-T-1083), and show it once.
 pub(super) async fn create(
     client: &CliClient,
     tenant: &str,
     name: &str,
     role: &str,
+    expires_at: Option<&str>,
     output: OutputFormat,
 ) -> Result<(), CliError> {
-    let body = serde_json::json!({ "name": name, "role": role });
+    let mut body = serde_json::json!({ "name": name, "role": role });
+    if let Some(at) = expires_at {
+        body["expires_at"] = serde_json::Value::String(at.to_string());
+    }
     let resp: serde_json::Value = client.post(&tenant_keys_path(tenant), &body).await?;
     if matches!(output, OutputFormat::Table) {
         let id = resp.get("id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -48,6 +53,9 @@ pub(super) async fn create(
         println!("ID:          {id}");
         println!("tenant:      {tenant}");
         println!("role:        {role}");
+        if let Some(at) = resp.get("expires_at").and_then(|v| v.as_str()) {
+            println!("expires at:  {at}");
+        }
         println!("NOTE: this is the only time the secret will be shown. Save it now.");
         Ok(())
     } else {
@@ -145,6 +153,51 @@ mod tests {
         assert_eq!(
             body,
             serde_json::json!({ "name": "acme-ci", "role": "write" })
+        );
+    }
+
+    /// `--expires-at` goes to the tenant route too (CLOACINA-T-1083).
+    #[tokio::test]
+    async fn key_create_with_tenant_sends_the_expiry() {
+        let (line, body) = request_of(
+            &[
+                "key",
+                "create",
+                "acme-ci",
+                "--role",
+                "write",
+                "--expires-at",
+                "2027-01-31T00:00:00Z",
+            ],
+            Some("acme"),
+        )
+        .await;
+        assert_eq!(line, "POST /v1/tenants/acme/keys HTTP/1.1");
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "name": "acme-ci",
+                "role": "write",
+                "expires_at": "2027-01-31T00:00:00Z"
+            })
+        );
+    }
+
+    /// CLOACINA-T-1065, CLOACINA-T-1140: a platform admin key has no tenant,
+    /// so `--platform-admin` with `--tenant` is refused before any request.
+    #[tokio::test]
+    async fn platform_admin_with_tenant_is_refused() {
+        let cli = Cli::try_parse_from(["key", "create", "ops", "--platform-admin"]).unwrap();
+        // No server listens there: the refusal comes before a request.
+        let err = cli
+            .key
+            .run(&globals("http://127.0.0.1:9", Some("acme")))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, crate::shared::error::CliError::UserError(m)
+                if m.contains("--platform-admin") && m.contains("--tenant")),
+            "{err:?}"
         );
     }
 
