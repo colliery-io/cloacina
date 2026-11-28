@@ -142,6 +142,9 @@ pub struct UnifiedTaskExecution {
     /// CLOACINA-T-1136: the runner whose claim the fleet dispatch was
     /// recorded under.
     pub fleet_dispatch_claimed_by: Option<UniversalUuid>,
+    /// CLOACINA-T-1123: the priority the task declares, as asked. `None`:
+    /// it declares none and takes its workflow's.
+    pub task_priority_asked: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -165,6 +168,9 @@ pub struct NewUnifiedTaskExecution {
     /// CLOACINA-T-1045: `None` writes the column default, 5.
     pub workflow_priority: Option<i32>,
     pub task_priority: Option<i32>,
+    /// CLOACINA-T-1123: the priority the task declares; `None` when it
+    /// declares none.
+    pub task_priority_asked: Option<i32>,
 }
 
 // =====================================================================// Task Execution Metadata Models
@@ -1023,6 +1029,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             workflow_priority: u.workflow_priority,
             task_priority: u.task_priority,
             fleet_dispatch_claimed_by: u.fleet_dispatch_claimed_by,
+            task_priority_asked: u.task_priority_asked,
         }
     }
 }

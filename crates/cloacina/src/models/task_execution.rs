@@ -96,6 +96,11 @@ pub struct TaskExecution {
     /// release, or in no fleet dispatch.
     #[serde(default)]
     pub fleet_dispatch_claimed_by: Option<UniversalUuid>,
+    /// The priority the task declares, as asked, before the limit of its
+    /// package (CLOACINA-T-1123). `None`: the task declares none and takes
+    /// its workflow's.
+    #[serde(default)]
+    pub task_priority_asked: Option<i32>,
 }
 
 fn default_priority() -> i32 {

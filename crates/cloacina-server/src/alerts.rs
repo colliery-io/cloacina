@@ -1020,6 +1020,7 @@ mod tests {
             workflow_priority: 5,
             task_priority: 5,
             fleet_dispatch_claimed_by: None,
+            task_priority_asked: None,
         }
     }
 

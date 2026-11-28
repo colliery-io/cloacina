@@ -235,6 +235,17 @@ struct Cli {
     )]
     fleet_poll_timeout_s: u64,
 
+    /// The ageing interval of waiting work, in whole seconds. For each
+    /// interval a task has waited, its priority in the order of waiting work
+    /// improves by one, never past 0. `0` switches ageing off. Default 120.
+    /// CLOACINA-T-1045, CLOACINA-T-1123.
+    #[arg(
+        long,
+        env = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS",
+        default_value_t = cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL.as_secs()
+    )]
+    priority_aging_interval_s: u64,
+
     /// Size in bytes above which the context a task returns, or the context
     /// built for a task, is logged as a warning and counted in
     /// `cloacina_context_size_warnings_total`. 0 turns the warning off.
@@ -482,6 +493,9 @@ async fn main() -> Result<()> {
     // CLOACINA-T-1077: the time limit of one poll on an agent.
     cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(cli.fleet_poll_timeout_s)
         .map_err(|e| anyhow::anyhow!(e))?;
+    // CLOACINA-T-1123: the ageing interval of waiting work.
+    cloacina_server::set_priority_aging_interval_seconds(cli.priority_aging_interval_s)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // CLOACINA-T-1075: where tenant code runs. A mode that would run tenant
     // tasks in this process without single trust stops the start.
@@ -664,5 +678,22 @@ mod tests {
         let cli = Cli::try_parse_from(["cloacina-server", "--fleet-poll-timeout-s", "5"]).unwrap();
         assert_eq!(cli.fleet_poll_timeout_s, 5);
         assert!(cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(0).is_err());
+    }
+
+    /// CLOACINA-T-1123: the ageing interval is a flag, 120 s by default; 0
+    /// switches ageing off.
+    #[test]
+    fn the_priority_aging_interval_defaults_to_120_seconds_and_takes_0() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.priority_aging_interval_s, 120);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--priority-aging-interval-s", "0"]).unwrap();
+        assert_eq!(cli.priority_aging_interval_s, 0);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--priority-aging-interval-s", "300"]).unwrap();
+        assert_eq!(cli.priority_aging_interval_s, 300);
+        assert!(
+            Cli::try_parse_from(["cloacina-server", "--priority-aging-interval-s", "2m"]).is_err()
+        );
     }
 }

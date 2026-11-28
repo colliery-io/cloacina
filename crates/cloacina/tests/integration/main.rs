@@ -37,6 +37,8 @@ pub mod executor;
 pub mod fidius_validation;
 pub mod logging;
 pub mod models;
+#[cfg(feature = "sqlite")]
+pub mod packaged_priority;
 pub mod packaged_task_logs;
 pub mod packaging;
 pub mod packaging_inspection;

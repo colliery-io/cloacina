@@ -331,13 +331,43 @@ pub struct AppState {
 /// config (`registry_storage_backend` is the same; reconcile interval
 /// honors the operator override).
 /// The environment variable that sets the ageing interval of waiting work,
-/// in seconds (CLOACINA-T-1045).
+/// in seconds (CLOACINA-T-1045). The server's flag
+/// `--priority-aging-interval-s` reads it too (CLOACINA-T-1123).
 pub const PRIORITY_AGING_INTERVAL_ENV: &str = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS";
 
-/// The ageing interval of waiting work (CLOACINA-T-1045): the value of
+/// The ageing interval set at start by `--priority-aging-interval-s`, in
+/// seconds. `u64::MAX`: not set.
+static PRIORITY_AGING_INTERVAL_SECONDS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Set the ageing interval of waiting work (`--priority-aging-interval-s`,
+/// CLOACINA-T-1123). Called once at start, before the runners are made. `0`
+/// switches ageing off.
+pub fn set_priority_aging_interval_seconds(seconds: u64) -> Result<(), String> {
+    if seconds == u64::MAX {
+        return Err(format!(
+            "--priority-aging-interval-s must be below {} seconds",
+            u64::MAX
+        ));
+    }
+    PRIORITY_AGING_INTERVAL_SECONDS.store(seconds, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// The ageing interval of waiting work (CLOACINA-T-1045): the value set at
+/// start by `--priority-aging-interval-s`; when the server was started
+/// without its command line (a test, an embedding), the value of
 /// [`PRIORITY_AGING_INTERVAL_ENV`] in seconds, or two minutes. `0` switches
-/// ageing off. A value that is not a whole number of seconds is ignored with
-/// a warning.
+/// ageing off.
+pub fn priority_aging_interval() -> std::time::Duration {
+    match PRIORITY_AGING_INTERVAL_SECONDS.load(std::sync::atomic::Ordering::Relaxed) {
+        u64::MAX => priority_aging_interval_from_env(),
+        seconds => std::time::Duration::from_secs(seconds),
+    }
+}
+
+/// The ageing interval from [`PRIORITY_AGING_INTERVAL_ENV`], or two minutes.
+/// A value that is not a whole number of seconds is ignored with a warning.
 pub fn priority_aging_interval_from_env() -> std::time::Duration {
     parse_priority_aging_interval(std::env::var(PRIORITY_AGING_INTERVAL_ENV).ok().as_deref())
 }
@@ -375,7 +405,7 @@ fn runner_config_for_tenant_cache(
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
     // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
-    builder = builder.priority_aging_interval(priority_aging_interval_from_env());
+    builder = builder.priority_aging_interval(priority_aging_interval());
     builder = builder.package_load_mode(package_load_mode);
     // CLOACINA-T-1081: a tenant's in-process task reads only the secrets its
     // package declares.
@@ -650,8 +680,9 @@ pub async fn run(
     );
     metrics::describe_gauge!(
         "cloacina_waiting_tasks",
-        "Tasks that wait for capacity, by tenant and agent pool (a task with \
-         no pool is in `default`): status Ready and past \
+        "Tasks that wait for capacity, by tenant, agent pool (a task with \
+         no pool is in `default`) and workflow priority (`priority`, 0 to \
+         10, as stored on the task): status Ready and past \
          their `waiting_since`. Read from the database every 5 seconds. A \
          task that is put off because no agent had a free slot is counted \
          the whole time. A task in a retry backoff is not counted until the \
@@ -660,7 +691,8 @@ pub async fn run(
     metrics::describe_gauge!(
         "cloacina_oldest_waiting_task_age_seconds",
         "Seconds since the oldest waiting task began to wait \
-         (`waiting_since`), by tenant and agent pool; 0 when no task waits. Read with \
+         (`waiting_since`), by tenant, agent pool and workflow priority; 0 \
+         when no task waits. Read with \
          `cloacina_waiting_tasks`."
     );
     metrics::describe_gauge!(
@@ -956,7 +988,7 @@ pub async fn run(
     let mut runner_builder = DefaultRunnerConfig::builder();
     runner_builder = runner_builder.registry_storage_backend("database");
     // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
-    runner_builder = runner_builder.priority_aging_interval(priority_aging_interval_from_env());
+    runner_builder = runner_builder.priority_aging_interval(priority_aging_interval());
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     runner_builder = runner_builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -3307,6 +3339,8 @@ mod tests {
     mod backfill_routes;
     /// The package delete in each build state (CLOACINA-T-1122).
     mod package_delete;
+    /// A run with a priority through the router (CLOACINA-T-1123).
+    mod priority_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     /// A signed upload end to end, and the signature check at load

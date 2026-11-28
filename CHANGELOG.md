@@ -118,6 +118,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--warm-worker-idle-seconds` starts fresh at each poll. Measured on a debug
   build, median of 20: a warm poll under 1 ms, a poll in a new worker 17 ms
   (Rust) and 90 ms (Python).
+- **The waiting-task gauges carry a `priority` label** (CLOACINA-T-1123).
+  `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds`
+  have one series per tenant, pool and workflow priority (`0` to `10`). A
+  query or alert that reads one series per pool now gets one per priority:
+  sum over `priority` for the figure of the pool, for example
+  `sum by (tenant, pool) (cloacina_waiting_tasks)`. For the oldest age, take
+  `max by (tenant, pool)`.
+- **The ageing interval of waiting work is a server flag** (CLOACINA-T-1123):
+  `--priority-aging-interval-s`, the `[server]` key `priority_aging_interval_s`
+  of `cloacinactl server start`, and still
+  `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`. A value of that variable that is
+  not a whole number of seconds now stops the server at start; before, it was
+  ignored with a warning.
 
 ### Fixed
 
