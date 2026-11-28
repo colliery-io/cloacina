@@ -67,6 +67,8 @@ pub enum ConfigError {
 #[non_exhaustive]
 pub struct DefaultRunnerConfig {
     max_concurrent_tasks: usize,
+    /// CLOACINA-T-1045: the ageing interval of waiting work.
+    priority_aging_interval: Duration,
     scheduler_poll_interval: Duration,
     task_timeout: Duration,
     workflow_timeout: Option<Duration>,
@@ -88,14 +90,17 @@ pub struct DefaultRunnerConfig {
     registry_enable_startup_reconciliation: bool,
     registry_storage_path: Option<std::path::PathBuf>,
     registry_storage_backend: String,
-    /// CLOACI-T-0571: defense-in-depth signature existence check.
-    /// When true, the reconciler refuses to load packages with no
-    /// matching `package_signatures` row.
+    /// CLOACI-T-0571, CLOACINA-T-1062: the signature check at load. When
+    /// true, the reconciler loads a package only when its stored signature
+    /// verifies against a live trusted key of the tenant's org or the
+    /// server org.
     require_signatures: bool,
-    /// Trusted org UUID forwarded to the reconciler for audit logging
-    /// when the existence check fails. Mirrors `cloacina-server`'s
-    /// `--verification-org-id`.
+    /// The server-wide org (CLOACINA-A-0018): asked after the tenant's own
+    /// org. Mirrors `cloacina-server`'s `--verification-org-id`.
     verification_org_id: Option<crate::UniversalUuid>,
+    /// CLOACINA-T-1062: the database that holds the trusted keys, when it
+    /// is not the runner's own (a tenant's runner: the admin schema).
+    signature_trust_database: Option<crate::Database>,
     enable_claiming: bool,
     heartbeat_interval: Duration,
     stale_claim_sweep_interval: Duration,
@@ -132,6 +137,14 @@ impl DefaultRunnerConfig {
     /// How often the scheduler checks for ready tasks.
     pub fn scheduler_poll_interval(&self) -> Duration {
         self.scheduler_poll_interval
+    }
+
+    /// The ageing interval of waiting work (CLOACINA-T-1045). For each
+    /// interval a task has waited, its priority in the order of waiting work
+    /// improves by one, never past 0. The default is two minutes; zero
+    /// switches ageing off.
+    pub fn priority_aging_interval(&self) -> Duration {
+        self.priority_aging_interval
     }
 
     /// Maximum time allowed for a single task to execute.
@@ -229,10 +242,37 @@ impl DefaultRunnerConfig {
         self.registry_storage_path.as_deref()
     }
 
-    /// CLOACI-T-0571: when true, the reconciler refuses to load packages
-    /// with no matching `package_signatures` row.
+    /// CLOACI-T-0571, CLOACINA-T-1062: when true, the reconciler loads a
+    /// package only when its stored signature verifies against a live
+    /// trusted key of the tenant's org or the server org.
     pub fn require_signatures(&self) -> bool {
         self.require_signatures
+    }
+
+    /// CLOACINA-T-1062: the database that holds the trusted keys of the
+    /// load check, when it is not the runner's own.
+    pub fn signature_trust_database(&self) -> Option<&crate::Database> {
+        self.signature_trust_database.as_ref()
+    }
+
+    /// The config of this runner's registry reconciler: its interval, the
+    /// tenant it loads for, and the signature check at load.
+    pub fn reconciler_config(&self) -> crate::registry::ReconcilerConfig {
+        crate::registry::ReconcilerConfig {
+            reconcile_interval: self.registry_reconcile_interval,
+            enable_startup_reconciliation: self.registry_enable_startup_reconciliation,
+            package_operation_timeout: Duration::from_secs(30),
+            continue_on_package_error: true,
+            // CLOACI-T-0781: namespace this runner's tasks under the tenant it
+            // serves, so a per-tenant runner's tasks are
+            // `tenant::pkg::wf::task` and route to that tenant's agents.
+            default_tenant_id: self.tenant_id.clone(),
+            // CLOACI-T-0571, CLOACINA-T-1062: the signature check at load,
+            // as `--require-signatures` and `--verification-org-id` set it.
+            require_signatures: self.require_signatures,
+            verification_org_id: self.verification_org_id,
+            signature_trust_database: self.signature_trust_database.clone(),
+        }
     }
 
     /// The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
@@ -246,8 +286,8 @@ impl DefaultRunnerConfig {
         self.tenant_id = tenant_id.into();
     }
 
-    /// Trusted org UUID forwarded to the reconciler for audit logging
-    /// when the signature-existence check fails.
+    /// The server-wide org of the signature check at load: asked after the
+    /// tenant's own org.
     pub fn verification_org_id(&self) -> Option<crate::UniversalUuid> {
         self.verification_org_id
     }
@@ -331,6 +371,7 @@ impl Default for DefaultRunnerConfigBuilder {
         Self {
             config: DefaultRunnerConfig {
                 max_concurrent_tasks: 4,
+                priority_aging_interval: cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL,
                 scheduler_poll_interval: Duration::from_millis(100),
                 task_timeout: Duration::from_secs(300),
                 workflow_timeout: Some(Duration::from_secs(3600)),
@@ -354,6 +395,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 registry_storage_backend: "filesystem".to_string(),
                 require_signatures: false,
                 verification_org_id: None,
+                signature_trust_database: None,
                 enable_claiming: true,
                 heartbeat_interval: Duration::from_secs(10),
                 stale_claim_sweep_interval: Duration::from_secs(30),
@@ -376,6 +418,13 @@ impl DefaultRunnerConfigBuilder {
     }
 
     /// Sets the scheduler poll interval.
+    /// Sets the ageing interval of waiting work (CLOACINA-T-1045). The
+    /// default is two minutes; zero switches ageing off.
+    pub fn priority_aging_interval(mut self, value: Duration) -> Self {
+        self.config.priority_aging_interval = value;
+        self
+    }
+
     pub fn scheduler_poll_interval(mut self, value: Duration) -> Self {
         self.config.scheduler_poll_interval = value;
         self
@@ -501,20 +550,28 @@ impl DefaultRunnerConfigBuilder {
         self
     }
 
-    /// CLOACI-T-0571: enable the reconciler's defense-in-depth
-    /// signature-existence check. Mirrors `cloacina-server`'s
-    /// `--require-signatures` CLI flag.
+    /// CLOACI-T-0571, CLOACINA-T-1062: enable the reconciler's signature
+    /// check at load. Mirrors `cloacina-server`'s `--require-signatures`
+    /// CLI flag.
     pub fn require_signatures(mut self, value: bool) -> Self {
         self.config.require_signatures = value;
         self
     }
 
-    /// CLOACI-T-0571: trusted org UUID forwarded to the reconciler so
-    /// signature-existence-check failures are audit-logged with the
-    /// correct org_id. Mirrors `cloacina-server`'s
+    /// The server-wide org of the signature check at load, asked after the
+    /// tenant's own org (CLOACINA-A-0018). Mirrors `cloacina-server`'s
     /// `--verification-org-id` CLI flag.
     pub fn verification_org_id(mut self, value: Option<crate::UniversalUuid>) -> Self {
         self.config.verification_org_id = value;
+        self
+    }
+
+    /// CLOACINA-T-1062: the database that holds the trusted keys of the
+    /// signature check at load, when it is not the runner's own. A tenant's
+    /// runner reads packages from the tenant's schema and the trusted keys
+    /// from the admin schema.
+    pub fn signature_trust_database(mut self, value: Option<crate::Database>) -> Self {
+        self.config.signature_trust_database = value;
         self
     }
 
@@ -828,7 +885,8 @@ impl DefaultRunnerBuilder {
         )
         .await
         .map_err(|e| WorkflowExecutionError::Executor(e.into()))?
-        .with_runtime(runtime.clone());
+        .with_runtime(runtime.clone())
+        .with_priority_aging_interval(self.config.priority_aging_interval());
 
         // Create task executor
         let executor_config = ExecutorConfig {

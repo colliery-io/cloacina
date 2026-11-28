@@ -169,6 +169,10 @@ pub struct WorkflowDescriptorEntry {
     /// `#[workflow(params(...))]` macro via `cloacina_workflow::schema_for`.
     /// Returns `"[]"` for workflows that declare no params.
     pub params: fn() -> ::std::string::String,
+    /// CLOACINA-T-1045: the workflow's priority from
+    /// `#[workflow(priority = N)]`, 0 (the highest) to 10. `None` when the
+    /// workflow declares none.
+    pub priority: ::core::option::Option<u8>,
 }
 inventory::collect!(WorkflowDescriptorEntry);
 

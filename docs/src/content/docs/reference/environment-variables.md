@@ -79,6 +79,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. A graph firing sent to an agent gets this limit too. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
+| `CLOACINA_FLEET_GRAPH_FIRINGS` | `--fleet-graph-firings` | `inline` | Where an agent runs a computation-graph firing: `inline` (in the agent process) or `worker` (a worker process with the limits, time limit and cancel of a task). Any other value stops the server at start. |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `--fleet-artifact-fetch-wait-s` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The time counts from the first refused fetch of the attempt. The task is dispatched again after a delay of 2 s that grows to 30 s, and uses no retry attempt. After the limit the attempt fails with an error that names the artifact fetch, and the task's retry policy decides what follows. `0`: the first failed fetch fails the attempt. |
 | `CLOACINA_CONTEXT_WARN_BYTES` | `--context-warn-bytes` | `1048576` (1 MiB) | Size in bytes above which a task context (the one a task returns, or the one built for a task) is logged as a warning with the task, the size and the largest keys, and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. |
 | `CLOACINA_CONTEXT_MAX_BYTES` | `--context-max-bytes` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. The context is not saved. One setting for the whole server. `0` turns the limit off. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
@@ -88,17 +89,15 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 
 `CLOACINA_DEFAULT_EXECUTOR` / `--default-executor` is forwarded by the
 `cloacinactl server start` wrapper (preferably set via
-`[server].default_executor` in `config.toml`). The wrapper also takes
-`CLOACINA_DATABASE_WAIT_TIMEOUT_S`, the
-three retention settings, the two fleet time limits, the alert webhook
-settings (but not the secret) and `CLOACINA_PUBLIC_BASE_URL`: as a flag of
-the same name, as the env var above, or as a key of `[server]` in
-`config.toml` (see [Configuration](../configuration/#server-section)).
+`[server].default_executor` in `config.toml`). The wrapper takes every
+variable of this table but `DATABASE_URL`, `CLOACINA_BOOTSTRAP_KEY`,
+`CLOACINA_METRICS_BIND` and `CLOACINA_REQUIRE_SIGNATURES` (its own base
+flags) and `CLOACINA_ALERT_WEBHOOK_SECRET`: as a flag of the same name, as
+the env var above, or as a key of `[server]` in `config.toml` (see
+[Configuration](../configuration/#server-section)). The alert webhook URL is
+given to the server as `CLOACINA_ALERT_WEBHOOK_URL`, not as an argument.
 `CLOACINA_ALERT_WEBHOOK_SECRET` is an env var only; the server that the
-wrapper starts inherits it. The two `CLOACINA_AGENT_*` liveness flags are
-read by the `cloacina-server` binary directly (and via the env vars above);
-the wrapper does **not** forward them, so set them on `cloacina-server`
-itself or through the environment.
+wrapper starts inherits it.
 
 The Helm chart `cloacina-server` sets these variables from its values:
 
@@ -110,6 +109,12 @@ The Helm chart `cloacina-server` sets these variables from its values:
 | `CLOACINA_RETENTION_INTERVAL_S` | `retention.intervalSeconds` | `300` |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `fleetTaskTimeLimits.defaultSeconds` | `300` |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `fleetTaskTimeLimits.maxSeconds` | `86400` |
+| `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `fleetTaskTimeLimits.artifactFetchWaitSeconds` | `300` |
+| `CLOACINA_CONTEXT_WARN_BYTES` | `context.warnBytes` | `1048576` |
+| `CLOACINA_CONTEXT_MAX_BYTES` | `context.maxBytes` | `16777216` |
+| `CLOACINA_MAX_PACKAGE_BYTES` | `packages.maxPackageBytes` | `104857600` |
+| `CLOACINA_MAX_UNPACKED_BYTES` | `packages.maxUnpackedBytes`; also set on the chart's compiler | `524288000` |
+| `CLOACINA_FLEET_GRAPH_FIRINGS` | `fleet.graphFirings` | `inline` |
 | `CLOACINA_ALERT_WEBHOOK_URL` | `alertWebhook.url`, or `alertWebhook.urlSecretRef` (an existing Secret) | not set |
 | `CLOACINA_ALERT_WEBHOOK_EVENTS` | `alertWebhook.events` | `[failed]` |
 | `CLOACINA_ALERT_WEBHOOK_TIMEOUT_S` | `alertWebhook.timeoutSeconds` | `10` |
@@ -119,7 +124,7 @@ The Helm chart `cloacina-server` sets these variables from its values:
 
 The alert variables are rendered only when a URL is set.
 
-The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents.
+The bind address (`--bind`, default `127.0.0.1:8080`), `--reconcile-interval-s`, and `--log-retention-days` are CLI-only and do not have environment variable equivalents. `cloacinactl server start` takes the last two as flags and as the `[server]` keys `reconcile_interval_s` and `log_retention_days`.
 
 ---
 
@@ -153,8 +158,10 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | How many work packets the agent runs at the same time. Equivalent to `--max-concurrency`. The fleet actuator sets it from the pool's `max_concurrency` setting. | `4` | `1` | Agent | No |
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
-| `CLOACINA_AGENT_MEMORY` | Total memory the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--memory`. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
-| `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator does not set it. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
+| `CLOACINA_AGENT_MEMORY` | Total memory of the agent, a Kubernetes quantity above zero. Equivalent to `--memory`. The agent reports it less `CLOACINA_AGENT_RESERVED_MEMORY` and holds each task to a memory limit from it. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
+| `CLOACINA_AGENT_RESERVED_MEMORY` | The agent's own share of its memory, a Kubernetes quantity or `0`. Equivalent to `--reserved-memory`. The fleet actuator does not set it. | `128Mi` | `256Mi` | Agent | No |
+| `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | The address-space ceiling of a task's worker process, as a multiple of the task's memory limit (64 GiB is added). `0`: no ceiling. Equivalent to `--task-address-space-factor`. The fleet actuator does not set it. | `8` | `0` | Agent | No |
+| `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator sets it to `json` on the agents it starts when the server's own `CLOACINA_AGENT_LOG_FORMAT` is `json` (see [Actuator selection](#actuator-selection)). See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
 
@@ -181,6 +188,7 @@ These server-side variables drive the **agent self-management control plane**: t
 | `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-io/cloacina-agent:latest` | Server (actuator) | No |
 | `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
 | `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
+| `CLOACINA_AGENT_LOG_FORMAT` | Format of the log lines of the agents the actuator starts: `text` or `json`. One value for every tenant and pool. For `json` the actuator sets `CLOACINA_AGENT_LOG_FORMAT=json` on each agent it starts; for `text` it sets nothing, and the agent writes text. A value that is not `text` or `json` stops the server at start, with any actuator. The Kubernetes actuator applies a change on its next reconcile, which rolls the agent pods. The Docker actuator applies it to the containers it starts after the change; a running container keeps its format. The chart renders it from `fleet.agentLogFormat`. The per-tenant compilers have no log format setting. | `text` | `json` | Server (actuator) | No |
 
 #### Kubernetes agent-pod hardening
 
@@ -189,6 +197,7 @@ These are read by the **Kubernetes actuator** and applied to every `cloacina-age
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_AGENT_CPU_REQUEST` | CPU request on each agent pod. | `250m` | `500m` | Server (k8s actuator) | No |
+| `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | The ageing interval of waiting work, in whole seconds. For each interval a task has waited, its [priority](../../explanation/priority/) in the order of waiting work improves by one, never past 0. `0` switches ageing off. | `120` | `300` | Server | No |
 | `CLOACINA_AGENT_MEMORY_REQUEST` | Memory request on each agent pod. | `256Mi` | `512Mi` | Server (k8s actuator) | No |
 | `CLOACINA_AGENT_CPU_LIMIT` | CPU limit on each agent pod. | `1` | `2` | Server (k8s actuator) | No |
 | `CLOACINA_AGENT_MEMORY_LIMIT` | Memory limit on each agent pod. The agent embeds a CPython interpreter (PyO3) and unpacks a `workflow/`+`vendor/` tree, so the default is generous to avoid OOM-killing Python workflows. | `1Gi` | `2Gi` | Server (k8s actuator) | No |
@@ -208,11 +217,11 @@ Read by the server. With a fleet actuator and `CLOACINA_TENANT_COMPILERS=true`, 
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_TENANT_COMPILERS` | Run a compiler per tenant. | `false` (the chart sets `true` with `fleet.actuator=kubernetes`) | `true` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_IMAGE` | The compiler image. | `cloacina-compiler:latest` | `ghcr.io/colliery-io/cloacina-compiler:0.12.0` | Server (actuator) | No |
-| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | The database URL the tenant compilers connect with. | The server's own URL | `postgres://builder:…@db.example:5432/cloacina` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_DATABASE_URL` | Where the tenant compilers reach the database: host, port, database and parameters. Its user and password are not used: each compiler connects as its tenant's build role, `<tenant>$build`, with a password the server sets at each start (CLOACINA-T-1063). | The server's own URL | `postgres://db.example:5432/cloacina` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_CARGO_FLAGS` | The whole cargo flag list of a build, separated by spaces (the compiler's `--cargo-flags-replace`). Empty keeps `build --release --lib --frozen --offline`. | empty | `build --lib` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_VENDOR_DIR` | `--vendor-dir`: a cargo home inside the compiler image. | None | `/opt/vendor` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_DEV_WORKSPACE` | `--dev-workspace`: a cloacina workspace inside the image. Development only. | None | `/workspace` | Server (actuator) | No |
-| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `--cargo-target-dir`. An absolute path. | `/workspace/target` | `/var/cache/target` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_TARGET_DIR` | `--cargo-target-dir`. An absolute path. Used when the pod has no cache claim; with the claim the target directory is `/var/cloacina/cache/target`. | `/workspace/target` | `/var/cache/target` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_BUILD_TIMEOUT_S` | `--build-timeout-s`. | None (the compiler's `600`) | `1200` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_POLL_INTERVAL_MS` | `--poll-interval-ms`. | `1000` | `2000` | Server (actuator) | No |
 | `CLOACINA_TENANT_COMPILER_COOLDOWN_S` | Seconds a tenant's build queue must be empty before its compiler is stopped. | `300` | `900` | Server (actuator) | No |
@@ -220,11 +229,22 @@ Read by the server. With a fleet actuator and `CLOACINA_TENANT_COMPILERS=true`, 
 | `CLOACINA_TENANT_COMPILER_MEMORY_REQUEST` | Memory request of the compiler container. | `1Gi` | `2Gi` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_CPU_LIMIT` | CPU limit of the compiler container. | `2` | `4` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_MEMORY_LIMIT` | Memory limit of the compiler container. | `4Gi` | `8Gi` | Server (k8s actuator) | No |
-| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | Size limit of each cache volume (cargo home, target directory). | `8Gi` | `20Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_SIZE` | Size limit of each cache `emptyDir` (cargo home, target directory), when the pod has no cache claim. | `8Gi` | `20Gi` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_HARDENED` | Pod hardening: uid `10001`, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. `false` runs the image as it is built. | `true` | `false` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_EGRESS` | Crate egress in the compiler pods' NetworkPolicy: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. | `internet` | `none` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_EGRESS_CIDRS` | More egress CIDR blocks, separated by commas, every port. | None | `10.9.0.0/24` | Server (k8s actuator) | No |
 | `CLOACINA_TENANT_COMPILER_DATABASE_CIDRS` | CIDR blocks of the database, separated by commas. Empty allows the database port to every destination. | None | `10.1.2.3/32` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM` | A PersistentVolumeClaim `cloacina-compiler-cache` per tenant compiler, in the tenant namespace, for the cargo home, the target directory and the `uv` cache. Made at the first start, kept across scale to 0, deleted with the tenant. Hardened pods only. `false`: the caches are `emptyDir`s. | `true` | `false` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE` | Requested size of the claim, a storage quantity above zero. A claim that exists keeps its size. | `20Gi` | `50Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS` | Storage class of the claim. Unset: no `storageClassName`, the cluster's default class. | None | `fast-ssd` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_HOME_SIZE` | Size limit of the home volume of a hardened compiler pod, where the build folder is. | `4Gi` | `8Gi` | Server (k8s actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS` | Platforms the tenant compilers vendor Python dependencies for, separated by commas; given as the compiler's `CLOACINA_COMPILER_PYTHON_PLATFORMS`. A platform the compiler does not know stops the server at start. | None (the compiler's `aarch64-linux`, `x86_64-linux`) | `x86_64-linux` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_VERSION` | Python version the wheels are for, `major.minor`; given as `CLOACINA_COMPILER_PYTHON_VERSION`. | None (the compiler's `3.11`) | `3.12` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL` | The package index of the tenant compilers. Written into the Secret `cloacina-compiler-db` of the tenant namespace (key `python-index-url`) and read by the pod as `CLOACINA_COMPILER_PYTHON_INDEX_URL`; never in the pod spec. The Docker actuator sets it in the container's environment. | None (PyPI) | `https://pypi.internal.example.com/simple` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR` | A folder of wheels inside the compiler image, an absolute path; given as `CLOACINA_COMPILER_PYTHON_WHEEL_DIR`. | None | `/opt/cloacina/wheels` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE` | No network for Python builds; given as `CLOACINA_COMPILER_PYTHON_OFFLINE`. With `CLOACINA_TENANT_COMPILER_HARDENED` on it needs `CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR`, or the server does not start: the pod's `uv` cache is empty at each start. | `false` | `true` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR` | The `uv` cache folder, an absolute path; given as `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`. | None (hardened pod: `/var/cloacina/cache/uv` on the cache claim, or `/var/cloacina/uv-cache`, its own volume, with no claim) | `/var/cloacina/home/uv` | Server (actuator) | No |
+| `CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE` | Size limit of the `uv` cache `emptyDir` of a hardened compiler pod with no cache claim. | `4Gi` | `10Gi` | Server (k8s actuator) | No |
 
 The compiler pods' NetworkPolicy is written when `CLOACINA_FLEET_NETWORK_POLICY` is on, and uses `CLOACINA_FLEET_DNS_NAMESPACE`. The Docker actuator attaches a compiler container to `CLOACINA_AGENT_NETWORK`.
 
@@ -330,7 +350,7 @@ See [Consume a provider](../../how-to/constructors/consume-a-provider/) for how 
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `RUST_LOG` | Controls the tracing/log filter level. Uses the `tracing-subscriber` `EnvFilter` syntax. When unset, defaults to `info`. The `--verbose` CLI flag overrides this to `debug`. The `trace` level writes task data to the log: on the server, the full outcome of each result an agent reports (the output context of a success, the message of a failure). | `info` | `debug`, `cloacina=trace,tower_http=debug` | Server, Daemon, Admin CLI, Python runner | No |
+| `RUST_LOG` | Controls the tracing/log filter level. Uses the `tracing-subscriber` `EnvFilter` syntax. When unset, defaults to `info`. The `--verbose` CLI flag overrides this to `debug`. The `trace` level writes task data to the log: on the server, the full outcome of each result an agent reports (the output context of a success, the message of a failure); in every runner, the whole error message of a failed task. At `info` and `warn` an error message is cut to 300 characters. | `info` | `debug`, `cloacina=trace,tower_http=debug` | Server, Daemon, Admin CLI, Python runner | No |
 
 The `RUST_LOG` variable is checked at startup. If set, the Python runner thread also initializes a tracing subscriber using `EnvFilter::from_default_env()`.
 
@@ -470,6 +490,7 @@ Exposed on `localhost:9092`.
 | Variable | Purpose | Default | Component | Notes |
 |----------|---------|---------|-----------|-------|
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Wall-clock cap on a single cargo build (seconds). | `600` | Compiler | Past timeout, the build is killed and the row is left for the stale-build sweeper to reclaim. |
+| `CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S` | Wall-clock cap on the describe step (seconds): the child process that reads a built package's metadata. | `120` | Compiler | Also settable via `--describe-timeout-s`. Past the cap the child is killed and the build fails with that reason. |
 | `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package archive may unpack to. The compiler refuses to build a larger one. | `524288000` | Compiler | Also settable via `--max-unpacked-bytes`. Use the value of the server. |
 | `CLOACINA_COMPILER_VENDOR_DIR` | `CARGO_HOME` for the cargo subprocess — point it at a curated pre-vendored source tree. | (cargo's usual `~/.cargo` when unset) | Compiler | Combined with `--frozen --offline` so package builds resolve only what the operator has allowed. |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Per-build resource caps via `setrlimit` — CPU, memory, FDs, processes. | (binary default) | Compiler | Linux only. The specific variable names mirror `RLIMIT_*` constants. |
@@ -523,6 +544,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | Server | Longest time limit a fleet task can get (default `86400`) |
+| `CLOACINA_FLEET_GRAPH_FIRINGS` | Server | Where agents run graph firings: `inline` or `worker` (default `inline`) |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | Server | How long a fleet task waits, per attempt, while agents cannot fetch its package artifact (default `300`) |
 | `CLOACINA_CONTEXT_WARN_BYTES` | Server | Size above which a task context is logged and counted (default `1048576`; `0` = off) |
 | `CLOACINA_CONTEXT_MAX_BYTES` | Server | Largest size of a task context; a larger one fails its task (default `16777216`; `0` = off) |
@@ -551,11 +573,14 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | Agent | Work packets the agent runs at the same time (default `4`) |
 | `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_AGENT_CPU` | Agent | Total CPU the agent reports for task placement (unset: none) |
-| `CLOACINA_AGENT_MEMORY` | Agent | Total memory the agent reports for task placement (unset: none) |
-| `CLOACINA_AGENT_LOG_FORMAT` | Agent | Format of the agent's log lines: `text` (default) or `json` |
+| `CLOACINA_AGENT_MEMORY` | Agent | Total memory of the agent, for task placement and task memory limits (unset: none) |
+| `CLOACINA_AGENT_RESERVED_MEMORY` | Agent | The agent's own share of its memory (default `128Mi`) |
+| `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | Agent | Address-space ceiling of a task's worker, as a multiple of its memory limit (default `8`; `0` = none) |
+| `CLOACINA_AGENT_LOG_FORMAT` | Agent; Server (actuator) | Format of the agent's log lines: `text` (default) or `json`. On the server: the format of the agents the actuator starts |
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |
+| `CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S` | Compiler | Wall-clock cap on the describe step (default `120`) |
 | `CLOACINA_COMPILER_VENDOR_DIR` | Compiler | `CARGO_HOME` pointed at a curated vendored source tree |
 | `CLOACINA_COMPILER_BUILD_RLIMIT_*` | Compiler | Per-build setrlimit caps |
 | `CLOACINA_TENANT_SCHEMA` | Compiler | Scope the compiler to one tenant's schema for build isolation |

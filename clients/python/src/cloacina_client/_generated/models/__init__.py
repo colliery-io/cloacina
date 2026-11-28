@@ -94,6 +94,7 @@ from .local_login_request import LocalLoginRequest
 from .local_login_response import LocalLoginResponse
 from .logout_response import LogoutResponse
 from .package_upload_form import PackageUploadForm
+from .priority_grant import PriorityGrant
 from .reactor_fire import ReactorFire
 from .reactor_fire_inputs import ReactorFireInputs
 from .reactor_fire_timeseries import ReactorFireTimeseries
@@ -244,6 +245,7 @@ __all__ = (
     "LocalLoginResponse",
     "LogoutResponse",
     "PackageUploadForm",
+    "PriorityGrant",
     "ReactorFire",
     "ReactorFireInputs",
     "ReactorFireTimeseries",

@@ -40,14 +40,16 @@ cloacinactl package pack my-workflow
 cloacinactl package upload my-workflow/my-workflow.cloacina
 ```
 
-Uploads are accepted unverified; signature checking only happens on
-servers started with `--require-signatures` (see
-[Require signed packages](../../require-signed-packages/)).
+An upload with no signature is accepted; only a server started with
+`--require-signatures` refuses it (see
+[Require signed packages](../../require-signed-packages/)). `package upload`
+sends the signature file beside the archive when there is one, and the
+server checks a signature that is sent.
 
-> **Note:** `cloacinactl package pack --sign` fails hard — CLI-driven
-> signing is unimplemented (I-0103). Everything below exercises the
-> **library** signing API from Rust code, which is how signing is done
-> today.
+To sign from the command line, use `cloacinactl package pack --sign` or
+`package publish --sign`: see
+[Package signing](../package-signing/#sign-and-publish-a-package-with-cloacinactl).
+Everything below exercises the **library** signing API from Rust code.
 
 ## Testing Signatures Locally
 
@@ -132,25 +134,20 @@ For CI environments:
 
 2. **Staging/production**: start the server with `--require-signatures`,
    add the signing key to each tenant's trusted keys
-   (`cloacinactl trusted-key add`), and produce signatures in your
-   pipeline with a small Rust helper built on
-   `cloacina::security::package_signer` (there is no `cloacinactl`
-   signing command yet):
+   (`cloacinactl trusted-key add`), and sign in your pipeline with
+   `cloacinactl package publish --sign`. The private key is a secret of
+   the pipeline, written to a file that only the job's user can read:
 
    ```yaml
    # .github/workflows/release.yml (sketch)
-   - name: Build and pack
-     run: |
-       cloacinactl package build my-workflow
-       cloacinactl package pack my-workflow
-
-   - name: Sign package
+   - name: Sign and publish
      env:
-       SIGNING_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+       SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
      run: |
-       # Your own helper binary wrapping sign_package_with_raw_key +
-       # DetachedSignature — produces my-workflow.cloacina.sig
-       ./tools/sign-package my-workflow/my-workflow.cloacina
+       umask 077
+       printf '%s\n' "$SIGNING_PRIVATE_KEY" > "$RUNNER_TEMP/release-key.pem"
+       cloacinactl package publish my-workflow --sign "$RUNNER_TEMP/release-key.pem"
+       rm -f "$RUNNER_TEMP/release-key.pem"
    ```
 
 ## Security Checklist for Production

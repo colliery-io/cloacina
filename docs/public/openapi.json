@@ -1390,7 +1390,7 @@
           "tenants"
         ],
         "summary": "DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.",
-        "description": "CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with\nthe four-step top-down order:\n  1. Revoke every still-active API key for the tenant (close the auth\n     surface so new requests fail).\n  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,\n     awaiting its graceful shutdown (drains in-flight executions,\n     stops scheduler loop, closes per-tenant DB pool).\n  3. Evict the tenant's `Database` from `TenantDatabaseCache`.\n  4. Drop schema + user via `DatabaseAdmin::remove_tenant`.\n\nBefore step 4 the fleet actuator removes the tenant's compiler, when it\nruns one (CLOACINA-T-1034).\n\nEach step emits a structured audit event with duration. Per-step\nfailures bail out — but earlier steps stay committed, so a retry\npicks up where the failure occurred. Each step is idempotent.\n\nCloses SEC-14 (stale state after delete) and SEC-17 (unbounded\ncaches surviving delete).",
+        "description": "CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:\n  1. Revoke every still-active API key for the tenant and delete its\n     WebSocket tickets (close the auth surface so new requests fail);\n     clear this server's key cache and send the revocation notice, on\n     which every other server clears its key cache.\n  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,\n     awaiting its graceful shutdown (drains in-flight executions,\n     stops scheduler loop, closes per-tenant DB pool).\n  3. Evict the tenant's `Database` from `TenantDatabaseCache`.\n  4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator\n     removes the tenant's compiler (CLOACINA-T-1034) and its agents, then\n     the tenant's limit, desired count, pools and agent rows are deleted.\n     After this no fleet tick has a reason to start an agent for it.\n  5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's\n     other rows in the admin schema, a `tenant.removed` audit row, the\n     schema and the user. The audit rows of the tenant stay.\n\nEach step emits a structured audit event with duration. Per-step\nfailures bail out — but earlier steps stay committed, so a retry\npicks up where the failure occurred. Each step is idempotent.\n\nCloses SEC-14 (stale state after delete) and SEC-17 (unbounded\ncaches surviving delete).",
         "operationId": "remove_tenant",
         "parameters": [
           {
@@ -4077,7 +4077,7 @@
           }
         ],
         "requestBody": {
-          "description": "The first file field is taken as the .cloacina package",
+          "description": "The `file` field is the .cloacina package. The optional `signature` field is its detached signature; a server that requires signed packages refuses an upload without it",
           "content": {
             "multipart/form-data": {
               "schema": {
@@ -4099,7 +4099,7 @@
             }
           },
           "400": {
-            "description": "Invalid or empty package",
+            "description": "Invalid or empty package, or a `signature` field that is not a detached signature (`malformed_signature`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4119,7 +4119,7 @@
             }
           },
           "403": {
-            "description": "Tenant/role denied or signature verification failed",
+            "description": "Tenant/role denied, or the signature check refused the upload: `signature_required`, `package_tampered`, `untrusted_signer`, `signer_revoked`, `invalid_signature`",
             "content": {
               "application/json": {
                 "schema": {
@@ -5765,7 +5765,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Workflow unregistered. Idempotent: also returned when no matching package existed",
+            "description": "The package version was removed, in any build state but `building`: its rows and stored archives",
             "content": {
               "application/json": {
                 "schema": {
@@ -5795,7 +5795,17 @@
             }
           },
           "404": {
-            "description": "Registry lookup failed",
+            "description": "`workflow_not_found`: no package of this name and version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`package_building`: the compiler is building the package; `package_in_use`: an execution that has not finished is pinned to this version. Nothing was removed",
             "content": {
               "application/json": {
                 "schema": {
@@ -6824,6 +6834,15 @@
         "properties": {
           "context": {
             "description": "Optional JSON context to pass to the workflow."
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The workflow priority this run asks for: an integer from 0 (the\nhighest) to 10 (CLOACINA-T-1045). With none, the run gets the\npriority the workflow declares, or 5. A priority above what the\ncaller may set is not refused: the run gets the caller's limit, and\nthe answer says so in `priority` and `priority_notice`.",
+            "minimum": 0
           }
         }
       },
@@ -6840,6 +6859,24 @@
           "execution_id": {
             "type": "string",
             "description": "UUID of the scheduled execution."
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority of the run: the one asked for and the one\ngiven (CLOACINA-T-1045). `null` from a server before priorities."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the given priority is lower than the one asked for: one\nsentence that says what was asked, what was given and why."
           },
           "status": {
             "type": "string",
@@ -6864,6 +6901,17 @@
         "properties": {
           "execution_id": {
             "type": "string"
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority of the execution: asked and given\n(CLOACINA-T-1045). `null` for an execution from before priorities."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "type": "string"
@@ -6957,6 +7005,17 @@
           "id": {
             "type": "string",
             "description": "Execution UUID."
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority of the execution: asked and given\n(CLOACINA-T-1045). `null` for an execution from before priorities."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "started_at": {
             "type": "string",
@@ -8215,7 +8274,7 @@
       },
       "PackageUploadForm": {
         "type": "object",
-        "description": "Multipart form for workflow package upload. Spec-only type: the handler\naccepts the first file field regardless of name; `file` is the\nconventional field name.",
+        "description": "Multipart form for workflow package upload. Spec-only type: the handler\nreads the fields `file` and `signature` by name.",
         "required": [
           "file"
         ],
@@ -8225,6 +8284,32 @@
             "format": "binary",
             "description": "The `.cloacina` package archive.",
             "contentMediaType": "application/octet-stream"
+          },
+          "signature": {
+            "type": "string",
+            "description": "The detached signature of the archive: the JSON text of the `.sig`\nfile that `cloacinactl package pack --sign` writes (`version`,\n`algorithm`, `package_hash`, `key_fingerprint`, `signature`,\n`signed_at`). Ed25519 over the SHA-256 of the archive. Needed when the\nserver requires signed packages; checked whenever it is sent.\nLeft out of an upload with no signature: the field has no null value."
+          }
+        }
+      },
+      "PriorityGrant": {
+        "type": "object",
+        "description": "A priority that was asked for and the priority that was given.\n\n`given` is `asked` held to the limit of the principal that asked: the\nhighest priority that principal may set. A principal that asks for more\nthan it may set is not refused: it gets its limit, and the answer says so.",
+        "required": [
+          "asked",
+          "given"
+        ],
+        "properties": {
+          "asked": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The priority that was asked for.",
+            "minimum": 0
+          },
+          "given": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The priority the work runs at.",
+            "minimum": 0
           }
         }
       },
@@ -8691,6 +8776,17 @@
                   "type": "string",
                   "description": "Execution UUID."
                 },
+                "priority": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PriorityGrant",
+                      "description": "The workflow priority of the execution: asked and given\n(CLOACINA-T-1045). `null` for an execution from before priorities."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "started_at": {
                   "type": "string",
                   "description": "RFC 3339 timestamp."
@@ -9053,6 +9149,13 @@
                 "created_at": {
                   "type": "string",
                   "description": "Upload time (RFC 3339)."
+                },
+                "describe_error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the compiler could not write the metadata document of this built\nversion (CLOACINA-T-1074). Absent when the version is described, or\nhas not been tried yet."
                 },
                 "id": {
                   "type": "string",
@@ -9494,6 +9597,13 @@
             },
             "description": "CLOACI-I-0128: declared input params (named, JSON-Schema-typed slots) the\nworkflow accepts at execute time. Empty when undeclared. Lets the UI\nrender a typed execute form and the server validate context."
           },
+          "describe_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the compiler could not write the metadata document of this built\npackage (CLOACINA-T-1074). Set for a package that was built before the\ndocument existed and cannot be described from its stored build.\nAbsent when the package is described, or has not been tried yet. A\npackage whose describe fails during a build has `build_status`\n`failed` and the reason in `build_error`."
+          },
           "description": {
             "type": [
               "string",
@@ -9905,6 +10015,13 @@
           "created_at": {
             "type": "string",
             "description": "Upload time (RFC 3339)."
+          },
+          "describe_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the compiler could not write the metadata document of this built\nversion (CLOACINA-T-1074). Absent when the version is described, or\nhas not been tried yet."
           },
           "id": {
             "type": "string",

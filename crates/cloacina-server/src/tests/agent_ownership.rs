@@ -163,10 +163,11 @@ async fn test_register_cannot_take_over_an_agent_id() {
         register(&state, &key_a, Some(&agent_b)).await,
         Err(StatusCode::CONFLICT)
     );
-    // A platform admin key gets no bypass.
+    // A platform admin key gets no bypass: it has no tenant, so it registers
+    // no agent (CLOACINA-T-1118).
     assert_eq!(
         register(&state, &platform_admin_key(), Some(&agent_b)).await,
-        Err(StatusCode::CONFLICT)
+        Err(StatusCode::FORBIDDEN)
     );
     // Inside the tenant: another key.
     let other_key_b = tenant_key(&tenant_b);
@@ -551,6 +552,190 @@ async fn test_a_connection_acks_only_its_own_rows() {
     for id in [same_tenant, other_tenant] {
         let _ = dal.delivery_outbox().mark_acked(id).await;
     }
+}
+
+/// CLOACINA-T-1118: a key with no tenant cannot register an agent, even with
+/// the role `agent`. No route makes such a key, and the DAL refuses one, so
+/// the row is written with SQL here, as a person with database access could.
+#[tokio::test]
+#[serial]
+async fn test_t1118_an_agent_key_with_no_tenant_cannot_register_an_agent() {
+    let state = test_state().await;
+    let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+    let key_id = uuid::Uuid::new_v4();
+    let name = unique("t1118-no-tenant-agent");
+    let conn = state
+        .database
+        .get_postgres_connection()
+        .await
+        .expect("a connection");
+    let insert = format!(
+        "INSERT INTO api_keys (id, key_hash, name, permissions, tenant_id, is_admin) \
+         VALUES ('{key_id}', '{hash}', '{name}', 'agent', NULL, false)"
+    );
+    conn.interact(move |conn| {
+        use diesel::RunQueryDsl;
+        diesel::sql_query(insert).execute(conn)
+    })
+    .await
+    .expect("interact")
+    .expect("insert the key row");
+
+    let agent_id = unique("t1118-agent");
+    let body = serde_json::json!({
+        "protocol_version": AGENT_PROTOCOL_VERSION,
+        "agent_id": agent_id,
+        "target_triple": "aarch64-apple-darwin",
+        "max_concurrency": 2,
+        "capabilities": [],
+    });
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/v1/agent/register")
+        .header("Authorization", format!("Bearer {plaintext}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let (status, answer) = send_request(build_router(state.clone()), request).await;
+    let row = state.agent_registry.agent_owner(&agent_id).await;
+
+    let _ = state.agent_registry.deregister(&agent_id).await;
+    let delete = format!("DELETE FROM api_keys WHERE id = '{key_id}'");
+    let _ = conn
+        .interact(move |conn| {
+            use diesel::RunQueryDsl;
+            diesel::sql_query(delete).execute(conn)
+        })
+        .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "answer: {answer:?}");
+    assert_eq!(answer["code"], "agent_no_tenant", "answer: {answer:?}");
+    assert!(
+        row.expect("lookup").is_none(),
+        "no roster row is written for a key with no tenant"
+    );
+}
+
+/// CLOACINA-T-1118: the two DAL calls that make a key refuse role `agent`
+/// with no tenant. Every route and code path that makes a key goes through
+/// one of them (`test_t1118_only_the_dal_writes_api_keys_rows`).
+#[tokio::test]
+#[serial]
+async fn test_t1118_the_dal_makes_no_agent_key_with_no_tenant() {
+    let state = test_state().await;
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let (_, hash) = cloacina::security::api_keys::generate_api_key();
+    let name = unique("t1118-create");
+    assert!(
+        dal.api_keys()
+            .create_key(&hash, &name, None, false, "agent")
+            .await
+            .is_err()
+    );
+    assert!(
+        dal.api_keys()
+            .create_key(&hash, &name, None, true, "agent")
+            .await
+            .is_err()
+    );
+    let (_, hash) = cloacina::security::api_keys::generate_api_key();
+    let minted = unique("t1118-mint");
+    assert!(
+        dal.api_keys()
+            .mint_key(
+                &hash,
+                &minted,
+                None,
+                "agent",
+                chrono::Utc::now() + chrono::Duration::minutes(5),
+                "test:t1118",
+            )
+            .await
+            .is_err()
+    );
+    let leaked: Vec<_> = dal
+        .api_keys()
+        .list_keys()
+        .await
+        .expect("list keys")
+        .into_iter()
+        .filter(|k| k.name == name || k.name == minted)
+        .collect();
+    assert!(leaked.is_empty(), "no row was written: {leaked:?}");
+
+    // With a tenant the agent key is made, as before.
+    let (_, hash) = cloacina::security::api_keys::generate_api_key();
+    let made = dal
+        .api_keys()
+        .create_key(
+            &hash,
+            &unique("t1118-tenant"),
+            Some("public"),
+            false,
+            "agent",
+        )
+        .await
+        .expect("an agent key of a tenant");
+    let delete = format!("DELETE FROM api_keys WHERE id = '{}'", made.id);
+    if let Ok(conn) = state.database.get_postgres_connection().await {
+        let _ = conn
+            .interact(move |conn| {
+                use diesel::RunQueryDsl;
+                diesel::sql_query(delete).execute(conn)
+            })
+            .await;
+    }
+}
+
+/// CLOACINA-T-1118: only `api_keys/crud.rs` writes an `api_keys` row, so the
+/// refusal of `check_key_scope` covers every route and code path that makes
+/// a key. This fails when other code inserts into the table.
+#[test]
+fn test_t1118_only_the_dal_writes_api_keys_rows() {
+    fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("read dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n == "target") {
+                    continue;
+                }
+                rust_files(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates folder");
+    let mut files = Vec::new();
+    rust_files(crates, &mut files);
+    assert!(files.len() > 100, "the scan found the sources");
+
+    // Split so that this file does not match itself.
+    let patterns = [
+        ["insert_into(", "api_keys"].concat(),
+        ["insert into ", "api_keys"].concat(),
+    ];
+    // The DAL, and the test above that writes a row with SQL on purpose.
+    let allowed = ["api_keys/crud.rs", "tests/agent_ownership.rs"];
+    let mut writers = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file)
+            .unwrap_or_default()
+            .to_lowercase();
+        let path = file.to_string_lossy().replace('\\', "/");
+        if patterns.iter().any(|p| text.contains(p.as_str()))
+            && !allowed.iter().any(|a| path.ends_with(a))
+        {
+            writers.push(path);
+        }
+    }
+    assert!(
+        writers.is_empty(),
+        "code outside the API key DAL writes api_keys rows; route it through \
+         ApiKeyDAL::create_key or mint_key: {writers:?}"
+    );
 }
 
 async fn cannot_decode(

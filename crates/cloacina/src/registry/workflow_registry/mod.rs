@@ -24,7 +24,10 @@ mod database;
 pub mod filesystem;
 mod package;
 
-pub use database::{BuildQueueStats, ReconcilerStats, build_queue_stats, reconciler_stats};
+pub use database::{
+    BuildQueueStats, PackageVersionDelete, ReconcilerStats, StoredDescription, UndescribedPackage,
+    build_queue_stats, reconciler_stats,
+};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -492,15 +495,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                 None => return Ok(()), // Idempotent - already doesn't exist
             };
 
+        // Delete the row and its built artifacts first (CLOACINA-T-1098): a
+        // delete refused because an execution is pinned to the version leaves
+        // the loaded tasks in place.
+        self.delete_package_metadata_by_id(package_id).await?;
+
         // Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_id) {
             self.registrar
                 .unregister_package_tasks(&package_id.to_string())
                 .map_err(RegistryError::Loader)?;
         }
-
-        // Delete metadata from database
-        self.delete_package_metadata_by_id(package_id).await?;
 
         // Delete binary data from storage
         self.storage.delete_binary(&registry_id).await?;
@@ -525,6 +530,35 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
 
         // Use the trait implementation
         self.unregister_workflow(package_name, version).await
+    }
+
+    /// Delete a package name and version in any build state: the rule of
+    /// the delete route (CLOACINA-T-1122). See
+    /// [`PackageVersionDelete`] for the outcomes. On `Removed` the stored
+    /// archive of each removed row is deleted too.
+    pub async fn delete_package_version(
+        &mut self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<PackageVersionDelete, RegistryError> {
+        let outcome = self.delete_version_rows(package_name, version).await?;
+        if let PackageVersionDelete::Removed {
+            package_ids,
+            registry_ids,
+        } = &outcome
+        {
+            for id in package_ids.iter().chain(registry_ids.iter()) {
+                if self.loaded_packages.remove(id).is_some() {
+                    self.registrar
+                        .unregister_package_tasks(&id.to_string())
+                        .map_err(RegistryError::Loader)?;
+                }
+            }
+            for registry_id in registry_ids {
+                self.storage.delete_binary(&registry_id.to_string()).await?;
+            }
+        }
+        Ok(outcome)
     }
 }
 
@@ -584,6 +618,16 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
                 "this server",
             )
             .map_err(|reason| RegistryError::ValidationError { reason })?;
+        }
+
+        // CLOACINA-T-1097: refuse at upload a Python package the compiler
+        // cannot build: dependencies with no lock file and no `vendor/`, or a
+        // lock file that fails the compiler's checks. The same function as the
+        // compiler and `cloacinactl package validate`, on the same unpacked
+        // folder. Nothing is stored before this point.
+        if manifest.metadata.language.eq_ignore_ascii_case("python") {
+            cloacina_workflow_plugin::python_vendor::vendor_plan(&pkg_name, &source_dir)
+                .map_err(|reason| RegistryError::PythonDependenciesNotLocked { reason })?;
         }
 
         // 3. Content hash for idempotency + audit of what's installed.
@@ -754,15 +798,17 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         // 2. Find the package ID to unregister tasks
         let package_uuid = Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?;
 
-        // 3. Unregister tasks from global registry
+        // 3. Delete the row and its built artifacts (CLOACINA-T-1098). First,
+        //    so a delete refused because an execution is pinned to the version
+        //    leaves the loaded tasks in place.
+        self.delete_package_metadata(package_name, version).await?;
+
+        // 4. Unregister tasks from global registry
         if let Some(_namespaces) = self.loaded_packages.remove(&package_uuid) {
             self.registrar
                 .unregister_package_tasks(&package_uuid.to_string())
                 .map_err(RegistryError::Loader)?;
         }
-
-        // 4. Delete metadata from database (this will cascade to registry storage via foreign key)
-        self.delete_package_metadata(package_name, version).await?;
 
         // 5. Delete binary data from storage
         self.storage.delete_binary(&registry_id).await?;
@@ -770,10 +816,9 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         Ok(())
     }
 
-    /// Defense-in-depth signature existence check (CLOACI-T-0571).
-    ///
-    /// Queries `package_signatures` for any row with the given hash.
-    /// Used by the reconciler when `require_signatures` is on.
+    /// Signature existence (CLOACI-T-0571): queries `package_signatures`
+    /// for any row with the given hash. The reconciler's check at load is
+    /// `verify_package_signature`.
     async fn find_signature(&self, package_hash: &str) -> Result<bool, RegistryError> {
         use crate::security::{DbPackageSigner, PackageSigner};
         let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
@@ -783,6 +828,63 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
                 "find_signature DAL query failed for hash {}: {}",
                 package_hash, e
             ))),
+        }
+    }
+
+    /// The load check (CLOACINA-T-1062): the signature rows are read from
+    /// this registry's database, the trusted keys from `trust_database`, or
+    /// from this registry's database when there is none.
+    async fn verify_package_signature(
+        &self,
+        package_data: &[u8],
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<
+        Result<
+            crate::registry::traits::LoadSignature,
+            crate::registry::traits::LoadSignatureRefusal,
+        >,
+        RegistryError,
+    > {
+        use crate::registry::traits::{LoadSignature, LoadSignatureRefusal};
+        use crate::security::{DbKeyManager, DbPackageSigner, VerificationError};
+
+        let signer = DbPackageSigner::new(crate::dal::DAL::new(self.database.clone()));
+        let trust = trust_database.unwrap_or(&self.database).clone();
+        let key_manager = DbKeyManager::new(crate::dal::DAL::new(trust));
+        match crate::security::verify_stored_signature_for_orgs(
+            package_data,
+            org_ids,
+            &signer,
+            &key_manager,
+        )
+        .await
+        {
+            Ok((result, trusted_by)) => Ok(Ok(LoadSignature {
+                package_hash: result.package_hash,
+                signer_fingerprint: result.signer_fingerprint,
+                trusted_by,
+            })),
+            Err(e) => {
+                let code = match &e {
+                    VerificationError::SignatureNotFound { .. } => "missing_signature",
+                    VerificationError::UntrustedSigner { .. } => "untrusted_signer",
+                    VerificationError::RevokedSigner { .. } => "revoked_signer",
+                    VerificationError::InvalidSignature
+                    | VerificationError::TamperedPackage { .. }
+                    | VerificationError::MalformedSignature { .. } => "invalid_signature",
+                    // The check could not run: a database or key store error.
+                    _ => {
+                        return Err(RegistryError::Internal(format!(
+                            "signature check failed: {e}"
+                        )));
+                    }
+                };
+                Ok(Err(LoadSignatureRefusal {
+                    code,
+                    reason: e.to_string(),
+                }))
+            }
         }
     }
 
@@ -1066,5 +1168,302 @@ mod tests {
         let active: Vec<_> = versions.iter().filter(|v| v.active).collect();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, id_v1);
+    }
+
+    /// CLOACINA-T-1098: a deleted package version leaves no built artifact
+    /// behind: neither a Rust library per target nor a vendored Python set.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn deleting_a_package_version_removes_its_artifacts() {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let mut registry = sqlite_registry().await;
+        let id = registry
+            .register_workflow(pack_source("t1098-jobs", "1.0.0", "// one\n"))
+            .await
+            .unwrap();
+        registry
+            .claim_next_build()
+            .await
+            .unwrap()
+            .expect("claim the build");
+        registry.mark_build_success(id, Vec::new()).await.unwrap();
+
+        // What the compilers store for the version: a library for a second
+        // target, and a vendored set per platform.
+        let dal = crate::dal::DAL::new(registry.database.clone());
+        dal.workflow_packages()
+            .upsert_artifact(
+                "t1098-jobs",
+                "1.0.0",
+                None,
+                "aarch64-unknown-linux-gnu",
+                "digest-lib",
+                vec![1, 2, 3],
+            )
+            .await
+            .unwrap();
+        registry
+            .store_python_vendor(
+                id,
+                "t1098-jobs",
+                "1.0.0",
+                vec![
+                    ("x86_64-linux".to_string(), vec![4, 5]),
+                    ("aarch64-linux".to_string(), vec![6, 7]),
+                ],
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            dal.workflow_packages()
+                .get_artifact_triples_for_package("t1098-jobs", "1.0.0")
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+
+        registry
+            .unregister_workflow("t1098-jobs", "1.0.0")
+            .await
+            .unwrap();
+
+        assert!(
+            registry
+                .list_package_versions("t1098-jobs")
+                .await
+                .unwrap()
+                .is_empty(),
+            "the package row is gone"
+        );
+        let left = dal
+            .workflow_packages()
+            .get_artifact_triples_for_package("t1098-jobs", "1.0.0")
+            .await
+            .unwrap();
+        assert!(
+            left.is_empty(),
+            "artifacts of a deleted version are left: {left:?}"
+        );
+        assert!(
+            dal.workflow_packages()
+                .get_artifact_data_by_content_hash("digest-lib")
+                .await
+                .unwrap()
+                .is_none(),
+            "an agent can still fetch the library of a deleted version by digest"
+        );
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CLOACINA-T-1097: a Python package the compiler cannot build is refused
+    // at upload, by the compiler's own lock checks.
+    // ────────────────────────────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000001";
+
+    /// Pack a minimal Python source package. `files` are extra files, by
+    /// path from the package root.
+    #[cfg(feature = "sqlite")]
+    fn pack_python(name: &str, files: &[(&str, &str)]) -> Vec<u8> {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("pkg");
+        std::fs::create_dir_all(src.join("workflow/demo")).unwrap();
+        std::fs::write(
+            src.join("package.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\
+                 interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+                 extension = \"cloacina\"\n\n[metadata]\nlanguage = \"python\"\n\
+                 workflow_name = \"demo\"\nentry_module = \"demo.tasks\"\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(src.join("workflow/demo/__init__.py"), "").unwrap();
+        std::fs::write(src.join("workflow/demo/tasks.py"), "# tasks\n").unwrap();
+        for (path, text) in files {
+            let path = src.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let out = dir.path().join("out.cloacina");
+        fidius_core::package::pack_package(&src, Some(&out)).unwrap();
+        std::fs::read(&out).unwrap()
+    }
+
+    #[cfg(feature = "sqlite")]
+    const PYPROJECT_SIX: &str =
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\ndependencies = [\"six>=1.16\"]\n";
+
+    /// Register `bytes`; expect the refusal of CLOACINA-T-1097, and that
+    /// nothing of the package is in the registry or the build queue.
+    #[cfg(feature = "sqlite")]
+    async fn expect_not_locked(name: &str, bytes: Vec<u8>) -> String {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let mut registry = sqlite_registry().await;
+        let err = registry.register_workflow(bytes).await.unwrap_err();
+        let reason = match err {
+            super::RegistryError::PythonDependenciesNotLocked { reason } => reason,
+            other => panic!("expected PythonDependenciesNotLocked, got {other:?}"),
+        };
+        assert!(
+            registry
+                .list_package_versions(name)
+                .await
+                .unwrap()
+                .is_empty(),
+            "a refused upload must store no row"
+        );
+        assert!(registry.claim_next_build().await.unwrap().is_none());
+        reason
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_dependencies_and_no_lock_is_refused() {
+        let reason = expect_not_locked(
+            "py-nolock",
+            pack_python("py-nolock", &[("pyproject.toml", PYPROJECT_SIX)]),
+        )
+        .await;
+        assert!(reason.contains("requirements.lock"), "{reason}");
+        assert!(reason.contains("cloacinactl package build"), "{reason}");
+        assert!(reason.contains("six"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_lock_option_line_is_refused_with_its_line() {
+        let lock = format!(
+            "# locked\n--index-url https://example.invalid/simple\nsix==1.17.0 --hash={HASH}\n"
+        );
+        let reason = expect_not_locked(
+            "py-opt",
+            pack_python(
+                "py-opt",
+                &[
+                    ("pyproject.toml", PYPROJECT_SIX),
+                    ("requirements.lock", &lock),
+                ],
+            ),
+        )
+        .await;
+        assert!(reason.contains("line 2"), "{reason}");
+        assert!(reason.contains("--index-url"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_lock_url_is_refused_with_its_line() {
+        let lock = "six @ https://example.invalid/six-1.17.0-py2.py3-none-any.whl\n";
+        let reason = expect_not_locked(
+            "py-url",
+            pack_python(
+                "py-url",
+                &[
+                    ("pyproject.toml", PYPROJECT_SIX),
+                    ("requirements.lock", lock),
+                ],
+            ),
+        )
+        .await;
+        assert!(reason.contains("line 1"), "{reason}");
+        assert!(reason.contains("not a pinned version"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_pin_with_no_hash_is_refused_with_its_line() {
+        let lock = "# locked\n\nsix==1.17.0\n";
+        let reason = expect_not_locked(
+            "py-nohash",
+            pack_python(
+                "py-nohash",
+                &[
+                    ("pyproject.toml", PYPROJECT_SIX),
+                    ("requirements.lock", lock),
+                ],
+            ),
+        )
+        .await;
+        assert!(reason.contains("line 3"), "{reason}");
+        assert!(reason.contains("no `--hash`"), "{reason}");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_upload_with_a_dependency_not_pinned_is_refused() {
+        let pyproject = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\
+                         dependencies = [\"six>=1.16\", \"PyYAML\"]\n";
+        let lock = format!("six==1.17.0 --hash={HASH}\n");
+        let reason = expect_not_locked(
+            "py-stale",
+            pack_python(
+                "py-stale",
+                &[("pyproject.toml", pyproject), ("requirements.lock", &lock)],
+            ),
+        )
+        .await;
+        assert!(reason.contains("`pyyaml`"), "{reason}");
+    }
+
+    /// A package with `vendor/`, one with no dependencies, and one with a
+    /// good lock file are accepted, and each waits for its build.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn python_uploads_the_compiler_can_build_are_accepted() {
+        use crate::registry::traits::WorkflowRegistry as _;
+
+        let lock = format!("# locked\nsix==1.17.0 \\\n    --hash={HASH}\n");
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            (
+                "py-vendored",
+                pack_python(
+                    "py-vendored",
+                    &[
+                        ("pyproject.toml", PYPROJECT_SIX),
+                        ("vendor/x86_64-linux/six.py", "# six\n"),
+                    ],
+                ),
+            ),
+            ("py-nodeps", pack_python("py-nodeps", &[])),
+            (
+                "py-nodeps-pyproject",
+                pack_python(
+                    "py-nodeps-pyproject",
+                    &[(
+                        "pyproject.toml",
+                        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+                    )],
+                ),
+            ),
+            (
+                "py-locked",
+                pack_python(
+                    "py-locked",
+                    &[
+                        ("pyproject.toml", PYPROJECT_SIX),
+                        ("requirements.lock", &lock),
+                    ],
+                ),
+            ),
+        ];
+        for (name, bytes) in cases {
+            let mut registry = sqlite_registry().await;
+            let id = registry
+                .register_workflow(bytes)
+                .await
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let claimed = registry
+                .claim_next_build()
+                .await
+                .unwrap()
+                .unwrap_or_else(|| panic!("{name}: no build queued"));
+            assert_eq!(claimed.id, id, "{name}");
+        }
     }
 }

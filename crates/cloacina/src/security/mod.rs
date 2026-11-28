@@ -49,6 +49,7 @@ pub use secret_resolver::{
 pub use secret_store::{SecretError, SecretMetadata, SecretStore};
 pub use tenant_org::tenant_org_id;
 pub use verification::{
-    SecurityConfig, SignatureSource, VerificationError, VerificationResult, verify_package,
-    verify_package_bytes, verify_package_bytes_for_orgs, verify_package_offline,
+    SecurityConfig, SignatureSource, VerificationError, VerificationResult,
+    verify_detached_signature_for_orgs, verify_package, verify_package_bytes,
+    verify_package_bytes_for_orgs, verify_package_offline, verify_stored_signature_for_orgs,
 };

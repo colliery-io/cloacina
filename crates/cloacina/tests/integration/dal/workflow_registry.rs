@@ -253,6 +253,187 @@ async fn test_python_declared_params_persisted_on_empty_artifact_build() {
     assert_eq!(bs.default, Some(serde_json::json!(500)));
 }
 
+/// CLOACINA-T-1074: the metadata document columns on the test backend. A
+/// package recorded with no document is listed as not described; the document
+/// and the reason of a failed describe are stored and read back; a described
+/// build stores the document with the build and opens no library.
+#[tokio::test]
+#[serial]
+async fn test_metadata_document_is_stored_and_read_back() {
+    use cloacina::registry::package_description::{
+        PACKAGE_DESCRIPTION_VERSION, PackageDescription, RustLibraryMetadata,
+    };
+    use cloacina_workflow_plugin::types::{PackageTasksMetadata, TaskMetadataEntry};
+
+    let package_data = get_mock_package();
+
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let dal = fixture.get_dal();
+    let storage = fixture.create_storage();
+    let mut registry = dal.workflow_registry(storage);
+
+    let package_id = registry
+        .register_workflow_package(package_data)
+        .await
+        .expect("register");
+    // Recorded the way a compiler before the document recorded a build.
+    drive_to_success(&registry, package_id).await;
+
+    let listed = registry.list_undescribed_packages(10).await.expect("list");
+    assert!(listed.iter().any(|p| p.id == package_id));
+    assert_eq!(
+        registry
+            .build_queue_stats()
+            .await
+            .expect("stats")
+            .undescribed,
+        1
+    );
+    let before = registry
+        .get_package_description(package_id)
+        .await
+        .expect("read")
+        .expect("row");
+    assert!(before.document.is_none());
+    assert!(before.version.is_none());
+    assert!(before.describe_error.is_none());
+
+    // A describe that failed.
+    assert!(
+        registry
+            .store_describe_error(package_id, "the library does not load")
+            .await
+            .expect("store the reason")
+    );
+    let failed = registry
+        .get_package_description(package_id)
+        .await
+        .expect("read")
+        .expect("row");
+    assert_eq!(failed.version, Some(PACKAGE_DESCRIPTION_VERSION));
+    assert_eq!(
+        failed.describe_error.as_deref(),
+        Some("the library does not load")
+    );
+    assert!(
+        registry
+            .list_undescribed_packages(10)
+            .await
+            .expect("list")
+            .is_empty()
+    );
+    let inspected = registry
+        .inspect_package_by_id(package_id)
+        .await
+        .expect("inspect")
+        .expect("row");
+    assert_eq!(inspected.build_status, "success");
+    assert_eq!(
+        inspected.describe_error.as_deref(),
+        Some("the library does not load")
+    );
+
+    // A describe that worked.
+    let document = PackageDescription::from_rust_library(RustLibraryMetadata {
+        tasks: PackageTasksMetadata {
+            workflow_name: "described_workflow".to_string(),
+            package_name: "packaged-workflow-example".to_string(),
+            package_description: None,
+            package_author: None,
+            workflow_fingerprint: None,
+            graph_data_json: None,
+            tasks: vec![TaskMetadataEntry {
+                index: 0,
+                id: "only".to_string(),
+                namespaced_id_template: "{tenant}::p::described_workflow::only".to_string(),
+                dependencies: Vec::new(),
+                description: String::new(),
+                source_location: String::new(),
+                trigger_rules: "{\"type\":\"Always\"}".to_string(),
+                requires_handle: false,
+                retry_policy: String::new(),
+                timeout_seconds: Some(45),
+                pool: Some("large".to_string()),
+                cpu: None,
+                memory: None,
+                inline: false,
+                priority: None,
+                workflow_priority: None,
+            }],
+            triggers: Vec::new(),
+        },
+        declared_params: Vec::new(),
+        declared_surfaces: Vec::new(),
+        graph: None,
+        reactors: Vec::new(),
+        triggers: Vec::new(),
+        triggerless_graphs: Vec::new(),
+        constructors: Vec::new(),
+    });
+    assert!(
+        registry
+            .store_package_description(package_id, &document)
+            .await
+            .expect("store the document")
+    );
+    let described = registry
+        .get_package_description(package_id)
+        .await
+        .expect("read")
+        .expect("row");
+    assert!(described.describe_error.is_none());
+    let stored = described.document.expect("document");
+    assert_eq!(stored.workflow_name, "described_workflow");
+    assert_eq!(stored.tasks[0].timeout_seconds, Some(45));
+    assert_eq!(stored.tasks[0].pool.as_deref(), Some("large"));
+
+    // A new build of the row, described: the bytes are not a library, and
+    // nothing opens them.
+    assert!(
+        registry
+            .request_recompile(package_id)
+            .await
+            .expect("requeue")
+    );
+    registry
+        .claim_next_build()
+        .await
+        .expect("claim")
+        .expect("a build");
+    registry
+        .mark_build_success_described(
+            package_id,
+            b"not a library".to_vec(),
+            &document,
+            std::collections::HashMap::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("a described build opens no library");
+    let (metadata, _) = registry
+        .get_workflow_package_by_id(package_id)
+        .await
+        .expect("get")
+        .expect("package present");
+    assert_eq!(metadata.workflow_name, "described_workflow");
+    assert_eq!(metadata.tasks, vec!["only"]);
+    assert_eq!(
+        registry
+            .build_queue_stats()
+            .await
+            .expect("stats")
+            .undescribed,
+        0
+    );
+}
+
 #[tokio::test]
 #[serial]
 async fn test_get_workflow_package_by_name() {

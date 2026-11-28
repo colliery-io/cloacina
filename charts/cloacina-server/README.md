@@ -53,6 +53,7 @@ The chart fails fast if you don't configure exactly one of:
 | `context.warnBytes` | `1048576` | Size in bytes above which a task context is logged as a warning and counted (`0` = off) |
 | `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
 | `server.logFormat` | `text` | Format of the server's log lines on stderr: `text` or `json` (`--log-format`) |
+| `fleet.agentLogFormat` | `text` | Format of the log lines of the agents the fleet actuator starts: `text` or `json`; the server sets it on each agent pod; used when `fleet.actuator` is `kubernetes` (`CLOACINA_AGENT_LOG_FORMAT`) |
 | `server.taskLogUrlTemplate` | `""` | URL of a task's logs in your log stack, with `{tenant}`, `{execution_id}`, `{task}`, `{attempt}`; the UI shows it as a link on each task; empty = no link (`--task-log-url-template`) |
 | `service.type` | `ClusterIP` | Service type |
 | `ingress.enabled` | `false` | Provision an Ingress |
@@ -67,6 +68,10 @@ The chart fails fast if you don't configure exactly one of:
 | `retention.intervalSeconds` | `300` | Seconds between passes of the retention job (`CLOACINA_RETENTION_INTERVAL_S`) |
 | `fleetTaskTimeLimits.defaultSeconds` | `300` | Time limit of a fleet task that sets none, and of a graph firing on the fleet (`CLOACINA_FLEET_TASK_TIMEOUT_S`) |
 | `fleetTaskTimeLimits.maxSeconds` | `86400` | Longest time limit a fleet task can get (`CLOACINA_FLEET_TASK_TIMEOUT_MAX_S`) |
+| `fleetTaskTimeLimits.artifactFetchWaitSeconds` | `300` | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact; `0` = the first failed fetch fails the attempt (`CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S`) |
+| `packages.maxPackageBytes` | `104857600` | The largest package archive, in bytes, that an upload accepts (`CLOACINA_MAX_PACKAGE_BYTES`) |
+| `packages.maxUnpackedBytes` | `524288000` | The largest size, in bytes, that a package archive may unpack to; set on the server and on the chart's compiler (`CLOACINA_MAX_UNPACKED_BYTES`) |
+| `fleet.graphFirings` | `inline` | Where an agent runs a graph firing: `inline` in the agent process, or `worker` in a worker process with the limits, time limit and cancel of a task; any other value stops the server (`CLOACINA_FLEET_GRAPH_FIRINGS`) |
 | `alertWebhook.url` | `""` | URL that gets a JSON `POST` when a run ends; empty = off (`CLOACINA_ALERT_WEBHOOK_URL`) |
 | `alertWebhook.urlSecretRef.name` / `.key` | `""` / `url` | Existing Secret that holds the URL; used in place of `alertWebhook.url` |
 | `alertWebhook.events` | `[failed]` | Run outcomes that send an alert: `failed`, `completed`, `cancelled`, `all` (`CLOACINA_ALERT_WEBHOOK_EVENTS`) |
@@ -74,6 +79,11 @@ The chart fails fast if you don't configure exactly one of:
 | `alertWebhook.maxAttempts` | `8` | The most sends of one alert (`CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS`) |
 | `alertWebhook.publicBaseUrl` | `""` | Public URL of the server, for the links in an alert (`CLOACINA_PUBLIC_BASE_URL`) |
 | `alertWebhook.secretRef.name` / `.key` | `""` / `secret` | Existing Secret that holds the signing secret (`CLOACINA_ALERT_WEBHOOK_SECRET`) |
+| `fleet.compiler.cacheClaim.enabled` | `true` | A PersistentVolumeClaim `cloacina-compiler-cache` per tenant compiler for its cargo home, target directory and uv cache, kept across scale to zero and deleted with the tenant; `false` uses emptyDirs (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM`) |
+| `fleet.compiler.cacheClaim.size` | `20Gi` | Requested size of the claim (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE`) |
+| `fleet.compiler.cacheClaim.storageClass` | `""` | Storage class of the claim; empty = the cluster's default class (`CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS`) |
+| `fleet.compiler.homeSize` | `4Gi` | Size limit of the home volume of a hardened tenant compiler pod (`CLOACINA_TENANT_COMPILER_HOME_SIZE`) |
+| `fleet.compiler.python.*` | compiler defaults | Python settings of the tenant compilers: `platforms`, `version`, `indexUrl` or `indexUrlSecretRef` (put in the tenant's Secret `cloacina-compiler-db`), `wheelDir`, `offline`, `uvCacheDir`, `cacheSize` (`4Gi`) (`CLOACINA_TENANT_COMPILER_PYTHON_*`) |
 | `livenessProbe`/`readinessProbe`/`startupProbe` | `/v1/health` HTTP probes | Override or disable per probe |
 
 See [`values.yaml`](./values.yaml) for the full reference.

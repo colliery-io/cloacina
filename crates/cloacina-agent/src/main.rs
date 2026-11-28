@@ -32,6 +32,14 @@
 //! by digest, `dlopen` via fidius `PluginHandle`, resolve the task in the
 //! `cloacina` inventory, build a `Context` from `WorkPacket.context`,
 //! execute, classify the outcome, return `Success`/`Failure`.
+//!
+//! **Worker processes** (CLOACINA-T-1028): the agent fetches the package, and
+//! a child process of its own loads it and runs the one task (see
+//! [`worker`]). The agent holds each worker to its memory limit and its time
+//! limit (see [`memory`]). A task marked `inline` runs in the agent process.
+
+mod memory;
+mod worker;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -44,9 +52,9 @@ use clap::Parser;
 use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentRegisterRequest,
-    AgentRegisterResponse, AgentResultRequest, AgentUndecodableRequest, EphemeralKeyEntry,
-    GRAPH_PACKET_KIND, GraphWorkPacket, RefusalReason, WORK_PACKET_KIND, WorkPacket,
-    host_target_triple,
+    AgentRegisterResponse, AgentResultRequest, AgentUndecodableRequest, CANCEL_PACKET_KIND,
+    CancelPacket, EphemeralKeyEntry, GRAPH_PACKET_KIND, GraphWorkPacket, RefusalReason,
+    WORK_PACKET_KIND, WorkPacket, host_target_triple,
 };
 use cloacina::security::{AgentKeyPool, InMemorySecretResolver};
 use futures_util::{SinkExt, StreamExt};
@@ -100,14 +108,37 @@ struct Args {
     /// Total CPU this agent offers to tasks, a Kubernetes quantity (`4`,
     /// `500m`). Reported at registration; the server places tasks by their
     /// CPU requests against it. Not set: the agent reports none and the
-    /// server packs it by `--max-concurrency` only. The agent does not limit
-    /// a task by it.
+    /// server packs it by `--max-concurrency` only. The agent does not cap
+    /// a task's CPU by it.
     #[arg(long, env = "CLOACINA_AGENT_CPU")]
     cpu: Option<String>,
-    /// Total memory this agent offers to tasks, a Kubernetes quantity
-    /// (`32Gi`, `512Mi`). Reported at registration, as `--cpu` is.
+    /// Total memory of this agent, a Kubernetes quantity (`32Gi`, `512Mi`):
+    /// the memory limit of its pod. The agent keeps `--reserved-memory` of
+    /// it and reports the rest at registration as what it offers to tasks.
+    /// A task's memory request is its limit; a task with no request gets
+    /// the offered memory divided by `--max-concurrency`. Not set: the agent
+    /// reports none, and uses the limit of its own cgroup, if it has one,
+    /// for the task limits.
     #[arg(long, env = "CLOACINA_AGENT_MEMORY")]
     memory: Option<String>,
+    /// The agent's own share of its memory, a Kubernetes quantity, or `0`.
+    /// Taken off `--memory` before the rest is offered to tasks
+    /// (CLOACINA-T-1028).
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_RESERVED_MEMORY",
+        default_value = cloacina::fleet::DEFAULT_AGENT_RESERVED_MEMORY
+    )]
+    reserved_memory: String,
+    /// The address-space ceiling of a task's worker process, as a multiple
+    /// of the task's memory limit (64 GiB is added). A backstop behind the
+    /// memory watchdog, set with `setrlimit` on Linux. `0`: no ceiling.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR",
+        default_value_t = worker::DEFAULT_ADDRESS_SPACE_FACTOR
+    )]
+    task_address_space_factor: u64,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -196,6 +227,13 @@ fn resolve_api_key(args: &mut Args) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    // CLOACINA-T-1028: the agent starts itself as `cloacina-agent __worker`
+    // to run one task. A worker takes no flags; its job comes on stdin.
+    #[cfg(unix)]
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new(worker::WORKER_ARG)) {
+        worker::worker_main();
+    }
+
     // Before anything else, while this is the only thread: read the key and
     // take it out of the environment (CLOACINA-T-1033).
     let mut args = Args::parse();
@@ -282,6 +320,75 @@ fn agent_totals(cpu: Option<&str>, memory: Option<&str>) -> Result<(Option<u64>,
     Ok((cpu_millis, memory_bytes))
 }
 
+/// The agent's own share of its memory, from `--reserved-memory`
+/// (CLOACINA-T-1028): a Kubernetes quantity, or `0` for none.
+fn reserved_memory(raw: &str) -> Result<u64> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "0" {
+        return Ok(0);
+    }
+    cloacina::fleet::parse_memory_bytes(raw)
+        .map_err(|e| anyhow::anyhow!("--reserved-memory / CLOACINA_AGENT_RESERVED_MEMORY: {e}"))
+}
+
+/// What the agent offers to tasks: its memory less its own share. An agent
+/// whose share is all of its memory cannot run a task and does not start.
+fn offered_memory(total: Option<u64>, reserved: u64) -> Result<Option<u64>> {
+    match total {
+        None => Ok(None),
+        Some(total) if total > reserved => Ok(Some(total - reserved)),
+        Some(total) => bail!(
+            "the agent's memory ({}) is not above its own share ({}): raise --memory / \
+             CLOACINA_AGENT_MEMORY or lower --reserved-memory / CLOACINA_AGENT_RESERVED_MEMORY",
+            memory::format_bytes(total),
+            memory::format_bytes(reserved)
+        ),
+    }
+}
+
+/// Settle how this agent holds its workers (CLOACINA-T-1028), and say it in
+/// the log one time.
+fn worker_settings_from(
+    args: &Args,
+    cache_dir: &std::path::Path,
+) -> Result<worker::WorkerSettings> {
+    let (_, memory_flag) = agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
+    let reserved = reserved_memory(&args.reserved_memory)?;
+    offered_memory(memory_flag, reserved)?;
+    let agent_memory = memory::AgentMemory::detect(memory_flag);
+    // The task limits come from `--memory`, or from the agent's own cgroup
+    // when the flag is not given. A cgroup limit at or under the agent's own
+    // share leaves nothing to divide: no default limit then.
+    let offered = agent_memory
+        .total()
+        .and_then(|total| total.checked_sub(reserved))
+        .filter(|offered| *offered > 0);
+    let default_memory_limit = worker::default_memory_share(offered, args.max_concurrency);
+    let child_cgroups = memory::probe_child_cgroup();
+    info!(
+        agent_memory = ?agent_memory.total().map(memory::format_bytes),
+        reserved = %memory::format_bytes(reserved),
+        default_task_memory_limit = ?default_memory_limit.map(memory::format_bytes),
+        memory_check_interval_ms = memory::CHECK_INTERVAL.as_millis() as u64,
+        address_space_factor = args.task_address_space_factor,
+        child_cgroups = %match &child_cgroups {
+            Ok(()) => "can be created (not used: the watchdog holds the limits)".to_string(),
+            Err(why) => format!("cannot be created ({why}); the watchdog holds the limits"),
+        },
+        "tasks run in worker processes"
+    );
+    Ok(worker::WorkerSettings {
+        watchdog: memory::Watchdog::new(agent_memory),
+        default_memory_limit,
+        address_space_factor: args.task_address_space_factor,
+        log_format: args.log_format,
+        max_unpacked_bytes: args.max_unpacked_bytes,
+        // Agents on one host can share a cache directory: each has its own
+        // worker directories.
+        ..worker::WorkerSettings::unlimited(cache_dir.join(format!("work-{}", std::process::id())))
+    })
+}
+
 async fn run(args: Args) -> Result<()> {
     // CLOACINA-T-1027: a bad total stops the start, before any connection.
     agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
@@ -307,6 +414,12 @@ async fn run(args: Args) -> Result<()> {
     std::fs::create_dir_all(&cache_dir)
         .with_context(|| format!("create cache dir {:?}", cache_dir))?;
     info!(cache_dir = ?cache_dir, "artifact cache directory");
+    // CLOACINA-T-1028: how workers are started and held. A bad setting stops
+    // the start. Worker directories that an agent with this process id left
+    // behind (a container that started again) are removed.
+    let settings = worker_settings_from(&args, &cache_dir)?;
+    let _ = std::fs::remove_dir_all(&settings.work_root);
+    worker::install_settings(settings);
     let cache_dir = Arc::new(cache_dir);
 
     // Process-wide in-flight counter — survives across reconnect sessions so a
@@ -399,7 +512,10 @@ async fn connect_and_serve(
     }
     // CLOACINA-T-1027: the agent's total CPU and memory, when it was given
     // them. The server places tasks by their requests against these.
-    let (cpu_millis, memory_bytes) = agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
+    // CLOACINA-T-1028: the memory it reports is what it offers to tasks, its
+    // total less its own share.
+    let (cpu_millis, memory_total) = agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
+    let memory_bytes = offered_memory(memory_total, reserved_memory(&args.reserved_memory)?)?;
     let register_resp = match register(
         http,
         server_base,
@@ -886,7 +1002,30 @@ async fn handle_text_frame(
                     ack_tx.clone(),
                     push_id,
                     cache_dir.clone(),
+                    worker::settings(),
                 );
+                return Ok(());
+            }
+            // CLOACINA-T-1028: the server gave up on a dispatch. Stop its
+            // worker, and ack the cancel. Nothing is reported: the server
+            // waits for no result of that dispatch.
+            if kind == CANCEL_PACKET_KIND {
+                guard.hand_over();
+                match decode_payload::<CancelPacket>(&env) {
+                    Ok(cancel) => {
+                        let stopped = worker::dispatch_registry().cancel(&cancel.dispatch_id);
+                        info!(
+                            push_id,
+                            task_id = %cancel.task_execution_id,
+                            dispatch_id = %cancel.dispatch_id,
+                            reason = %cancel.reason,
+                            stopped,
+                            "the server cancelled a dispatch"
+                        );
+                    }
+                    Err(e) => warn!(push_id, error = %format!("{e:#}"), "cannot decode a cancel"),
+                }
+                finish_and_ack(ack_tx, push_id);
                 return Ok(());
             }
             if kind != WORK_PACKET_KIND {
@@ -969,6 +1108,18 @@ fn decode_packet(env: &serde_json::Value) -> Result<WorkPacket> {
         .decode(b64)
         .with_context(|| "decode base64 payload")?;
     serde_json::from_slice::<WorkPacket>(&bytes).with_context(|| "deserialize WorkPacket JSON")
+}
+
+/// The JSON payload of a push frame, as `T`.
+fn decode_payload<T: serde::de::DeserializeOwned>(env: &serde_json::Value) -> Result<T> {
+    let b64 = env
+        .get("payload_b64")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("push frame missing `payload_b64`"))?;
+    let bytes = BASE64
+        .decode(b64)
+        .with_context(|| "decode base64 payload")?;
+    serde_json::from_slice::<T>(&bytes).with_context(|| "deserialize the payload JSON")
 }
 
 fn decode_graph_packet(env: &serde_json::Value) -> Result<GraphWorkPacket> {
@@ -1123,7 +1274,10 @@ fn spawn_packet_worker(
     in_flight.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
         let start = Instant::now();
-        let outcome = process_work_packet(
+        // CLOACINA-T-1028: this returns when the task's worker process has
+        // exited (or, for an inline task, when its future ended). The slot
+        // is counted free after that, below.
+        let end = process_work_packet(
             &packet,
             &target_triple,
             &http,
@@ -1131,21 +1285,33 @@ fn spawn_packet_worker(
             &api_key,
             cache_dir.as_path(),
             &key_pool,
+            &worker::settings(),
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
-        let req = AgentResultRequest {
-            protocol_version: AGENT_PROTOCOL_VERSION,
-            agent_id: agent_id.clone(),
-            task_execution_id: packet.task_execution_id.clone(),
-            attempt: packet.attempt,
-            dispatch_id: packet.dispatch_id.clone(),
-            duration_ms,
-            outcome,
-        };
-        // CLOACINA-T-1015: the ack waits for the report (see `report_outcome`).
-        let server_gives_up_at = server_wait_end(start, packet.timeout_seconds);
-        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
+        match end {
+            worker::PacketEnd::Report(outcome) => {
+                let req = AgentResultRequest {
+                    protocol_version: AGENT_PROTOCOL_VERSION,
+                    agent_id: agent_id.clone(),
+                    task_execution_id: packet.task_execution_id.clone(),
+                    attempt: packet.attempt,
+                    dispatch_id: packet.dispatch_id.clone(),
+                    duration_ms,
+                    outcome,
+                };
+                // CLOACINA-T-1015: the ack waits for the report (see
+                // `report_outcome`).
+                let server_gives_up_at = server_wait_end(start, packet.timeout_seconds);
+                report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
+            }
+            // The server gave up on this dispatch and waits for no report.
+            worker::PacketEnd::Cancelled => debug!(
+                task_id = %packet.task_execution_id,
+                dispatch_id = ?packet.dispatch_id,
+                "dispatch cancelled by the server; no report"
+            ),
+        }
         finish_and_ack(&ack_tx, push_id);
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
@@ -1162,60 +1328,58 @@ fn imported_py_graph_digests() -> &'static tokio::sync::Mutex<std::collections::
     CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashSet::new()))
 }
 
-/// Execute one PYTHON whole-graph firing (CLOACI-T-0841): fetch the source
-/// archive by digest, stage + import it via the agent's Python runtime (the
-/// same path Python task packets use — providers staged, T-0840 module
-/// eviction applied), then look up the named graph executor and run it with
-/// the packet's cache rebuilt into the in-process `InputCache` wire shape.
-async fn execute_python_graph(
+/// Import a PYTHON graph package (CLOACI-T-0841) from the files the agent
+/// fetched (CLOACINA-T-1125): set the provider search path, unpack into
+/// `staging`, import. One import per digest in a process; the graph
+/// executors it registers are global.
+async fn load_python_graph(
     packet: &GraphWorkPacket,
-    http: &reqwest::Client,
-    server: &str,
-    api_key: &str,
-    cache_dir: &std::path::Path,
-) -> cloacina::fleet::AgentOutcome {
-    let digest = packet.artifact.digest.clone();
-
-    // One import per digest; the graph executors it registers are global.
+    package: &worker::PreparedPackage,
+    staging: &std::path::Path,
+) -> std::result::Result<(), cloacina::fleet::AgentOutcome> {
+    let digest = package.digest.clone();
+    let refused = |reason: RefusalReason, message: String| cloacina::fleet::AgentOutcome::Refused {
+        reason,
+        message,
+    };
     {
         let mut imported = imported_py_graph_digests().lock().await;
         if !imported.contains(&digest) {
-            let archive = match fetch_source_archive(http, server, api_key, &digest).await {
-                Ok(a) => a,
-                Err(e) => {
-                    return cloacina::fleet::AgentOutcome::Refused {
-                        reason: RefusalReason::ArtifactFetchFailed,
-                        message: format!("python graph source fetch failed: {}", e),
-                    };
-                }
-            };
-            if let Err(e) = stage_agent_providers(http, server, api_key, &digest, cache_dir).await {
-                return cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::RuntimeLoadFailed,
-                    message: e,
-                };
-            }
-            let staging = cache_dir.join(format!("pysrc-{}", digest));
+            let archive_path = package.source_archive.as_ref().ok_or_else(|| {
+                refused(
+                    RefusalReason::ArtifactFetchFailed,
+                    "the package has no fetched source archive".to_string(),
+                )
+            })?;
+            let archive = std::fs::read(archive_path).map_err(|e| {
+                refused(
+                    RefusalReason::ArtifactFetchFailed,
+                    format!("read the cached python graph source {archive_path:?}: {e}"),
+                )
+            })?;
+            use_providers(&package.providers)
+                .map_err(|e| refused(RefusalReason::RuntimeLoadFailed, e))?;
+            let staging = staging.to_path_buf();
             if let Err(e) = std::fs::create_dir_all(&staging) {
-                return cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::RuntimeLoadFailed,
-                    message: format!("create python staging dir {:?}: {}", staging, e),
-                };
+                return Err(refused(
+                    RefusalReason::RuntimeLoadFailed,
+                    format!("create python staging dir {:?}: {}", staging, e),
+                ));
             }
-            let vendored_set = match fetch_vendored_set(http, server, api_key, &digest).await {
-                Ok(v) => v,
-                Err(e) => {
-                    return cloacina::fleet::AgentOutcome::Refused {
-                        reason: RefusalReason::ArtifactFetchFailed,
-                        message: format!("python vendored dependencies fetch failed: {}", e),
-                    };
-                }
+            let vendored_set = match &package.vendored_set {
+                Some(path) => Some(std::fs::read(path).map_err(|e| {
+                    refused(
+                        RefusalReason::ArtifactFetchFailed,
+                        format!("read the cached python vendored dependencies {path:?}: {e}"),
+                    )
+                })?),
+                None => None,
             };
             let Some(py) = cloacina::python_runtime::python_runtime() else {
-                return cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::RuntimeLoadFailed,
-                    message: "no Python runtime installed in agent".to_string(),
-                };
+                return Err(refused(
+                    RefusalReason::RuntimeLoadFailed,
+                    "no Python runtime installed in agent".to_string(),
+                ));
             };
             let tenant = packet
                 .tenant_id
@@ -1241,21 +1405,28 @@ async fn execute_python_graph(
                     debug!(digest = %digest, "python graph package imported");
                 }
                 Ok(Err(e)) => {
-                    return cloacina::fleet::AgentOutcome::Refused {
-                        reason: RefusalReason::RuntimeLoadFailed,
-                        message: format!("python graph load: {}", e),
-                    };
+                    return Err(refused(
+                        RefusalReason::RuntimeLoadFailed,
+                        format!("python graph load: {}", e),
+                    ));
                 }
                 Err(e) => {
-                    return cloacina::fleet::AgentOutcome::Refused {
-                        reason: RefusalReason::RuntimeLoadFailed,
-                        message: format!("python graph load panicked: {}", e),
-                    };
+                    return Err(refused(
+                        RefusalReason::RuntimeLoadFailed,
+                        format!("python graph load panicked: {}", e),
+                    ));
                 }
             }
         }
     }
+    Ok(())
+}
 
+/// Run one PYTHON graph firing on an imported package (CLOACI-T-0841): look
+/// up the graph executors of the packet's reactor and run each with the
+/// packet's cache rebuilt into the in-process `InputCache` wire shape.
+async fn fire_python_graph(packet: &GraphWorkPacket) -> cloacina::fleet::AgentOutcome {
+    let digest = &packet.artifact.digest;
     // The packet's graph_name is the REACTOR name (the reactor is the firing
     // unit); executors register under their CG name. Try a direct CG-name hit
     // (self-reactor graphs), then fan out to all subscriber graphs of the
@@ -1348,9 +1519,10 @@ fn loaded_graphs() -> &'static tokio::sync::Mutex<
     CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// CLOACI-T-0722: spawn a worker that executes one whole-graph firing —
-/// fetch the cdylib by digest, `execute_graph(cache)` via FFI, report the
-/// outcome under the packet's `firing_id` (the server's rendezvous key).
+/// CLOACI-T-0722: spawn the work of one whole-graph firing, report the
+/// outcome under the packet's `firing_id` (the server's rendezvous key), and
+/// ack. CLOACINA-T-1125: the firing runs in a worker process, held to the
+/// limits of a task; the slot is counted free after the worker has exited.
 #[allow(clippy::too_many_arguments)]
 fn spawn_graph_worker(
     http: reqwest::Client,
@@ -1362,27 +1534,60 @@ fn spawn_graph_worker(
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
     cache_dir: Arc<std::path::PathBuf>,
+    settings: Arc<worker::WorkerSettings>,
 ) {
     in_flight.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
         let start = Instant::now();
-        let outcome =
-            process_graph_packet(&packet, &http, &server, &api_key, cache_dir.as_path()).await;
-        let duration_ms = start.elapsed().as_millis() as u64;
-        let req = AgentResultRequest {
-            protocol_version: AGENT_PROTOCOL_VERSION,
-            agent_id: agent_id.clone(),
-            task_execution_id: packet.firing_id.clone(),
-            attempt: 1,
-            dispatch_id: None,
-            duration_ms,
-            outcome,
-        };
-        let server_gives_up_at = server_wait_end(start, packet.timeout_seconds);
-        report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
+        let end = process_graph_packet(
+            &packet,
+            &http,
+            &server,
+            &api_key,
+            cache_dir.as_path(),
+            &settings,
+        )
+        .await;
+        match end {
+            worker::PacketEnd::Report(outcome) => {
+                let req = graph_report(
+                    &agent_id,
+                    &packet,
+                    start.elapsed().as_millis() as u64,
+                    outcome,
+                );
+                let server_gives_up_at = server_wait_end(start, packet.timeout_seconds);
+                report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
+            }
+            // The server gave up on this firing and waits for no report.
+            worker::PacketEnd::Cancelled => debug!(
+                firing_id = %packet.firing_id,
+                graph = %packet.graph_name,
+                "graph firing cancelled by the server; no report"
+            ),
+        }
         finish_and_ack(&ack_tx, push_id);
         in_flight.fetch_sub(1, Ordering::SeqCst);
     });
+}
+
+/// The report of a graph firing: keyed by the firing id, attempt 1, no
+/// dispatch id, as before CLOACINA-T-1125.
+fn graph_report(
+    agent_id: &str,
+    packet: &GraphWorkPacket,
+    duration_ms: u64,
+    outcome: cloacina::fleet::AgentOutcome,
+) -> AgentResultRequest {
+    AgentResultRequest {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        agent_id: agent_id.to_string(),
+        task_execution_id: packet.firing_id.clone(),
+        attempt: 1,
+        dispatch_id: None,
+        duration_ms,
+        outcome,
+    }
 }
 
 /// CLOACI-T-0722: refuse a graph firing pre-execution (saturation). The
@@ -1418,65 +1623,151 @@ fn spawn_graph_refusal(
     });
 }
 
-/// Execute one whole-graph firing (CLOACI-T-0722): fetch + cache the cdylib
-/// by digest, load it once per digest, call the plugin's `execute_graph`
-/// with the packet's pre-converted FFI cache, and map the result.
+/// One whole-graph firing on the agent (CLOACI-T-0722). The agent fetches
+/// the package files, one time per digest; CLOACINA-T-1125: a worker process
+/// loads the package and runs the firing ([`run_graph_job`]), or the agent
+/// process for a packet marked `inline`.
 async fn process_graph_packet(
     packet: &GraphWorkPacket,
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     cache_dir: &std::path::Path,
-) -> cloacina::fleet::AgentOutcome {
-    // CLOACI-T-0841: a Python-packaged CG executes from SOURCE — import the
-    // module (registering its graph executors) and run the named executor.
-    if packet.language.as_deref() == Some("python") {
-        return execute_python_graph(packet, http, server, api_key, cache_dir).await;
+    settings: &worker::WorkerSettings,
+) -> worker::PacketEnd {
+    // A firing whose cancel came before its packet is not started.
+    if worker::dispatch_registry().is_cancelled(&packet.firing_id) {
+        return worker::PacketEnd::Cancelled;
     }
-    let digest = packet.artifact.digest.clone();
+    let package = match prepare_package(
+        &packet.artifact,
+        packet.language.as_deref(),
+        http,
+        server,
+        api_key,
+        cache_dir,
+    )
+    .await
+    {
+        Ok(package) => package,
+        Err(outcome) => return worker::PacketEnd::Report(outcome),
+    };
+    let job = worker::GraphJob {
+        packet: packet.clone(),
+        // An inline firing keeps its Python package unpacked for the life of
+        // the agent. A worker gets a directory of its own.
+        work_dir: cache_dir.join(format!("pysrc-{}", package.digest)),
+        package,
+        log_format: settings.log_format.to_string(),
+        max_unpacked_bytes: settings.max_unpacked_bytes,
+        #[cfg(test)]
+        test_action: None,
+    };
+    worker::run_graph_here_or_in_worker(job, settings).await
+}
 
-    let plugin = {
-        let mut cache = loaded_graphs().lock().await;
-        if let Some(p) = cache.get(&digest) {
-            p.clone()
-        } else {
-            let artifact_path =
-                match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir)
-                    .await
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return cloacina::fleet::AgentOutcome::Refused {
-                            reason: RefusalReason::ArtifactFetchFailed,
-                            message: format!("graph artifact fetch failed: {}", e),
-                        };
-                    }
-                };
-            let bytes = match std::fs::read(&artifact_path) {
-                Ok(b) => b,
-                Err(e) => {
-                    return cloacina::fleet::AgentOutcome::Refused {
-                        reason: RefusalReason::ArtifactFetchFailed,
-                        message: format!("read cached graph artifact: {}", e),
-                    };
-                }
-            };
-            let loaded =
-                match cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin::load(&bytes)
-                {
-                    Ok(p) => Arc::new(p),
-                    Err(e) => {
-                        return cloacina::fleet::AgentOutcome::Refused {
-                            reason: RefusalReason::RuntimeLoadFailed,
-                            message: format!("load graph plugin: {}", e),
-                        };
-                    }
-                };
-            cache.insert(digest.clone(), loaded.clone());
-            loaded
+/// Load the package of a graph firing and run it (CLOACINA-T-1125): in a
+/// worker process, or in the agent process for a packet marked `inline`.
+///
+/// `started` is called when the package is loaded. `time_limit` is given
+/// for an inline firing: its future is dropped at the limit. A worker is
+/// given none: the agent holds the clock and kills the process.
+pub(crate) async fn run_graph_job(
+    job: worker::GraphJob,
+    time_limit: Option<Duration>,
+    started: impl FnOnce(),
+) -> cloacina::fleet::AgentOutcome {
+    let worker::GraphJob {
+        packet,
+        package,
+        work_dir,
+        #[cfg(test)]
+        test_action,
+        ..
+    } = job;
+
+    #[cfg(test)]
+    if let Some(action) = test_action {
+        started();
+        return worker::tests::run_test_action(action, None).await;
+    }
+
+    // CLOACI-T-0841: a Python-packaged CG runs from SOURCE: import the
+    // module (registering its graph executors), then run them.
+    let is_python = packet.language.as_deref() == Some("python");
+    let plugin = if is_python {
+        if let Err(out) = load_python_graph(&packet, &package, &work_dir).await {
+            return out;
+        }
+        None
+    } else {
+        match load_rust_graph(&package).await {
+            Ok(plugin) => Some(plugin),
+            Err(out) => return out,
         }
     };
+    started();
+    let fire = async {
+        match plugin {
+            Some(plugin) => fire_rust_graph(plugin, &packet).await,
+            None => fire_python_graph(&packet).await,
+        }
+    };
+    match time_limit {
+        Some(limit) => tokio::time::timeout(limit, fire).await.unwrap_or_else(|_| {
+            cloacina::fleet::AgentOutcome::Failure {
+                message: format!(
+                    "graph firing exceeded timeout of {}s",
+                    packet.timeout_seconds
+                ),
+                classification: cloacina::fleet::FailureClassification::Timeout,
+            }
+        }),
+        None => fire.await,
+    }
+}
 
+/// Open the library of a Rust graph package, one time per digest in a
+/// process (CLOACI-T-0722).
+async fn load_rust_graph(
+    package: &worker::PreparedPackage,
+) -> std::result::Result<
+    Arc<cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin>,
+    cloacina::fleet::AgentOutcome,
+> {
+    let mut cache = loaded_graphs().lock().await;
+    if let Some(p) = cache.get(&package.digest) {
+        return Ok(p.clone());
+    }
+    let artifact_path =
+        package
+            .library
+            .as_ref()
+            .ok_or_else(|| cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::ArtifactFetchFailed,
+                message: "the graph package has no fetched library".to_string(),
+            })?;
+    let bytes =
+        std::fs::read(artifact_path).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: format!("read cached graph artifact: {}", e),
+        })?;
+    let loaded = cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin::load(&bytes)
+        .map(Arc::new)
+        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::RuntimeLoadFailed,
+            message: format!("load graph plugin: {}", e),
+        })?;
+    cache.insert(package.digest.clone(), loaded.clone());
+    Ok(loaded)
+}
+
+/// Call the plugin's `execute_graph` with the packet's pre-converted FFI
+/// cache, and map the result (CLOACI-T-0722).
+async fn fire_rust_graph(
+    plugin: Arc<cloacina::computation_graph::packaging_bridge::LoadedGraphPlugin>,
+    packet: &GraphWorkPacket,
+) -> cloacina::fleet::AgentOutcome {
     let request = cloacina::cloacina_workflow_plugin::GraphExecutionRequest {
         cache: packet.cache.clone(),
     };
@@ -1808,25 +2099,137 @@ async fn fetch_vendored_set(
     }
 }
 
-/// Load a Rust cdylib package into `runtime`: fetch + cache the artifact by
-/// digest, then register its tasks via the fidius-backed `TaskRegistrar`.
-async fn load_rust_cdylib(
-    packet: &WorkPacket,
+/// What the agent fetched for each digest (CLOACINA-T-1028). The agent does
+/// the requests to the server; a worker process reads the files.
+fn prepared_packages()
+-> &'static tokio::sync::Mutex<std::collections::HashMap<String, worker::PreparedPackage>> {
+    static CACHE: std::sync::OnceLock<
+        tokio::sync::Mutex<std::collections::HashMap<String, worker::PreparedPackage>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Write `bytes` to `path` through a temporary file and a rename, so a reader
+/// never sees half a file.
+fn write_cache_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}.tmp", std::process::id()));
+    let tmp = std::path::PathBuf::from(tmp);
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// Fetch what a task or a graph firing of this package needs into the cache
+/// directory, one time per digest: the library (Rust), or the source archive
+/// and the vendored dependencies (Python), and the bundled providers.
+async fn prepare_package(
+    artifact: &cloacina::fleet::ArtifactRef,
+    language: Option<&str>,
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     cache_dir: &std::path::Path,
+) -> std::result::Result<worker::PreparedPackage, cloacina::fleet::AgentOutcome> {
+    use cloacina::fleet::AgentOutcome::Refused;
+    let digest = artifact.digest.clone();
+    let is_python = language == Some("python");
+    // The lock is held across the one-time fetch, so two packets of one
+    // package do not fetch it twice.
+    let mut prepared = prepared_packages().lock().await;
+    if let Some(package) = prepared.get(&digest) {
+        return Ok(package.clone());
+    }
+    let fetch_failed = |message: String| Refused {
+        reason: RefusalReason::ArtifactFetchFailed,
+        message,
+    };
+    let mut package = worker::PreparedPackage {
+        digest: digest.clone(),
+        library: None,
+        source_archive: None,
+        vendored_set: None,
+        providers: worker::Providers::None,
+    };
+    if is_python {
+        let archive_path = cache_dir.join(format!("pysrc-{digest}.cloacina"));
+        if !archive_path.exists() {
+            let archive = fetch_source_archive(http, server, api_key, &digest)
+                .await
+                .map_err(|e| fetch_failed(format!("python source fetch failed: {e}")))?;
+            write_cache_file(&archive_path, &archive)
+                .map_err(|e| fetch_failed(format!("write {archive_path:?}: {e}")))?;
+        }
+        package.source_archive = Some(archive_path);
+        // CLOACINA-T-1073: the dependencies the compiler vendored for this
+        // platform, when the server holds a set.
+        let vendored = fetch_vendored_set(http, server, api_key, &digest)
+            .await
+            .map_err(|e| fetch_failed(format!("python vendored dependencies fetch failed: {e}")))?;
+        if let Some(set) = vendored {
+            let set_path = cache_dir.join(format!("pyvendor-{digest}.bin"));
+            write_cache_file(&set_path, &set)
+                .map_err(|e| fetch_failed(format!("write {set_path:?}: {e}")))?;
+            package.vendored_set = Some(set_path);
+        }
+    } else {
+        let library = fetch_and_cache_artifact(http, server, api_key, artifact, cache_dir)
+            .await
+            .map_err(|e| fetch_failed(format!("artifact fetch failed: {e}")))?;
+        package.library = Some(library);
+    }
+    // CLOACI-T-0838: the bundled constructor providers. A Python package
+    // needs the answer before its import; a Rust package only when it
+    // declares constructor nodes, which the load finds out.
+    package.providers = match fetch_agent_providers(http, server, api_key, &digest, cache_dir).await
+    {
+        Ok(Some(root)) => worker::Providers::Staged(root),
+        Ok(None) => worker::Providers::None,
+        Err(e) if is_python => {
+            return Err(Refused {
+                reason: RefusalReason::RuntimeLoadFailed,
+                message: e,
+            });
+        }
+        Err(e) => worker::Providers::Failed(e),
+    };
+    prepared.insert(digest, package.clone());
+    Ok(package)
+}
+
+/// Point the provider search path of this process at the package's bundled
+/// providers. No providers clears it (hermeticity: a package must not
+/// resolve against the bundle of a package loaded before).
+fn use_providers(providers: &worker::Providers) -> std::result::Result<usize, String> {
+    match providers {
+        worker::Providers::Staged(root) => {
+            cloacina::registry::loader::set_provider_search_path(root);
+            Ok(1)
+        }
+        worker::Providers::None => {
+            cloacina::registry::loader::clear_provider_search_path();
+            Ok(0)
+        }
+        worker::Providers::Failed(e) => Err(e.clone()),
+    }
+}
+
+/// Load a Rust cdylib package into `runtime` from the library file the agent
+/// fetched: register its tasks via the fidius-backed `TaskRegistrar`.
+async fn load_rust_cdylib(
+    packet: &WorkPacket,
+    package: &worker::PreparedPackage,
     runtime: &Arc<cloacina::Runtime>,
 ) -> std::result::Result<(), cloacina::fleet::AgentOutcome> {
     let artifact_path =
-        fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir)
-            .await
-            .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+        package
+            .library
+            .as_ref()
+            .ok_or_else(|| cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::ArtifactFetchFailed,
-                message: format!("artifact fetch failed: {}", e),
+                message: "the package has no fetched library".to_string(),
             })?;
     let cdylib_bytes =
-        std::fs::read(&artifact_path).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+        std::fs::read(artifact_path).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::ArtifactFetchFailed,
             message: format!("read cached artifact {:?}: {}", artifact_path, e),
         })?;
@@ -1876,13 +2279,12 @@ async fn load_rust_cdylib(
             message: format!("extract constructor metadata: {}", e),
         })?;
     if !decls.is_empty() {
-        let staged =
-            stage_agent_providers(http, server, api_key, &packet.artifact.digest, cache_dir)
-                .await
-                .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::RuntimeLoadFailed,
-                    message: e,
-                })?;
+        let staged = use_providers(&package.providers).map_err(|e| {
+            cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::RuntimeLoadFailed,
+                message: e,
+            }
+        })?;
         if staged == 0 {
             return Err(cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::RuntimeLoadFailed,
@@ -1914,19 +2316,19 @@ async fn load_rust_cdylib(
 
 /// CLOACI-T-0838: fetch the package's bundled CONSTRUCTOR PROVIDERS from the
 /// server (`GET /v1/agent/providers/{digest}` — the fleet twin of the
-/// reconciler reading `package_providers`), unpack them under `cache_dir`, and
-/// point the process-global provider search path at them. Returns how many
-/// providers were staged. Zero providers CLEARS the search path (hermeticity:
-/// this package must not resolve against a previously-loaded package's
-/// bundle). The staged tree is left in place — loaded constructor nodes re-read
-/// their wasm components from it for the process lifetime.
-async fn stage_agent_providers(
+/// reconciler reading `package_providers`), and unpack them under
+/// `cache_dir`. The staged tree is left in place — loaded constructor nodes
+/// re-read their wasm components from it for the process lifetime. The
+/// search path of the process is not changed: the process that loads the
+/// package sets it ([`use_providers`]). `None`: the server has no providers
+/// for the package.
+async fn fetch_agent_providers(
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     digest: &str,
     cache_dir: &std::path::Path,
-) -> std::result::Result<usize, String> {
+) -> std::result::Result<Option<std::path::PathBuf>, String> {
     use base64::Engine as _;
 
     #[derive(serde::Deserialize)]
@@ -1962,8 +2364,7 @@ async fn stage_agent_providers(
         .map_err(|e| format!("providers decode: {}", e))?;
 
     if body.providers.is_empty() {
-        cloacina::registry::loader::clear_provider_search_path();
-        return Ok(0);
+        return Ok(None);
     }
 
     let providers_root = cache_dir.join(format!("providers-{}", digest));
@@ -1979,8 +2380,7 @@ async fn stage_agent_providers(
         cloacina::registry::loader::unpack_provider_archive(&archive_path, &providers_root, &[])
             .map_err(|e| format!("unpack provider '{}': {}", entry.name, e))?;
     }
-    cloacina::registry::loader::set_provider_search_path(&providers_root);
-    Ok(body.providers.len())
+    Ok(Some(providers_root))
 }
 
 /// CLOACI-T-0838: resolve each declared `constructor!` node against the staged
@@ -2051,19 +2451,27 @@ async fn resolve_agent_constructor_nodes(
 /// (CLOACI-T-0716).
 async fn load_python_package(
     packet: &WorkPacket,
-    digest: &str,
-    http: &reqwest::Client,
-    server: &str,
-    api_key: &str,
-    cache_dir: &std::path::Path,
+    package: &worker::PreparedPackage,
+    staging: &std::path::Path,
     runtime: &Arc<cloacina::Runtime>,
 ) -> std::result::Result<(), cloacina::fleet::AgentOutcome> {
-    let archive = fetch_source_archive(http, server, api_key, digest)
-        .await
-        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+    let digest = package.digest.as_str();
+    let read_failed = |what: &str, path: &std::path::Path, e: std::io::Error| {
+        cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::ArtifactFetchFailed,
-            message: format!("python source fetch failed: {}", e),
-        })?;
+            message: format!("read the cached {what} {path:?}: {e}"),
+        }
+    };
+    let archive_path =
+        package
+            .source_archive
+            .as_ref()
+            .ok_or_else(|| cloacina::fleet::AgentOutcome::Refused {
+                reason: RefusalReason::ArtifactFetchFailed,
+                message: "the package has no fetched source archive".to_string(),
+            })?;
+    let archive = std::fs::read(archive_path)
+        .map_err(|e| read_failed("python source archive", archive_path, e))?;
 
     // CLOACI-T-0838: stage the package's bundled constructor providers BEFORE
     // the module import, so `cloaca.constructor(...)` calls resolve against
@@ -2071,23 +2479,22 @@ async fn load_python_package(
     // Zero providers clears the search path — an undeclared ref then fails the
     // import with a clear "no such provider" instead of leaking to a
     // previously-loaded package's bundle.
-    stage_agent_providers(http, server, api_key, digest, cache_dir)
-        .await
-        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
-            reason: RefusalReason::RuntimeLoadFailed,
-            message: e,
-        })?;
+    use_providers(&package.providers).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
+        reason: RefusalReason::RuntimeLoadFailed,
+        message: e,
+    })?;
 
     // CLOACINA-T-1073: the dependencies the compiler vendored for this
     // platform, when the server holds a set.
-    let vendored_set = fetch_vendored_set(http, server, api_key, digest)
-        .await
-        .map_err(|e| cloacina::fleet::AgentOutcome::Refused {
-            reason: RefusalReason::ArtifactFetchFailed,
-            message: format!("python vendored dependencies fetch failed: {}", e),
-        })?;
+    let vendored_set = match &package.vendored_set {
+        Some(path) => Some(
+            std::fs::read(path)
+                .map_err(|e| read_failed("python vendored dependencies", path, e))?,
+        ),
+        None => None,
+    };
 
-    let staging = cache_dir.join(format!("pysrc-{}", digest));
+    let staging = staging.to_path_buf();
     std::fs::create_dir_all(&staging).map_err(|e| cloacina::fleet::AgentOutcome::Refused {
         reason: RefusalReason::RuntimeLoadFailed,
         message: format!("create python staging dir {:?}: {}", staging, e),
@@ -2155,6 +2562,10 @@ async fn load_python_package(
 /// 5. **Build a `Context<serde_json::Value>`** from the inlined `WorkPacket.context`.
 /// 6. **Execute the task** under the packet's timeout. Map the outcome onto
 ///    `AgentOutcome::Success { context }` / `Failure {..}` / timeout.
+///
+/// CLOACINA-T-1028: steps 1, 2 and the secret unwrap run here, in the agent.
+/// Steps 3 to 6 are [`run_job`], which runs in a worker process of the task,
+/// or in the agent process for a task marked `inline`.
 #[allow(clippy::too_many_arguments)]
 async fn process_work_packet(
     packet: &WorkPacket,
@@ -2164,28 +2575,153 @@ async fn process_work_packet(
     api_key: &str,
     cache_dir: &std::path::Path,
     key_pool: &Arc<AsyncMutex<AgentKeyPool>>,
-) -> cloacina::fleet::AgentOutcome {
-    // 1-3. Resolve (or build) the per-package runtime, cached by digest.
-    //
-    // Loading is done once per package and the populated Runtime is reused
-    // across packets: re-importing a Python module in a live interpreter is a
-    // no-op (so the `@task` decorators wouldn't re-run and the new Runtime would
-    // be empty), and for Rust it avoids a redundant dlopen per task.
+    settings: &worker::WorkerSettings,
+) -> worker::PacketEnd {
+    use worker::PacketEnd::Report;
     let digest = packet.artifact.digest.clone();
     let is_python = packet.language.as_deref() == Some("python");
+
+    // A packet that arrives after the server cancelled its dispatch is not
+    // started.
+    if let Some(id) = packet.dispatch_id.as_deref()
+        && worker::dispatch_registry().is_cancelled(id)
+    {
+        return worker::PacketEnd::Cancelled;
+    }
 
     // OQ-6 fail-closed for Rust cdylibs (built for a specific target). Python is
     // interpreted, so the artifact triple is irrelevant — skip the gate.
     if !is_python && packet.artifact.build_target_triple != agent_triple {
-        return cloacina::fleet::AgentOutcome::Refused {
+        return Report(cloacina::fleet::AgentOutcome::Refused {
             reason: RefusalReason::TargetTripleMismatch,
             message: format!(
                 "agent target triple `{}` does not match artifact build target `{}`",
                 agent_triple, packet.artifact.build_target_triple
             ),
-        };
+        });
     }
 
+    // 2. Fetch the package files, one time per digest.
+    let package = match prepare_package(
+        &packet.artifact,
+        packet.language.as_deref(),
+        http,
+        server,
+        api_key,
+        cache_dir,
+    )
+    .await
+    {
+        Ok(package) => package,
+        Err(outcome) => return Report(outcome),
+    };
+
+    // 5b. CLOACI-T-0861 / D-5 — unwrap the HPKE-wrapped secrets with the ONE-TIME
+    //     pooled private key the server named in `secret_key_id`. We `take` that
+    //     key out of the pool (one-time use → discarded after this) and unwrap
+    //     here, in the agent: the key pool never leaves this process. The plain
+    //     values go to the task's worker over its stdin pipe (CLOACINA-T-1028),
+    //     where an in-memory resolver serves `ctx.secret(name)`. They are never
+    //     persisted or logged (NFR-001/NFR-003). The AAD is keyed by
+    //     `task_execution_id`, matching the wrap.
+    let mut secrets = std::collections::HashMap::new();
+    if !packet.wrapped_secrets.is_empty() {
+        let Some(key_id) = packet.secret_key_id.as_deref() else {
+            // Secrets present but no key id — a malformed dispatch. Fail closed
+            // rather than run with missing secrets.
+            return Report(cloacina::fleet::AgentOutcome::Failure {
+                message: "work packet carries wrapped_secrets but no secret_key_id".to_string(),
+                classification: cloacina::fleet::FailureClassification::Validation,
+            });
+        };
+        // One-time discard: remove the key from the pool. An unknown key_id (e.g.
+        // the agent restarted after the server consumed the key) is a clean
+        // failure — never an execution with missing secrets.
+        let private_key = { key_pool.lock().await.take(key_id) };
+        let Some(private_key) = private_key else {
+            return Report(cloacina::fleet::AgentOutcome::Failure {
+                message: format!(
+                    "unknown or already-used one-time secret key '{}' — cannot unwrap secrets \
+                     (agent may have restarted since the key was advertised)",
+                    key_id
+                ),
+                classification: cloacina::fleet::FailureClassification::Validation,
+            });
+        };
+        match InMemorySecretResolver::from_wrapped(
+            &private_key,
+            &packet.wrapped_secrets,
+            &packet.task_execution_id,
+        ) {
+            Ok(resolver) => secrets = resolver.into_secrets(),
+            Err(e) => {
+                // Names only — `FleetSecretError` never renders a secret value.
+                return Report(cloacina::fleet::AgentOutcome::Failure {
+                    message: format!("unwrap secrets: {}", e),
+                    classification: cloacina::fleet::FailureClassification::Validation,
+                });
+            }
+        }
+    }
+
+    // The job: the packet without its wrapped secrets, and the plain values.
+    let mut job_packet = packet.clone();
+    job_packet.wrapped_secrets = Vec::new();
+    job_packet.secret_key_id = None;
+    let job = worker::WorkerJob {
+        packet: job_packet,
+        secrets,
+        package,
+        // An inline task keeps its package unpacked for the life of the
+        // agent. A worker gets a directory of its own (set at its start).
+        work_dir: cache_dir.join(format!("pysrc-{digest}")),
+        log_format: settings.log_format.to_string(),
+        max_unpacked_bytes: settings.max_unpacked_bytes,
+        #[cfg(test)]
+        test_action: None,
+    };
+    worker::run_here_or_in_worker(job, settings).await
+}
+
+/// Load the job's package and run its one task (CLOACINA-T-1028): in a
+/// worker process, or in the agent process for a task marked `inline`.
+///
+/// `started` is called when the package is loaded and the task is about to
+/// run. `time_limit` is given for an inline task: its future is dropped at
+/// the limit (a blocking body runs on). A worker is given none: the agent
+/// holds the clock and kills the process.
+pub(crate) async fn run_job(
+    job: worker::WorkerJob,
+    time_limit: Option<Duration>,
+    started: impl FnOnce(),
+) -> cloacina::fleet::AgentOutcome {
+    let worker::WorkerJob {
+        packet,
+        secrets,
+        package,
+        work_dir,
+        #[cfg(test)]
+        test_action,
+        ..
+    } = job;
+    let packet = &packet;
+    let secrets = (!secrets.is_empty()).then(|| InMemorySecretResolver::new(secrets).into_arc());
+
+    #[cfg(test)]
+    if let Some(action) = test_action {
+        started();
+        return worker::tests::run_test_action(action, secrets).await;
+    }
+
+    // 3. Resolve (or build) the per-package runtime, cached by digest.
+    //
+    // In the agent process (inline tasks) the load is done once per package
+    // and the populated Runtime is reused: re-importing a Python module in a
+    // live interpreter is a no-op (so the `@task` decorators wouldn't re-run
+    // and the new Runtime would be empty), and for Rust it avoids a redundant
+    // dlopen per task. A worker process loads its one package one time.
+    let digest = package.digest.clone();
+    let is_python = packet.language.as_deref() == Some("python");
     let runtime = {
         // The lock is held across a (one-time, per-digest) load so concurrent
         // packets for the same package don't double-load; cache hits are a quick
@@ -2196,9 +2732,9 @@ async fn process_work_packet(
         } else {
             let rt = Arc::new(cloacina::Runtime::new());
             let loaded = if is_python {
-                load_python_package(packet, &digest, http, server, api_key, cache_dir, &rt).await
+                load_python_package(packet, &package, &work_dir, &rt).await
             } else {
-                load_rust_cdylib(packet, http, server, api_key, cache_dir, &rt).await
+                load_rust_cdylib(packet, &package, &rt).await
             };
             if let Err(out) = loaded {
                 return out;
@@ -2244,55 +2780,18 @@ async fn process_work_packet(
         }
     };
 
-    // 5b. CLOACI-T-0861 / D-5 — unwrap the HPKE-wrapped secrets with the ONE-TIME
-    //     pooled private key the server named in `secret_key_id`. We `take` that
-    //     key out of the pool (one-time use → discarded after this) and unwrap
-    //     into an in-memory resolver attached to the Context, so the task body
-    //     reads them via `ctx.secret(name)`. The plaintext lives only in this
-    //     resolver, only for the run; it is never persisted or logged (NFR-001/
-    //     NFR-003). The AAD is keyed by `task_execution_id`, matching the wrap.
-    if !packet.wrapped_secrets.is_empty() {
-        let Some(key_id) = packet.secret_key_id.as_deref() else {
-            // Secrets present but no key id — a malformed dispatch. Fail closed
-            // rather than run with missing secrets.
-            return cloacina::fleet::AgentOutcome::Failure {
-                message: "work packet carries wrapped_secrets but no secret_key_id".to_string(),
-                classification: cloacina::fleet::FailureClassification::Validation,
-            };
-        };
-        // One-time discard: remove the key from the pool. An unknown key_id (e.g.
-        // the agent restarted after the server consumed the key) is a clean
-        // failure — never an execution with missing secrets.
-        let private_key = { key_pool.lock().await.take(key_id) };
-        let Some(private_key) = private_key else {
-            return cloacina::fleet::AgentOutcome::Failure {
-                message: format!(
-                    "unknown or already-used one-time secret key '{}' — cannot unwrap secrets \
-                     (agent may have restarted since the key was advertised)",
-                    key_id
-                ),
-                classification: cloacina::fleet::FailureClassification::Validation,
-            };
-        };
-        match InMemorySecretResolver::from_wrapped(
-            &private_key,
-            &packet.wrapped_secrets,
-            &packet.task_execution_id,
-        ) {
-            Ok(resolver) => context.set_secret_resolver(resolver.into_arc()),
-            Err(e) => {
-                // Names only — `FleetSecretError` never renders a secret value.
-                return cloacina::fleet::AgentOutcome::Failure {
-                    message: format!("unwrap secrets: {}", e),
-                    classification: cloacina::fleet::FailureClassification::Validation,
-                };
-            }
-        }
+    // 5b. The task's secrets, which the agent unwrapped: an in-memory resolver
+    //     attached to the Context, so the task body reads them via
+    //     `ctx.secret(name)`. The plain values live only in this resolver,
+    //     only for the run.
+    if let Some(resolver) = secrets {
+        context.set_secret_resolver(resolver);
     }
 
-    // 6. Execute under the packet's timeout, inside the task's span
-    //    (CLOACINA-T-1024): a log line written while the task runs carries
-    //    the tenant, workflow, run, task, attempt and dispatch.
+    // 6. Execute inside the task's span (CLOACINA-T-1024): a log line written
+    //    while the task runs carries the tenant, workflow, run, task, attempt
+    //    and dispatch. An inline task runs under the packet's time limit; a
+    //    worker is held to it by the agent.
     use tracing::Instrument as _;
     let task_span = cloacina::task_logs::task_span(
         packet.tenant_id.as_deref().unwrap_or("public"),
@@ -2301,11 +2800,14 @@ async fn process_work_packet(
         packet.attempt,
         packet.dispatch_id.as_deref(),
     );
-    let timeout = std::time::Duration::from_secs(packet.timeout_seconds.max(1) as u64);
-    match tokio::time::timeout(timeout, task.execute(context))
-        .instrument(task_span)
-        .await
-    {
+    started();
+    let run = async {
+        match time_limit {
+            Some(limit) => tokio::time::timeout(limit, task.execute(context)).await,
+            None => Ok(task.execute(context).await),
+        }
+    };
+    match run.instrument(task_span).await {
         Ok(Ok(output)) => {
             let output_value = context_to_value(&output);
             cloacina::fleet::AgentOutcome::Success {
@@ -2948,6 +3450,106 @@ mod tests {
         }
     }
 
+    /// CLOACINA-T-1125: a graph firing runs in a worker process, and its
+    /// report reaches the server in the shape it had before: keyed by the
+    /// firing id, attempt 1, no dispatch id, the outputs under `outputs`.
+    /// The push is acked after the report, and the slot is free again.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_graph_firing_reports_to_the_server_as_before() {
+        let settings = Arc::new(worker::tests::test_settings(
+            "graph-report",
+            memory::Watchdog::with_interval(
+                memory::AgentMemory::Unknown,
+                Duration::from_millis(50),
+            ),
+        ));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let package = worker::tests::python_graph_package(&settings.work_root, "t1125_report");
+        let pid_file = settings.work_root.join("report.pid");
+        let mut packet =
+            worker::tests::python_graph_job("graph_report", "t1125_report", &package, &pid_file)
+                .packet;
+        packet.artifact.digest = package.digest.clone();
+        // The package files are fetched already: no request but the report.
+        prepared_packages()
+            .lock()
+            .await
+            .insert(package.digest.clone(), package.clone());
+
+        let (server, request) = capture_server().await;
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        let in_flight = Arc::new(AtomicU32::new(0));
+        spawn_graph_worker(
+            reqwest::Client::new(),
+            server,
+            "key".into(),
+            "agent-a".into(),
+            packet,
+            in_flight.clone(),
+            ack_tx,
+            1_125_001,
+            Arc::new(settings.work_root.clone()),
+            settings.clone(),
+        );
+        let request = tokio::time::timeout(Duration::from_secs(60), request)
+            .await
+            .expect("the report comes")
+            .expect("one request");
+        assert!(
+            request.starts_with("POST /v1/agent/result "),
+            "the route: {request}"
+        );
+        let body: serde_json::Value =
+            serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(body["task_execution_id"], "firing-graph_report");
+        assert_eq!(body["attempt"], 1);
+        assert_eq!(body["agent_id"], "agent-a");
+        assert!(body.get("dispatch_id").is_none(), "{body}");
+        assert_eq!(
+            body["outcome"],
+            serde_json::to_value(AgentOutcome::Success {
+                context: serde_json::json!({ "outputs": [] }),
+            })
+            .unwrap()
+        );
+        let ack = tokio::time::timeout(Duration::from_secs(10), ack_rx.recv())
+            .await
+            .expect("the ack comes")
+            .expect("ack channel open");
+        assert!(matches!(ack, Message::Text(t) if t.contains("1125001")));
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_ne!(pid, std::process::id(), "a worker process ran the firing");
+        for _ in 0..100 {
+            if in_flight.load(Ordering::SeqCst) == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(in_flight.load(Ordering::SeqCst), 0, "the slot is free");
+    }
+
+    #[test]
+    fn graph_report_has_the_shape_of_before() {
+        let packet = worker::tests::graph_job("shape", None).packet;
+        let req = graph_report(
+            "agent-a",
+            &packet,
+            7,
+            AgentOutcome::Success {
+                context: serde_json::json!({ "outputs": [1] }),
+            },
+        );
+        assert_eq!(req.task_execution_id, packet.firing_id);
+        assert_eq!(req.attempt, 1);
+        assert_eq!(req.dispatch_id, None);
+        assert_eq!(req.duration_ms, 7);
+    }
+
     #[test]
     fn only_a_4xx_that_rejects_the_report_is_permanent() {
         use reqwest::StatusCode;
@@ -3123,14 +3725,15 @@ mod tests {
             "ignored-key",
             tmp.as_path(),
             &empty_key_pool(),
+            &worker::settings(),
         )
         .await;
         assert!(matches!(
             outcome,
-            AgentOutcome::Refused {
+            worker::PacketEnd::Report(AgentOutcome::Refused {
                 reason: RefusalReason::TargetTripleMismatch,
                 ..
-            }
+            })
         ));
     }
 
@@ -3149,15 +3752,131 @@ mod tests {
             "ignored",
             tmp.as_path(),
             &empty_key_pool(),
+            &worker::settings(),
         )
         .await;
         assert!(matches!(
             outcome,
-            AgentOutcome::Refused {
+            worker::PacketEnd::Report(AgentOutcome::Refused {
                 reason: RefusalReason::ArtifactFetchFailed,
                 ..
-            }
+            })
         ));
+    }
+
+    // ── CLOACINA-T-1028: worker processes, limits, cancel ────────────────
+
+    /// What the agent offers to tasks is its memory less its own share.
+    #[test]
+    fn the_agent_offers_its_memory_less_its_own_share() {
+        let reserved = reserved_memory("128Mi").unwrap();
+        assert_eq!(reserved, 128 << 20);
+        assert_eq!(
+            offered_memory(Some(32 << 30), reserved).unwrap(),
+            Some((32u64 << 30) - (128 << 20))
+        );
+        assert_eq!(offered_memory(None, reserved).unwrap(), None);
+        // `0` keeps nothing back.
+        assert_eq!(reserved_memory("0").unwrap(), 0);
+        assert_eq!(offered_memory(Some(1 << 30), 0).unwrap(), Some(1 << 30));
+        // The default of the flag is the shared default.
+        assert_eq!(
+            reserved_memory(&parse_args(&[]).reserved_memory).unwrap(),
+            cloacina::fleet::DEFAULT_AGENT_RESERVED_MEMORY_BYTES
+        );
+    }
+
+    #[test]
+    fn an_agent_with_no_memory_left_for_tasks_does_not_start() {
+        let err = offered_memory(Some(100 << 20), 128 << 20)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("--reserved-memory"), "{err}");
+        assert!(err.contains("100Mi") && err.contains("128Mi"), "{err}");
+        let err = reserved_memory("lots").unwrap_err().to_string();
+        assert!(err.contains("--reserved-memory"), "{err}");
+    }
+
+    /// The agent's settings give a task with no request its share: the
+    /// offered memory over the slots.
+    #[test]
+    fn worker_settings_give_a_task_with_no_request_its_share() {
+        let args = parse_args(&[
+            "--memory",
+            "1Gi",
+            "--reserved-memory",
+            "224Mi",
+            "--max-concurrency",
+            "4",
+            "--task-address-space-factor",
+            "0",
+        ]);
+        let settings = worker_settings_from(&args, &tempdir()).unwrap();
+        // 1Gi less 224Mi is 800Mi; over 4 slots, 200Mi. On a host whose own
+        // cgroup has a lower limit than 1Gi the share is smaller.
+        let share = settings.default_memory_limit.expect("a share");
+        assert!(share <= 200 << 20, "{share}");
+        assert_eq!(settings.address_space_factor, 0);
+        assert_eq!(settings.args, vec![worker::WORKER_ARG.to_string()]);
+
+        let bad = parse_args(&["--memory", "64Mi"]);
+        assert!(worker_settings_from(&bad, &tempdir()).is_err());
+    }
+
+    /// A cancel push stops nothing that does not run, is remembered, and is
+    /// acked; no report goes to the server for it.
+    #[tokio::test]
+    async fn a_cancel_push_is_acked_and_remembered() {
+        let payload = serde_json::to_vec(&CancelPacket {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            task_execution_id: "00000000-0000-0000-0000-000000001028".into(),
+            dispatch_id: "dispatch-of-the-cancel-push-test".into(),
+            reason: "the result wait ended".into(),
+        })
+        .unwrap();
+        let frame = serde_json::json!({
+            "type": "push",
+            "id": 1_028_001,
+            "kind": CANCEL_PACKET_KIND,
+            "payload_b64": BASE64.encode(payload),
+        });
+        let (ack_tx, mut ack_rx) = mpsc::unbounded_channel();
+        handle_text_frame(
+            frame.to_string(),
+            &reqwest::Client::new(),
+            "http://127.0.0.1:1",
+            "key",
+            "agent-a",
+            "any-triple",
+            &Arc::new(AtomicU32::new(0)),
+            1,
+            &ack_tx,
+            &Arc::new(tempdir()),
+            &empty_key_pool(),
+        )
+        .await
+        .unwrap();
+        match ack_rx.try_recv() {
+            Ok(Message::Text(t)) => assert!(t.contains("1028001"), "{t}"),
+            other => panic!("the cancel is acked at once: {other:?}"),
+        }
+        assert!(worker::dispatch_registry().is_cancelled("dispatch-of-the-cancel-push-test"));
+
+        // The packet of that dispatch arrives after: it is not started.
+        let mut late = pkt(&host_target_triple());
+        late.dispatch_id = Some("dispatch-of-the-cancel-push-test".into());
+        let end = process_work_packet(
+            &late,
+            &host_target_triple(),
+            &reqwest::Client::new(),
+            "http://127.0.0.1:1",
+            "key",
+            tempdir().as_path(),
+            &empty_key_pool(),
+            &worker::settings(),
+        )
+        .await;
+        assert!(matches!(end, worker::PacketEnd::Cancelled), "{end:?}");
     }
 
     fn tempdir() -> std::path::PathBuf {

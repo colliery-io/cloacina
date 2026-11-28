@@ -108,6 +108,61 @@ fn describe(failures: &[TenantFailure]) -> String {
         .join("; ")
 }
 
+/// Migrates one tenant schema when this replica first opens the tenant's
+/// database (CLOACINA-T-1093). Returns how many migrations ran.
+///
+/// The start migrates every tenant schema that exists then. A tenant made
+/// later through an older replica, during a rolling upgrade, gets the
+/// migrations of that replica only. So each replica also migrates a tenant
+/// schema the first time it opens it: before its runner is made and before
+/// its routes read it.
+///
+/// - `public` is migrated at start: nothing to do.
+/// - A schema with no `__diesel_schema_migrations` table is not migrated, as
+///   at start: it is not a tenant this server made.
+/// - Else [`DatabaseAdmin::migrate_tenant_schema`]: one transaction, under
+///   the migration lock, so replicas that open the tenant at the same moment
+///   migrate it once. Nothing pending is one short transaction.
+///
+/// A failure is logged with the tenant's name and returned; the schema is
+/// unchanged.
+pub async fn migrate_tenant_on_first_open(
+    admin_database: &Database,
+    tenant: &str,
+) -> Result<usize, String> {
+    if tenant == "public" {
+        return Ok(0);
+    }
+    let admin = DatabaseAdmin::new(admin_database.clone());
+    let result = async {
+        if !admin.is_migrated_tenant_schema(tenant).await? {
+            return Ok(0);
+        }
+        admin.migrate_tenant_schema(tenant).await
+    }
+    .await;
+    match result {
+        Ok(0) => Ok(0),
+        Ok(ran) => {
+            info!(
+                tenant = %tenant,
+                migrations = ran,
+                "tenant schema migrated on first open"
+            );
+            Ok(ran)
+        }
+        Err(e) => {
+            error!(
+                tenant = %tenant,
+                error = %e,
+                "tenant schema not migrated on first open; the schema is unchanged and the \
+                 tenant is not served on this replica until a try succeeds"
+            );
+            Err(format!("tenant '{tenant}': {e}"))
+        }
+    }
+}
+
 /// Migrates `public`, then each tenant schema of `tenants`.
 pub async fn migrate_at_start(
     database: &Database,
@@ -119,6 +174,12 @@ pub async fn migrate_at_start(
         .map_err(StartMigrationError::Public)?;
 
     let admin = DatabaseAdmin::new(database.clone());
+    // `public`'s build role and its grants (CLOACINA-T-1063). A tenant
+    // schema gets its own with each migration run below.
+    admin
+        .ensure_build_role("public")
+        .await
+        .map_err(|e| StartMigrationError::Public(format!("build role of public: {e}")))?;
     let listed;
     let tenants: &[String] = match tenants {
         TenantSchemas::Named(names) => names,

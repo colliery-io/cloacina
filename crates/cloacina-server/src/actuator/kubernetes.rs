@@ -206,6 +206,11 @@ pub struct KubernetesConfig {
     /// Namespace the cluster DNS service runs in
     /// (`CLOACINA_FLEET_DNS_NAMESPACE`, default `kube-system`).
     pub dns_namespace: String,
+    /// Log format of the agents (`CLOACINA_AGENT_LOG_FORMAT`, default
+    /// `text`), set on each agent pod as the same variable
+    /// (CLOACINA-T-1101). The server checks the value at start and gives it
+    /// here: [`KubernetesConfig::from_env`] leaves the default.
+    pub agent_log_format: cloacina::task_logs::LogFormat,
 }
 
 /// Parse a `k=v,k2=v2` selector string into a label map (empty entries skipped).
@@ -278,6 +283,7 @@ impl KubernetesConfig {
             network_policy_enabled,
             server_endpoint,
             dns_namespace,
+            agent_log_format: Default::default(),
         }
     }
 }
@@ -358,6 +364,9 @@ pub struct AgentDeployment {
     pub key_id: Option<String>,
     /// Resource requests + limits for the agent container.
     pub resources: AgentResources,
+    /// The agent's log format (`CLOACINA_AGENT_LOG_FORMAT`). `text` leaves
+    /// the variable out: the agent's own default.
+    pub log_format: cloacina::task_logs::LogFormat,
 }
 
 /// Everything [`KubeOps::ensure_network_policy`] needs to materialize one
@@ -446,6 +455,15 @@ pub trait KubeOps: Send + Sync {
         namespace: &str,
         name: &str,
     ) -> Result<Option<String>, ActuatorError>;
+    /// Write an empty value under `key` of a `Secret` that exists, with a
+    /// merge patch (CLOACINA-T-1095). Makes no Secret: an absent one answers
+    /// `Ok(false)`. The server has `patch` on Secrets and no `delete`.
+    async fn empty_secret_if_present(
+        &self,
+        namespace: &str,
+        name: &str,
+        key: &str,
+    ) -> Result<bool, ActuatorError>;
 }
 
 /// Kubernetes fleet actuator. Generic over its API substrate ([`KubeOps`]) and
@@ -489,12 +507,14 @@ impl KubernetesActuator {
         mut self,
         ops: Arc<dyn super::compiler::CompilerKubeOps>,
         settings: super::compiler::CompilerSettings,
+        credentials: Arc<dyn super::compiler::BuildCredentials>,
     ) -> Self {
         self.compilers = Some(super::compiler::KubeCompilers::new(
             ops,
             settings,
             self.config.network_policy_enabled,
             self.config.dns_namespace.clone(),
+            credentials,
         ));
         self
     }
@@ -510,17 +530,24 @@ impl KubernetesActuator {
     pub fn from_env(
         database: Database,
         compilers: Option<super::compiler::CompilerSettings>,
+        agent_log_format: cloacina::task_logs::LogFormat,
     ) -> Result<Self, ActuatorError> {
         let ops = Arc::new(KubeApiOps::in_cluster()?);
+        let credentials = Arc::new(super::compiler::AdminBuildCredentials::new(
+            database.clone(),
+        ));
         let actuator = Self {
             ops: ops.clone(),
             minter: Arc::new(DalKeyMinter::new(database.clone())),
             pools: Arc::new(DalPoolSource::new(database)),
-            config: KubernetesConfig::from_env(),
+            config: KubernetesConfig {
+                agent_log_format,
+                ..KubernetesConfig::from_env()
+            },
             compilers: None,
         };
         Ok(match compilers {
-            Some(settings) => actuator.with_compilers(ops, settings),
+            Some(settings) => actuator.with_compilers(ops, settings, credentials),
             None => actuator,
         })
     }
@@ -594,6 +621,7 @@ impl KubernetesActuator {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: Some(key_id.to_string()),
             resources: self.config.resources.with_pool(settings),
+            log_format: self.config.agent_log_format,
         };
         self.ops.ensure_deployment(&spec).await?;
 
@@ -754,6 +782,45 @@ impl FleetActuator for KubernetesActuator {
         // The pool's ServiceAccount stays: another pool may name it, and the
         // actuator has no right to delete ServiceAccounts.
         info!(tenant = %tenant_id, namespace = %namespace, pool = %pool, "fleet actuator removed pool (kubernetes)");
+        Ok(())
+    }
+
+    /// Tenant removal (CLOACINA-T-1095): the Deployment and the NetworkPolicy
+    /// of each pool, the tenant's NetworkPolicy, then an empty value over the
+    /// agent key in its Secret. The namespace stays (the server has no
+    /// `delete` on namespaces), and so do the ServiceAccounts. Each delete
+    /// accepts an object that is gone, so a second call succeeds.
+    async fn remove_agents(&self, tenant_id: &str) -> Result<(), ActuatorError> {
+        let namespace = tenant_namespace(tenant_id);
+        let pools = self.pools.pools(tenant_id).await?;
+        for (pool, _) in &pools {
+            if pool == DEFAULT_AGENT_POOL {
+                continue;
+            }
+            self.ops
+                .delete_deployment(&namespace, &pool_deployment_name(pool))
+                .await?;
+            self.ops
+                .delete_network_policy(&namespace, &pool_network_policy_name(pool))
+                .await?;
+        }
+        self.ops
+            .delete_deployment(&namespace, &pool_deployment_name(DEFAULT_AGENT_POOL))
+            .await?;
+        self.ops
+            .delete_network_policy(&namespace, AGENT_NETWORK_POLICY_NAME)
+            .await?;
+        let emptied = self
+            .ops
+            .empty_secret_if_present(&namespace, AGENT_SECRET_NAME, AGENT_SECRET_KEY)
+            .await?;
+        info!(
+            tenant = %tenant_id,
+            namespace = %namespace,
+            pools = pools.len(),
+            secret_emptied = emptied,
+            "fleet actuator removed the tenant's agents (kubernetes)"
+        );
         Ok(())
     }
 
@@ -951,6 +1018,14 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
             env.push(serde_json::json!({
                 "name": "CLOACINA_MAX_UNPACKED_BYTES",
                 "value": bytes,
+            }));
+        }
+        // The agent's log format (CLOACINA-T-1101). Not set for `text`, so
+        // the manifest is as before and an upgrade rolls nothing.
+        if let Some(format) = super::agent_log_format_env_value(spec.log_format) {
+            env.push(serde_json::json!({
+                "name": super::AGENT_LOG_FORMAT_ENV,
+                "value": format,
             }));
         }
     }
@@ -1234,6 +1309,28 @@ impl KubeOps for KubeApiOps {
         }
     }
 
+    async fn empty_secret_if_present(
+        &self,
+        namespace: &str,
+        name: &str,
+        key: &str,
+    ) -> Result<bool, ActuatorError> {
+        let api: Api<Secret> = Api::namespaced(self.client.clone(), namespace);
+        // A merge patch changes a Secret that exists and answers 404 for one
+        // that does not; unlike an apply, it makes nothing.
+        let patch = serde_json::json!({ "data": { key: "" } });
+        match api
+            .patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(kube::Error::Api(e)) if e.code == 404 => Ok(false),
+            Err(e) => Err(ActuatorError::Substrate(format!(
+                "empty_secret_if_present failed: {e}"
+            ))),
+        }
+    }
+
     async fn ensure_deployment(&self, spec: &AgentDeployment) -> Result<(), ActuatorError> {
         let api: Api<Deployment> = Api::namespaced(self.client.clone(), &spec.namespace);
         let deployment = agent_deployment_manifest(spec);
@@ -1351,11 +1448,17 @@ mod tests {
         fail_deployment: Option<String>,
         /// The key id the `default` Deployment's pod template names.
         key_id: Mutex<Option<String>>,
+        /// The Secrets as stored: `namespace/name/key` to the value.
+        secret_values: Mutex<BTreeMap<String, String>>,
+        /// A Deployment name whose next delete fails, once.
+        fail_delete_once: Mutex<Option<String>>,
     }
 
     impl MockOps {
         fn with_ready(ready: u32) -> Self {
             Self {
+                secret_values: Mutex::new(BTreeMap::new()),
+                fail_delete_once: Mutex::new(None),
                 ready,
                 namespaces: Mutex::new(Vec::new()),
                 secrets: AtomicU32::new(0),
@@ -1383,12 +1486,16 @@ mod tests {
         }
         async fn ensure_secret(
             &self,
-            _namespace: &str,
-            _name: &str,
-            _key: &str,
-            _api_key: &str,
+            namespace: &str,
+            name: &str,
+            key: &str,
+            api_key: &str,
         ) -> Result<(), ActuatorError> {
             self.secrets.fetch_add(1, Ordering::SeqCst);
+            self.secret_values
+                .lock()
+                .unwrap()
+                .insert(format!("{namespace}/{name}/{key}"), api_key.to_string());
             Ok(())
         }
         async fn ensure_service_account(
@@ -1427,6 +1534,13 @@ mod tests {
             namespace: &str,
             name: &str,
         ) -> Result<(), ActuatorError> {
+            {
+                let mut fail = self.fail_delete_once.lock().unwrap();
+                if fail.as_deref() == Some(name) {
+                    *fail = None;
+                    return Err(ActuatorError::Substrate("delete refused".to_string()));
+                }
+            }
             self.deleted
                 .lock()
                 .unwrap()
@@ -1480,6 +1594,21 @@ mod tests {
             _name: &str,
         ) -> Result<Option<String>, ActuatorError> {
             Ok(self.key_id.lock().unwrap().clone())
+        }
+        async fn empty_secret_if_present(
+            &self,
+            namespace: &str,
+            name: &str,
+            key: &str,
+        ) -> Result<bool, ActuatorError> {
+            let mut values = self.secret_values.lock().unwrap();
+            match values.get_mut(&format!("{namespace}/{name}/{key}")) {
+                Some(v) => {
+                    v.clear();
+                    Ok(true)
+                }
+                None => Ok(false),
+            }
         }
     }
 
@@ -1546,6 +1675,7 @@ mod tests {
             network_policy_enabled: true,
             server_endpoint: Some(server_endpoint()),
             dns_namespace: "kube-system".to_string(),
+            agent_log_format: Default::default(),
         }
     }
 
@@ -1628,6 +1758,7 @@ mod tests {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: None,
             resources: AgentResources::default(),
+            log_format: Default::default(),
         };
         let m = agent_deployment_manifest(&spec);
         let pod = &m["spec"]["template"]["spec"];
@@ -1789,6 +1920,7 @@ mod tests {
             secret_key: AGENT_SECRET_KEY.to_string(),
             key_id: None,
             resources: AgentResources::default(),
+            log_format: Default::default(),
         }
     }
 
@@ -1927,6 +2059,58 @@ mod tests {
     fn manifest_sets_no_unpack_limit_env_for_the_default_limit() {
         let m = agent_deployment_manifest(&default_spec());
         assert!(env_value(&m, "CLOACINA_MAX_UNPACKED_BYTES").is_none());
+    }
+
+    // CLOACINA-T-1101: the agent's log format.
+    #[test]
+    fn manifest_sets_the_log_format_env_only_for_json() {
+        // The default: no variable, so the manifest is as before the setting.
+        let m = agent_deployment_manifest(&default_spec());
+        assert!(env_value(&m, "CLOACINA_AGENT_LOG_FORMAT").is_none());
+
+        let mut spec = default_spec();
+        spec.log_format = cloacina::task_logs::LogFormat::Json;
+        let json = agent_deployment_manifest(&spec);
+        assert_eq!(
+            env_value(&json, "CLOACINA_AGENT_LOG_FORMAT"),
+            Some(&serde_json::json!("json"))
+        );
+
+        // The variable is all that the setting adds.
+        let mut without = json.clone();
+        without["spec"]["template"]["spec"]["containers"][0]["env"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|e| e["name"] != "CLOACINA_AGENT_LOG_FORMAT");
+        assert_eq!(without, m);
+    }
+
+    /// The reconcile gives the server's setting to every pool's Deployment.
+    #[tokio::test]
+    async fn reconcile_gives_the_agents_the_log_format_of_the_config() {
+        for (format, expected) in [
+            (cloacina::task_logs::LogFormat::Text, None),
+            (
+                cloacina::task_logs::LogFormat::Json,
+                Some(serde_json::json!("json")),
+            ),
+        ] {
+            let mut cfg = config();
+            cfg.agent_log_format = format;
+            let ops = Arc::new(MockOps::with_ready(0));
+            let act = KubernetesActuator::new(ops.clone(), Arc::new(MockMinter::default()), cfg);
+
+            act.reconcile("acme", 1).await.unwrap();
+
+            let specs = ops.deployment_specs.lock().unwrap();
+            assert_eq!(specs.len(), 1);
+            let m = agent_deployment_manifest(&specs[0]);
+            assert_eq!(
+                env_value(&m, "CLOACINA_AGENT_LOG_FORMAT"),
+                expected.as_ref(),
+                "{format}"
+            );
+        }
     }
 
     #[test]
@@ -2457,6 +2641,97 @@ mod tests {
         assert!(ops.deleted.lock().unwrap().is_empty());
     }
 
+    /// CLOACINA-T-1095: tenant removal deletes the objects of every pool and
+    /// the tenant's policy, and empties the agent key in its Secret.
+    #[tokio::test]
+    async fn remove_agents_deletes_every_pool_and_empties_the_agent_key() {
+        let ops = Arc::new(MockOps::with_ready(0));
+        let act = actuator(ops.clone(), minter())
+            .with_pools(Arc::new(FixedPools(vec![("big".to_string(), big_pool())])));
+        act.reconcile("acme", 1).await.unwrap();
+        let secret = "cloacina-tenant-acme/cloacina-agent-key/api-key";
+        assert_eq!(
+            ops.secret_values
+                .lock()
+                .unwrap()
+                .get(secret)
+                .map(String::as_str),
+            Some("clk_test_0"),
+            "the reconcile wrote the agent key"
+        );
+
+        act.remove_agents("acme").await.unwrap();
+
+        assert_eq!(
+            ops.deleted.lock().unwrap().as_slice(),
+            &[
+                "deployment/cloacina-tenant-acme/cloacina-agent-big".to_string(),
+                "networkpolicy/cloacina-tenant-acme/cloacina-agent-pool-big".to_string(),
+                "deployment/cloacina-tenant-acme/cloacina-agent".to_string(),
+                "networkpolicy/cloacina-tenant-acme/cloacina-agent-fleet".to_string(),
+            ]
+        );
+        assert_eq!(
+            ops.secret_values
+                .lock()
+                .unwrap()
+                .get(secret)
+                .map(String::as_str),
+            Some(""),
+            "the agent key is still in the Secret after the removal"
+        );
+    }
+
+    /// A second removal succeeds; a tenant that never had agents gets no
+    /// Secret.
+    #[tokio::test]
+    async fn remove_agents_runs_again_and_makes_no_secret() {
+        let ops = Arc::new(MockOps::with_ready(0));
+        let act = actuator(ops.clone(), minter());
+        act.remove_agents("acme").await.unwrap();
+        act.remove_agents("acme").await.unwrap();
+        assert!(ops.secret_values.lock().unwrap().is_empty());
+        assert_eq!(ops.secrets.load(Ordering::SeqCst), 0);
+    }
+
+    /// A removal that stops at a delete leaves the key in the Secret; the
+    /// retry finishes the job.
+    #[tokio::test]
+    async fn a_removal_stopped_at_a_delete_finishes_on_retry() {
+        let ops = Arc::new(MockOps::with_ready(0));
+        let act = actuator(ops.clone(), minter())
+            .with_pools(Arc::new(FixedPools(vec![("big".to_string(), big_pool())])));
+        act.reconcile("acme", 1).await.unwrap();
+        *ops.fail_delete_once.lock().unwrap() = Some("cloacina-agent".to_string());
+
+        assert!(act.remove_agents("acme").await.is_err());
+        let secret = "cloacina-tenant-acme/cloacina-agent-key/api-key";
+        assert_eq!(
+            ops.secret_values
+                .lock()
+                .unwrap()
+                .get(secret)
+                .map(String::as_str),
+            Some("clk_test_0")
+        );
+
+        act.remove_agents("acme").await.unwrap();
+        assert_eq!(
+            ops.secret_values
+                .lock()
+                .unwrap()
+                .get(secret)
+                .map(String::as_str),
+            Some("")
+        );
+        assert!(
+            ops.deleted
+                .lock()
+                .unwrap()
+                .contains(&"deployment/cloacina-tenant-acme/cloacina-agent".to_string())
+        );
+    }
+
     #[test]
     fn parse_label_selector_handles_pairs_and_junk() {
         let m = parse_label_selector("a=1, b=2 ,,c=,=d,e=3");
@@ -2544,6 +2819,7 @@ mod tests {
             resources: config().resources,
             cpu_total: None,
             memory_total: None,
+            log_format: Default::default(),
         };
         let m = agent_deployment_manifest(&spec);
         // The actuator's value wins over a pool annotation of the same name.

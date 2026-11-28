@@ -63,6 +63,11 @@ pub async fn run(globals: &GlobalOpts, id: &str) -> Result<(), CliError> {
             if let Some(err) = body.get("build_error").and_then(|v| v.as_str()) {
                 println!("Build error:  {}", err);
             }
+            // CLOACINA-T-1074: a built package the compiler could not write
+            // a metadata document for.
+            if let Some(err) = body.get("describe_error").and_then(|v| v.as_str()) {
+                println!("Describe error: {}", err);
+            }
         }
     }
     Ok(())

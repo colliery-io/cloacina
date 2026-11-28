@@ -67,6 +67,25 @@ builder = cloaca.WorkflowBuilder("etl_pipeline")
 builder.description("Extract data from API, transform format, and load to database")
 ```
 
+### `priority(priority)`
+
+Set the workflow's [priority](../../../explanation/priority/). Waiting tasks
+of a workflow with a better priority are dispatched first. Every task of an
+execution takes it, unless the task sets its own with `@task(priority=...)`.
+
+**Parameters:**
+- `priority` (int): 0 (the highest) to 10 (the lowest). A workflow that sets
+  none has priority 5. A value outside 0 to 10 raises `ValueError`.
+
+**Example:**
+```python
+builder = cloaca.WorkflowBuilder("nightly_history_load")
+builder.priority(8)
+```
+
+The `priority` tag in the tag examples below is a label. It does not order
+work.
+
 ### `tag(key, value)`
 
 Add a tag to the workflow for metadata and organization.

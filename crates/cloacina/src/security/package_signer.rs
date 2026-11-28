@@ -115,6 +115,58 @@ impl DetachedSignature {
         }
     }
 
+    /// Sign package bytes with a raw Ed25519 private key (the 32-byte seed)
+    /// and give the detached signature. No database: this is what a
+    /// publisher's machine does (`cloacinactl package pack --sign`).
+    pub fn sign(package_data: &[u8], private_key: &[u8]) -> Result<Self, PackageSignError> {
+        let public_key = crate::crypto::public_key_of(private_key)
+            .map_err(|e| PackageSignError::SigningFailed(e.to_string()))?;
+        let package_hash = DbPackageSigner::compute_data_hash(package_data)?;
+        let hash_bytes = hex::decode(&package_hash)
+            .map_err(|e| PackageSignError::SigningFailed(e.to_string()))?;
+        let signature = crypto_sign(&hash_bytes, private_key)
+            .map_err(|e| PackageSignError::SigningFailed(e.to_string()))?;
+        Ok(Self::from_signature_info(&PackageSignatureInfo {
+            package_hash,
+            key_fingerprint: compute_key_fingerprint(&public_key),
+            signature,
+            signed_at: UniversalTimestamp::now(),
+        }))
+    }
+
+    /// True when the signature was made for these bytes: its `package_hash`
+    /// is their SHA-256. It says nothing about who signed.
+    pub fn is_for(&self, package_data: &[u8]) -> bool {
+        DbPackageSigner::compute_data_hash(package_data)
+            .map(|hash| hash == self.package_hash)
+            .unwrap_or(false)
+    }
+
+    /// The signature as the row a database stores. Fails for a format this
+    /// build does not know, or a signature that is not base64. `signed_at`
+    /// of the result is the time of this call: the time in the file is not
+    /// covered by the signature, so it is not kept.
+    pub fn to_signature_info(&self) -> Result<PackageSignatureInfo, PackageSignError> {
+        if self.version != Self::VERSION {
+            return Err(PackageSignError::InvalidSignatureFile(format!(
+                "Unsupported version: {}",
+                self.version
+            )));
+        }
+        if self.algorithm != Self::ALGORITHM {
+            return Err(PackageSignError::InvalidSignatureFile(format!(
+                "Unsupported algorithm: {}",
+                self.algorithm
+            )));
+        }
+        Ok(PackageSignatureInfo {
+            package_hash: self.package_hash.clone(),
+            key_fingerprint: self.key_fingerprint.clone(),
+            signature: self.signature_bytes()?,
+            signed_at: UniversalTimestamp::now(),
+        })
+    }
+
     /// Parse a detached signature from JSON.
     pub fn from_json(json: &str) -> Result<Self, PackageSignError> {
         serde_json::from_str(json)
@@ -277,6 +329,75 @@ impl DbPackageSigner {
             signed_at: sig.signed_at,
         }
     }
+
+    /// Store a signature with the organization whose trusted keys accepted
+    /// its signer (CLOACINA-A-0018, CLOACINA-T-1062).
+    ///
+    /// The table holds one row for a package hash and a key. A row that is
+    /// already there for the two is replaced, so a second upload of the same
+    /// bytes by the same key leaves one row, with the organization of the
+    /// last check.
+    pub async fn store_signature_for_org(
+        &self,
+        org_id: UniversalUuid,
+        signature: &PackageSignatureInfo,
+    ) -> Result<UniversalUuid, PackageSignError> {
+        let id = UniversalUuid::new_v4();
+        let new_sig = NewUnifiedPackageSignature {
+            id,
+            package_hash: signature.package_hash.clone(),
+            key_fingerprint: signature.key_fingerprint.clone(),
+            signature: UniversalBinary::new(signature.signature.clone()),
+            signed_at: signature.signed_at,
+            org_id: Some(org_id),
+        };
+
+        crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction(|conn| {
+                diesel::delete(
+                    package_signatures::table
+                        .filter(package_signatures::package_hash.eq(&new_sig.package_hash))
+                        .filter(package_signatures::key_fingerprint.eq(&new_sig.key_fingerprint)),
+                )
+                .execute(conn)?;
+                diesel::insert_into(package_signatures::table)
+                    .values(&new_sig)
+                    .execute(conn)
+            })
+        })
+        .map_err(|e| PackageSignError::Database(e.to_string()))?;
+
+        Ok(id)
+    }
+
+    /// The signatures of a package hash that were stored for one of
+    /// `org_ids`, each with its organization. A row with no organization is
+    /// left out: no check accepted it for an organization.
+    pub async fn find_signatures_for_orgs(
+        &self,
+        package_hash: &str,
+        org_ids: &[UniversalUuid],
+    ) -> Result<Vec<(PackageSignatureInfo, UniversalUuid)>, PackageSignError> {
+        let hash = package_hash.to_string();
+        let orgs: Vec<UniversalUuid> = org_ids.to_vec();
+
+        let sigs: Vec<UnifiedPackageSignature> = crate::interact_on_backend!(self.dal, |conn| {
+            package_signatures::table
+                .filter(package_signatures::package_hash.eq(&hash))
+                .filter(package_signatures::org_id.eq_any(&orgs))
+                .order(package_signatures::signed_at.asc())
+                .load(conn)
+        })
+        .map_err(|e| PackageSignError::Database(e.to_string()))?;
+
+        Ok(sigs
+            .into_iter()
+            .filter_map(|sig| {
+                let org = sig.org_id?;
+                Some((Self::to_signature_info(sig), org))
+            })
+            .collect())
+    }
 }
 
 #[async_trait]
@@ -324,9 +445,10 @@ impl PackageSigner for DbPackageSigner {
             &signature.key_fingerprint,
         );
 
-        // Optionally store in database
+        // Optionally store in database, for the organization that signed
+        // (CLOACINA-T-1062): a check that filters on the organization finds it.
         if store_signature {
-            self.store_signature(&signature).await?;
+            self.store_signature_for_org(org_id, &signature).await?;
         }
 
         Ok(signature)
@@ -381,9 +503,9 @@ impl PackageSigner for DbPackageSigner {
             key_fingerprint: signature.key_fingerprint.clone(),
             signature: UniversalBinary::new(signature.signature.clone()),
             signed_at: signature.signed_at,
-            // org_id populated by upload-handler verification path in T-0568.
-            // T-0566 plumbs the column; T1 leaves construction sites at None
-            // so the existing signing flow continues to work unchanged.
+            // No organization: a check that filters on the organization
+            // (the upload of a server, the load of a runner) does not count
+            // this row. `store_signature_for_org` stores one that counts.
             org_id: None,
         };
 

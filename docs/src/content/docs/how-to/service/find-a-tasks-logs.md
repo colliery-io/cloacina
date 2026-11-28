@@ -128,8 +128,14 @@ stderr; its log file under `--home` is JSON in both.
 In the Helm charts: `logFormat: json` in `cloacina-agent`, and
 `server.logFormat: json` in `cloacina-server`.
 
-Agents that the server's fleet actuator starts write text: the actuator does
-not set their log format.
+Agents that the server's fleet actuator starts take their format from the
+server. Set `CLOACINA_AGENT_LOG_FORMAT=json` in the server's environment
+(`fleet.agentLogFormat: json` in the `cloacina-server` chart): the actuator
+then sets the same variable on each agent it starts. It is one value for every
+tenant and pool; the default is `text`. A value that is not `text` or `json`
+stops the server at start. On Kubernetes a change rolls the agent pods on the
+next reconcile. With the Docker actuator a running agent container keeps its
+format; a container started after the change has the new one.
 
 `cloacinactl daemon` and the embedded runner use the host program's logger.
 Give it a JSON format there.

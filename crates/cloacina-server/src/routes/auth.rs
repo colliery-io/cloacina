@@ -110,6 +110,75 @@ impl KeyCache {
     }
 }
 
+/// The Postgres channel of the key revocation notice (CLOACINA-T-1095). A
+/// server that revokes keys sends a notice on it; every server clears its
+/// [`KeyCache`] when one arrives, so a revoked key fails on each replica at
+/// once and not only after the cache's 30 s.
+pub const KEY_REVOKED_CHANNEL: &str = "cloacina_api_keys_revoked";
+
+/// Clear this server's key cache and tell the other servers to clear theirs.
+/// Call it after keys were revoked. An error means the notice was not sent:
+/// the other servers then refuse the keys after at most the cache TTL.
+pub async fn announce_key_revocation(state: &AppState) -> Result<(), String> {
+    use diesel::RunQueryDsl;
+    state.key_cache.clear().await;
+    let conn = state
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| format!("connection: {e}"))?;
+    conn.interact(|conn| {
+        diesel::sql_query("SELECT pg_notify($1, '')")
+            .bind::<diesel::sql_types::Text, _>(KEY_REVOKED_CHANNEL)
+            .execute(conn)
+    })
+    .await
+    .map_err(|e| format!("interact: {e}"))?
+    .map_err(|e| format!("notify: {e}"))?;
+    Ok(())
+}
+
+/// [`announce_key_revocation`] after a key revoke, a logout or a refresh
+/// (CLOACINA-T-1128). The key is already revoked in the database, so a notice
+/// that fails to send does not fail the request: it is logged, and the other
+/// servers refuse the key after at most the cache TTL.
+pub async fn announce_key_revocation_or_warn(state: &AppState) {
+    if let Err(e) = announce_key_revocation(state).await {
+        warn!(error = %e, "key revocation notice not sent; other servers refuse the key within the cache TTL");
+    }
+}
+
+/// Listen for the key revocation notice and clear `cache` on each one, and on
+/// each (re)connect of the listener, which may have missed a notice. Runs
+/// until `shutdown` flips to `true`.
+#[cfg(feature = "postgres")]
+pub fn spawn_key_revocation_listener(
+    database_url: String,
+    cache: std::sync::Arc<KeyCache>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    let wake = cloacina::delivery::WakeHandle::new();
+    tokio::spawn(cloacina::delivery::run_pg_listener(
+        database_url,
+        KEY_REVOKED_CHANNEL.to_string(),
+        wake.clone(),
+        shutdown.clone(),
+    ));
+    let mut shutdown = shutdown;
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = wake.notified() => cache.clear().await,
+                res = shutdown.changed() => {
+                    if res.is_err() || *shutdown.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
 /// Validate a bearer token and return the authenticated key info.
 ///
 /// Shared logic used by both the HTTP middleware and WebSocket handlers.

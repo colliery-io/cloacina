@@ -31,6 +31,13 @@
 //!   wait timed out — surface as a [`GraphResult`] error WITHOUT a local
 //!   re-run: the agent may have executed (or still be executing) the graph,
 //!   and double-running a firing is worse than reporting it failed.
+//!
+//! CLOACINA-T-1125: `--fleet-graph-firings` says where the agent runs a
+//! firing. `inline` (the default): in the agent process. `worker`: in a
+//! worker process, held to the memory share of a task with no request and to
+//! the packet's time limit. When the result wait ends with no report the
+//! server sends a cancel that names the firing id, and the agent kills that
+//! worker (an inline firing is not stopped).
 
 use std::sync::Arc;
 
@@ -50,7 +57,30 @@ use tracing::{debug, info, warn};
 use crate::agent_registry::{AgentRegistry, FleetLoad, TaskDemand, select_fleet_agent};
 use crate::fleet_coordinator::FleetCoordinator;
 
-use crate::fleet_executor::{FleetTaskTimeLimits, TaskTimeLimit};
+use crate::fleet_executor::{FleetTaskTimeLimits, TaskTimeLimit, send_cancel};
+
+/// Where an agent runs a graph firing (CLOACINA-T-1125):
+/// `--fleet-graph-firings` / `CLOACINA_FLEET_GRAPH_FIRINGS`.
+///
+/// `inline` (the default) runs the firing in the agent process: no worker
+/// start and no package load per firing, and no memory limit, kill or
+/// cancel. `worker` runs each firing in a worker process, with the limits,
+/// time limit and cancel of a task. Measured on a debug build, a small Rust
+/// graph firing took about 210 ms in a worker and 0.2 ms inline, and a
+/// reactor waits for each firing before the next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum GraphFiringExecution {
+    #[default]
+    Inline,
+    Worker,
+}
+
+impl GraphFiringExecution {
+    /// The `inline` field of the graph packet.
+    pub fn inline(self) -> bool {
+        self == GraphFiringExecution::Inline
+    }
+}
 
 pub struct FleetGraphExecutor {
     dal: cloacina::dal::DAL,
@@ -68,6 +98,8 @@ pub struct FleetGraphExecutor {
     /// firing gets the default. The packet carries it, and the server waits
     /// for the result that long plus the grace of the task path.
     time_limit: TaskTimeLimit,
+    /// Where the agent runs a firing (CLOACINA-T-1125).
+    firing_execution: GraphFiringExecution,
 }
 
 /// The time limit of a graph firing under the server's fleet time limits: the
@@ -88,6 +120,7 @@ fn graph_work_packet(
     build_target_triple: String,
     language: String,
     time_limit: TaskTimeLimit,
+    firing_execution: GraphFiringExecution,
 ) -> GraphWorkPacket {
     GraphWorkPacket {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -112,6 +145,9 @@ fn graph_work_packet(
         // graph firing carries no secrets. AAD would use `firing_id`.
         wrapped_secrets: Vec::new(),
         secret_key_id: None,
+        // CLOACINA-T-1125: the server setting decides where the agent runs
+        // the firing; a graph has no inline mark of its own.
+        inline: firing_execution.inline(),
     }
 }
 
@@ -132,7 +168,14 @@ impl FleetGraphExecutor {
             delivery_wake,
             registry,
             time_limit: graph_time_limit(&FleetTaskTimeLimits::default()),
+            firing_execution: GraphFiringExecution::default(),
         }
+    }
+
+    /// Set where the agent runs a firing (`--fleet-graph-firings`).
+    pub fn with_firing_execution(mut self, firing_execution: GraphFiringExecution) -> Self {
+        self.firing_execution = firing_execution;
+        self
     }
 
     /// Set the fleet time limits (`--fleet-task-timeout-s`,
@@ -278,6 +321,7 @@ impl FleetGraphExecutor {
             agent.target_triple.clone(),
             language,
             self.time_limit,
+            self.firing_execution,
         );
         let payload = serde_json::to_vec(&packet).map_err(|e| {
             self.coordinator.cancel(firing_id);
@@ -290,13 +334,16 @@ impl FleetGraphExecutor {
             tenant_id: fire.tenant_id.clone(),
             payload,
         };
-        match self.outbox_dal.delivery_outbox().enqueue(row).await {
-            Ok(row) => self.coordinator.packet_enqueued(firing_id, row.id),
+        let packet_row_id = match self.outbox_dal.delivery_outbox().enqueue(row).await {
+            Ok(row) => {
+                self.coordinator.packet_enqueued(firing_id, row.id);
+                row.id
+            }
             Err(e) => {
                 self.coordinator.cancel(firing_id);
                 return Err(format!("delivery_outbox enqueue: {e}"));
             }
-        }
+        };
         self.delivery_wake.wake();
         debug!(
             graph = %fire.graph_name,
@@ -353,6 +400,21 @@ impl FleetGraphExecutor {
             ))),
             Err(_elapsed) => {
                 self.coordinator.cancel(firing_id);
+                // CLOACINA-T-1125: the server gives up on this firing. Ask the
+                // agent that has the packet to stop its worker; a firing's
+                // cancel names its firing id.
+                let firing = firing_id.0.to_string();
+                send_cancel(
+                    &self.outbox_dal,
+                    &self.delivery_wake,
+                    &firing,
+                    Some(packet_row_id),
+                    &agent_id,
+                    fire.tenant_id.clone(),
+                    &firing,
+                    "the server's wait for the graph firing's result ended",
+                )
+                .await;
                 Ok(GraphResult::error(GraphError::NodeExecution(format!(
                     "fleet graph result wait exceeded {}s (agent {}) — NOT re-running \
                      in-process to avoid a double execution",
@@ -388,6 +450,13 @@ mod tests {
     use std::time::Duration;
 
     fn packet_with(limits: &FleetTaskTimeLimits) -> GraphWorkPacket {
+        packet_run(limits, GraphFiringExecution::default())
+    }
+
+    fn packet_run(
+        limits: &FleetTaskTimeLimits,
+        firing_execution: GraphFiringExecution,
+    ) -> GraphWorkPacket {
         graph_work_packet(
             UniversalUuid::new_v4(),
             "pricing",
@@ -397,7 +466,25 @@ mod tests {
             "x86_64-unknown-linux-gnu".to_string(),
             "rust".to_string(),
             graph_time_limit(limits),
+            firing_execution,
         )
+    }
+
+    /// CLOACINA-T-1125: by default the agent runs a firing inline; the
+    /// setting `worker` puts it in a worker process.
+    #[test]
+    fn a_firing_is_inline_by_default_and_in_a_worker_when_set() {
+        let limits = FleetTaskTimeLimits::default();
+        assert_eq!(
+            GraphFiringExecution::default(),
+            GraphFiringExecution::Inline
+        );
+        let default = packet_with(&limits);
+        assert!(default.inline);
+        let wire: serde_json::Value =
+            serde_json::from_slice(&serde_json::to_vec(&default).unwrap()).unwrap();
+        assert_eq!(wire["inline"], true);
+        assert!(!packet_run(&limits, GraphFiringExecution::Worker).inline);
     }
 
     #[test]

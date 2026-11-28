@@ -31,7 +31,7 @@ use crate::Runtime;
 use crate::dal::DAL;
 use crate::database::BackendType;
 use crate::database::universal_types::UniversalUuid;
-use crate::dispatcher::{DispatchError, Dispatcher, TaskReadyEvent};
+use crate::dispatcher::{Admission, DispatchError, Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use crate::models::workflow_execution::WorkflowExecutionRecord;
@@ -54,14 +54,18 @@ const MAX_CONCURRENT_DISPATCH: usize = 64;
 /// the postgres (spawned, concurrent) and sqlite (serial) dispatch paths.
 /// NoCapacity is expected backpressure (the task stays Ready, retried later);
 /// other errors are surfaced as warnings.
-async fn dispatch_one(dispatcher: &Arc<dyn Dispatcher>, task: TaskExecution) {
+async fn dispatch_one(dispatcher: &Arc<dyn Dispatcher>, task: TaskExecution, turn: Admission) {
     let event = TaskReadyEvent::new(
         task.id,
         task.workflow_execution_id,
         task.task_name.clone(),
         task.attempt,
-    );
-    match dispatcher.dispatch(event).await {
+    )
+    .with_admission(turn.clone());
+    let outcome = dispatcher.dispatch(event).await;
+    // The dispatch is over: whatever the executor did, the next one may go.
+    turn.release();
+    match outcome {
         Ok(()) => {}
         Err(DispatchError::NoCapacity(_)) => {
             debug!(
@@ -80,6 +84,11 @@ async fn dispatch_one(dispatcher: &Arc<dyn Dispatcher>, task: TaskExecution) {
         }
     }
 }
+
+/// The longest a dispatch waits for the one before it in the pass to decide
+/// about its slot (CLOACINA-T-1045). After it the dispatch goes on: one slow
+/// dispatch does not hold the rest of the pass.
+const ADMISSION_WAIT: Duration = Duration::from_secs(5);
 
 /// How often the waiting-task gauges are read from the database
 /// (CLOACINA-T-1024). The loop ticks every `poll_interval` (100 ms by
@@ -108,6 +117,14 @@ pub struct SchedulerLoop<'a> {
     /// pool whose last waiting task left gets a zero once more, or its series
     /// would keep the last value.
     waiting_gauge_pools: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    /// The ageing interval of waiting work (CLOACINA-T-1045).
+    priority_aging_interval: Duration,
+    /// The last turn of the ordered pass before this one, and when that pass
+    /// began (CLOACINA-T-1045). While its dispatches still take their turns,
+    /// a new pass dispatches nothing: the tasks it would offer are the ones
+    /// that already wait for their turn.
+    ordered_pass:
+        std::sync::Mutex<Option<(tokio::sync::oneshot::Receiver<()>, std::time::Instant)>>,
 }
 
 impl<'a> SchedulerLoop<'a> {
@@ -129,7 +146,38 @@ impl<'a> SchedulerLoop<'a> {
             consecutive_errors: 0,
             waiting_gauge_read_at: std::sync::Mutex::new(None),
             waiting_gauge_pools: std::sync::Mutex::new(std::collections::BTreeSet::new()),
+            priority_aging_interval: cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL,
+            ordered_pass: std::sync::Mutex::new(None),
         }
+    }
+
+    /// True while the dispatches of the ordered pass before this one still
+    /// take their turns (CLOACINA-T-1045). A pass that began more than twice
+    /// [`ADMISSION_WAIT`] ago does not count: a stuck dispatch does not stop
+    /// the loop.
+    fn ordered_pass_in_flight(&self) -> bool {
+        let mut last = self.ordered_pass.lock().unwrap_or_else(|e| e.into_inner());
+        let in_flight = match last.as_mut() {
+            Some((released, began)) => {
+                began.elapsed() < ADMISSION_WAIT * 2
+                    && matches!(
+                        released.try_recv(),
+                        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                    )
+            }
+            None => false,
+        };
+        if !in_flight {
+            *last = None;
+        }
+        in_flight
+    }
+
+    /// Set the ageing interval of waiting work (CLOACINA-T-1045). The
+    /// default is two minutes. Zero switches ageing off.
+    pub fn with_priority_aging_interval(mut self, interval: Duration) -> Self {
+        self.priority_aging_interval = interval;
+        self
     }
 
     /// Set the shutdown receiver for graceful termination.
@@ -404,8 +452,16 @@ impl<'a> SchedulerLoop<'a> {
             None => return Ok(()),
         };
 
-        // Get all Ready tasks where retry_at has passed (or is null)
-        let ready_tasks = self.dal.task_execution().get_ready_for_retry().await?;
+        // CLOACINA-T-1045: the waiting set, then the tasks to dispatch in
+        // this pass in their order: workflow priority, task priority, time
+        // waited, with ageing. A task put off for capacity keeps its place
+        // and holds back worse tasks of its pool.
+        let waiting = self.dal.task_execution().get_waiting_for_dispatch().await?;
+        let ready_tasks = super::priority::dispatch_order(
+            waiting,
+            chrono::Utc::now(),
+            self.priority_aging_interval,
+        );
 
         if ready_tasks.is_empty() {
             metrics::counter!(
@@ -445,13 +501,33 @@ impl<'a> SchedulerLoop<'a> {
             BackendType::Sqlite => false,
         };
 
+        // CLOACINA-T-1045: the spawned dispatches run at the same time, but
+        // each waits for the one before it to decide about its slot. So the
+        // free slots go to the tasks in the order of the pass.
+        if concurrent && self.ordered_pass_in_flight() {
+            return Ok(());
+        }
+        let mut before: Option<tokio::sync::oneshot::Receiver<()>> = None;
         for task in ready_tasks.into_iter().take(MAX_CONCURRENT_DISPATCH) {
             let dispatcher = dispatcher.clone();
             if concurrent {
-                tokio::spawn(async move { dispatch_one(&dispatcher, task).await });
+                let (turn, released) = Admission::new();
+                let wait_for = before.replace(released);
+                tokio::spawn(async move {
+                    if let Some(wait_for) = wait_for {
+                        let _ = tokio::time::timeout(ADMISSION_WAIT, wait_for).await;
+                    }
+                    dispatch_one(&dispatcher, task, turn).await
+                });
             } else {
-                dispatch_one(&dispatcher, task).await;
+                dispatch_one(&dispatcher, task, Admission::none()).await;
             }
+        }
+        // The turn of the last dispatch of this pass: the next pass waits
+        // for it.
+        if let Some(last_turn) = before {
+            *self.ordered_pass.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((last_turn, std::time::Instant::now()));
         }
 
         Ok(())

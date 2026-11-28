@@ -60,6 +60,11 @@ pub const WORK_PACKET_KIND: &str = "agent_work";
 /// (CLOACI-T-0722). Payload = a serialized [`GraphWorkPacket`].
 pub const GRAPH_PACKET_KIND: &str = "agent_graph";
 
+/// Substrate push `kind` for a [`CancelPacket`] (CLOACINA-T-1028): the server
+/// gave up on a dispatch and asks the agent to stop its worker. An agent from
+/// before this kind acks the push and ignores it.
+pub const CANCEL_PACKET_KIND: &str = "agent_cancel";
+
 /// Substrate recipient prefix for agent connections. The full recipient
 /// string for an agent is `format!("{}{}", AGENT_RECIPIENT_PREFIX, agent_id)`.
 pub const AGENT_RECIPIENT_PREFIX: &str = "agent:";
@@ -125,8 +130,9 @@ pub struct AgentRegisterRequest {
     /// packs it by its slot count only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_millis: Option<u64>,
-    /// CLOACINA-T-1027 — the agent's total memory in bytes (`--memory` /
-    /// `CLOACINA_AGENT_MEMORY`). `None` as above.
+    /// CLOACINA-T-1027 — the memory the agent offers to tasks, in bytes:
+    /// `--memory` / `CLOACINA_AGENT_MEMORY` less the agent's own share
+    /// (`--reserved-memory`, CLOACINA-T-1028). `None` as above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_bytes: Option<u64>,
 }
@@ -281,17 +287,41 @@ pub struct WorkPacket {
     pub pool: Option<String>,
     /// CLOACINA-T-1027 — the task's CPU request in millicores. `None` ⇒ the
     /// task declares none. The server used it to place the task; the agent
-    /// does not limit the task by it.
+    /// does not cap the task's CPU by it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_millis: Option<u64>,
     /// CLOACINA-T-1027 — the task's memory request in bytes. `None` ⇒ the
-    /// task declares none. Used for placement; not a limit.
+    /// task declares none. The server places the task by it, and the agent
+    /// stops a task that uses more (CLOACINA-T-1028). With `None` the agent
+    /// uses the task's share of the agent as the limit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_bytes: Option<u64>,
-    /// CLOACINA-T-1027 — the task is marked `inline = true`. Carried for
-    /// CLOACINA-T-1028; the agent does not act on it.
+    /// CLOACINA-T-1027 — the task is marked `inline = true`: the agent runs
+    /// it in its own process, with no worker process, no memory limit and no
+    /// kill (CLOACINA-T-1028). `false` (and a server from before the field)
+    /// ⇒ the agent runs the task in a worker process.
     #[serde(default)]
     pub inline: bool,
+}
+
+/// CLOACINA-T-1028 — the server gave up on one dispatch (its wait for the
+/// report ended) and asks the agent to stop the work. Serialized as JSON into
+/// a substrate push of kind [`CANCEL_PACKET_KIND`].
+///
+/// The agent kills the worker process of `dispatch_id`, sends no report and
+/// acks the push. A cancel for a dispatch it does not run is acked and
+/// remembered, so the packet is not started if it arrives later. A task
+/// marked `inline` has no worker and is not stopped.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CancelPacket {
+    pub protocol_version: u32,
+    /// The task the dispatch belongs to, for the agent's log.
+    pub task_execution_id: String,
+    /// The dispatch to stop: [`WorkPacket::dispatch_id`].
+    pub dispatch_id: String,
+    /// Why the server gave up, in a few words, for the agent's log.
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// One at-rest secret resolved by the server and HPKE-wrapped to a single
@@ -354,6 +384,12 @@ pub struct GraphWorkPacket {
     /// `firing_id` as the execution id.
     #[serde(default)]
     pub secret_key_id: Option<String>,
+    /// CLOACINA-T-1125 — run the firing in the agent process, with no worker
+    /// process, no memory limit and no kill. `false` (and a server from
+    /// before the field) ⇒ the agent runs the firing in a worker process.
+    /// The server sets it from `--fleet-graph-firings` (default `inline`).
+    #[serde(default)]
+    pub inline: bool,
 }
 
 /// Reference to a workflow artifact (cdylib) the agent must fetch + load.
@@ -646,6 +682,40 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// CLOACINA-T-1028: the cancel message, and a payload with no reason.
+    #[test]
+    fn cancel_packet_round_trips_and_the_reason_is_optional() {
+        let p = CancelPacket {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            task_execution_id: "t1".into(),
+            dispatch_id: "d1".into(),
+            reason: "the result wait ended".into(),
+        };
+        let json = serde_json::to_string(&p).unwrap();
+        assert_eq!(serde_json::from_str::<CancelPacket>(&json).unwrap(), p);
+        let bare = r#"{"protocol_version":1,"task_execution_id":"t1","dispatch_id":"d1"}"#;
+        let back: CancelPacket = serde_json::from_str(bare).unwrap();
+        assert_eq!(back.dispatch_id, "d1");
+        assert_eq!(back.reason, "");
+        assert_ne!(CANCEL_PACKET_KIND, WORK_PACKET_KIND);
+        assert_ne!(CANCEL_PACKET_KIND, GRAPH_PACKET_KIND);
+    }
+
+    /// CLOACINA-T-1125: a graph packet from a server before `inline` runs
+    /// in a worker; the field rides the wire when set.
+    #[test]
+    fn a_graph_packet_with_no_inline_field_is_not_inline() {
+        let older = r#"{"protocol_version":1,"firing_id":"f1","graph_name":"g","cache":{},
+            "artifact":{"digest":"d","fetch_url":"/v1/agent/artifact/d","build_target_triple":"t"},
+            "timeout_seconds":60,"tenant_id":null}"#;
+        let mut p: GraphWorkPacket = serde_json::from_str(older).unwrap();
+        assert!(!p.inline);
+        p.inline = true;
+        let back: GraphWorkPacket =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert!(back.inline);
     }
 
     #[test]

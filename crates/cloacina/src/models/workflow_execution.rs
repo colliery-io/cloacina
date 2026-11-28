@@ -43,6 +43,19 @@ pub struct WorkflowExecutionRecord {
     /// operator run via the REST execute endpoint; `None` for cron/trigger/
     /// reactor-driven runs (and rows created before the column existed).
     pub trigger_origin: Option<String>,
+    /// The workflow priority that was asked for (CLOACINA-T-1045): by the
+    /// run request, the schedule, or the workflow's own declaration. `None`
+    /// on a row from before the column.
+    #[serde(default)]
+    pub priority_asked: Option<i32>,
+    /// The workflow priority the execution runs at: the asked one, held to
+    /// the limit of who asked. 0 is the highest, 10 the lowest.
+    #[serde(default = "default_priority")]
+    pub priority: i32,
+}
+
+fn default_priority() -> i32 {
+    i32::from(cloacina_api_types::DEFAULT_PRIORITY)
 }
 
 /// Structure for creating new workflow executions (domain type).

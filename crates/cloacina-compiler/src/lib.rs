@@ -19,14 +19,18 @@
 
 mod build;
 mod config;
+mod describe;
 mod doc_parse;
 mod health;
 mod loopp;
 mod param_parse;
 mod python;
 
+pub use build::{BuildOutcome, execute_build};
 pub use cloacina_workflow_plugin::python_vendor::WheelSource;
-pub use config::{BuildRlimits, CompilerConfig};
+pub use config::{BuildRlimits, CompilerConfig, DEFAULT_DESCRIBE_TIMEOUT_S};
+pub use describe::{DESCRIBE_MODE, run_child as run_describe_child};
+pub use loopp::describe_pass;
 pub use python::PythonVendorConfig;
 
 use std::sync::Arc;
@@ -76,6 +80,17 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
     // CLOACI-T-0779: a tenant-scoped compiler binds to that tenant's Postgres
     // schema (build isolation — it claims/builds ONLY that tenant's packages).
     let database = match &config.tenant_schema {
+        // `public` is a tenant like the others (CLOACINA-T-1063): the server
+        // starts its compiler with the build role of `public`, which cannot
+        // migrate. The schema check refuses the name `public` for a tenant
+        // schema, so it is opened as the default schema.
+        Some(schema) if schema == "public" => {
+            info!(
+                tenant_schema = "public",
+                "compiler scoped to the public schema (build isolation)"
+            );
+            Database::new(&config.database_url, "", 5)
+        }
         Some(schema) => {
             info!(tenant_schema = %schema, "compiler scoped to tenant schema (build isolation)");
             Database::try_new_with_schema(&config.database_url, "", 5, Some(schema))
@@ -177,6 +192,12 @@ fn register_compiler_metrics() {
         "Stale builds reset to `pending` by the sweeper — one increment \
          per row reclaimed (paired with T-0522). Sustained non-zero \
          rate indicates worker crashes or hung builds."
+    );
+    metrics::describe_counter!(
+        "cloacina_compiler_describes_total",
+        "Describes of packages that were built before the metadata document \
+         existed, from their stored build. `status` ∈ `ok`, `failed`. A \
+         failed describe is recorded on the package (`describe_error`)."
     );
     metrics::describe_counter!(
         "cloacina_compiler_heartbeat_failures_total",

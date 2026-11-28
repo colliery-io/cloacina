@@ -57,6 +57,15 @@ impl PyWorkflowBuilder {
         self.inner = self.inner.clone().description(description);
     }
 
+    /// Set the workflow priority: an integer from 0 (the highest) to 10.
+    /// The default is 5 (CLOACINA-T-1045).
+    pub fn priority(&mut self, priority: i64) -> PyResult<()> {
+        let priority = cloacina_workflow::priority::validate_priority(priority)
+            .map_err(|e| PyValueError::new_err(format!("WorkflowBuilder.priority: {e}")))?;
+        self.inner = self.inner.clone().priority(priority);
+        Ok(())
+    }
+
     /// Add a tag to the workflow
     pub fn tag(&mut self, key: &str, value: &str) {
         self.inner = self.inner.clone().tag(key, value);
@@ -181,6 +190,10 @@ impl PyWorkflowBuilder {
         }
         for (key, value) in self.inner.get_tags() {
             workflow.add_tag(key, value);
+        }
+        // CLOACINA-T-1045: the priority set on the builder.
+        if let Some(priority) = self.inner.get_priority() {
+            workflow.set_priority(priority);
         }
 
         let rt = crate::runtime_scope::current_runtime().ok_or_else(|| {

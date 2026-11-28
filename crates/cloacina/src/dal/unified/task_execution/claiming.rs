@@ -28,6 +28,14 @@ use crate::models::execution_event::ExecutionEventType;
 use crate::models::task_execution::TaskExecution;
 use diesel::prelude::*;
 
+/// The heartbeat time before which a claim is stale.
+fn stale_cutoff(threshold: std::time::Duration) -> UniversalTimestamp {
+    UniversalTimestamp(
+        chrono::Utc::now()
+            - chrono::Duration::from_std(threshold).unwrap_or(chrono::Duration::seconds(60)),
+    )
+}
+
 impl<'a> TaskExecutionDAL<'a> {
     /// Updates a task's retry schedule with a new attempt count and retry time.
     ///
@@ -317,7 +325,9 @@ impl<'a> TaskExecutionDAL<'a> {
     /// Release a runner's claim on a task (on completion or failure).
     ///
     /// Clears `claimed_by` and `heartbeat_at`, and `fleet_agent_id`
-    /// (CLOACINA-T-1027): a task with no dispatch is on no agent.
+    /// (CLOACINA-T-1027): a task with no dispatch is on no agent. Also the
+    /// fleet dispatch (`fleet_dispatch_id`, `fleet_packet_row_id`,
+    /// CLOACINA-T-1084): a dispatch lasts as long as its claim.
     pub async fn release_runner_claim(
         &self,
         task_id: UniversalUuid,
@@ -329,12 +339,161 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::claimed_by.eq(None::<UniversalUuid>),
                     task_executions::heartbeat_at.eq(None::<UniversalTimestamp>),
                     task_executions::fleet_agent_id.eq(None::<String>),
+                    task_executions::fleet_dispatch_id.eq(None::<String>),
+                    task_executions::fleet_packet_row_id.eq(None::<i64>),
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })?;
 
         Ok(())
+    }
+
+    /// Stamp the start of a fleet dispatch and record the dispatch
+    /// (CLOACINA-T-1084), in one write: what
+    /// [`mark_started`](Self::mark_started) writes (`Running`, `started_at`,
+    /// no `waiting_since`), plus the `dispatch_id` of the work packet and the
+    /// packet's `delivery_outbox` row. Written by the fleet executor that
+    /// holds the claim, when it hands the packet to an agent; the dispatch
+    /// is cleared with the claim
+    /// ([`release_runner_claim`](Self::release_runner_claim)).
+    ///
+    /// With these, another server replica can take over the wait of the
+    /// dispatch when the replica that sent it stops
+    /// ([`find_stale_fleet_dispatches`](Self::find_stale_fleet_dispatches)).
+    ///
+    /// Only a row whose claim `runner_id` holds is changed. Returns `false`
+    /// for any other row.
+    pub async fn mark_started_in_fleet_dispatch(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: UniversalUuid,
+        dispatch_id: &str,
+        packet_row_id: i64,
+    ) -> Result<bool, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let dispatch_id = dispatch_id.to_string();
+        let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                task_executions::table
+                    .find(task_id)
+                    .filter(task_executions::claimed_by.eq(Some(runner_id))),
+            )
+            .set((
+                task_executions::status.eq("Running"),
+                task_executions::started_at.eq(Some(now)),
+                task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                task_executions::fleet_dispatch_id.eq(Some(dispatch_id)),
+                task_executions::fleet_packet_row_id.eq(Some(packet_row_id)),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+        Ok(rows > 0)
+    }
+
+    /// The fleet dispatches whose executor stopped (CLOACINA-T-1084): rows in
+    /// a fleet dispatch (`fleet_dispatch_id` set) with a claim whose
+    /// heartbeat is older than `threshold`, `Running` or `Ready`.
+    ///
+    /// The fleet executor reads these to take over the wait of a dispatch
+    /// that is still in flight on an agent
+    /// ([`take_over_stale_claim`](Self::take_over_stale_claim)), or to give a
+    /// lost one back to the stale claim sweeper
+    /// ([`hand_back_lost_fleet_dispatch`](Self::hand_back_lost_fleet_dispatch)).
+    pub async fn find_stale_fleet_dispatches(
+        &self,
+        threshold: std::time::Duration,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        let cutoff = stale_cutoff(threshold);
+        let stale: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::claimed_by.is_not_null())
+                .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
+                .filter(task_executions::fleet_dispatch_id.is_not_null())
+                .filter(task_executions::status.eq_any(vec!["Running", "Ready"]))
+                .load(conn)
+        })?;
+        Ok(stale.into_iter().map(Into::into).collect())
+    }
+
+    /// Move a stale claim to `new_runner` (CLOACINA-T-1084): the claim is
+    /// still `old_runner`'s and its heartbeat is still older than
+    /// `threshold`. Sets the heartbeat to now. The fleet dispatch columns are
+    /// kept: the dispatch goes on under the new claim.
+    ///
+    /// The compare and set is the guard between replicas: of two that try,
+    /// one moves the claim. A runner that heartbeats again in the meantime
+    /// keeps its claim. Returns `true` when this call moved it.
+    pub async fn take_over_stale_claim(
+        &self,
+        task_id: UniversalUuid,
+        old_runner: UniversalUuid,
+        new_runner: UniversalUuid,
+        threshold: std::time::Duration,
+    ) -> Result<bool, ValidationError> {
+        let cutoff = stale_cutoff(threshold);
+        let now = UniversalTimestamp::now();
+        let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                task_executions::table
+                    .find(task_id)
+                    .filter(task_executions::claimed_by.eq(Some(old_runner)))
+                    .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
+                    .filter(task_executions::status.eq_any(vec!["Running", "Ready"])),
+            )
+            .set((
+                task_executions::claimed_by.eq(Some(new_runner)),
+                task_executions::heartbeat_at.eq(Some(now)),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+        Ok(rows > 0)
+    }
+
+    /// Give a stale fleet dispatch that is lost back to the stale claim
+    /// sweeper (CLOACINA-T-1084): clear the fleet dispatch columns while the
+    /// claim is still `old_runner`'s and still stale. The sweeper then
+    /// recovers the row as any stale claim, with its recovery count and cap.
+    /// Returns `true` when this call cleared them.
+    pub async fn hand_back_lost_fleet_dispatch(
+        &self,
+        task_id: UniversalUuid,
+        old_runner: UniversalUuid,
+        threshold: std::time::Duration,
+    ) -> Result<bool, ValidationError> {
+        let cutoff = stale_cutoff(threshold);
+        let now = UniversalTimestamp::now();
+        let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
+            diesel::update(
+                task_executions::table
+                    .find(task_id)
+                    .filter(task_executions::claimed_by.eq(Some(old_runner)))
+                    .filter(task_executions::heartbeat_at.lt(Some(cutoff))),
+            )
+            .set((
+                task_executions::fleet_dispatch_id.eq(None::<String>),
+                task_executions::fleet_packet_row_id.eq(None::<i64>),
+                task_executions::updated_at.eq(now),
+            ))
+            .execute(conn)
+        })?;
+        Ok(rows > 0)
+    }
+
+    /// [`find_stale_claims`](Self::find_stale_claims) without the rows in a
+    /// fleet dispatch (`fleet_dispatch_id` set, CLOACINA-T-1084).
+    ///
+    /// For a runner whose fleet executor takes over those rows itself: a
+    /// fleet dispatch whose executor stopped can still be in flight on an
+    /// agent, and making it `Ready` would send the task a second time. The
+    /// fleet executor gives the lost ones back by clearing the columns.
+    pub async fn find_stale_claims_outside_fleet_dispatches(
+        &self,
+        threshold: std::time::Duration,
+    ) -> Result<Vec<StaleClaim>, ValidationError> {
+        self.stale_claims(threshold, true).await
     }
 
     /// Find tasks with stale claims (heartbeat older than threshold).
@@ -356,17 +515,26 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         threshold: std::time::Duration,
     ) -> Result<Vec<StaleClaim>, ValidationError> {
-        let cutoff = UniversalTimestamp(
-            chrono::Utc::now()
-                - chrono::Duration::from_std(threshold).unwrap_or(chrono::Duration::seconds(60)),
-        );
+        self.stale_claims(threshold, false).await
+    }
+
+    async fn stale_claims(
+        &self,
+        threshold: std::time::Duration,
+        outside_fleet_dispatches: bool,
+    ) -> Result<Vec<StaleClaim>, ValidationError> {
+        let cutoff = stale_cutoff(threshold);
 
         let stale: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
-            task_executions::table
+            let mut query = task_executions::table
                 .filter(task_executions::claimed_by.is_not_null())
                 .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
                 .filter(task_executions::status.eq_any(vec!["Running", "Ready"]))
-                .load(conn)
+                .into_boxed();
+            if outside_fleet_dispatches {
+                query = query.filter(task_executions::fleet_dispatch_id.is_null());
+            }
+            query.load(conn)
         })?;
 
         Ok(stale
@@ -409,6 +577,39 @@ impl<'a> TaskExecutionDAL<'a> {
             })?;
 
         Ok(ready_tasks.into_iter().map(Into::into).collect())
+    }
+
+    /// The waiting set (CLOACINA-T-1045): every `Ready`, unclaimed task that
+    /// is due, and every one that was put off for capacity (its `retry_at`
+    /// is in the future but it waits since before now). A retry in backoff
+    /// is not in the set: it waits from its due time.
+    ///
+    /// The rows come in the order of the stored priorities: workflow
+    /// priority, task priority, time waited. The scheduler loop applies
+    /// ageing and decides which of them to dispatch
+    /// (`execution_planner::priority::dispatch_order`).
+    pub async fn get_waiting_for_dispatch(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        let now = UniversalTimestamp::now();
+        let waiting: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::status.eq("Ready"))
+                .filter(
+                    task_executions::retry_at
+                        .is_null()
+                        .or(task_executions::retry_at.le(now))
+                        .or(task_executions::waiting_since.le(now)),
+                )
+                .filter(task_executions::claimed_by.is_null())
+                .order((
+                    task_executions::workflow_priority.asc(),
+                    task_executions::task_priority.asc(),
+                    task_executions::waiting_since.asc(),
+                    task_executions::created_at.asc(),
+                ))
+                .load(conn)
+        })?;
+
+        Ok(waiting.into_iter().map(Into::into).collect())
     }
 }
 
@@ -783,5 +984,244 @@ mod defer_dispatch_after_start_tests {
         let after = row(&dal, task_id).await;
         assert_eq!(after.status, "Running");
         assert_eq!(after.artifact_fetch_wait_since, None);
+    }
+}
+
+/// CLOACINA-T-1084: the fleet dispatch on the task row, and the takeover of
+/// a stale one.
+#[cfg(all(test, feature = "sqlite"))]
+mod fleet_dispatch_tests {
+    use crate::dal::DAL;
+    use crate::database::Database;
+    use crate::database::schema::unified::task_executions;
+    use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+    use crate::models::task_execution::{NewTaskExecution, TaskExecution};
+    use crate::models::workflow_execution::NewWorkflowExecution;
+    use diesel::prelude::*;
+    use std::time::Duration;
+
+    const STALE: Duration = Duration::from_secs(60);
+
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "file:fleet_dispatch_test_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    /// A task that `runner` claimed and started, in the fleet dispatch `d1`
+    /// with outbox row 7.
+    async fn dispatched_task(dal: &DAL, runner: UniversalUuid) -> UniversalUuid {
+        let workflow_id = dal
+            .workflow_execution()
+            .create(NewWorkflowExecution {
+                workflow_name: "wf".into(),
+                workflow_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap()
+            .id;
+        let task_id = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                workflow_execution_id: workflow_id,
+                task_name: "t".into(),
+                status: "Ready".into(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap()
+            .id;
+        dal.task_execution()
+            .claim_for_runner(task_id, runner)
+            .await
+            .unwrap();
+        assert!(
+            dal.task_execution()
+                .mark_started_in_fleet_dispatch(task_id, runner, "d1", 7)
+                .await
+                .unwrap()
+        );
+        task_id
+    }
+
+    async fn row(dal: &DAL, task_id: UniversalUuid) -> TaskExecution {
+        dal.task_execution().get_by_id(task_id).await.unwrap()
+    }
+
+    /// Make the claim's heartbeat `seconds` old: its runner stopped.
+    async fn age_heartbeat(dal: &DAL, task_id: UniversalUuid, seconds: i64) {
+        let at = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(seconds));
+        let aged: Result<usize, diesel::result::Error> = crate::interact_on_backend!(dal, |conn| {
+            diesel::update(task_executions::table.find(task_id))
+                .set(task_executions::heartbeat_at.eq(Some(at)))
+                .execute(conn)
+        });
+        assert_eq!(aged.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_dispatch_is_recorded_under_the_claim_and_cleared_with_it() {
+        let dal = unique_dal().await;
+        let runner = UniversalUuid::new_v4();
+        let task_id = dispatched_task(&dal, runner).await;
+        let task = row(&dal, task_id).await;
+        assert_eq!(task.status, "Running");
+        assert!(task.started_at.is_some());
+        assert_eq!(task.waiting_since, None);
+        assert_eq!(task.fleet_dispatch_id.as_deref(), Some("d1"));
+        assert_eq!(task.fleet_packet_row_id, Some(7));
+
+        // Another runner cannot write it.
+        assert!(
+            !dal.task_execution()
+                .mark_started_in_fleet_dispatch(task_id, UniversalUuid::new_v4(), "d2", 8)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            row(&dal, task_id).await.fleet_dispatch_id.as_deref(),
+            Some("d1")
+        );
+
+        dal.task_execution()
+            .release_runner_claim(task_id)
+            .await
+            .unwrap();
+        let task = row(&dal, task_id).await;
+        assert_eq!(task.fleet_dispatch_id, None);
+        assert_eq!(task.fleet_packet_row_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_stale_fleet_dispatch_is_found_and_left_out_of_the_other_stale_claims() {
+        let dal = unique_dal().await;
+        let task_id = dispatched_task(&dal, UniversalUuid::new_v4()).await;
+        let tasks = dal.task_execution();
+
+        // A live heartbeat: nothing is stale.
+        assert!(
+            tasks
+                .find_stale_fleet_dispatches(STALE)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        age_heartbeat(&dal, task_id, 120).await;
+        let found = tasks.find_stale_fleet_dispatches(STALE).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, task_id);
+        assert_eq!(found[0].fleet_dispatch_id.as_deref(), Some("d1"));
+
+        // The sweeper's read sees it, unless it leaves fleet dispatches out.
+        assert_eq!(tasks.find_stale_claims(STALE).await.unwrap().len(), 1);
+        assert!(
+            tasks
+                .find_stale_claims_outside_fleet_dispatches(STALE)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn one_runner_takes_over_a_stale_claim_and_a_live_one_keeps_it() {
+        let dal = unique_dal().await;
+        let old = UniversalUuid::new_v4();
+        let task_id = dispatched_task(&dal, old).await;
+        let tasks = dal.task_execution();
+        let (b, c) = (UniversalUuid::new_v4(), UniversalUuid::new_v4());
+
+        // Not stale yet: no takeover.
+        assert!(
+            !tasks
+                .take_over_stale_claim(task_id, old, b, STALE)
+                .await
+                .unwrap()
+        );
+
+        age_heartbeat(&dal, task_id, 120).await;
+        assert!(
+            tasks
+                .take_over_stale_claim(task_id, old, b, STALE)
+                .await
+                .unwrap()
+        );
+        // The second replica finds the claim moved.
+        assert!(
+            !tasks
+                .take_over_stale_claim(task_id, old, c, STALE)
+                .await
+                .unwrap()
+        );
+
+        let task = row(&dal, task_id).await;
+        assert_eq!(task.claimed_by, Some(b));
+        assert!(
+            task.heartbeat_at
+                .is_some_and(|at| (chrono::Utc::now() - at.0).num_seconds() < 5)
+        );
+        assert_eq!(task.status, "Running");
+        assert_eq!(
+            task.fleet_dispatch_id.as_deref(),
+            Some("d1"),
+            "the dispatch goes on"
+        );
+        assert!(
+            tasks
+                .find_stale_fleet_dispatches(STALE)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_lost_dispatch_handed_back_is_an_ordinary_stale_claim() {
+        let dal = unique_dal().await;
+        let old = UniversalUuid::new_v4();
+        let task_id = dispatched_task(&dal, old).await;
+        let tasks = dal.task_execution();
+        age_heartbeat(&dal, task_id, 120).await;
+
+        // Another runner's claim is not handed back.
+        assert!(
+            !tasks
+                .hand_back_lost_fleet_dispatch(task_id, UniversalUuid::new_v4(), STALE)
+                .await
+                .unwrap()
+        );
+        assert!(
+            tasks
+                .hand_back_lost_fleet_dispatch(task_id, old, STALE)
+                .await
+                .unwrap()
+        );
+
+        let task = row(&dal, task_id).await;
+        assert_eq!(task.fleet_dispatch_id, None);
+        assert_eq!(task.fleet_packet_row_id, None);
+        assert_eq!(
+            task.claimed_by,
+            Some(old),
+            "the claim stays for the sweeper"
+        );
+        let swept = tasks
+            .find_stale_claims_outside_fleet_dispatches(STALE)
+            .await
+            .unwrap();
+        assert_eq!(swept.len(), 1);
+        assert_eq!(swept[0].claimed_by, old);
     }
 }

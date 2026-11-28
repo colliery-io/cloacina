@@ -97,8 +97,13 @@ fn make_old_tenant(label: &str) -> (String, i64) {
 fn drop_tenants(tenants: &[&str]) {
     let mut conn = connect();
     for tenant in tenants {
-        conn.batch_execute(&format!("DROP SCHEMA IF EXISTS {tenant} CASCADE;"))
-            .expect("drop schema");
+        // The build role that the migration run made (CLOACINA-T-1063)
+        // goes too; its grants went with the schema.
+        conn.batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS {tenant} CASCADE; DROP ROLE IF EXISTS \"{}\";",
+            cloacina::database::build_role_name(tenant)
+        ))
+        .expect("drop schema");
     }
 }
 
@@ -294,6 +299,192 @@ async fn two_starts_together_migrate_a_tenant_once() {
     changed.sort();
     assert_eq!(changed, [0, 1], "one start migrated the tenant");
     assert_eq!(level_after, total);
+}
+
+/// Stop the runner and drop the cached database of `tenant` on `state`.
+async fn forget_tenant(state: &AppState, tenant: &str) {
+    let _ = state.tenant_runners.evict(tenant).await;
+    state.tenant_databases.evict(tenant).await;
+}
+
+/// CLOACINA-T-1093, the defect: the start step of this version has run, then
+/// a tenant is made at an older level (through an older replica during a
+/// rolling upgrade). When this replica makes the tenant's runner, the tenant
+/// schema holds every migration of this version.
+#[tokio::test]
+#[serial]
+async fn t1093_a_replica_migrates_a_tenant_schema_when_it_first_makes_its_runner() {
+    let state = test_state().await;
+    migrate_at_start(&state.database, TenantSchemas::Named(&[]))
+        .await
+        .expect("start migrations");
+
+    let (tenant, old_level) = make_old_tenant("roll");
+    let total = all_migrations().len() as i64;
+
+    let made = crate::tenant_runner_cache::ensure_runner(&state, &tenant).await;
+    let has_runner = state.tenant_runners.contains(&tenant).await;
+    let level_after = applied(&tenant);
+    forget_tenant(&state, &tenant).await;
+    drop_tenants(&[&tenant]);
+
+    assert!(old_level < total, "the tenant starts behind this version");
+    made.expect("the runner is made");
+    assert!(has_runner);
+    assert_eq!(
+        level_after, total,
+        "the tenant schema has every migration once its runner is made (it had {old_level})"
+    );
+}
+
+/// CLOACINA-T-1093: a tenant with nothing pending is not changed, and its
+/// runner starts as before.
+#[tokio::test]
+#[serial]
+async fn t1093_a_tenant_with_nothing_pending_gets_its_runner_as_before() {
+    let state = test_state().await;
+    let (tenant, _) = make_old_tenant("current");
+    DatabaseAdmin::new(state.database.clone())
+        .migrate_tenant_schema(&tenant)
+        .await
+        .expect("bring the tenant to this version");
+    let total = all_migrations().len() as i64;
+
+    let ran =
+        crate::startup_migrations::migrate_tenant_on_first_open(&state.database, &tenant).await;
+    let made = crate::tenant_runner_cache::ensure_runner(&state, &tenant).await;
+    let has_runner = state.tenant_runners.contains(&tenant).await;
+    let level_after = applied(&tenant);
+    forget_tenant(&state, &tenant).await;
+    drop_tenants(&[&tenant]);
+
+    assert_eq!(ran, Ok(0), "nothing pending, nothing ran");
+    made.expect("the runner is made");
+    assert!(has_runner);
+    assert_eq!(level_after, total);
+}
+
+/// CLOACINA-T-1093: a tenant whose migration fails at this step is named in
+/// the error, gets no runner and is unchanged. A route of the tenant answers
+/// 500. When the cause is gone, the next try migrates it and makes the runner.
+#[tokio::test]
+#[serial]
+async fn t1093_a_tenant_that_fails_to_migrate_gets_no_runner_and_its_routes_answer_500() {
+    let state = test_state().await;
+    let token = create_test_api_key(&state).await;
+    let (tenant, old_level) = make_old_tenant("fails");
+    let total = all_migrations().len() as i64;
+    // Migration 060 makes an index with this name: it fails in this tenant.
+    connect()
+        .batch_execute(&format!(
+            "CREATE TABLE {tenant}.idx_schedules_cron_identity (x INT);"
+        ))
+        .expect("blocker");
+
+    let made = crate::tenant_runner_cache::ensure_runner(&state, &tenant).await;
+    let has_runner = state.tenant_runners.contains(&tenant).await;
+    let level_failed = applied(&tenant);
+    let (route_status, route_body) = send_request(
+        build_router(state.clone()),
+        axum::http::Request::builder()
+            .method("GET")
+            .uri(format!("/v1/tenants/{tenant}/workflows"))
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+
+    connect()
+        .batch_execute(&format!("DROP TABLE {tenant}.idx_schedules_cron_identity;"))
+        .expect("remove the blocker");
+    let retried = crate::tenant_runner_cache::ensure_runner(&state, &tenant).await;
+    let has_runner_after = state.tenant_runners.contains(&tenant).await;
+    let level_after = applied(&tenant);
+    forget_tenant(&state, &tenant).await;
+    drop_tenants(&[&tenant]);
+
+    let error = made.expect_err("the runner is not made");
+    assert!(
+        error.contains(&tenant),
+        "the error names the tenant: {error}"
+    );
+    assert!(!has_runner, "no runner for a tenant that failed to migrate");
+    assert_eq!(level_failed, old_level, "the failed tenant is unchanged");
+    assert_eq!(
+        route_status,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "body: {route_body:?}"
+    );
+    retried.expect("the next try makes the runner");
+    assert!(has_runner_after);
+    assert_eq!(level_after, total);
+}
+
+/// CLOACINA-T-1093: two replicas open the same tenant at the same moment.
+/// Both succeed, and the migrations ran once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[serial]
+async fn t1093_two_replicas_that_open_a_tenant_together_migrate_it_once() {
+    let first = admin_database();
+    let second = admin_database();
+    let (tenant, _) = make_old_tenant("both");
+    let total = all_migrations().len() as i64;
+
+    let (a, b) = tokio::join!(
+        crate::startup_migrations::migrate_tenant_on_first_open(&first, &tenant),
+        crate::startup_migrations::migrate_tenant_on_first_open(&second, &tenant),
+    );
+    let level_after = applied(&tenant);
+    first.close();
+    second.close();
+    drop_tenants(&[&tenant]);
+
+    let a = a.expect("first replica");
+    let b = b.expect("second replica");
+    assert_eq!(a.min(b), 0, "one replica found nothing pending: {a}, {b}");
+    assert!(a.max(b) > 0, "one replica migrated: {a}, {b}");
+    assert_eq!(level_after, total);
+}
+
+/// CLOACINA-T-1093: a schema with no migrations table is not migrated (it is
+/// not a tenant this server made), and a schema at a newer level, with a
+/// version this binary does not know, opens with nothing run.
+#[tokio::test]
+#[serial]
+async fn t1093_other_schemas_and_newer_tenants_are_not_changed() {
+    let database = admin_database();
+    let other = format!("t1093_other_{}", uuid::Uuid::new_v4().simple());
+    connect()
+        .batch_execute(&format!(
+            "CREATE SCHEMA {other}; CREATE TABLE {other}.notes (x INT);"
+        ))
+        .expect("other schema");
+    let (newer, _) = make_old_tenant("newer");
+    DatabaseAdmin::new(database.clone())
+        .migrate_tenant_schema(&newer)
+        .await
+        .expect("bring the tenant to this version");
+    connect()
+        .batch_execute(&format!(
+            "INSERT INTO {newer}.__diesel_schema_migrations (version) VALUES ('99991231000000');"
+        ))
+        .expect("a version of a newer binary");
+    let newer_level = applied(&newer);
+
+    let other_ran =
+        crate::startup_migrations::migrate_tenant_on_first_open(&database, &other).await;
+    let other_has_tables = has_table(&other, "workflow_packages");
+    let newer_ran =
+        crate::startup_migrations::migrate_tenant_on_first_open(&database, &newer).await;
+    let newer_level_after = applied(&newer);
+    database.close();
+    drop_tenants(&[&other, &newer]);
+
+    assert_eq!(other_ran, Ok(0));
+    assert!(!other_has_tables, "no cloacina table in another schema");
+    assert_eq!(newer_ran, Ok(0));
+    assert_eq!(newer_level_after, newer_level);
 }
 
 /// The list that the server migrates at start has each schema that holds

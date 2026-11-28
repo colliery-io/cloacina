@@ -41,15 +41,18 @@ Earlier server releases had known "isolation gaps"; current releases have closed
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, **not** a silent fall-through to `public`. Closes the cross-tenant data-leak risk that existed in earlier releases.
 - **Per-tenant `DefaultRunner` instances.** Each tenant has its own runner — its own scheduler loop, executor pool, and per-tenant DB connection pool — held in `TenantRunnerCache`. Workflow execution lands in the tenant's schema, not in a shared global runner. Every tenant has a live runner from server start until the tenant is deleted; see [A tenant's runner is always live](#a-tenants-runner-is-always-live).
 - **Per-tenant trigger / graph / accumulator filtering.** `GET /v1/tenants/{id}/triggers` (and the graph/accumulator health endpoints) route through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
-- **4-step teardown orchestration on `DELETE /v1/tenants/{name}`:**
-  1. Revoke every still-active API key for the tenant (close the auth surface).
-  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`, awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`, default 30s). Past the timeout the runner is **hard-evicted** — tasks that ignore cooperative cancellation error on their next DB write once step 4 lands.
+- **Teardown orchestration on `DELETE /v1/tenants/{name}`:**
+  1. Revoke every still-active API key for the tenant and delete its WebSocket tickets (close the auth surface). The server sends a revocation notice; every server clears its key cache when it arrives.
+  2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`, awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`, default 30s). Past the timeout the runner is **hard-evicted** — tasks that ignore cooperative cancellation error on their next DB write once step 5 lands.
   3. Evict the tenant's `Database` from `TenantDatabaseCache` (releases the connection pool).
-  4. Drop the schema + user via `DatabaseAdmin::remove_tenant`: the schema first, then the user, in one transaction.
+  4. Holding the fleet lock: remove the tenant's compiler and agents, then delete its limit, desired count, pools and agent rows.
+  5. `DatabaseAdmin::remove_tenant`, in one transaction: the tenant's other rows in the admin schema, a `tenant.removed` audit row, the schema, then the user. Each lock wait is bounded to 5 s.
 
   Each step emits a structured audit event with duration. Per-step failures bail out; earlier steps stay committed and are idempotent, so a retry resumes from the failure point.
 
-  The route answers `200` with `"status": "removed"` only when step 4 dropped the schema and the user. If Postgres refuses the drop (for example, the tenant's user owns an object in another schema), the route answers `500`, the schema and the user stay as they were, and the same `DELETE` finishes the removal once the cause is gone. A `DELETE` for a tenant that does not exist answers `200`.
+  The route answers `200` with `"status": "removed"` only when step 5 dropped the schema and the user. If Postgres refuses the drop (for example, the tenant's user owns an object in another schema, or a lock in the schema is held longer than 5 s), the route answers `500`, the schema and the user stay as they were, and the same `DELETE` finishes the removal once the cause is gone. A `DELETE` for a tenant that does not exist answers `200`.
+
+  A tenant is its name: there is no tenant table and no generation number. So a delete removes every row the tenant has in the admin schema (keys, accounts, agent limits, pools and agents, trusted and signing keys and signatures of its org), and a tenant made again with the same name starts with none of them. The audit rows stay; the tenant's own audit reads begin after its newest `tenant.removed` row. On Kubernetes the namespace stays, emptied of the agents, their policies and the agent key. See [Decommission a tenant](../../../how-to/service/decommission-a-tenant/#what-the-delete-removes-and-what-stays).
 
 The "restart `cloacina-server` to reclaim the cache after a tenant delete" workaround documented in earlier releases is **gone** — both `TenantRunnerCache` and `TenantDatabaseCache` are evicted as part of the teardown.
 
@@ -58,7 +61,7 @@ The "restart `cloacina-server` to reclaim the cache after a tenant delete" worka
 A tenant's runner is that tenant's engine. Its reconciler loads the tenant's packages and registers their schedules. Its schedulers fire the cron schedules and poll the triggers, and move the tenant's executions on. A tenant with no runner runs nothing. So the server keeps one runner for every tenant, on every replica:
 
 - **At start.** The server lists the tenant schemas and makes a runner for each. After a restart every tenant's schedules fire again with no call for that tenant.
-- **Every 30 seconds.** The same pass runs again. A tenant created through another replica gets its runner on this replica within that time. A runner whose schema is gone (the tenant was deleted through another replica) is stopped.
+- **Every 30 seconds.** The same pass runs again. A tenant created through another replica gets its runner on this replica within that time. A runner whose schema is gone (the tenant was deleted through another replica) is stopped. A runner whose schema was dropped and made again with the same name between two passes (the tenant was deleted and made again through another replica) is stopped too, with its cached database, and a new runner is made: each runner records the oid of the schema it was made for, and the pass compares it with the schema's oid now. Until that pass, the tenant's routes on this replica use the old runner and connection pool; the pool reaches the new schema by name.
 - **On tenant create and on package upload.** `POST /v1/tenants` and `POST /v1/tenants/{tenant}/workflows` make the tenant's runner on the replica that serves the request. After a publish the tenant's reconciler loads the package and registers its schedules, and they fire, with no other call.
 - **Never stopped to make room.** A runner stops only when its tenant is deleted, when its schema is gone, or when the server shuts down. `--tenant-runner-cache-size` (default 256) is a warning limit: when a replica holds more runners than that, it logs a warning and stops none.
 
@@ -167,7 +170,7 @@ Each tenant gets a completely separate SQLite database file, providing physical 
    - No possibility of cross-tenant data leakage through normal operations
 
 2. **Operational Isolation**
-   - A migration that fails changes no schema but its own: each schema is migrated in its own transaction. The API server migrates every tenant schema at start and does not start while one of them fails (see [Upgrading the server](../../../how-to/service/production-deployment/#upgrading-the-server))
+   - A migration that fails changes no schema but its own: each schema is migrated in its own transaction. The API server migrates every tenant schema at start and does not start while one of them fails. Each replica also migrates a tenant schema when it first opens the tenant; a tenant that fails there gets no runner on that replica and its routes answer `500` (see [Upgrading the server](../../../how-to/service/production-deployment/#upgrading-the-server))
    - Recovery operations are scoped per tenant
    - Workflow execution is isolated
 

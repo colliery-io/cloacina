@@ -114,12 +114,51 @@ pub struct CompilerSection {
     /// Local status/health address the compiler binds to (e.g. `127.0.0.1:9000`).
     /// Also used by `cloacinactl compiler status` / `health` as the probe URL.
     pub local_addr: String,
+
+    // CLOACINA-T-1106: settings that `cloacinactl compiler start` forwards to
+    // `cloacina-compiler`. A key that is not set is not forwarded, and the
+    // compiler uses its own default. The flag or env var of the same setting
+    // wins over the key.
+    /// The largest size a package archive may unpack to, bytes
+    /// (`--max-unpacked-bytes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unpacked_bytes: Option<u64>,
+    /// Platforms to vendor Python dependencies for, `<arch>-<os>`
+    /// (`--python-platform`). Empty = not forwarded.
+    pub python_platforms: Vec<String>,
+    /// Python version to vendor for, `major.minor` (`--python-version`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_version: Option<String>,
+    /// Package index of the wheels (`CLOACINA_COMPILER_PYTHON_INDEX_URL`,
+    /// given to the compiler as an env var).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_index_url: Option<String>,
+    /// A folder of wheel files (`--python-wheel-dir`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_wheel_dir: Option<String>,
+    /// The cache folder of `uv` (`--python-uv-cache-dir`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_uv_cache_dir: Option<String>,
+    /// `true`: vendor with no network (`--python-offline`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_offline: Option<bool>,
+    /// The `uv` program (`--uv`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv: Option<String>,
 }
 
 impl Default for CompilerSection {
     fn default() -> Self {
         Self {
             local_addr: "127.0.0.1:9000".to_string(),
+            max_unpacked_bytes: None,
+            python_platforms: Vec::new(),
+            python_version: None,
+            python_index_url: None,
+            python_wheel_dir: None,
+            python_uv_cache_dir: None,
+            python_offline: None,
+            uv: None,
         }
     }
 }
@@ -189,6 +228,68 @@ pub struct ServerSection {
     /// (`--task-log-url-template`, CLOACINA-T-1024).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_log_url_template: Option<String>,
+
+    // CLOACINA-T-1106: the other flags of `cloacina-server`. Each key is
+    // forwarded as the flag of the same name.
+    /// Trusted organization id (UUID) of the server
+    /// (`--verification-org-id`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_org_id: Option<String>,
+    /// Seconds between reconciler passes (`--reconcile-interval-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reconcile_interval_s: Option<u64>,
+    /// Warning limit on per-tenant runners (`--tenant-runner-cache-size`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_runner_cache_size: Option<usize>,
+    /// Seconds a tenant delete waits for running workflows
+    /// (`--tenant-deletion-drain-timeout-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_deletion_drain_timeout_s: Option<u64>,
+    /// Number of daily log files to keep; `0` keeps them all
+    /// (`--log-retention-days`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_retention_days: Option<u64>,
+    /// `text` or `json` (`--log-format`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_format: Option<String>,
+    /// Heartbeat interval of fleet agents, seconds
+    /// (`--agent-heartbeat-interval-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_heartbeat_interval_s: Option<u32>,
+    /// Missed heartbeats before an agent is dead (`--agent-liveness-misses`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_liveness_misses: Option<u32>,
+    /// Seconds a fleet task waits per attempt for its package artifact
+    /// (`--fleet-artifact-fetch-wait-s`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_artifact_fetch_wait_s: Option<u64>,
+    /// Where an agent runs a graph firing: `inline` or `worker`
+    /// (`--fleet-graph-firings`, CLOACINA-T-1125).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_graph_firings: Option<String>,
+    /// Warning size of a task context, bytes; `0` = off
+    /// (`--context-warn-bytes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_warn_bytes: Option<u64>,
+    /// Largest size of a task context, bytes; `0` = no limit
+    /// (`--context-max-bytes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_max_bytes: Option<u64>,
+    /// CORS allowed origins (`--cors-allowed-origins`). Empty = not forwarded.
+    pub cors_allowed_origins: Vec<String>,
+    /// CORS allowed methods (`--cors-allowed-methods`). Empty = not forwarded.
+    pub cors_allowed_methods: Vec<String>,
+    /// CORS allowed request headers (`--cors-allowed-headers`). Empty = not
+    /// forwarded.
+    pub cors_allowed_headers: Vec<String>,
+    /// The largest package archive an upload accepts, bytes
+    /// (`--max-package-bytes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_package_bytes: Option<u64>,
+    /// The largest size a package archive may unpack to, bytes
+    /// (`--max-unpacked-bytes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unpacked_bytes: Option<u64>,
 }
 
 impl Default for ServerSection {
@@ -207,6 +308,23 @@ impl Default for ServerSection {
             alert_webhook_max_attempts: None,
             public_base_url: None,
             task_log_url_template: None,
+            verification_org_id: None,
+            reconcile_interval_s: None,
+            tenant_runner_cache_size: None,
+            tenant_deletion_drain_timeout_s: None,
+            log_retention_days: None,
+            log_format: None,
+            agent_heartbeat_interval_s: None,
+            agent_liveness_misses: None,
+            fleet_artifact_fetch_wait_s: None,
+            fleet_graph_firings: None,
+            context_warn_bytes: None,
+            context_max_bytes: None,
+            cors_allowed_origins: Vec::new(),
+            cors_allowed_methods: Vec::new(),
+            cors_allowed_headers: Vec::new(),
+            max_package_bytes: None,
+            max_unpacked_bytes: None,
         }
     }
 }

@@ -81,6 +81,81 @@ pub fn generate_signing_keypair() -> GeneratedKeypair {
     }
 }
 
+/// The 32-byte Ed25519 public key that belongs to a 32-byte private key seed.
+///
+/// # Errors
+///
+/// Returns `SigningError` if the private key is not 32 bytes.
+pub fn public_key_of(private_key: &[u8]) -> Result<Vec<u8>, SigningError> {
+    let key_bytes: [u8; 32] = private_key
+        .try_into()
+        .map_err(|_| SigningError::InvalidPrivateKeyLength(private_key.len()))?;
+    Ok(SigningKey::from_bytes(&key_bytes)
+        .verifying_key()
+        .to_bytes()
+        .to_vec())
+}
+
+/// PEM tag of a PKCS#8 private key.
+const PRIVATE_KEY_PEM_TAG: &str = "PRIVATE KEY";
+
+/// ASN.1 DER prefix of an Ed25519 private key in PKCS#8 (RFC 8410), version 1
+/// with no attributes: what `openssl genpkey -algorithm ed25519` writes. The
+/// 32-byte seed follows it.
+const ED25519_PKCS8_PREFIX: [u8; 16] = [
+    0x30, 0x2e, // SEQUENCE, 46 bytes
+    0x02, 0x01, 0x00, // INTEGER 0 (version)
+    0x30, 0x05, // SEQUENCE, 5 bytes (algorithm identifier)
+    0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
+    0x04, 0x22, // OCTET STRING, 34 bytes
+    0x04, 0x20, // OCTET STRING, 32 bytes (the seed)
+];
+
+/// Decodes an Ed25519 private key in PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`)
+/// to its 32-byte seed.
+///
+/// # Errors
+///
+/// Returns `SigningError::KeyCreationFailed` for text that is no PEM, a PEM
+/// with another tag (an encrypted key, a public key), or a key that is not
+/// Ed25519. The message never holds key material.
+pub fn decode_private_key_pem(pem_str: &str) -> Result<Vec<u8>, SigningError> {
+    let pem = pem::parse(pem_str)
+        .map_err(|_| SigningError::KeyCreationFailed("the file is not a PEM file".to_string()))?;
+    if pem.tag() != PRIVATE_KEY_PEM_TAG {
+        return Err(SigningError::KeyCreationFailed(format!(
+            "expected a PEM block '{}', got '{}'",
+            PRIVATE_KEY_PEM_TAG,
+            pem.tag()
+        )));
+    }
+    let der = pem.contents();
+    if der.len() != ED25519_PKCS8_PREFIX.len() + 32
+        || der[..ED25519_PKCS8_PREFIX.len()] != ED25519_PKCS8_PREFIX
+    {
+        return Err(SigningError::KeyCreationFailed(
+            "the key is not an unencrypted Ed25519 private key in PKCS#8".to_string(),
+        ));
+    }
+    Ok(der[ED25519_PKCS8_PREFIX.len()..].to_vec())
+}
+
+/// Encodes a 32-byte Ed25519 private key seed as PKCS#8 PEM, the form
+/// [`decode_private_key_pem`] reads.
+///
+/// # Errors
+///
+/// Returns `SigningError` if the private key is not 32 bytes.
+pub fn encode_private_key_pem(private_key: &[u8]) -> Result<String, SigningError> {
+    if private_key.len() != 32 {
+        return Err(SigningError::InvalidPrivateKeyLength(private_key.len()));
+    }
+    let mut der = Vec::with_capacity(ED25519_PKCS8_PREFIX.len() + 32);
+    der.extend_from_slice(&ED25519_PKCS8_PREFIX);
+    der.extend_from_slice(private_key);
+    Ok(pem::encode(&pem::Pem::new(PRIVATE_KEY_PEM_TAG, der)))
+}
+
 /// Computes the SHA256 hex fingerprint of a public key.
 ///
 /// # Arguments
@@ -239,6 +314,35 @@ mod tests {
         // Verify with tampered data should fail
         let result = verify_signature(tampered_hash, &signature, &keypair.public_key);
         assert!(matches!(result, Err(SigningError::VerificationFailed)));
+    }
+
+    /// CLOACINA-T-1062: the key file of `cloacinactl package pack --sign`.
+    #[test]
+    fn test_private_key_pem_round_trip_and_public_key() {
+        let keypair = generate_signing_keypair();
+        let pem = encode_private_key_pem(&keypair.private_key).unwrap();
+        assert!(pem.starts_with("-----BEGIN PRIVATE KEY-----"));
+        let seed = decode_private_key_pem(&pem).unwrap();
+        assert_eq!(seed, keypair.private_key);
+        assert_eq!(public_key_of(&seed).unwrap(), keypair.public_key);
+    }
+
+    #[test]
+    fn test_decode_private_key_pem_refuses_other_input() {
+        let keypair = generate_signing_keypair();
+        // Not PEM.
+        assert!(decode_private_key_pem("not a pem").is_err());
+        // A public key block.
+        let public = pem::encode(&pem::Pem::new("PUBLIC KEY", keypair.public_key.clone()));
+        assert!(decode_private_key_pem(&public).is_err());
+        // The right tag, the wrong content.
+        let short = pem::encode(&pem::Pem::new("PRIVATE KEY", vec![0u8; 20]));
+        let err = decode_private_key_pem(&short).unwrap_err().to_string();
+        assert!(err.contains("Ed25519"), "{err}");
+        // No key material in the message.
+        assert!(!err.contains(&hex::encode(&keypair.private_key)));
+        assert!(public_key_of(&[0u8; 5]).is_err());
+        assert!(encode_private_key_pem(&[0u8; 5]).is_err());
     }
 
     #[test]

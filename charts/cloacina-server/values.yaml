@@ -47,8 +47,11 @@ affinity: {}
 #     did not dispatch the task stores the result in Postgres and the replica
 #     that waits for it takes it (CLOACINA-T-1015). No session affinity is
 #     needed on the Service.
-# A replica that stops loses the result waits it held; those tasks run again
-# (tasks on the fleet must be safe to run twice).
+#   - when a replica stops, another replica takes over the result waits it
+#     held, so a task on an agent finishes once across a restart or a rolling
+#     upgrade (CLOACINA-T-1084).
+# Tasks on the fleet must still be safe to run twice: a dispatch with no
+# report to come runs again.
 # A PodDisruptionBudget keeps a minimum available during voluntary disruptions
 # (node drains, rolling updates).
 #
@@ -180,6 +183,23 @@ context:
   maxBytes: 16777216
 
 # ---------------------------------------------------------------------------
+# Package size limits (CLOACINA-T-1048, CLOACINA-T-1106)
+#
+# The defaults are the server's own. A Python package carries its vendored
+# dependencies, one folder per platform: a heavy set can need more.
+# ---------------------------------------------------------------------------
+packages:
+  # The largest package archive, in bytes, that an upload accepts; a larger
+  # upload gets status 413 (CLOACINA_MAX_PACKAGE_BYTES). Default 100 MiB.
+  maxPackageBytes: 104857600
+  # The largest size, in bytes, that a package archive may unpack to
+  # (CLOACINA_MAX_UNPACKED_BYTES). Default 500 MiB. Set on the server and on
+  # the chart's compiler; the server passes it on to the agents its fleet
+  # actuator starts. Agents installed apart from this chart need the same
+  # value.
+  maxUnpackedBytes: 524288000
+
+# ---------------------------------------------------------------------------
 # Fleet actuator (CLOACI-I-0127 / T-0814)
 #
 # The server can auto-scale a per-tenant pool of cloacina-agent workloads.
@@ -207,6 +227,23 @@ fleet:
   # because agents run in per-tenant namespaces (cloacina-tenant-<t>), from which
   # the short Service name does not resolve.
   agentServerUrl: ""
+
+  # Format of the log lines of the agents the actuator starts: `text` or
+  # `json` (CLOACINA_AGENT_LOG_FORMAT). The server sets the same variable on
+  # each agent pod. `text` renders nothing and leaves the agent pods as they
+  # are; a change to `json` rolls them. Another value stops the server at
+  # start. The server's own format is `server.logFormat`.
+  agentLogFormat: text
+
+  # Where an execution agent runs a computation-graph firing
+  # (CLOACINA_FLEET_GRAPH_FIRINGS, CLOACINA-T-1125). Applies with every
+  # actuator, hand-started agents too.
+  #   inline - in the agent process (the default): no worker start per
+  #            firing, and no memory limit, kill or cancel
+  #   worker - in a worker process, with the limits, time limit and cancel
+  #            of a task; each firing pays a process start and a package load
+  # Any other value stops the server at start.
+  graphFirings: inline
 
   # ServiceAccount the server runs as when the actuator is enabled. The chart
   # creates it (and the RBAC below) only when actuator=kubernetes.
@@ -240,12 +277,15 @@ fleet:
     dnsNamespace: kube-system
 
   # A compiler per tenant (CLOACINA-T-1034). Used only with
-  # actuator=kubernetes. The chart's own compiler (`compiler.*` below) serves
-  # the `public` schema. For every other tenant the server runs one
-  # `cloacina-compiler` Deployment in the tenant's namespace, with
-  # `--tenant-schema <tenant>`: it starts it when the tenant's build queue has
-  # a package, and scales it to 0 when the queue has been empty for
-  # `cooldownSeconds`. A tenant that never publishes a package gets none.
+  # actuator=kubernetes. For every tenant, `public` included, the server runs
+  # one `cloacina-compiler` Deployment in the tenant's namespace
+  # (`cloacina-tenant-<tenant>`), with `--tenant-schema <tenant>`: it starts
+  # it when the tenant's build queue has a package, and scales it to 0 when
+  # the queue has been empty for `cooldownSeconds`. A tenant that never
+  # publishes a package gets none. Each compiler connects with its tenant's
+  # build role, with a password the server sets at each start
+  # (CLOACINA-T-1063). With this on, the chart's own compiler (`compiler.*`
+  # below) is not rendered.
   compiler:
     enabled: true
     image:
@@ -264,7 +304,9 @@ fleet:
     vendorDir: ""
     # `--dev-workspace`: a cloacina workspace inside the image. Development only.
     devWorkspace: ""
-    # `--cargo-target-dir`. A hardened pod mounts an emptyDir here.
+    # `--cargo-target-dir`. A hardened pod with cacheClaim off mounts an
+    # emptyDir here; with the claim the target directory is
+    # /var/cloacina/cache/target, on the claim.
     targetDir: /workspace/target
     # `--build-timeout-s`. 0: the compiler's default (600).
     buildTimeoutSeconds: 0
@@ -273,7 +315,8 @@ fleet:
     # scaled to 0.
     cooldownSeconds: 300
     # Size limit of each of the two cache volumes (cargo home, target
-    # directory). They are emptyDirs: a compiler that starts has empty caches.
+    # directory), when cacheClaim is off. They are emptyDirs then: a compiler
+    # that starts has empty caches.
     cacheSize: 8Gi
     # Pod hardening: not root (uid 10001), read-only root filesystem, no
     # capabilities, the writable paths on emptyDir volumes. false runs the
@@ -309,6 +352,63 @@ fleet:
     # CIDRs of the database. Empty: the database port of the URL is allowed
     # to every destination.
     databaseCidrs: []
+    # Size limit of the home emptyDir of a hardened compiler pod. The build
+    # folder is there, with the Python vendoring folders of a build: about
+    # 0.75 GiB at the peak of a build of a heavy set (286 MiB unpacked) for
+    # two platforms.
+    homeSize: 4Gi
+    # A PersistentVolumeClaim per tenant compiler (CLOACINA-T-1117), in the
+    # tenant's namespace: it holds the cargo home, the target directory and
+    # the uv cache, so a compiler that starts from 0 replicas finds the caches
+    # of its last run. Made at the first start; kept when the compiler is
+    # scaled to 0; deleted with the tenant. Hardened pods only. A claim that
+    # exists is not changed: a new size or class applies to a new claim.
+    # enabled=false puts the three caches back on emptyDirs (cacheSize,
+    # python.cacheSize).
+    cacheClaim:
+      enabled: true
+      # The sum of the emptyDir limits it replaces: 8Gi cargo home, 8Gi target
+      # directory, 4Gi uv cache. Nothing prunes the claim: the target
+      # directory grows with the builds.
+      size: 20Gi
+      # Empty: no storageClassName, the cluster's default storage class.
+      storageClass: ""
+    # Python packages (CLOACINA-T-1117): the settings of the tenant
+    # compilers, as `compiler.python.*` are those of the chart's own compiler.
+    # The image (`image`, or `compiler.image`) must hold uv and python3; the
+    # image of docker/Dockerfile.compiler does. With cacheClaim the uv cache
+    # is kept between starts; without it each start from 0 replicas
+    # downloads every wheel again.
+    python:
+      # Platforms to vendor for, as <arch>-<os>. Empty: the compiler's
+      # default, aarch64-linux and x86_64-linux.
+      platforms: []
+      # The Python the wheels are for (major.minor). Empty: 3.11.
+      version: ""
+      # The package index. Empty: PyPI. The server puts it in the Secret
+      # cloacina-compiler-db of each tenant namespace, never in the pod spec.
+      # An index inside the cluster has a private address: add its CIDR to
+      # egressCidrs. For a URL with a password use indexUrlSecretRef.
+      indexUrl: ""
+      # An existing Secret in the release namespace that holds the index
+      # URL; used in place of indexUrl.
+      indexUrlSecretRef:
+        name: ""
+        key: index-url
+      # A folder of wheel files in the image: one more place to find wheels,
+      # next to the index. With offline=true it is the only source.
+      wheelDir: ""
+      # No network for Python builds. With hardened=true it needs wheelDir
+      # (the uv cache is empty at each start), and egress=none fits it.
+      offline: false
+      # The cache folder of uv. Empty: in a hardened pod /var/cloacina/cache/uv
+      # on the cache claim, or its own emptyDir at /var/cloacina/uv-cache with
+      # the claim off; else uv's default. Another folder must be writable: in
+      # a hardened pod only the volumes are.
+      uvCacheDir: ""
+      # Size limit of the uv cache emptyDir of a hardened pod, when cacheClaim
+      # is off. With the claim the cache is a folder of the claim.
+      cacheSize: 4Gi
 
 # ---------------------------------------------------------------------------
 # Service
@@ -372,6 +472,10 @@ fleetTaskTimeLimits:
   # Longest time limit (seconds) a task can get; a task that asks for more
   # gets this value. CLOACINA_FLEET_TASK_TIMEOUT_MAX_S.
   maxSeconds: 86400
+  # How long (seconds) a task waits, per attempt, while agents cannot fetch
+  # its package artifact; then the attempt fails. 0: the first failed fetch
+  # fails the attempt. CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S.
+  artifactFetchWaitSeconds: 300
 
 # ---------------------------------------------------------------------------
 # Alert webhook (CLOACINA-T-1024)
@@ -485,11 +589,12 @@ podLabels: {}
 # ---------------------------------------------------------------------------
 # Compiler (CLOACI-I-0111)
 #
-# The cloacina-compiler builds uploaded Rust packages. Enable it to compile
-# packages in-cluster; without it, uploaded Rust packages stay `pending`.
-# Tenant-level isolation is the security boundary (run one compiler per
-# tenant via --tenant-schema); the per-build process sandbox was excised
-# 2026-07-11 and may return as an optional layer later.
+# The chart's own cloacina-compiler builds the packages of the `public`
+# schema, with the database URL the chart is given (the single-trust
+# install). It is rendered only when the fleet compilers are off
+# (`fleet.actuator` is not kubernetes, or `fleet.compiler.enabled` is false);
+# with them on, the server runs `public`'s compiler like every tenant's
+# (CLOACINA-T-1063).
 # ---------------------------------------------------------------------------
 compiler:
   enabled: false

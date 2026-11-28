@@ -177,11 +177,12 @@ Every workflow run writes rows that stay after it finishes: one
 started it, and per task one `task_executions` row, one
 `task_execution_metadata` row and one `contexts` row with the full context
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
-row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
+row. A run of a packaged workflow adds one `workflow_execution_package_pins`
+row per package, the version it runs on. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
-| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions and any event push still waiting in `delivery_outbox`. `0` = off. |
+| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
@@ -232,6 +233,8 @@ upgrade like this:
 1. **Back up the database first.** Run a fresh backup ([Back Up and Restore](../backup-and-restore/)) so you can roll back if a migration misbehaves.
 2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.12.0`), never `:latest`, so the rollout is reproducible.
 3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed. The start migrates the `public` schema and then the schema of each tenant, one after the other. A new tenant's schema gets its migrations when the tenant is created. The pending migrations of one schema run in one transaction under a PostgreSQL advisory lock: replicas that start together run them once (the others wait, then find nothing to do), and a migration that fails rolls back all of that schema's pending migrations and leaves the schema as it was. If a tenant's schema fails, the server goes on to the other tenants, logs each failure with the tenant's name, and then exits with an error that names every tenant that failed; the schemas that did migrate stay migrated. Fix the named schema and start the server again. A tenant schema with nothing pending costs one short transaction at start.
+
+   A tenant schema is migrated at three moments: when the tenant is created, at each server start, and when a replica first opens the tenant (before it makes the tenant's runner or serves a route of the tenant). The third covers a tenant created through an older replica during a rolling upgrade: the newer replica brings it to its own level when it first opens it. If that migration fails, the replica logs the tenant's name, makes no runner for it, and answers `500 internal_error` for its routes; it tries again at the next request and at the next runner pass (every 30 seconds).
 4. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
 
 **Downtime note:** a single-replica server has a brief gap between stop and ready.

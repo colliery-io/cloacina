@@ -34,6 +34,41 @@ pub mod kubernetes;
 pub mod settings;
 
 use async_trait::async_trait;
+use cloacina::task_logs::LogFormat;
+
+/// The server setting for the log format of the agents the actuator starts
+/// (CLOACINA-T-1101). It is also the name of the variable an agent reads, and
+/// the actuator sets it on each agent it starts.
+pub const AGENT_LOG_FORMAT_ENV: &str = "CLOACINA_AGENT_LOG_FORMAT";
+
+/// The log format of the agents the actuator starts, from the server's
+/// environment ([`AGENT_LOG_FORMAT_ENV`]): `text` or `json`. Not set, or
+/// empty: `text`. Another value is an error: the server must not start with
+/// it.
+pub fn agent_log_format_from_env() -> Result<LogFormat, String> {
+    agent_log_format_from(std::env::var(AGENT_LOG_FORMAT_ENV).ok().as_deref())
+}
+
+/// [`agent_log_format_from_env`] over a given value, so tests need no process
+/// environment.
+pub fn agent_log_format_from(raw: Option<&str>) -> Result<LogFormat, String> {
+    match raw.map(str::trim).filter(|v| !v.is_empty()) {
+        None => Ok(LogFormat::default()),
+        Some(value) => value
+            .parse::<LogFormat>()
+            .map_err(|e| format!("{AGENT_LOG_FORMAT_ENV}: {e}")),
+    }
+}
+
+/// The value of [`AGENT_LOG_FORMAT_ENV`] for an agent the actuator starts.
+/// `None` for `text`, the agent's own default: the environment of the agent
+/// is then as it was before the setting, and an upgrade rolls no pod.
+pub fn agent_log_format_env_value(format: LogFormat) -> Option<&'static str> {
+    match format {
+        LogFormat::Text => None,
+        LogFormat::Json => Some("json"),
+    }
+}
 
 /// What a single [`FleetActuator::reconcile`] pass did for one tenant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -95,6 +130,15 @@ pub trait FleetActuator: Send + Sync {
     /// the objects that belong to the pool alone). The caller has checked that
     /// the pool has no agents. Idempotent; never called for `default`.
     async fn remove_pool(&self, _tenant_id: &str, _pool: &str) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+
+    /// Remove every agent the actuator made for a tenant, in each pool, and
+    /// the objects that hold its agent key (CLOACINA-T-1095). Called when the
+    /// tenant is removed, before its pool rows are deleted. Idempotent: a
+    /// second call, or a call for a tenant with no agents, succeeds and makes
+    /// nothing. The default does nothing: an actuator that runs no agents.
+    async fn remove_agents(&self, _tenant_id: &str) -> Result<(), ActuatorError> {
         Ok(())
     }
 
@@ -183,6 +227,32 @@ impl FleetActuator for NoopActuator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_agent_log_format_is_text_unless_json_is_set() {
+        assert_eq!(agent_log_format_from(None), Ok(LogFormat::Text));
+        assert_eq!(agent_log_format_from(Some("")), Ok(LogFormat::Text));
+        assert_eq!(agent_log_format_from(Some("  ")), Ok(LogFormat::Text));
+        assert_eq!(agent_log_format_from(Some("text")), Ok(LogFormat::Text));
+        assert_eq!(agent_log_format_from(Some("json")), Ok(LogFormat::Json));
+        assert_eq!(agent_log_format_from(Some(" JSON ")), Ok(LogFormat::Json));
+    }
+
+    /// The server stops at start on this error: it names the setting.
+    #[test]
+    fn an_agent_log_format_that_is_not_text_or_json_is_an_error() {
+        for bad in ["yaml", "true", "text,json"] {
+            let err = agent_log_format_from(Some(bad)).unwrap_err();
+            assert!(err.starts_with("CLOACINA_AGENT_LOG_FORMAT: "), "{err}");
+            assert!(err.contains("`text` or `json`"), "{err}");
+        }
+    }
+
+    #[test]
+    fn the_agent_gets_the_variable_only_for_json() {
+        assert_eq!(agent_log_format_env_value(LogFormat::Text), None);
+        assert_eq!(agent_log_format_env_value(LogFormat::Json), Some("json"));
+    }
 
     #[test]
     fn delta_spawns_when_under_desired() {

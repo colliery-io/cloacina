@@ -255,6 +255,19 @@ impl Workflow {
         self.metadata.description = Some(description.to_string());
     }
 
+    /// Set the workflow's priority: 0 (the highest) to 10 (CLOACINA-T-1045).
+    /// A value above 10 is held to 10. Every task of an execution takes it,
+    /// unless the task declares its own.
+    pub fn set_priority(&mut self, priority: u8) {
+        self.metadata.priority = Some(priority.min(cloacina_api_types::LOWEST_PRIORITY));
+    }
+
+    /// The workflow's declared priority. `None` when it declares none: the
+    /// default priority, 5, applies.
+    pub fn priority(&self) -> Option<u8> {
+        self.metadata.priority
+    }
+
     /// Add a metadata tag
     ///
     /// # Arguments
@@ -873,6 +886,12 @@ impl Workflow {
         let mut tags: Vec<_> = self.metadata.tags.iter().collect();
         tags.sort_by_key(|(k, _)| *k);
         tags.hash(hasher);
+
+        // CLOACINA-T-1045: a declared priority is part of the version. A
+        // workflow that declares none hashes as before.
+        if let Some(priority) = self.metadata.priority {
+            ("priority", priority).hash(hasher);
+        }
     }
 
     fn get_task_code_hash(&self, task_namespace: &TaskNamespace) -> Option<String> {

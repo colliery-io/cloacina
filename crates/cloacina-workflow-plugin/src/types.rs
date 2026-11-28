@@ -93,17 +93,30 @@ pub struct TaskMetadataEntry {
     /// CLOACINA-T-1028; nothing acts on it yet.
     #[serde(default)]
     pub inline: bool,
+    /// CLOACINA-T-1045: the task's own priority, from
+    /// `#[task(priority = 2)]`: 0 (the highest) to 10. `None` means the task
+    /// takes the priority of its workflow.
+    #[serde(default)]
+    pub priority: Option<u8>,
+    /// CLOACINA-T-1045: the priority of the task's workflow, from
+    /// `#[workflow(priority = 2)]`. Each task entry carries it, so the host
+    /// knows the workflow's priority from the tasks it loads. `None` means
+    /// the default priority, 5.
+    #[serde(default)]
+    pub workflow_priority: Option<u8>,
 }
 
 impl TaskMetadataEntry {
     /// The task's placement (CLOACINA-T-1027): pool, requests and the inline
-    /// mark, as one value.
+    /// mark, as one value; and its priority (CLOACINA-T-1045).
     pub fn placement(&self) -> cloacina_workflow::TaskPlacement {
         cloacina_workflow::TaskPlacement {
             pool: self.pool.clone(),
             cpu: self.cpu.clone(),
             memory: self.memory.clone(),
             inline: self.inline,
+            priority: self.priority,
+            workflow_priority: self.workflow_priority,
         }
     }
 }
@@ -647,6 +660,8 @@ mod tests {
             cpu: Some("4".to_string()),
             memory: Some("32Gi".to_string()),
             inline: true,
+            priority: Some(2),
+            workflow_priority: Some(7),
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -664,6 +679,11 @@ mod tests {
         assert_eq!(placement.pool_name(), "large");
         assert_eq!(placement.cpu_millis(), Some(4000));
         assert_eq!(placement.memory_bytes(), Some(32 << 30));
+        // CLOACINA-T-1045: the task's priority and its workflow's.
+        assert_eq!(roundtrip.priority, Some(2));
+        assert_eq!(roundtrip.workflow_priority, Some(7));
+        assert_eq!(placement.priority, Some(2));
+        assert_eq!(placement.workflow_priority, Some(7));
     }
 
     // CLOACINA-T-1027: metadata written before the placement fields existed
@@ -673,6 +693,11 @@ mod tests {
         let json = r#"{"index":0,"id":"t","namespaced_id_template":"x","dependencies":[],
             "description":"d","source_location":"s"}"#;
         let entry: TaskMetadataEntry = serde_json::from_str(json).unwrap();
+        // CLOACINA-T-1045: a package built before priorities declares none:
+        // the task takes its workflow's priority, and the workflow has the
+        // default.
+        assert_eq!(entry.priority, None);
+        assert_eq!(entry.workflow_priority, None);
         assert_eq!(entry.pool, None);
         assert_eq!(entry.cpu, None);
         assert_eq!(entry.memory, None);
@@ -704,6 +729,8 @@ mod tests {
                 cpu: None,
                 memory: None,
                 inline: false,
+                priority: None,
+                workflow_priority: None,
             }],
             triggers: Vec::new(),
         };

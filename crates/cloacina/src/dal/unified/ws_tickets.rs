@@ -139,6 +139,18 @@ impl<'a> WsTicketDAL<'a> {
         })
         .map_err(ValidationError::from)
     }
+
+    /// Delete every ticket of `tenant_id`, redeemed or not. A ticket carries
+    /// the key it was issued for, so tenant removal deletes them with the
+    /// revoke of the keys (CLOACINA-T-1095). Returns the count.
+    pub async fn delete_for_tenant(&self, tenant_id: &str) -> Result<usize, ValidationError> {
+        let tenant = tenant_id.to_string();
+        crate::interact_on_backend!(self.dal, |conn| {
+            diesel::delete(ws_tickets::table.filter(ws_tickets::tenant_id.eq(&tenant)))
+                .execute(conn)
+        })
+        .map_err(ValidationError::from)
+    }
 }
 
 #[cfg(test)]

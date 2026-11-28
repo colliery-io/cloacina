@@ -414,6 +414,7 @@ fn filter_from(q: &ListAuditQuery, tenant: Option<String>) -> Result<AuditEventF
         until: parse_time("until", q.until.as_deref())?,
         before_id: q.cursor,
         limit: q.limit,
+        current_tenant_only: false,
     })
 }
 
@@ -471,8 +472,16 @@ pub async fn list_tenant_audit(
     Query(q): Query<ListAuditQuery>,
 ) -> impl IntoResponse {
     // The path names the tenant; the `tenant` query field is not read here.
+    // Only rows of the tenant that exists now: a removed tenant of the same
+    // name left its rows, and `GET /v1/audit` gives them (CLOACINA-T-1095).
     match filter_from(&q, Some(tenant_id)) {
-        Ok(filter) => list_with(&state, filter).await,
+        Ok(filter) => {
+            let filter = AuditEventFilter {
+                current_tenant_only: true,
+                ..filter
+            };
+            list_with(&state, filter).await
+        }
         Err(e) => e.into_response(),
     }
 }

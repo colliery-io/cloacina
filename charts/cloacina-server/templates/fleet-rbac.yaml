@@ -17,7 +17,8 @@
 #     (CLOACINA-T-1034): one Deployment `cloacina-compiler`, one Secret
 #     `cloacina-compiler-db` (the compiler's database URL) and one
 #     NetworkPolicy `cloacina-compiler`. These need no verb that the rules
-#     below do not have already.
+#     below do not have already. Its cache claim `cloacina-compiler-cache`
+#     (CLOACINA-T-1117) has its own rule.
 #
 # NO cluster-admin. NO wildcard ("*") verbs or resources. Every rule below is
 # enumerated and justified.
@@ -57,8 +58,9 @@ rules:
   # Deployment by name, and only after it checked that the pool has no agents.
   # A tenant's deprovision still scales to zero and deletes nothing. No `list`
   # (addressed by name). The tenant's compiler Deployment (CLOACINA-T-1034)
-  # uses the same four: applied, read for its replica count, scaled, and
-  # deleted when the tenant is removed.
+  # uses the same four: applied, read for its replica count and the marker of
+  # its build role password (CLOACINA-T-1063), scaled, and deleted when the
+  # tenant is removed.
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["create", "delete", "get", "patch"]
@@ -92,6 +94,15 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["create", "delete", "patch"]
+  # The cache claim of a tenant's compiler (CLOACINA-T-1117):
+  # `cloacina-compiler-cache` in the tenant's namespace. `get` to see whether
+  # it exists, `create` to make it once (no `patch`: a claim that exists is
+  # never changed), `delete` when the tenant is removed. No `list`, no
+  # `update`. Rendered with the actuator whatever fleet.compiler.cacheClaim
+  # says, so turning the claim on later needs no new grant.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "delete", "get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

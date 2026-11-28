@@ -262,6 +262,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | `fleet.actuator` | `none` | `none` (off) or `kubernetes`. |
 | `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
+| `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |
 | `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |
 | `fleet.serviceAccount.annotations` | `{}` | Annotations on that ServiceAccount (e.g. IRSA / Workload Identity). |
 | `fleet.agentResources` | requests `250m`/`256Mi`, limits `1`/`1Gi` | Resource requests/limits applied to every agent pod (rendered as `CLOACINA_AGENT_*`). |
@@ -305,6 +306,7 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | (core) | `serviceaccounts` | `create`, `patch` | Ensure the ServiceAccount a pool names, with the pool's annotations (server-side apply). No `get`/`list`/`delete`: the ServiceAccount stays when its pool is removed. |
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
 | `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
+| (core) | `persistentvolumeclaims` | `create`, `delete`, `get` | The cache claim `cloacina-compiler-cache` of a tenant's compiler: read to see whether it exists, made once, deleted with the tenant. No `patch`: a claim that exists is never changed. No `list`/`update`. |
 
 The ClusterRole is cluster-wide, so the `serviceaccounts` rule lets the server
 write a ServiceAccount's annotations in any namespace, as the `secrets` rule
@@ -352,10 +354,13 @@ the real tenant-isolation boundary; none of it weakens a server-side check.
 
 ### A compiler per tenant
 
-The chart's own compiler (`compiler.enabled`) serves the `public` schema only.
-With `fleet.actuator=kubernetes` the server also runs one compiler for each
-other tenant (`fleet.compiler.enabled`, default `true`): a Deployment
-`cloacina-compiler` in the tenant's namespace with `--tenant-schema <tenant>`.
+With `fleet.actuator=kubernetes` the server runs one compiler for each
+tenant, `public` included (`fleet.compiler.enabled`, default `true`): a
+Deployment `cloacina-compiler` in the tenant's namespace
+(`cloacina-tenant-public` for `public`) with `--tenant-schema <tenant>`. The
+chart's own compiler (`compiler.enabled`) is then not rendered. It is rendered
+only with the fleet compilers off, for `public`, with the chart's database URL:
+the single-trust install.
 The server creates it when the tenant's build queue first has a package, sets
 it to 0 replicas when the queue has been empty for
 `fleet.compiler.cooldownSeconds`, and deletes it when the tenant is removed. A
@@ -386,26 +391,58 @@ fleet:
 | `fleet.compiler.cacheSize` | `8Gi` | Size limit of each cache volume (cargo home, target directory). |
 | `fleet.compiler.hardened` | `true` | Not root, read-only root filesystem, no capabilities, writable paths on `emptyDir` volumes. |
 | `fleet.compiler.resources` | `500m`/`1Gi` requests, `2`/`4Gi` limits | Requests and limits of the compiler container. |
-| `fleet.compiler.databaseUrlSecretRef` | empty (the server's URL) | A Secret in the release namespace with the database URL of the tenant compilers. |
+| `fleet.compiler.databaseUrlSecretRef` | empty (the server's URL) | A Secret in the release namespace with a URL that says where the tenant compilers reach the database. Its user and password are not used: each compiler connects as its tenant's build role. |
 | `fleet.compiler.egress` | `internet` | Crate egress of the compiler pods: `internet` (TCP 443 to public IPv4 addresses), `all`, or `none`. |
 | `fleet.compiler.egressCidrs` | `[]` | More egress CIDR blocks, every port (a mirror, a git host, a proxy). |
 | `fleet.compiler.databaseCidrs` | `[]` | CIDR blocks of the database; empty allows the database port to every destination. |
+| `fleet.compiler.cacheClaim.enabled` | `true` | A PersistentVolumeClaim `cloacina-compiler-cache` per tenant compiler for its cargo home, target directory and `uv` cache: kept across scale to 0, deleted with the tenant. Hardened pods only. `false`: `emptyDir`s. |
+| `fleet.compiler.cacheClaim.size` | `20Gi` | Requested size of the claim. |
+| `fleet.compiler.cacheClaim.storageClass` | `""` (the cluster's default class) | Storage class of the claim. |
+| `fleet.compiler.homeSize` | `4Gi` | Size limit of the home volume of a hardened pod, where the build folder is. |
+| `fleet.compiler.python.platforms` | `[]` (the compiler's `aarch64-linux`, `x86_64-linux`) | Platforms to vendor Python dependencies for. |
+| `fleet.compiler.python.version` | `""` (the compiler's 3.11) | The Python the wheels are for. |
+| `fleet.compiler.python.indexUrl`, `.indexUrlSecretRef` | `""` (PyPI) | The package index; the server puts it in the Secret `cloacina-compiler-db`. |
+| `fleet.compiler.python.wheelDir` | `""` | A folder of wheels inside the image. |
+| `fleet.compiler.python.offline` | `false` | No network for Python builds; with `hardened` it needs `wheelDir`. |
+| `fleet.compiler.python.uvCacheDir` | `""` (hardened: `/var/cloacina/uv-cache`) | The `uv` cache folder. |
+| `fleet.compiler.python.cacheSize` | `4Gi` | Size limit of the `uv` cache volume of a hardened pod. |
+
+See [Python in the compilers the server makes](../running-the-compiler/#python-in-the-compilers-the-server-makes)
+for the image, the egress each mode needs, the space and the cost of a cold
+start.
 
 What the server writes in a tenant namespace for the compiler:
 
-- the Deployment `cloacina-compiler`;
-- the Secret `cloacina-compiler-db`, with the database URL the pod reads as
-  `DATABASE_URL`;
+- the Deployment `cloacina-compiler`, whose pod template carries the
+  annotation `cloacina.io/build-credential`;
+- the Secret `cloacina-compiler-db`, with the URL of the tenant's build role
+  (`<tenant>$build`) the pod reads as `DATABASE_URL`, and the Python index URL
+  (key `python-index-url`) when one is set. The server sets a new password
+  each time it starts the compiler, writes the Secret only then, and keeps no
+  copy. The role reaches the four build tables of the tenant's schema and
+  nothing else;
+- the PersistentVolumeClaim `cloacina-compiler-cache` (with
+  `fleet.compiler.cacheClaim.enabled` and `hardened`), made once with `create`
+  after a `get`, and deleted with the tenant. This needs the RBAC rule on
+  `persistentvolumeclaims` (`create`, `delete`, `get`) that the chart renders
+  with the actuator;
 - the NetworkPolicy `cloacina-compiler` (when `fleet.networkPolicy.enabled`):
   no ingress; egress to DNS, to the database port, and to where crates come
   from by `fleet.compiler.egress` and `fleet.compiler.egressCidrs`.
 
 These need no RBAC verb beyond the table above. The server has no `delete` on
 Secrets, so when a tenant is removed it writes an empty value over
-`cloacina-compiler-db`.
+`cloacina-compiler-db`. It does so with a patch, on each call of the tenant
+delete: a Secret that exists is emptied whatever is left of the Deployment,
+and no Secret is made for a tenant that has none.
 
 The cache volumes are `emptyDir`s: each start of a tenant's compiler is a cold
 start, and its first build downloads and compiles every dependency.
+
+With the cache claim (the default) the cargo home, the target directory and
+the `uv` cache are on the claim instead, and are kept when the compiler is
+scaled to 0: only the first start of a tenant's compiler, or a start on a new
+claim, is cold.
 
 With `postgresql.enabled` the chart gives the tenant compilers the bundled
 database by its full Service name. With `database.url` or
@@ -481,6 +518,8 @@ Pods that start together run the migrations once: they run under a
 PostgreSQL advisory lock, and a pod that waited for the lock finds
 nothing left to do. If a tenant schema cannot be migrated, the new pod
 logs the tenant's name and exits, and the existing pod keeps serving.
+A tenant created through the old pod while the new pod runs is migrated
+by the new pod when it first opens that tenant.
 
 ## Uninstall
 

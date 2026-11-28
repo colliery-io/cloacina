@@ -105,6 +105,17 @@ impl WorkflowBuilder {
         self
     }
 
+    /// The workflow priority set on the builder, if any.
+    pub fn get_priority(&self) -> Option<u8> {
+        self.workflow.priority()
+    }
+
+    /// Set the workflow priority: 0 (the highest) to 10 (CLOACINA-T-1045).
+    pub fn priority(mut self, priority: u8) -> Self {
+        self.workflow.set_priority(priority);
+        self
+    }
+
     /// Set the workflow tenant
     pub fn tenant(mut self, tenant: &str) -> Self {
         self.workflow.tenant = tenant.to_string();

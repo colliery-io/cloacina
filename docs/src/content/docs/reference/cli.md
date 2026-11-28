@@ -197,6 +197,17 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--alert-webhook-timeout-s <N>]
                         [--alert-webhook-max-attempts <N>]
                         [--public-base-url <URL>]
+                        [--log-format <text|json>]
+                        [--agent-heartbeat-interval-s <N>]
+                        [--agent-liveness-misses <N>]
+                        [--fleet-artifact-fetch-wait-s <N>]
+                        [--context-warn-bytes <N>]
+                        [--context-max-bytes <N>]
+                        [--cors-allowed-origins <LIST>]
+                        [--cors-allowed-methods <LIST>]
+                        [--cors-allowed-headers <LIST>]
+                        [--max-package-bytes <N>]
+                        [--max-unpacked-bytes <N>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -212,6 +223,9 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
 | `--tenant-runner-cache-size <N>` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` | Warning limit on per-tenant `DefaultRunner` instances. Every tenant has a runner from server start until the tenant is deleted; none is stopped at the limit. Above it the server logs a warning. Each tenant uses up to 2 database connections on each replica. CLOACI-T-0580, CLOACINA-T-1031. |
 | `--tenant-deletion-drain-timeout-s <N>` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` | Max seconds to wait for in-flight workflows to drain during tenant teardown (step 2 of the 4-step orchestration). Past this, the runner is hard-evicted; any task that ignored cooperative cancellation errors on its next DB write once the schema is dropped. CLOACI-T-0581. |
 | `--log-retention-days <N>` | | `14` | Number of daily-rotated log files to retain. `0` disables pruning entirely. Log files only: database rows are covered by the retention settings below. CLOACI-I-0109 / T-0592. |
+| `--cors-allowed-origins <LIST>` | `CLOACINA_CORS_ALLOWED_ORIGINS` | (none: CORS off) | Comma-separated origins allowed by CORS; `*` allows any. CORS is off until set. |
+| `--cors-allowed-methods <LIST>` | `CLOACINA_CORS_ALLOWED_METHODS` | `GET,POST,DELETE,OPTIONS` | Comma-separated methods allowed by CORS, once origins are set. |
+| `--cors-allowed-headers <LIST>` | `CLOACINA_CORS_ALLOWED_HEADERS` | `authorization,content-type` | Comma-separated request headers allowed by CORS, once origins are set. |
 
 This subcommand was renamed from `serve` in an earlier release; older
 docs may still mention the old name.
@@ -225,26 +239,30 @@ Retention of run history in the database has three settings:
 See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
 
-`server start` takes `--database-wait-timeout-s`, the retention settings, the
-[fleet time limits](#fleet-agent-liveness-cloacina-server), the
-[alert webhook settings](#alert-webhook-cloacina-server) and
-`--task-log-url-template` in three ways: a
-flag, the env var of the setting, or a key of `[server]` in `config.toml`
-with the flag's name in snake case (for example
-`fleet_task_timeout_s = 600`). The order is flag, env var, `config.toml`.
-A setting that none of them gives is not forwarded, and the server uses its
-own default. The alert webhook URL goes to the server as the env var
-`CLOACINA_ALERT_WEBHOOK_URL`, not as an argument. The signing secret
-`CLOACINA_ALERT_WEBHOOK_SECRET` is an env var only; the server inherits it.
+`server start` has every flag of `cloacina-server`. Each setting below
+`--default-executor` in the tables of this section (from
+`--verification-org-id` and `--reconcile-interval-s` to
+`--max-unpacked-bytes`) is taken in three ways: a flag, the env var of the
+setting, or a key of `[server]` in `config.toml` with the flag's name in
+snake case (for example `fleet_task_timeout_s = 600`,
+`cors_allowed_origins = ["https://ops.example.com"]`). The order is flag, env
+var, `config.toml`. A setting that none of them gives is not forwarded, and
+the server uses its own default. `--reconcile-interval-s` and
+`--log-retention-days` have no env var. The alert webhook URL goes to the
+server as the env var `CLOACINA_ALERT_WEBHOOK_URL`, not as an argument. The
+signing secret `CLOACINA_ALERT_WEBHOOK_SECRET` is an env var only; the server
+inherits it. A test of `cloacinactl` compares the flags of `server start`
+with those of `cloacina-server`.
 
 `server start` **execs the `cloacina-server` binary from `PATH`**
 (after writing `<home>/server.pid`). The install script installs only
 `cloacinactl` — if `cloacina-server` is not separately installed
 (container image or cargo), `server start` fails with "failed to exec
-cloacina-server". The wrapper resolves `database_url` and the keys of
-`[server]` from `config.toml` and forwards them; other runtime-tuning
-knobs are not surfaced through the wrapper — if you need to tune them,
-invoke `cloacina-server` directly.
+cloacina-server". The wrapper resolves `database_url`, `default_executor`
+and the other keys of `[server]` from `config.toml` and forwards them.
+Env vars that are not flags of the server (for example
+`CLOACINA_FLEET_ACTUATOR`) reach it because the server process inherits the
+environment of `server start`.
 
 ### Default executor (`cloacinactl server start` + `cloacina-server`)
 
@@ -267,12 +285,12 @@ lines and the link from a task to your log stack. See
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--log-format <text\|json>` | `CLOACINA_LOG_FORMAT` | `text` | Format of the server's log lines on stderr. `json` writes one JSON object per line. The log file under `--home` is JSON in both. On `cloacina-server` only. |
+| `--log-format <text\|json>` | `CLOACINA_LOG_FORMAT` | `text` | Format of the server's log lines on stderr. `json` writes one JSON object per line. The log file under `--home` is JSON in both. Forwarded by `cloacinactl server start` (`[server].log_format`). |
 | `--task-log-url-template <URL>` | `CLOACINA_TASK_LOG_URL_TEMPLATE` | (none) | URL of a task's logs in your log stack. The placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}` are filled in for each task, percent-encoded. The task API then gives `log_url` and the web UI shows a link. Must start with `http://` or `https://`. Not set, or empty: no link. Forwarded by `cloacinactl server start`. |
 
 ### Fleet agent liveness (`cloacina-server`)
 
-These flags tune the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). They live on the `cloacina-server` binary directly (and via the env vars below). The `cloacinactl server start` wrapper forwards the two time limits (`--fleet-task-timeout-s`, `--fleet-task-timeout-max-s`, or `[server].fleet_task_timeout_s` and `[server].fleet_task_timeout_max_s` in `config.toml`). It does **not** forward the two liveness flags, so set them on `cloacina-server` itself or through the environment.
+These flags tune the [execution-agent fleet](../../explanation/service/execution-agent-fleet/) and the task context. They live on the `cloacina-server` binary (and via the env vars below). `cloacinactl server start` takes each of them, and the key of the same name in snake case of `[server]` in `config.toml` (for example `agent_liveness_misses = 4`, `fleet_artifact_fetch_wait_s = 120`, `fleet_graph_firings = "worker"`).
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
@@ -280,6 +298,7 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--agent-liveness-misses <N>` | `CLOACINA_AGENT_LIVENESS_MISSES` | `3` | Consecutive missed heartbeats before an agent is declared dead and its in-flight work reclaimed. Effective dead-after = interval × misses (default 45s). CLOACI-T-0639. |
 | `--fleet-task-timeout-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own, and of a graph firing sent to an agent. CLOACINA-T-1014. |
 | `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
+| `--fleet-graph-firings <inline\|worker>` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` in the agent process, `worker` in a worker process with the limits, time limit and cancel of a task. Any other value stops the server at start. CLOACINA-T-1125. |
 | `--fleet-artifact-fetch-wait-s <N>` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The task is dispatched again after a delay (2 s, growing to 30 s) and uses no retry attempt. After the limit the attempt fails. `0`: the first failed fetch fails the attempt. CLOACINA-T-1064. |
 | `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
 | `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |
@@ -297,8 +316,8 @@ These flags send a JSON `POST` when a run ends. They live on the `cloacina-serve
 | `--alert-webhook-max-attempts <N>` | `CLOACINA_ALERT_WEBHOOK_MAX_ATTEMPTS` | `8` | The most sends of one alert before it is dropped. |
 | `--public-base-url <URL>` | `CLOACINA_PUBLIC_BASE_URL` | — | Public URL of the server, for the absolute links in an alert. |
 | `--database-wait-timeout-s <N>` | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `60` | Seconds `cloacina-server` waits at start for the database to accept a connection. It tries again with a growing delay (0.5 s, doubling, at most 5 s) and logs `Waiting for the database to accept connections` for each wait. After this time it exits with an error that holds the last connection error. `0` = one try, no wait. The HTTP listener opens after the database answers and the migrations ran, so `/health` and `/ready` do not answer during the wait. `cloacinactl server start` takes the same flag and env var, and the key `database_wait_timeout_s` of `[server]` in `config.toml`. |
-| `--max-package-bytes <N>` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload gets status 413 with the code `package_too_large` and an error that names the size of the upload and the limit. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. CLOACINA-T-1048. |
-| `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to (500 MiB). The server refuses an upload that unpacks to more, and its package loader refuses to load one. The limits of 10,000 entries and of 10 times the archive size stay. `cloacina-compiler`, `cloacina-agent` and `cloacinactl package validate`, `pack` and `publish` take the same flag and variable; `cloacinactl daemon` reads the variable. Give each of them the same value. A flag of `cloacina-server`; with `cloacinactl server start` set the environment variable. CLOACINA-T-1048. |
+| `--max-package-bytes <N>` | `CLOACINA_MAX_PACKAGE_BYTES` | `104857600` | The largest package archive, in bytes, that an upload accepts (100 MiB). A larger upload gets status 413 with the code `package_too_large` and an error that names the size of the upload and the limit. `cloacinactl server start` takes the same flag and env var, and the key `max_package_bytes` of `[server]`. CLOACINA-T-1048. |
+| `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package archive may unpack to (500 MiB). The server refuses an upload that unpacks to more, and its package loader refuses to load one. The limits of 10,000 entries and of 10 times the archive size stay. `cloacina-compiler`, `cloacina-agent` and `cloacinactl package validate`, `pack` and `publish` take the same flag and variable; `cloacinactl daemon` reads the variable. Give each of them the same value. `cloacinactl server start` takes the same flag and env var, and the key `max_unpacked_bytes` of `[server]`; `cloacinactl compiler start` the key `max_unpacked_bytes` of `[compiler]`. CLOACINA-T-1048. |
 
 ### `server stop` / `status` / `health`
 
@@ -325,6 +344,14 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
                           [--heartbeat-interval-s <N>]
                           [--stale-threshold-s <N>]
                           [--sweep-interval-s <N>]
+                          [--max-unpacked-bytes <N>]
+                          [--python-platform <ARCH-OS>]...
+                          [--python-version <MAJOR.MINOR>]
+                          [--python-index-url <URL>]
+                          [--python-wheel-dir <DIR>]
+                          [--python-uv-cache-dir <DIR>]
+                          [--python-offline]
+                          [--uv <PATH>]
 ```
 
 | Flag | Default | Description |
@@ -336,15 +363,35 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
 | `--heartbeat-interval-s` | (binary default) | Worker heartbeat cadence. |
 | `--stale-threshold-s` | (binary default) | Seconds before an in-flight build is considered stale and reclaimable. |
 | `--sweep-interval-s` | (binary default) | How often to sweep for stale claims. |
+| `--max-unpacked-bytes <N>` | `524288000` | The largest size a package archive may unpack to (env `CLOACINA_MAX_UNPACKED_BYTES`). |
+| `--python-platform <ARCH-OS>` | `aarch64-linux`, `x86_64-linux` | A platform to vendor Python dependencies for; repeat it or give a comma-separated list (env `CLOACINA_COMPILER_PYTHON_PLATFORMS`). |
+| `--python-version <MAJOR.MINOR>` | `3.11` | The Python to vendor for (env `CLOACINA_COMPILER_PYTHON_VERSION`). |
+| `--python-index-url <URL>` | PyPI | The package index of the wheels (env `CLOACINA_COMPILER_PYTHON_INDEX_URL`). Given to `cloacina-compiler` as that env var, not as an argument, because the URL can hold a password. |
+| `--python-wheel-dir <DIR>` | (none) | A folder of wheel files (env `CLOACINA_COMPILER_PYTHON_WHEEL_DIR`). |
+| `--python-uv-cache-dir <DIR>` | `uv`'s own | The cache folder of `uv` (env `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`). |
+| `--python-offline` | off | Vendor with no network (env `CLOACINA_COMPILER_PYTHON_OFFLINE`). |
+| `--uv <PATH>` | `uv` on `PATH` | The `uv` program (env `CLOACINA_UV`). |
 
-`cloacina-compiler` also takes `--max-unpacked-bytes <N>` /
-`CLOACINA_MAX_UNPACKED_BYTES` (default `524288000`, 500 MiB): the largest
-size a package archive may unpack to. With `cloacinactl compiler start` set
-the environment variable.
+The unpack limit and the Python settings are taken in three ways: a flag,
+the env var, or a key of `[compiler]` in `config.toml` (`max_unpacked_bytes`,
+`python_platforms`, `python_version`, `python_index_url`, `python_wheel_dir`,
+`python_uv_cache_dir`, `python_offline`, `uv`). The order is flag, env var,
+`config.toml`; a setting that none of them gives is not forwarded. See
+[Run cloacina-compiler in Production](../../how-to/service/running-the-compiler/)
+for what each Python setting does.
+
+The other flags of `cloacina-compiler` are not flags of `compiler start`:
+`--tenant-schema`, `--build-target`, `--build-target-package`,
+`--cargo-flag`, `--cargo-flags-replace`, `--cargo-target-dir`,
+`--build-timeout-s`, `--describe-timeout-s`, `--vendor-dir`, `--dev-workspace`, the four
+`--build-rlimit-*` flags and `--log-retention-days`. Set the ones that have
+an env var through the environment, which `cloacina-compiler` inherits, or
+run `cloacina-compiler` itself. A test of `cloacinactl` holds this list: a new
+flag of `cloacina-compiler` must be added to `compiler start` or to it.
 
 `cloacina-compiler` vendors the dependencies of a Python package that is
 published with a `requirements.lock` and no `vendor/` folder. Its settings
-(with `cloacinactl compiler start` set the environment variables):
+(`cloacinactl compiler start` takes each one, as above):
 
 | Flag | Env | Default | Description |
 |---|---|---|---|
@@ -391,8 +438,10 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--agent-id <ID>` | | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. |
 | `--max-concurrency <N>` | `CLOACINA_AGENT_MAX_CONCURRENCY` | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
 | `--pool <NAME>` | `CLOACINA_AGENT_POOL` | (none) | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in. Registered as the capability `pool:<name>`. Not set: the server counts the agent in `default`. A task goes only to agents of its own pool; a task with no pool goes to `default`. |
-| `--cpu <QTY>` | `CLOACINA_AGENT_CPU` | (none) | Total CPU the agent offers to tasks, a Kubernetes quantity above zero (`4`, `500m`). Reported at registration; the server [places tasks](../../explanation/service/execution-agent-fleet/#how-a-task-is-placed) by their CPU requests against it. Not set: the agent reports none and is packed by `--max-concurrency` only. A value that is not a quantity stops the agent at start. The agent does not limit a task by it. |
-| `--memory <QTY>` | `CLOACINA_AGENT_MEMORY` | (none) | Total memory the agent offers to tasks, a Kubernetes quantity above zero (`32Gi`, `512Mi`). Reported at registration, as `--cpu` is. |
+| `--cpu <QTY>` | `CLOACINA_AGENT_CPU` | (none) | Total CPU the agent offers to tasks, a Kubernetes quantity above zero (`4`, `500m`). Reported at registration; the server [places tasks](../../explanation/service/execution-agent-fleet/#how-a-task-is-placed) by their CPU requests against it. Not set: the agent reports none and is packed by `--max-concurrency` only. A value that is not a quantity stops the agent at start. The agent does not cap a task's CPU by it. |
+| `--memory <QTY>` | `CLOACINA_AGENT_MEMORY` | (none) | Total memory of the agent, a Kubernetes quantity above zero (`32Gi`, `512Mi`): the memory limit of its pod. The agent reports it less `--reserved-memory` at registration, as what it offers to tasks. A task's memory request is its limit; a task with no request gets the offered memory divided by `--max-concurrency`. Not set: the agent reports none, and uses the memory limit of its own cgroup, when it has one, for the task limits. See [worker processes and limits](../../explanation/service/execution-agent-fleet/#worker-processes-and-limits). |
+| `--reserved-memory <QTY>` | `CLOACINA_AGENT_RESERVED_MEMORY` | `128Mi` | The agent's own share of its memory, a Kubernetes quantity or `0`. Taken off `--memory` before the rest is offered to tasks. An agent whose memory is not above its share does not start. The server's publish check assumes the default. |
+| `--task-address-space-factor <N>` | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | `8` | The address-space ceiling of a task's worker process (`RLIMIT_AS`, Linux): the task's memory limit times this, plus 64 GiB. A backstop behind the memory watchdog. `0`: no ceiling. |
 | `--capabilities <TAG,TAG>` | | (none) | Free-form capability tags advertised at registration. |
 | `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
@@ -493,36 +542,61 @@ a source directory with a `vendor/` folder by the size of its files, an
 archive when it is unpacked. Give the value of the server and the agents.
 `package pack` and `package publish` take the same flag.
 
-### `package pack <DIR> [--out <PATH>] [--sign <KEY>] [--max-unpacked-bytes <N>]`
+### `package pack <DIR> [--out <PATH>] [--sign <KEY_FILE>] [--max-unpacked-bytes <N>]`
 
 Packs the source directory into a `.cloacina` archive (tar + bzip2
 **source** archive — no compiled artifacts). `--out` defaults to
 `<dir>/<name>.cloacina`. Runs the same validation as
-`package validate` first.
+`package validate` first. The path of the archive is the one line on
+stdout.
 
-`--sign <KEYFILE>` **fails hard by design**: workflow-package signing
-is not yet implemented (tracked under CLOACI-I-0103), so passing
-`--sign` produces an error rather than a silently unsigned archive.
-Note the asymmetry: the server's `--require-signatures` enforcement
-exists, so a server requiring signatures cannot accept packages packed
-by this CLI until I-0103 lands (signature rows must be inserted
-out-of-band).
+`--sign <KEY_FILE>` signs the archive and writes the signature beside
+it as `<archive>.sig` (for `demo.cloacina`: `demo.cloacina.sig`). The
+path of the signature file goes to stderr. The signature is Ed25519
+over the SHA-256 of the archive; the file is JSON with the fields
+`version`, `algorithm`, `package_hash`, `key_fingerprint`, `signature`
+and `signed_at`, and holds nothing secret.
 
-### `package publish <DIR> [--release] [--sign <KEY>] [--vendor] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-lock] [--max-unpacked-bytes <N>]`
+The key file is an unencrypted Ed25519 private key in PKCS#8 PEM, as
+`openssl genpkey -algorithm ed25519` writes it. On Unix a key file that
+the group or others can read is refused: give it mode `600`. The key is
+read on this machine and is sent nowhere. A missing file, a file with
+wider permissions and a file that is no such key each exit 1 and write
+no signature.
 
-`build` → `pack` → `upload` in one shot. `--sign` fails hard, same as
-`package pack`. It takes the flags of `package build`: a publish of a
-Python package writes its lock file, and the compiler vendors the
-dependencies. Pass `--vendor` to ship the dependencies in the package.
-Pass `--no-lock` for a package whose `vendor/` is filled by hand.
+### `package publish <DIR> [--release] [--sign <KEY_FILE>] [--vendor] [--python-version <V>] [--arch <ARCH>] [--platform <ARCH-OS>]... [--locked] [--no-lock] [--max-unpacked-bytes <N>]`
 
-### `package upload <FILE>`
+`build` → `pack` → `upload` in one shot. It takes the flags of
+`package build`: a publish of a Python package writes its lock file,
+and the compiler vendors the dependencies. Pass `--vendor` to ship the
+dependencies in the package. Pass `--no-lock` for a package whose
+`vendor/` is filled by hand.
+
+`--sign <KEY_FILE>` signs the archive that was built and sends the
+signature with the upload. The key file is the one of `package pack
+--sign`; it is checked before the build starts. Without `--sign` the
+upload has no signature, and a server that requires signatures refuses
+it with `403 signature_required`.
+
+### `package upload <FILE> [--signature <SIG_FILE>]`
 
 Multipart POST of a `.cloacina` archive to
 `/v1/tenants/<tenant>/workflows`. Requires a resolved server + API key
-(profile or flags). Server-side signature verification is enforced if
-the server was started with `--require-signatures`. Exit codes: 1
-(user error), 2 (network), 4 (auth), 5 (server reject).
+(profile or flags). Exit codes: 1 (user error), 2 (network), 4 (auth),
+5 (server reject).
+
+When `<FILE>.sig` is there (written by `package pack --sign`), it is
+sent with the archive as the `signature` field. `--signature
+<SIG_FILE>` sends another signature file in its place. A signature file
+that was made for other bytes than `<FILE>` is refused before the
+upload (exit 1). With no signature file the upload has no signature.
+
+The server checks a signature that is sent, and refuses the upload when
+the check fails: `untrusted_signer`, `signer_revoked`,
+`invalid_signature`, `package_tampered`, `malformed_signature`. A
+server started with `--require-signatures` also refuses an upload with
+no signature (`signature_required`). See
+[Require signed packages](../../how-to/service/require-signed-packages/#how-an-upload-is-checked).
 
 The version that is in service stays active until the build of the
 uploaded one succeeds. A failed build leaves it in service; see
@@ -583,7 +657,7 @@ cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
 | Flag | Default | Description |
 |---|---|---|
 | `--out <PATH>` | `<name>-<version>.cloacina` in CWD | Output archive path. |
-| `--sign-key <FILE>` | (none) | Ed25519 secret key (32 raw bytes) used to sign the provider archive (`package.sig`). This provider-side signing scheme **is** implemented — distinct from the unimplemented workflow-package `--sign`. |
+| `--sign-key <FILE>` | (none) | Ed25519 secret key (32 raw bytes) used to sign the provider archive (`package.sig`). This provider-side signing scheme is distinct from the workflow-package `--sign`, which takes a PKCS#8 PEM key file and writes a `.sig` file. |
 | `--manifest-bin <NAME>` | `emit_manifest` | Name of the provider crate's `[[bin]]` that prints the generated provider manifest JSON. |
 | `--debug` | off | Build the component in debug profile (default is release). |
 | `--native` | off | Package a **native host cdylib** provider instead of a sandboxed wasm32-wasip2 component (CLOACI-T-0903). Native providers run trusted and unsandboxed in-process — capability grants are advisory, not enforced. The crate must declare a `native` cargo feature plus fidius-core/fidius-macro host deps. The command prints the trust tier to stderr. |
@@ -594,7 +668,7 @@ cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
 |---|---|---|
 | `workflow list [--package <FILTER>]` | `GET /v1/tenants/<tenant>/workflows` | Client-side `--package` substring filter on the package name. |
 | `workflow inspect <NAME>` | `GET /v1/tenants/<tenant>/workflows/<name>` | Full workflow metadata: tasks, dependencies, trigger rules, schedules. |
-| `workflow run <NAME> [--context <SOURCE>]` | `POST /v1/tenants/<tenant>/workflows/<name>/execute` | `--context` accepts a path to a JSON file or `-` for stdin. Defaults to `{}`. JSON is validated before submission. Prints the execution ID. |
+| `workflow run <NAME> [--context <SOURCE>] [--priority <0-10>]` | `POST /v1/tenants/<tenant>/workflows/<name>/execute` | `--context` accepts a path to a JSON file or `-` for stdin. Defaults to `{}`. JSON is validated before submission. `--priority` asks for a workflow [priority](../../explanation/priority/) for this run: 0 is the highest, 10 the lowest; with none the run gets what the workflow declares, or 5. A priority above what the key may set is lowered to the key's limit, and the command prints `warning: priority N was asked for and priority M was given …` on stderr. Prints the execution ID. |
 
 ## `execution`
 
@@ -838,9 +912,19 @@ cron_lost_threshold_min = 10        # Lost-task threshold (present in the schema
                                     # but not currently forwarded to the runner
                                     # config; the runtime default of 10 applies)
 
-# Compiler settings (used by `compiler status` / `compiler health` probes).
+# Compiler settings. `local_addr` is used by the `compiler status` /
+# `compiler health` probes; the other keys are forwarded by `compiler start`.
 [compiler]
 local_addr = "127.0.0.1:9000"
+# Optional. A key that is not set is not forwarded: the compiler default applies.
+# max_unpacked_bytes = 524288000
+# python_platforms = ["aarch64-linux", "x86_64-linux"]
+# python_version = "3.11"
+# python_index_url = "https://pypi.example.com/simple"   # sent as an env var
+# python_wheel_dir = "/opt/wheels"
+# python_uv_cache_dir = "/var/cache/uv"
+# python_offline = false
+# uv = "uv"
 
 # Additional package directories for the daemon (~ expansion supported).
 [watch]
@@ -861,6 +945,24 @@ default_executor = "default"        # "default" (in-process) or "fleet"
 # alert_webhook_timeout_s = 10
 # alert_webhook_max_attempts = 8
 # public_base_url = "https://cloacina.example.com"
+# task_log_url_template = "https://logs.example.com/?run={execution_id}"
+# verification_org_id = "6f1c2a7e-3b9d-4c55-9e0a-2d4b8f1e7a60"
+# reconcile_interval_s = 30
+# tenant_runner_cache_size = 256
+# tenant_deletion_drain_timeout_s = 30
+# log_retention_days = 14
+# log_format = "json"
+# agent_heartbeat_interval_s = 15
+# agent_liveness_misses = 3
+# fleet_artifact_fetch_wait_s = 300
+# fleet_graph_firings = "inline"
+# context_warn_bytes = 1048576
+# context_max_bytes = 16777216
+# cors_allowed_origins = ["https://ops.example.com"]
+# cors_allowed_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+# cors_allowed_headers = ["authorization", "content-type"]
+# max_package_bytes = 104857600
+# max_unpacked_bytes = 524288000
 ```
 
 ## Profile Resolution

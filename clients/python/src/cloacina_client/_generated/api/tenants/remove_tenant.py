@@ -77,18 +77,22 @@ def sync_detailed(
 ) -> Response[ErrorBody | TenantRemovedResponse]:
     """DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
 
-     CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
-    the four-step top-down order:
-      1. Revoke every still-active API key for the tenant (close the auth
-         surface so new requests fail).
+     CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:
+      1. Revoke every still-active API key for the tenant and delete its
+         WebSocket tickets (close the auth surface so new requests fail);
+         clear this server's key cache and send the revocation notice, on
+         which every other server clears its key cache.
       2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
          awaiting its graceful shutdown (drains in-flight executions,
          stops scheduler loop, closes per-tenant DB pool).
       3. Evict the tenant's `Database` from `TenantDatabaseCache`.
-      4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
-
-    Before step 4 the fleet actuator removes the tenant's compiler, when it
-    runs one (CLOACINA-T-1034).
+      4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator
+         removes the tenant's compiler (CLOACINA-T-1034) and its agents, then
+         the tenant's limit, desired count, pools and agent rows are deleted.
+         After this no fleet tick has a reason to start an agent for it.
+      5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's
+         other rows in the admin schema, a `tenant.removed` audit row, the
+         schema and the user. The audit rows of the tenant stay.
 
     Each step emits a structured audit event with duration. Per-step
     failures bail out — but earlier steps stay committed, so a retry
@@ -126,18 +130,22 @@ def sync(
 ) -> ErrorBody | TenantRemovedResponse | None:
     """DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
 
-     CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
-    the four-step top-down order:
-      1. Revoke every still-active API key for the tenant (close the auth
-         surface so new requests fail).
+     CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:
+      1. Revoke every still-active API key for the tenant and delete its
+         WebSocket tickets (close the auth surface so new requests fail);
+         clear this server's key cache and send the revocation notice, on
+         which every other server clears its key cache.
       2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
          awaiting its graceful shutdown (drains in-flight executions,
          stops scheduler loop, closes per-tenant DB pool).
       3. Evict the tenant's `Database` from `TenantDatabaseCache`.
-      4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
-
-    Before step 4 the fleet actuator removes the tenant's compiler, when it
-    runs one (CLOACINA-T-1034).
+      4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator
+         removes the tenant's compiler (CLOACINA-T-1034) and its agents, then
+         the tenant's limit, desired count, pools and agent rows are deleted.
+         After this no fleet tick has a reason to start an agent for it.
+      5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's
+         other rows in the admin schema, a `tenant.removed` audit row, the
+         schema and the user. The audit rows of the tenant stay.
 
     Each step emits a structured audit event with duration. Per-step
     failures bail out — but earlier steps stay committed, so a retry
@@ -170,18 +178,22 @@ async def asyncio_detailed(
 ) -> Response[ErrorBody | TenantRemovedResponse]:
     """DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
 
-     CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
-    the four-step top-down order:
-      1. Revoke every still-active API key for the tenant (close the auth
-         surface so new requests fail).
+     CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:
+      1. Revoke every still-active API key for the tenant and delete its
+         WebSocket tickets (close the auth surface so new requests fail);
+         clear this server's key cache and send the revocation notice, on
+         which every other server clears its key cache.
       2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
          awaiting its graceful shutdown (drains in-flight executions,
          stops scheduler loop, closes per-tenant DB pool).
       3. Evict the tenant's `Database` from `TenantDatabaseCache`.
-      4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
-
-    Before step 4 the fleet actuator removes the tenant's compiler, when it
-    runs one (CLOACINA-T-1034).
+      4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator
+         removes the tenant's compiler (CLOACINA-T-1034) and its agents, then
+         the tenant's limit, desired count, pools and agent rows are deleted.
+         After this no fleet tick has a reason to start an agent for it.
+      5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's
+         other rows in the admin schema, a `tenant.removed` audit row, the
+         schema and the user. The audit rows of the tenant stay.
 
     Each step emits a structured audit event with duration. Per-step
     failures bail out — but earlier steps stay committed, so a retry
@@ -217,18 +229,22 @@ async def asyncio(
 ) -> ErrorBody | TenantRemovedResponse | None:
     """DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
 
-     CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
-    the four-step top-down order:
-      1. Revoke every still-active API key for the tenant (close the auth
-         surface so new requests fail).
+     CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:
+      1. Revoke every still-active API key for the tenant and delete its
+         WebSocket tickets (close the auth surface so new requests fail);
+         clear this server's key cache and send the revocation notice, on
+         which every other server clears its key cache.
       2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
          awaiting its graceful shutdown (drains in-flight executions,
          stops scheduler loop, closes per-tenant DB pool).
       3. Evict the tenant's `Database` from `TenantDatabaseCache`.
-      4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
-
-    Before step 4 the fleet actuator removes the tenant's compiler, when it
-    runs one (CLOACINA-T-1034).
+      4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator
+         removes the tenant's compiler (CLOACINA-T-1034) and its agents, then
+         the tenant's limit, desired count, pools and agent rows are deleted.
+         After this no fleet tick has a reason to start an agent for it.
+      5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's
+         other rows in the admin schema, a `tenant.removed` audit row, the
+         schema and the user. The audit rows of the tenant stay.
 
     Each step emits a structured audit event with duration. Per-step
     failures bail out — but earlier steps stay committed, so a retry

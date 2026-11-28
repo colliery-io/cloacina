@@ -56,23 +56,32 @@ Every authenticated route under `/v1/*` requires an `Authorization: Bearer <key>
 4. On miss, validate against the database; insert on success.
 5. Inject an `AuthenticatedKey` into request extensions, carrying the key's `role` and tenant scope.
 
-The cache is small and short-lived deliberately: it shaves the per-request DB hit at high throughput, but the 30-second TTL bounds how long a revoked key can keep working. Explicit revocation via `DELETE /v1/auth/keys/{key_id}` clears the *entire* cache (not just the revoked entry) so revocation is immediate at the cost of a brief revalidation spike.
+The cache is small and short-lived deliberately: it shaves the per-request DB hit at high throughput, but the 30-second TTL bounds how long a revoked key can keep working. A revocation clears the *entire* cache (not just the revoked entry), at the cost of a brief revalidation spike.
 
-#### The 30-second cross-replica revocation window
+#### How fast a revocation reaches every replica
 
-The cache is **per replica, and only the replica that served the revocation clears it.** There is no cache-invalidation broadcast between replicas. So in a multi-replica deployment:
+The cache is **per replica**. Each way a key is revoked sends a revocation notice (Postgres `NOTIFY cloacina_api_keys_revoked`):
 
-> A revoked API key may continue to be accepted by *other* replicas for **up to 30 seconds** after revocation. On the replica that handled the `DELETE`, revocation is immediate.
+- `DELETE /v1/auth/keys/{key_id}` and `DELETE /v1/tenants/{tenant_id}/keys/{key_id}`
+- `POST /v1/auth/logout`
+- `POST /v1/auth/refresh`: the rotated-out key, and the key it revokes when the account is no longer active or the login session is over (CLOACINA-T-1128)
+- tenant delete, `DELETE /v1/tenants/{name}`: every key of the tenant (CLOACINA-T-1095)
 
-The same bound applies to every other reason a key stops being valid mid-flight — expiry of a minted login key, the rotation half of `POST /v1/auth/refresh`, and the key revocation performed by `POST /v1/auth/logout`. Each is enforced immediately on the acting replica and within the cache TTL everywhere else.
+Every server listens and clears its whole key cache when a notice arrives, and again each time its listener connects. So:
+
+> On the replica that handled the revocation, the key fails at once. On every other replica it fails as soon as the notice arrives. A replica whose listener is down refuses it after at most **30 seconds** (the TTL).
+
+A notice that cannot be sent does not fail a key revoke, a logout or a refresh: the key is revoked in the database, a warning is logged, and other replicas refuse it within the TTL. Tenant delete answers `500` in that case, and a second delete sends it again.
+
+The expiry of a minted login key sends no notice: an expired key is refused on a cache miss, so it can pass on a replica that cached it for at most 30 seconds after it expires.
 
 This is a deliberate trade, not an oversight:
 
-- The window is **short and fixed**. It cannot grow with load, replica count, or clock skew between replicas — the TTL is measured from the moment each replica cached the entry.
-- The alternative — validating every request against the database — puts the auth path on the DB for every call on the hottest code path in the server, for a difference of at most 30 seconds in a scenario (compromised key *and* an attacker actively using it in the same half-minute) where the attacker has already had unbounded time before you noticed.
-- A cross-replica invalidation channel (pub/sub, LISTEN/NOTIFY) would buy a smaller window at the cost of a new failure mode: if the channel breaks, revocation silently stops propagating and the window becomes unbounded rather than 30 seconds. A TTL fails safe; a broadcast fails open.
+- The bound is **short and fixed**. It cannot grow with load, replica count, or clock skew between replicas — the TTL is measured from the moment each replica cached the entry.
+- The alternative — validating every request against the database — puts the auth path on the DB for every call on the hottest code path in the server.
+- A cross-replica notice used in place of the TTL would fail open: if the channel breaks, revocation silently stops propagating and the window becomes unbounded rather than 30 seconds. The notice is sent in addition to the TTL, never in place of it.
 
-Operationally: when you revoke a key in response to a *confirmed* compromise and need a hard cut-off, wait 30 seconds before declaring the key dead, or restart the replicas (a fresh process has an empty cache). Do not treat revocation as instantaneous across the fleet.
+Operationally: when you revoke a key in response to a *confirmed* compromise and need a hard cut-off without relying on the notice, wait 30 seconds before declaring the key dead, or restart the replicas (a fresh process has an empty cache).
 
 To create, list, and revoke keys in practice, see [Manage API Keys](../../../how-to/service/manage-api-keys/).
 
@@ -110,7 +119,7 @@ A local account and an OIDC mapping rule take `read`, `write` or `admin`. `agent
 | `POST /v1/auth/ws-ticket` (the ticket carries the same scope) | inject into an accumulator; fire, pause or resume a reactor, over REST or WebSocket |
 | | open the delivery WebSocket: `403`, so no operations stream (`ops_metrics:global`) and no execution events |
 
-Its role (`read` / `write` / `admin`) does not change this. The agent routes (`/v1/agent/*`) take the tenant from the key: an agent registered with such a key has no tenant and is given no tenant's work, and the package fetch routes refuse the key.
+Its role (`read` / `write` / `admin`) does not change this. The agent routes (`/v1/agent/*`) need the role `agent`, so such a key gets `403` there. No route makes a key of role `agent` with no tenant: the server refuses to write one. A key row with no tenant and the role `agent` written straight into the database gets `403` `agent_no_tenant` from `POST /v1/agent/register`.
 
 On the delivery WebSocket a connection belongs to the key's tenant. Only an `is_admin` key connects with no tenant, and only that connection receives the all-tenant operations snapshot.
 
@@ -133,7 +142,7 @@ The WebSocket routes have rows like the REST routes. The upgrade request goes th
 
 **The middleware writes the audit row** of a state-changing route after the handler answers, under the action its row names. A handler adds the target and the facts of the action; it cannot leave the row out. A refusal on an audited route writes a row with the outcome `denied`. The rows marked "none:" below write no audit row, for the reason given.
 
-A principal also carries numeric limits. The one limit today is the highest priority it may set (0 is the highest): `write` may set 5 to 10, `admin` and the platform admin flag may set 0 to 10, `read` and `agent` may set none.
+A principal also carries numeric limits. The one limit today is the highest priority it may set (0 is the highest): `write` may set 5 to 10, `admin` and the platform admin flag may set 0 to 10, `read` and `agent` may set none. The run route (`POST .../workflows/{name}/execute`) holds the [priority](../../priority/) a run asks for to this limit: a run that asks for more is not refused, it runs at the limit, and the answer, the server log, the audit event and `cloacina_priority_held_total` say so. A priority that a package declares in its code is held to what `write` may set.
 
 Tenant-scoped keys' single permitted tenant is set at key creation and cannot be changed; cross-tenant access requires a separate key.
 
@@ -301,7 +310,7 @@ In every case the result is an ordinary bearer key; authorization does not care 
 Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`); directly-created API keys have neither and never expire.
 
 - **Refresh** — `POST /v1/auth/refresh` re-checks that the underlying account / identity is still valid, mints a fresh key, and revokes the old one. The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
-- **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and clears the auth cache.
+- **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and sends the revocation notice, so every replica clears its auth cache.
 
 A refreshed key is **re-minted with exactly the scope the original login resolved to** — tenant and role are read from the stored key record, not from anything the caller sends — and the mint path takes no `is_admin` argument at all. A refresh therefore cannot broaden a session's authority, and god-mode remains unreachable through any login flow.
 
@@ -361,14 +370,21 @@ In production, set `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) to pin the in
 
 ### What it is, why it's optional
 
-When the server is started with `--require-signatures`, every package upload runs through cryptographic signature verification before the package is registered. The verification:
+When the server is started with `--require-signatures`, every package upload runs through cryptographic signature verification before the package is registered. The signature comes with the archive, as a field of the upload. The verification:
 
-1. Reads the signature stored for the hash of the uploaded bytes.
+1. Checks that the signature was made for the uploaded bytes.
 2. Looks the signer's key up in the trusted keys of the tenant in the path, then in the trusted keys of the server-wide org if `--verification-org-id` is set.
 3. Verifies the signature against the trusted public key.
-4. Logs the outcome (success or failure) to the audit log with the package fingerprint.
+4. Stores the signature in the tenant's schema, with the org whose key list held the signer.
+5. Logs the outcome (success or failure) to the audit log with the package fingerprint.
 
 There is no soft-fail path: an upload with no signature, or signed by a key that neither list holds live, is refused.
+
+**The private key stays with the publisher.** A publisher signs on its own machine (`cloacinactl package pack --sign`, `package publish --sign`) with a key file that only its owner can read. The server receives the archive and the signature and holds public keys only. A breach of the server gives an attacker no key that signs packages.
+
+**The check runs again at load.** With `--require-signatures`, the runner of each tenant verifies a package when it loads it: a signature stored for the tenant's org or the server-wide org, a live trusted key of one of the two, and a signature that verifies. A row in the tenant's tables is not enough: a caller that can write a tenant's schema cannot make a package load without a signature by a trusted key. The trusted keys are in the admin schema; a tenant's database user is granted its own schema only.
+
+**A revoke is not an unload.** A revoked key signs no new upload from the moment of the revoke. A package that is already loaded keeps running until its next load, which is the next start of the server; that load refuses it. An operator that must stop a package at once deletes it.
 
 Trust is **per tenant**. Each tenant has its own trusted keys, and its `admin` adds and revokes them (`cloacinactl trusted-key`, or the `/v1/tenants/{tenant_id}/trusted-keys` routes); a platform admin can do the same for any tenant. A package signed for one tenant is not accepted by another. The server-wide org is the operator's own key set: a key in it is trusted for every tenant. An operator that wants strict per-tenant trust sets no `--verification-org-id`; each tenant then trusts only its own keys.
 
@@ -383,8 +399,10 @@ Reach for `--require-signatures` whenever the package author is not the server o
 
 Package signing uses **Ed25519** asymmetric cryptography. Each key is a pair:
 
-- **Private key** — used to sign packages. Kept secret and stored encrypted at
-  rest (the 32-byte AES-256 *key encryption key* protects it in the database).
+- **Private key** — used to sign packages. Kept secret. A publisher that signs
+  with `cloacinactl` keeps it in a file on its own machine. A program on the
+  library API can keep it in the database instead, encrypted at rest (the
+  32-byte AES-256 *key encryption key* protects it).
 - **Public key** — used to verify signatures. Distributed to verifiers.
 - **Key fingerprint** — the SHA-256 hash of the public key, used to identify
   which key signed a package.
@@ -409,10 +427,10 @@ Signature verification proves *who* signed the package, not *what's in the packa
 
 `cloacina-compiler` runs `cargo build` on packages submitted by — possibly untrusted — package authors. This is the most dangerous code path in the entire system: arbitrary Rust code is being compiled, which means arbitrary build scripts (`build.rs`) and arbitrary proc-macro code can run with the compiler's privileges. A package can also name a constructor provider crate (a Cargo dependency, or a `[metadata.providers]` entry with a registry, path or git source); the compiler builds that crate and runs its manifest binary.
 
-There is no process sandbox around any of this. The compiler starts these child processes for a package: `cargo fetch`, the build, and for provider bundling `cargo metadata`, the provider crate's build and its manifest binary. Every one of them gets:
+There is no process sandbox around any of this. The compiler starts these child processes for a package: `cargo fetch`, the build, for provider bundling `cargo metadata`, the provider crate's build and its manifest binary, and the describe child that reads the built package's metadata (see [The describe step](#the-describe-step-reading-a-packages-metadata)). Every one of them gets:
 
 - **A cleared environment.** The child inherits only `PATH`, `HOME`, `CARGO_HOME`, `RUSTUP_HOME`, `RUSTUP_TOOLCHAIN`, `TMPDIR`, `TERM` and `CARGO_PROFILE_DEV_DEBUG`, plus the build wiring the compiler sets by name (`CARGO_TARGET_DIR`, the `--vendor-dir` `CARGO_HOME`). The two steps that download and run no package code (`cargo fetch`, `cargo metadata`) also inherit the proxy, certificate and cargo network variables. `DATABASE_URL` and the rest of the compiler's environment are not passed.
-- **The build timeout** (`--build-timeout-s`). Past it, the child and its process group are killed. A timed-out `cargo build` is marked `timed_out` and the stale-build sweeper reclaims the row; a timed-out fetch or provider step fails the build.
+- **The build timeout** (`--build-timeout-s`). Past it, the child and its process group are killed. A timed-out `cargo build` is marked `timed_out` and the stale-build sweeper reclaims the row; a timed-out fetch or provider step fails the build. The describe child has its own limit, `--describe-timeout-s` (120 seconds by default); past it the build fails.
 - **`setrlimit` resource caps** (CPU, memory, file descriptors, processes). Linux only.
 
 Network and dependency resolution depend on the cargo flags:
@@ -421,6 +439,19 @@ Network and dependency resolution depend on the cargo flags:
 - **With `--frozen`/`--offline` dropped** (`--cargo-flags-replace`; the Helm chart's default is `build --lib`), the build has two phases: `cargo fetch` downloads the dependency graph from the network, then the build runs with `--offline` appended.
 - **`--offline` binds cargo, not the code cargo runs.** A build script, a proc-macro or a provider's manifest binary can open any connection the host allows. Provider bundling does not use the cargo flags: its cargo steps can download.
 
+### The describe step: reading a package's metadata
+
+A package's metadata is in its code: its tasks with their dependencies, trigger rules, retry policy, time limit and placement, its triggers and cron schedules, its reactors, graphs and constructor nodes, and its declared params and secrets. A Rust library answers calls for it. A Python package registers it when it is imported. So reading the metadata runs the package's code: opening a library runs its load-time code, and an import runs the module.
+
+The compiler process does not do this. After the build it starts a child, the compiler binary in describe mode. The child opens the built library, or imports the Python package, and writes one metadata document. The compiler stores the document with the build (`workflow_packages.metadata_document`).
+
+- **What runs.** The package's load-time code, and for a Python package the top level of its entry module and of what that imports, its dependencies included. It runs in the child, as a build child: the cleared environment (no `DATABASE_URL`), the resource caps and the `--describe-timeout-s` limit.
+- **What it can reach.** What build code can reach: the compiler's files and, on Linux through `/proc`, the compiler's command line and environment (see below). With a compiler per tenant that is one tenant's build credential.
+- **When it fails.** A package that cannot be described, or whose describe passes the time limit, fails its build: the package gets `build_status` `failed` and the reason in `build_error`.
+- **Packages built before the document existed.** The compiler describes each one from its stored build, with no new build and no upload, and the package stays in service. A package it cannot describe keeps `build_status` `success` and gets the reason in `describe_error`, which the workflow routes return.
+
+This step does not change how a server or an agent loads a package: a server opens the library, and imports a Python package, in its own process.
+
 ### Python packages: what the compiler downloads
 
 A Python package that is published with a `requirements.lock` and no `vendor/` folder gets its dependencies from the compiler. For each platform of its settings the compiler runs `uv pip install` on the lock file and stores the installed wheels as one set per platform. A package that ships `vendor/` is not touched: the compiler runs no `uv` and downloads nothing for it.
@@ -428,7 +459,7 @@ A Python package that is published with a `requirements.lock` and no `vendor/` f
 - **What runs.** `uv`, as a build child: the cleared environment, the timeout and the resource caps above, plus the proxy and certificate variables. It installs wheels only (`--only-binary :all:`), so no build script and no code of a dependency runs in the compiler: a wheel is unpacked, not executed. A dependency with no wheel fails the build.
 - **What it downloads, and from where.** The wheels that the lock file names, and the index pages of those distributions, over HTTPS from the package index of the compiler's settings (`--python-index-url`; PyPI by default: `pypi.org` and `files.pythonhosted.org`). With `--python-wheel-dir` it also reads wheels from a folder of the compiler image. With `--python-offline` it opens no connection: the wheels come from that folder, or from a `uv` cache in the image, and a wheel that is not there fails the build by name.
 - **What the package's author controls.** The names, the versions and the hashes in the lock file. Not the source: the compiler refuses a lock file that holds anything other than pinned versions with hashes (an option such as `-r` or `--index-url`, a URL, a path), and it runs `uv` with `--no-config`, so a `uv.toml` in the package does not choose the index. The hashes are the author's own: `--require-hashes` makes the compiler install the files the author locked, and does not make those files safe.
-- **Where the files go.** Into the stored set of the package, and from there into `vendor/<platform>/` on the servers and agents that load the package. The dependencies then run with the package's tasks, with the same reach as the package's own code (see [What a task can reach on its agent](#what-a-task-can-reach-on-its-agent)). The compiler imports none of them.
+- **Where the files go.** Into the stored set of the package, and from there into `vendor/<platform>/` on the servers and agents that load the package. The dependencies then run with the package's tasks, with the same reach as the package's own code (see [What a task can reach on its agent](#what-a-task-can-reach-on-its-agent)). In the compiler, the describe child imports the package with the set of the compiler's own platform, so the dependencies the package imports at its top level run there too, with the reach of build code.
 - **What this adds to the compiler's network needs.** Egress to the index, unless the compiler is offline. A compiler with restricted egress needs the index and its file host allowed, an index mirror inside the network, or an image that carries the wheels: see [Running the Compiler](../../../how-to/service/running-the-compiler/#python-packages-vendoring-dependencies).
 
 The threat model the compiler addresses:
@@ -453,21 +484,45 @@ Build code is a build script, a proc-macro, or a provider crate's build. It
 runs as the compiler's user, inside the compiler's container. What it can
 reach depends on which compiler builds the package.
 
-**A tenant compiler that the server made** (Kubernetes actuator,
-`fleet.compiler.enabled`; see
+**A tenant compiler that the server made** (Kubernetes or Docker actuator,
+`fleet.compiler.enabled`; `public` gets one like every tenant; see
 [Run cloacina-compiler in Production](../../../how-to/service/running-the-compiler/#how-many-compilers-a-deployment-runs)):
 
 - **Other tenants' source and build output: no.** The compiler serves one
-  schema and runs in its own pod in the tenant's namespace. Its target
-  directory, cargo home and temp directories are the pod's own volumes, and
-  they are emptied each time the compiler starts.
+  schema and runs in its own pod in the tenant's namespace. Its home and temp
+  directories are the pod's own `emptyDir`s, emptied each time the compiler
+  starts. Its target directory, cargo home and `uv` cache are on the tenant's
+  cache claim `cloacina-compiler-cache` (with `fleet.compiler.cacheClaim`, the
+  default): the claim holds that one tenant's caches only (downloaded crates
+  and wheels, and the build output of the tenant's packages), not the
+  unpacked package sources and not the database or index URL, and is deleted
+  with the tenant. The caches outlive a
+  restart: build output that one package's build code wrote into the target
+  directory stays there for the tenant's next builds, until the tenant is
+  removed or the claim is deleted. Packages of one tenant share the target
+  directory while the compiler runs, with or without the claim.
 - **The database URL: yes.** The URL is the pod's `DATABASE_URL` environment
   variable, from a Secret. It is not on the command line. Build code has the
-  compiler's uid, so it can read `/proc/<compiler pid>/environ`.
-- **What that URL opens.** By default it is the server's own URL, which
-  reaches every tenant's schema. With
-  `fleet.compiler.databaseUrlSecretRef` it is the URL of the role the operator
-  made for builds, and reaches what that role is granted.
+  compiler's uid, so it can read `/proc/<compiler pid>/environ`. The build role
+  limits what the URL opens; it does not hide the URL. The same holds for a
+  Python package index URL set with `fleet.compiler.python.indexUrl`: it is in
+  the same Secret and in the compiler's environment.
+- **What that URL opens: the tenant's build tables, nothing else.** The user
+  is the tenant's build role, `<tenant>$build` (`public$build` for `public`).
+  It has `SELECT, UPDATE` on `workflow_packages`, `SELECT` on
+  `workflow_registry`, and `SELECT, INSERT, DELETE` on `package_providers` and
+  `package_artifacts`, all in the tenant's own schema, and `USAGE` on that
+  schema. It has no right on another tenant's schema, no right on any table of
+  `public` (keys, accounts, secrets, audit rows), no other table of its own
+  schema, and cannot create a table anywhere. A table that the tenant schema
+  lacks is found in `public` by name and Postgres refuses it: it is not read.
+  `public$build` has the same four tables in `public` and nothing else there.
+- **How long the URL works.** The server sets a new password each time it
+  starts the compiler, and keeps no copy. A URL read by a build stops working
+  at the compiler's next start (after its queue has been empty for the
+  cooldown, 300 s by default). A compiler that never runs out of work keeps
+  its password until it stops. The URL stops working at once when the tenant
+  is deleted: the role is dropped.
 - **The network.** The compiler pods' NetworkPolicy allows DNS, the database
   port and, by default, TCP 443 to public IPv4 addresses. The tenant's agent
   policy adds the server. No ingress is allowed. With
@@ -481,8 +536,11 @@ reach depends on which compiler builds the package.
 - **The compiler process.** Build code has its uid: it can signal it, and it
   can leave a process behind that outlives the build until the pod stops.
 
-**A compiler shared by tenants, or the `public` compiler:** as above for the
-database URL and the process. Its target directory, cargo home and temp
+**A compiler that the operator runs** (the chart's own compiler, which the
+chart renders only with the fleet compilers off, or one run by hand): as above
+for the process. Its URL is the one the operator gives it, and opens what
+that role is granted; the chart gives it the server's URL, which reaches every
+schema (the single-trust install). Its target directory, cargo home and temp
 directories are shared by every package it builds, and the chart writes no
 egress rule for it.
 
@@ -495,7 +553,7 @@ CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier ser
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
 - **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
-- **4-step teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581): revoke keys → evict runner cache → evict DB cache → drop schema. Before the schema is dropped, the fleet actuator removes the tenant's compiler, when it runs one. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
+- **Teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581, CLOACINA-T-1095): revoke keys and send the revocation notice → evict runner cache → evict DB cache → remove the compiler, the agents and their rows under the fleet lock → delete the tenant's admin-schema rows and drop schema and user in one transaction. A tenant made again with the same name gets no account, key, trusted key, pool or agent of the removed one; the audit rows stay, and the new tenant's own audit reads begin after the `tenant.removed` row. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.
 
 - **Computation graphs carry their tenant.** The server stamps every graph, reactor and accumulator with the tenant of the runner that loads it: `public` for the packages of the `public` tenant, the tenant's name for the others. The server refuses to load a graph with no tenant. A key sees, injects into, fires and pauses the graphs of its own tenant only; a key of another tenant cannot reach the graphs of `public`. Reactor ownership and the owner-address table use the same `(tenant, name)` pair. Graphs with no tenant, open to every caller, exist in embedded use only (a `ComputationGraphScheduler` in your own process, no server, no tenants).
 
@@ -517,13 +575,14 @@ The authorization table decides the level a route needs. Which agent, which disp
 
 ### What a task can reach on its agent
 
-A task runs inside the `cloacina-agent` process of its own tenant: a Rust task as a loaded library, a Python task in the embedded interpreter. It has the agent's user, files, network and memory.
+A task runs on a `cloacina-agent` of its own tenant, in a worker process that the agent starts for that one task: a Rust task as a loaded library, a Python task in an interpreter of its own. The worker has the agent's user, files, network and environment, and its own memory. A task marked `inline` runs inside the agent process and shares the agent's memory. A worker process is a boundary for memory use and for crashes (see [worker processes and limits](../execution-agent-fleet/#worker-processes-and-limits)); it is not a security boundary between the tasks of one agent.
 
 - **The Kubernetes API.** Agent pods mount no service account token (`automountServiceAccountToken: false`, in the actuator's Deployment and in the `cloacina-agent` chart), and the per-tenant `NetworkPolicy` allows egress only to DNS and the server.
 - **The agent's API key, by the ordinary routes.** The agent reads the key at start, overwrites the value in its start-time environment and removes `CLOACINA_API_KEY`. `std::env`, Python's `os.environ` and `/proc/self/environ` do not hold the key. The agent keeps no key in a file, and sets no default header on its HTTP client.
-- **The agent's API key, in memory.** The agent holds the key in its own memory for its calls to the server, and a task shares that memory. Native code in a task, or a task that reads `/proc/self/mem`, can find it. A key given with `--api-key` is in the argument list, and a key file (`--api-key-file`) is readable by the agent's user: both are readable by a task.
+- **The agent's API key, in memory.** The agent holds the key in its own memory for its calls to the server. A worker process is started with no key: the agent fetches the package and reports the result itself. An inline task shares the agent's memory, so native code in it, or a read of `/proc/self/mem`, can find the key. A task in a worker has the agent's user id, so it can read the agent's memory where the kernel lets one process of a user read another's (`ptrace`, `/proc/<pid>/mem`). A key given with `--api-key` is in the agent's argument list, and a key file (`--api-key-file`) is readable by the agent's user: both are readable by a task.
 - **What that key opens.** A managed agent's key is scoped to its tenant with the role `agent`. On Kubernetes every agent of the tenant has the same key; on Docker each container has its own. The key can call the agent routes (register, heartbeat, top up one-time keys, report a result, and fetch the tenant's artifacts, source and providers by digest), get a WebSocket ticket, and open an `agent:<id>` delivery stream of its tenant. Every other route answers `403`: it cannot read the tenant's workflows, package source, executions, events, triggers, fleet view or limit, cannot reach the computation-graph routes, cannot fire a reactor or inject into an accumulator, cannot publish or execute, cannot read or manage secrets, keys or accounts, and cannot reach another tenant.
-- **Secrets.** A task receives the secrets it declares, unwrapped by the agent for that one execution. Tasks of one tenant that run on the same agent share its memory.
+- **Secrets.** A task receives the secrets it declares, unwrapped by the agent for that one execution. The agent hands them to the task's worker process over a pipe: they are not in the worker's arguments or environment, and the agent does not log them. A worker holds the secrets of its own task only. Inline tasks of one tenant that run on the same agent share its memory.
+- **The files of other tasks.** Each worker has a temporary directory of its own, which the agent removes when the worker has exited. Every worker of an agent runs as the same user, so a task can read the files of another task that runs at the same time, and the agent's package cache.
 
 For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation](../multi-tenancy/) and the multi-tenant how-tos under `/service/how-to/`.
 

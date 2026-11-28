@@ -19,7 +19,7 @@ spec:
   selector:
     {{- include "cloacina-server.selectorLabels" . | nindent 4 }}
 {{- end }}
-{{- if and .Values.metrics.enabled .Values.compiler.enabled }}
+{{- if and .Values.metrics.enabled (include "cloacina-server.chartCompiler" .) }}
 ---
 # The compiler's metrics listener (CLOACINA-T-1032).
 apiVersion: v1

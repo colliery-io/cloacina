@@ -765,6 +765,128 @@ impl PackageLoader {
         out
     }
 
+    /// Read the full metadata of a library file with one open
+    /// (CLOACINA-T-1074).
+    ///
+    /// Opens the library at `library_path` and makes every metadata call the
+    /// load path makes: task metadata, the input interface, the graph, the
+    /// reactors, the triggers, the trigger-less graphs and the constructor
+    /// nodes. Opening a library runs its load-time code, so on a server this
+    /// runs in the compiler's describe child and nowhere else.
+    ///
+    /// A method the library does not implement gives an empty list, as in the
+    /// load path. A graph call that fails means "no graph", as in
+    /// [`Self::extract_graph_metadata`]. Any other failed call is an error.
+    ///
+    /// The library is never closed: the caller is a process that ends after
+    /// the read.
+    pub fn describe_library(
+        library_path: &Path,
+    ) -> Result<crate::registry::package_description::PackageDescription, LoaderError> {
+        use crate::computation_graph::packaging_bridge::{
+            call_get_constructor_metadata, call_get_reactor_metadata, call_get_trigger_metadata,
+        };
+        use crate::registry::package_description::{PackageDescription, RustLibraryMetadata};
+
+        let loaded = fidius_host::loader::load_library(library_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: library_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        let tasks: cloacina_workflow_plugin::PackageTasksMetadata = handle
+            .call_method(cloacina_workflow_plugin::METHOD_GET_TASK_METADATA, &())
+            .map_err(|e| LoaderError::MetadataExtraction {
+                reason: format!("Failed to call get_task_metadata: {}", e),
+            })?;
+
+        let iface: Result<
+            cloacina_workflow_plugin::InputInterfaceDescriptor,
+            fidius_host::CallError,
+        > = handle.call_method(cloacina_workflow_plugin::METHOD_GET_INPUT_INTERFACE, &());
+        let mut declared_params: Vec<cloacina_api_types::InputSlot> = Vec::new();
+        let mut declared_surfaces: Vec<cloacina_api_types::DeclaredSurface> = Vec::new();
+        match iface {
+            Ok(desc) => {
+                for e in desc.entries {
+                    let slots =
+                        serde_json::from_str::<Vec<cloacina_api_types::InputSlot>>(&e.slots_json)
+                            .unwrap_or_default();
+                    if e.surface_kind == "workflow" {
+                        declared_params.extend(slots);
+                    } else {
+                        declared_surfaces.push(cloacina_api_types::DeclaredSurface {
+                            kind: e.surface_kind,
+                            name: e.surface_name,
+                            slots,
+                        });
+                    }
+                }
+            }
+            Err(fidius_host::CallError::NotImplemented { .. }) => {}
+            Err(e) => {
+                tracing::warn!(
+                    "get_input_interface failed: {:?}; treating as no declared interface",
+                    e
+                );
+            }
+        }
+
+        let graph = handle
+            .call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(
+                cloacina_workflow_plugin::METHOD_GET_GRAPH_METADATA,
+                &(),
+            )
+            .ok();
+
+        let extraction = |reason: String| LoaderError::MetadataExtraction { reason };
+        let reactors = call_get_reactor_metadata(&handle).map_err(extraction)?;
+        let triggers = call_get_trigger_metadata(&handle).map_err(extraction)?;
+        let constructors = call_get_constructor_metadata(&handle).map_err(extraction)?;
+
+        let triggerless: Result<
+            Vec<cloacina_workflow_plugin::TriggerlessGraphMetadataEntry>,
+            fidius_host::CallError,
+        > = handle.call_method(
+            cloacina_workflow_plugin::METHOD_GET_TRIGGERLESS_GRAPH_METADATA,
+            &(),
+        );
+        let triggerless_graphs = match triggerless {
+            Ok(v) => v,
+            Err(fidius_host::CallError::NotImplemented { .. }) => Vec::new(),
+            Err(e) => {
+                return Err(LoaderError::MetadataExtraction {
+                    reason: format!("get_triggerless_graph_metadata failed: {:?}", e),
+                });
+            }
+        };
+
+        // Never close the library: closing it corrupts the `inventory` list
+        // (see the struct docs), and this process ends after the read.
+        std::mem::forget(handle);
+
+        Ok(PackageDescription::from_rust_library(RustLibraryMetadata {
+            tasks,
+            declared_params,
+            declared_surfaces,
+            graph,
+            reactors,
+            triggers,
+            triggerless_graphs,
+            constructors,
+        }))
+    }
+
     /// Get the temporary directory path. Test-only: production code does not
     /// inspect the loader's temp dir directly.
     #[cfg(test)]

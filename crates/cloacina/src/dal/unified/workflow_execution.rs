@@ -83,6 +83,10 @@ impl<'a> WorkflowExecutionDAL<'a> {
                     started_at: now,
                     created_at: now,
                     updated_at: now,
+                    // CLOACINA-T-1045: a row made here asks for nothing and
+                    // gets the column default, 5.
+                    priority_asked: None,
+                    priority: None,
                 };
 
                 // Insert workflow record

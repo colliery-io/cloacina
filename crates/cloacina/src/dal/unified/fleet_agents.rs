@@ -561,13 +561,14 @@ mod tests {
                 .unwrap(),
             Err(Refusal::OtherTenant)
         );
-        // A key with no tenant (a platform admin key has none).
+        // A key with no tenant (a platform admin key has none) registers no
+        // agent at all (CLOACINA-T-1118).
         assert_eq!(
             dal.fleet_agents()
                 .register(reg("a1", 64), &key(None))
                 .await
                 .unwrap(),
-            Err(Refusal::OtherTenant)
+            Err(Refusal::NoTenant)
         );
         // Another key of the same tenant.
         assert_eq!(
@@ -743,7 +744,7 @@ mod tests {
     async fn delete_is_idempotent() {
         let dal = dal_for(&shared_url()).await;
         dal.fleet_agents()
-            .register(reg("a1", 1), &key(None))
+            .register(reg("a1", 1), &key(Some("t1")))
             .await
             .unwrap()
             .unwrap();

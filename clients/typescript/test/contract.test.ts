@@ -343,6 +343,36 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect((err as CloacinaApiError).code).toBeTruthy();
   });
 
+  // The signature of a signed upload reaches the server and is checked
+  // (CLOACINA-T-1062). A text that is no signature: 400. A signature made
+  // for other bytes: 403, before any key is looked up.
+  it("POST /v1/tenants/{t}/workflows sends the signature and the server checks it", async () => {
+    const bytes = new TextEncoder().encode("not a real package");
+    const malformed = await client
+      .uploadWorkflow(bytes, undefined, "not a signature")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(malformed).toBeInstanceOf(CloacinaApiError);
+    expect((malformed as CloacinaApiError).status).toBe(400);
+    expect((malformed as CloacinaApiError).code).toBe("malformed_signature");
+
+    const forOtherBytes = JSON.stringify({
+      version: 1,
+      algorithm: "ed25519",
+      package_hash: "0".repeat(64),
+      key_fingerprint: "0".repeat(64),
+      signature: "AAAA",
+      signed_at: "2026-01-01T00:00:00Z",
+    });
+    const tampered = await client
+      .uploadWorkflow(bytes, undefined, forOtherBytes)
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(tampered).toBeInstanceOf(CloacinaApiError);
+    expect((tampered as CloacinaApiError).status).toBe(403);
+    expect((tampered as CloacinaApiError).code).toBe("package_tampered");
+  });
+
   it("GET /v1/tenants/{t}/workflows returns the list envelope", async () => {
     const page = await client.listWorkflows();
     expect(page.tenant_id).toBe(TENANT);
@@ -359,13 +389,14 @@ describe.skipIf(!RUN)("TS SDK live-server contract", () => {
     expect((err as CloacinaApiError).code).toBe("workflow_not_found");
   });
 
-  it("DELETE /v1/tenants/{t}/workflows/{name}/{version} is idempotent (200 even when absent)", async () => {
-    // Documented contract decision (T-0645): unregister is idempotent —
-    // deleting a workflow that was never registered still returns the
-    // deleted envelope.
-    const deleted = await client.deleteWorkflow("does-not-exist", "0.0.0");
-    expect(deleted.status).toBe("deleted");
-    expect(deleted.package_name).toBe("does-not-exist");
+  it("DELETE /v1/tenants/{t}/workflows/{name}/{version} 404s for an unknown package", async () => {
+    // CLOACINA-T-1122.
+    const err = await client
+      .deleteWorkflow("does-not-exist", "0.0.0")
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect((err as CloacinaApiError).status).toBe(404);
+    expect((err as CloacinaApiError).code).toBe("workflow_not_found");
   });
 
   it("GET /v1/tenants/{t}/workflows/{name}/versions 404s for a package with no version", async () => {

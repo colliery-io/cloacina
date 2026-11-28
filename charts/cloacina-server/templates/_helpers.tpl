@@ -80,6 +80,16 @@ the chart's own compiler.
 {{- end -}}
 
 {{/*
+Whether the chart renders its own compiler for public: "true" or "". Not with
+the fleet compilers on: the server then runs public's compiler like every
+tenant's, with public's build role (CLOACINA-T-1063).
+*/}}
+{{- define "cloacina-server.chartCompiler" -}}
+{{- $fleetCompilers := and (eq .Values.fleet.actuator "kubernetes") .Values.fleet.compiler.enabled -}}
+{{- if and .Values.compiler.enabled (not $fleetCompilers) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 Fleet-actuator ServiceAccount name. Defaults to "<fullname>-fleet".
 */}}
 {{- define "cloacina-server.fleetServiceAccountName" -}}

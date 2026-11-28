@@ -1,0 +1,16 @@
+# Fixture of the behaviour suite's standing workload (CLOACINA-T-1107): a job
+# that holds an agent for two minutes. It has no schedule: the self-driving
+# workflow starts several at once through the API, to fill its tenant.
+[package]
+name = "standing-hold-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "standing_hold"
+language = "python"
+description = "standing workload: holds an agent for two minutes"
+author = "behaviour-suite"
+entry_module = "standing_hold.tasks"

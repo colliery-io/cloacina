@@ -58,6 +58,9 @@ class FleetStack:
         self._procs: list[subprocess.Popen] = []
         self._logs: list = []
         self._agents = 0
+        # The agent processes, in start order (the fleet workers e2e reads a
+        # process id and stops an agent for a while).
+        self.agent_procs: list[subprocess.Popen] = []
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -185,6 +188,7 @@ class FleetStack:
             ],
             agent_env,
         )
+        self.agent_procs.append(proc)
         time.sleep(3.0)
         if proc.poll() is not None:
             self.dump(log_name)

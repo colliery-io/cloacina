@@ -53,6 +53,8 @@ mod unified_schema {
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
             trigger_origin -> Nullable<Text>,
+            priority_asked -> Nullable<Integer>,
+            priority -> Integer,
         }
     }
 
@@ -85,8 +87,12 @@ mod unified_schema {
             cpu_request_millis -> Nullable<BigInt>,
             memory_request_bytes -> Nullable<BigInt>,
             fleet_agent_id -> Nullable<Text>,
+            fleet_dispatch_id -> Nullable<Text>,
+            fleet_packet_row_id -> Nullable<BigInt>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            workflow_priority -> Integer,
+            task_priority -> Integer,
         }
     }
 
@@ -354,6 +360,12 @@ mod unified_schema {
             compiled_at -> Nullable<DbTimestamp>,
             paused -> DbBool,
             paused_at -> Nullable<DbTimestamp>,
+            // CLOACINA-T-1074: the full metadata document a describe child
+            // of the compiler wrote, its format version, and why the last
+            // describe failed.
+            metadata_document -> Nullable<Text>,
+            metadata_document_version -> Nullable<Integer>,
+            describe_error -> Nullable<Text>,
         }
     }
 

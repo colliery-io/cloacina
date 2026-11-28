@@ -37,6 +37,10 @@ pub struct TaskReadyEvent {
     pub task_name: String,
     /// Current attempt number (starts at 1)
     pub attempt: i32,
+    /// The turn of this dispatch among the dispatches of one scheduler pass
+    /// (CLOACINA-T-1045). An executor calls [`Admission::release`] when it
+    /// has decided whether the task gets a slot.
+    pub admission: Admission,
 }
 
 impl TaskReadyEvent {
@@ -52,7 +56,67 @@ impl TaskReadyEvent {
             workflow_execution_id,
             task_name,
             attempt,
+            admission: Admission::none(),
         }
+    }
+
+    /// The same event with a turn in the order of a scheduler pass.
+    pub fn with_admission(mut self, admission: Admission) -> Self {
+        self.admission = admission;
+        self
+    }
+}
+
+/// The turn of one dispatch in the order of a scheduler pass
+/// (CLOACINA-T-1045).
+///
+/// The scheduler loop dispatches the waiting tasks in priority order. On a
+/// backend that dispatches them at the same time, each dispatch waits for the
+/// one before it to decide about its slot, so the slots that are free go to
+/// the tasks in that order. The executor releases the turn as soon as it has
+/// decided: the task has a slot, or it has none and waits. The turn is also
+/// released when the dispatch ends. A dispatch with no turn (`none`) releases
+/// nothing.
+#[derive(Clone, Default)]
+pub struct Admission {
+    released: Option<std::sync::Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>>,
+}
+
+impl Admission {
+    /// No turn: the dispatch is not in an ordered pass.
+    pub fn none() -> Self {
+        Self { released: None }
+    }
+
+    /// A turn, and the receiver that resolves when the turn is released.
+    pub fn new() -> (Self, tokio::sync::oneshot::Receiver<()>) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        (
+            Self {
+                released: Some(std::sync::Arc::new(std::sync::Mutex::new(Some(tx)))),
+            },
+            rx,
+        )
+    }
+
+    /// Let the next dispatch of the pass decide. Safe to call more than once.
+    pub fn release(&self) {
+        if let Some(released) = &self.released {
+            let sender = released.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(sender) = sender {
+                let _ = sender.send(());
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for Admission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.released.is_some() {
+            "Admission(turn)"
+        } else {
+            "Admission(none)"
+        })
     }
 }
 

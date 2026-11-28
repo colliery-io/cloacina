@@ -16,7 +16,7 @@
 
 //! Retention of run history (CLOACINA-T-1023).
 //!
-//! A finished workflow execution leaves rows in eight tables. Nothing removed
+//! A finished workflow execution leaves rows in nine tables. Nothing removed
 //! them, so every table grew with each run. [`RetentionDAL`] deletes finished
 //! executions older than a cutoff, with every row that hangs off them, in
 //! bounded batches.
@@ -35,10 +35,12 @@
 //!    (one is written per execution event and stays `pending` when nobody
 //!    subscribed; acked rows belong to
 //!    [`DeliveryOutboxDAL::delete_acked_older_than`](super::DeliveryOutboxDAL::delete_acked_older_than))
-//! 5. `task_execution_metadata`
-//! 6. `task_executions`
-//! 7. `workflow_executions`
-//! 8. `contexts` that the removed rows pointed at and that no remaining
+//! 5. `workflow_execution_package_pins` of those executions (CLOACINA-T-1130;
+//!    no foreign key)
+//! 6. `task_execution_metadata`
+//! 7. `task_executions`
+//! 8. `workflow_executions`
+//! 9. `contexts` that the removed rows pointed at and that no remaining
 //!    execution or metadata row references
 //!
 //! Children go first because only `execution_events` and
@@ -60,7 +62,7 @@
 use super::DAL;
 use crate::database::schema::unified::{
     contexts, delivery_outbox, execution_events, recovery_events, schedule_executions,
-    task_execution_metadata, task_executions, workflow_executions,
+    task_execution_metadata, task_executions, workflow_execution_package_pins, workflow_executions,
 };
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -90,6 +92,8 @@ pub struct RunHistoryDeleted {
     pub recovery_events: usize,
     pub schedule_executions: usize,
     pub delivery_outbox: usize,
+    /// The package version pins of the removed executions (CLOACINA-T-1130).
+    pub workflow_execution_package_pins: usize,
 }
 
 impl RunHistoryDeleted {
@@ -103,10 +107,11 @@ impl RunHistoryDeleted {
         self.recovery_events += other.recovery_events;
         self.schedule_executions += other.schedule_executions;
         self.delivery_outbox += other.delivery_outbox;
+        self.workflow_execution_package_pins += other.workflow_execution_package_pins;
     }
 
     /// `(table name, rows removed)` for every table, for metrics and logs.
-    pub fn per_table(&self) -> [(&'static str, usize); 8] {
+    pub fn per_table(&self) -> [(&'static str, usize); 9] {
         [
             ("workflow_executions", self.workflow_executions),
             ("task_executions", self.task_executions),
@@ -116,6 +121,10 @@ impl RunHistoryDeleted {
             ("recovery_events", self.recovery_events),
             ("schedule_executions", self.schedule_executions),
             ("delivery_outbox", self.delivery_outbox),
+            (
+                "workflow_execution_package_pins",
+                self.workflow_execution_package_pins,
+            ),
         ]
     }
 
@@ -245,6 +254,14 @@ impl<'a> RetentionDAL<'a> {
                         .filter(delivery_outbox::delivery_state.ne(OUTBOX_STATE_ACKED)),
                 )
                 .execute(conn)?;
+
+                // The version pins of these executions (CLOACINA-T-1130): a
+                // package delete reads them, and nothing else removes them.
+                out.workflow_execution_package_pins =
+                    diesel::delete(workflow_execution_package_pins::table.filter(
+                        workflow_execution_package_pins::workflow_execution_id.eq_any(ids.clone()),
+                    ))
+                    .execute(conn)?;
 
                 out.task_execution_metadata = diesel::delete(
                     task_execution_metadata::table
@@ -508,10 +525,60 @@ mod tests {
                 recovery_events: 1,
                 schedule_executions: 1,
                 delivery_outbox: 1,
+                workflow_execution_package_pins: 0,
             }
         );
         assert_eq!(deleted.total(), 11);
         assert_eq!(counts(&dal).await, [0; 8]);
+    }
+
+    async fn pin(dal: &DAL, wf: UniversalUuid) {
+        let pin = crate::dal::unified::models::WorkflowExecutionPackagePin {
+            workflow_execution_id: wf,
+            package_name: "retention-pkg".into(),
+            package_id: UniversalUuid::new_v4(),
+            version: "1.0.0".into(),
+            created_at: UniversalTimestamp::now(),
+        };
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::insert_into(workflow_execution_package_pins::table)
+                .values(&pin)
+                .execute(conn)
+        })
+        .unwrap();
+    }
+
+    async fn pins_of(dal: &DAL, wf: UniversalUuid) -> i64 {
+        crate::interact_on_backend!(dal, |conn| {
+            workflow_execution_package_pins::table
+                .filter(workflow_execution_package_pins::workflow_execution_id.eq(wf))
+                .count()
+                .get_result(conn)
+        })
+        .unwrap()
+    }
+
+    /// CLOACINA-T-1130: the version pin of a removed run goes with it; the pin
+    /// of a run that is still going stays.
+    #[tokio::test]
+    async fn removes_the_version_pin_of_a_removed_run() {
+        let dal = unique_dal().await;
+        let old = make_run(&dal, "Completed").await;
+        set_state(&dal, old, "Completed", Some(Duration::seconds(10))).await;
+        let live = make_run(&dal, "Running").await;
+        pin(&dal, old).await;
+        pin(&dal, live).await;
+
+        let deleted = dal
+            .retention()
+            .delete_finished_executions_batch(cutoff(Duration::seconds(2)), 100)
+            .await
+            .unwrap();
+
+        assert_eq!(deleted.workflow_executions, 1);
+        assert_eq!(deleted.workflow_execution_package_pins, 1);
+        assert_eq!(pins_of(&dal, old).await, 0);
+        assert_eq!(pins_of(&dal, live).await, 1);
     }
 
     #[tokio::test]

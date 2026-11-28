@@ -45,6 +45,7 @@ pub mod oidc;
 pub mod openapi;
 pub mod ops_metrics;
 pub mod placement_check;
+pub mod priority_authority;
 pub mod retention;
 pub mod routes;
 pub mod secrets;
@@ -163,7 +164,8 @@ const REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE: u32 = 3;
 /// Cached per-tenant database connections for schema isolation.
 ///
 /// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
-/// Lazily populated on first request for a given tenant.
+/// Lazily populated on first request for a given tenant. The first open
+/// migrates the tenant schema (CLOACINA-T-1093).
 pub struct TenantDatabaseCache {
     databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>,
     database_url: String,
@@ -196,6 +198,13 @@ impl TenantDatabaseCache {
                 return Ok(db.clone());
             }
         }
+
+        // CLOACINA-T-1093: the first open of a tenant on this replica brings
+        // its schema to this binary's migrations, before a runner or a route
+        // uses it. A failure caches nothing, so the next call tries again.
+        crate::startup_migrations::migrate_tenant_on_first_open(admin_db, tenant_id)
+            .await
+            .map_err(cloacina::database::connection::DatabaseError::Migration)?;
 
         // Slow path: create and cache
         let db = Database::try_new_with_schema(
@@ -314,15 +323,49 @@ pub struct AppState {
 /// per-tenant runner in `TenantRunnerCache`. Mirrors the admin runner
 /// config (`registry_storage_backend` is the same; reconcile interval
 /// honors the operator override).
+/// The environment variable that sets the ageing interval of waiting work,
+/// in seconds (CLOACINA-T-1045).
+pub const PRIORITY_AGING_INTERVAL_ENV: &str = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS";
+
+/// The ageing interval of waiting work (CLOACINA-T-1045): the value of
+/// [`PRIORITY_AGING_INTERVAL_ENV`] in seconds, or two minutes. `0` switches
+/// ageing off. A value that is not a whole number of seconds is ignored with
+/// a warning.
+pub fn priority_aging_interval_from_env() -> std::time::Duration {
+    parse_priority_aging_interval(std::env::var(PRIORITY_AGING_INTERVAL_ENV).ok().as_deref())
+}
+
+pub(crate) fn parse_priority_aging_interval(raw: Option<&str>) -> std::time::Duration {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds) => std::time::Duration::from_secs(seconds),
+            Err(_) => {
+                warn!(
+                    "{PRIORITY_AGING_INTERVAL_ENV}='{value}' is not a whole number of seconds; \
+                     the default of 120 applies"
+                );
+                cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL
+            }
+        },
+    }
+}
+
 fn runner_config_for_tenant_cache(
     reconcile_interval: Option<std::time::Duration>,
     default_executor: &str,
     require_signatures: bool,
     verification_org_id: Option<uuid::Uuid>,
+    // CLOACINA-T-1062: the admin database, where the trusted keys are. A
+    // tenant's reconciler reads signature rows from the tenant's schema and
+    // the keys that sign them from here.
+    signature_trust_database: Option<Database>,
     context_limits: cloacina::executor::ContextSizeLimits,
 ) -> cloacina::DefaultRunnerConfig {
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
+    // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
+    builder = builder.priority_aging_interval(priority_aging_interval_from_env());
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     builder = builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -335,10 +378,12 @@ fn runner_config_for_tenant_cache(
     // a dispatcher exists at all, which `register_executor` requires).
     builder = builder.default_executor(default_executor);
     // CLOACINA-T-1037: the same signature requirement as the admin runner, so
-    // a tenant's reconciler makes the same signature-existence check on load.
+    // a tenant's reconciler makes the same signature check on load.
+    // CLOACINA-T-1062: with the database of the trusted keys.
     builder = builder
         .require_signatures(require_signatures)
-        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
+        .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from))
+        .signature_trust_database(signature_trust_database);
     builder
         .build()
         .expect("default tenant runner config builds cleanly")
@@ -380,6 +425,8 @@ pub async fn run(
     // CLOACINA-T-1014: the default and the maximum time limit of a fleet task.
     // A task with a limit of its own gets that limit, capped at the maximum.
     fleet_task_time_limits: crate::fleet_executor::FleetTaskTimeLimits,
+    // CLOACINA-T-1125: where an agent runs a graph firing (inline by default).
+    fleet_graph_firings: crate::fleet_graph_executor::GraphFiringExecution,
     // CLOACINA-T-1064: how long a fleet task waits, per attempt, while agents
     // cannot fetch its package artifact. Zero: no wait.
     fleet_artifact_fetch_wait: std::time::Duration,
@@ -769,12 +816,27 @@ pub async fn run(
          while they still run."
     );
     metrics::describe_counter!(
+        "cloacina_fleet_cancels_sent_total",
+        "Cancel messages the server sent to an agent for a dispatch whose \
+         result wait ended with no report (CLOACINA-T-1028). The agent kills \
+         the task's worker process. Each one is an attempt that an agent did \
+         not report in the task's time limit plus 30 seconds."
+    );
+    metrics::describe_counter!(
         "cloacina_fleet_refused_results_total",
         "Agent reports for a dispatch this replica waits for that were refused \
          because of their sender (CLOACINA-T-1050): `reason` is `other_tenant` \
          (the agent is in another tenant than the dispatch) or `not_the_target` \
          (the packet is not addressed to that agent). The report changes no \
          state. An honest agent does not cause one."
+    );
+    metrics::describe_counter!(
+        "cloacina_fleet_dispatches_taken_over_total",
+        "Fleet dispatches whose server replica stopped, taken up by another \
+         replica (CLOACINA-T-1084). `outcome`: `waiting` (the packet is open; \
+         this replica waits for the report), `stored_report` (the report was \
+         stored while no replica waited; this replica applies it), `lost` (no \
+         report comes; the stale claim sweeper sends the task again)."
     );
     metrics::describe_counter!(
         "cloacina_delivery_refused_acks_total",
@@ -859,6 +921,8 @@ pub async fn run(
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let mut runner_builder = DefaultRunnerConfig::builder();
     runner_builder = runner_builder.registry_storage_backend("database");
+    // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
+    runner_builder = runner_builder.priority_aging_interval(priority_aging_interval_from_env());
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     runner_builder = runner_builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -866,10 +930,11 @@ pub async fn run(
     if let Some(interval) = reconcile_interval {
         runner_builder = runner_builder.registry_reconcile_interval(interval);
     }
-    // CLOACI-T-0571: forward the verification config into the runner so the
-    // reconciler's defense-in-depth signature-existence check fires even
+    // CLOACI-T-0571, CLOACINA-T-1062: forward the verification config into
+    // the runner so the reconciler's signature check at load fires even
     // when packages reach `workflow_packages` via paths other than the
-    // upload route.
+    // upload route. This runner serves `public`: its packages, signature
+    // rows and the trusted keys are in one database.
     runner_builder = runner_builder
         .require_signatures(require_signatures)
         .verification_org_id(verification_org_id.map(cloacina::UniversalUuid::from));
@@ -939,6 +1004,11 @@ pub async fn run(
     )
     .await
     .context("Failed to connect to database")?;
+    // CLOACINA-T-1045: a priority that a package of the `public` tenant
+    // declares in its code is held to the limit of the role that may publish.
+    runner.set_priority_authority(Arc::new(priority_authority::PublisherLimit::for_tenant(
+        "public",
+    )));
 
     info!("Connected to Postgres, migrations applied");
 
@@ -1189,6 +1259,8 @@ pub async fn run(
                 &default_executor,
                 require_signatures,
                 verification_org_id,
+                // CLOACINA-T-1062: the trusted keys are in the admin schema.
+                Some(runner.database().clone()),
                 context_limits,
             ),
         )
@@ -1206,6 +1278,7 @@ pub async fn run(
             // relay drains them and they reach the agents.
             let reg_outbox_dal = unified_dal.clone();
             let reg_secret_factory = secret_resolver_factory.clone();
+            let reg_shutdown = substrate_shutdown_rx.clone();
             let registrar: crate::tenant_runner_cache::FleetRegistrar =
                 Arc::new(move |runner: &cloacina::DefaultRunner| {
                     let dal = cloacina::dal::unified::DAL::new(runner.database().clone());
@@ -1228,7 +1301,11 @@ pub async fn run(
                     .with_secret_resolver_factory(reg_secret_factory.clone())
                     .with_task_time_limits(fleet_task_time_limits)
                     .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
-                    if runner.register_executor("fleet", Arc::new(fleet_executor)) {
+                    // CLOACINA-T-1084: take over the tenant's fleet dispatches
+                    // whose replica stopped. The loop ends with the executor.
+                    let fleet_executor = Arc::new(fleet_executor);
+                    fleet_executor.spawn_takeover_loop(reg_shutdown.clone());
+                    if runner.register_executor("fleet", fleet_executor) {
                         info!("Fleet executor registered on per-tenant runner dispatcher");
                     } else {
                         warn!(
@@ -1294,11 +1371,17 @@ pub async fn run(
     // start, as a bad actuator does.
     let tenant_compilers = crate::actuator::compiler::CompilerSettings::from_env(&database_url)
         .map_err(|e| anyhow::anyhow!("FATAL: per-tenant compiler settings: {e}"))?;
+    // CLOACINA-T-1101: the log format of the agents the actuator starts. A
+    // value that is not `text` or `json` stops the start, whatever the
+    // actuator.
+    let agent_log_format =
+        crate::actuator::agent_log_format_from_env().map_err(|e| anyhow::anyhow!("FATAL: {e}"))?;
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
         runner.database().clone(),
         tenant_compilers,
+        agent_log_format,
     )
     .map_err(|e| {
         anyhow::anyhow!(
@@ -1312,13 +1395,23 @@ pub async fn run(
         "fleet actuator initialized"
     );
 
+    // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
+    // the key cache of this one when the notice arrives.
+    let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
+    #[cfg(feature = "postgres")]
+    crate::routes::auth::spawn_key_revocation_listener(
+        database_url.clone(),
+        key_cache.clone(),
+        substrate_shutdown_rx.clone(),
+    );
+
     let admin_database = runner.database().clone();
     let state = AppState {
         database: admin_database.clone(),
         default_max_agents,
         initial_agents,
         runner: Arc::new(runner),
-        key_cache: Arc::new(crate::routes::auth::KeyCache::default_cache()),
+        key_cache,
         endpoint_registry,
         graph_scheduler: graph_scheduler.clone(),
         delivery_sink: delivery_sink.clone(),
@@ -1416,10 +1509,11 @@ pub async fn run(
         .with_secret_resolver_factory(secret_resolver_factory.clone())
         .with_task_time_limits(fleet_task_time_limits)
         .with_artifact_fetch_wait(fleet_artifact_fetch_wait);
-        if state
-            .runner
-            .register_executor("fleet", Arc::new(fleet_executor))
-        {
+        // CLOACINA-T-1084: take over the fleet dispatches of the admin schema
+        // whose replica stopped.
+        let fleet_executor = Arc::new(fleet_executor);
+        fleet_executor.spawn_takeover_loop(substrate_shutdown_rx.clone());
+        if state.runner.register_executor("fleet", fleet_executor) {
             info!("Fleet executor registered on dispatcher under key 'fleet'");
         } else {
             warn!(
@@ -1451,7 +1545,10 @@ pub async fn run(
                 )
                 // CLOACINA-T-1039: a graph firing gets the server's default
                 // fleet time limit, like a task that sets none.
-                .with_task_time_limits(fleet_task_time_limits);
+                .with_task_time_limits(fleet_task_time_limits)
+                // CLOACINA-T-1125: inline in the agent process, or a worker.
+                .with_firing_execution(fleet_graph_firings);
+                info!(graph_firings = ?fleet_graph_firings, "where agents run graph firings");
                 state
                     .graph_scheduler
                     .set_graph_executor(Arc::new(graph_fleet))
@@ -3011,8 +3108,13 @@ mod tests {
     mod authz_routes;
     /// Router tests of backfills (CLOACINA-T-1020).
     mod backfill_routes;
+    /// The package delete in each build state (CLOACINA-T-1122).
+    mod package_delete;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
+    /// A signed upload end to end, and the signature check at load
+    /// (CLOACINA-T-1062).
+    mod package_signing;
     mod tenant_runner_start;
     /// Router tests of the trusted keys of package signing (CLOACINA-T-1061).
     mod trusted_key_routes;
@@ -3022,6 +3124,12 @@ mod tests {
 
     /// Tenant delete reports a failed drop (CLOACINA-T-1068).
     mod tenant_removal;
+
+    /// The build role of a tenant's compiler (CLOACINA-T-1063).
+    mod build_role;
+
+    /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
+    mod key_revocation_notice;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
@@ -3119,7 +3227,14 @@ mod tests {
             tenant_databases: Arc::new(TenantDatabaseCache::new(TEST_DB_URL.to_string())),
             tenant_runners: Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
                 std::num::NonZeroUsize::new(8).expect("test cap"),
-                runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
+                runner_config_for_tenant_cache(
+                    None,
+                    "default",
+                    false,
+                    None,
+                    None,
+                    Default::default(),
+                ),
             )),
             tenant_deletion_drain_timeout: std::time::Duration::from_secs(5),
             agent_heartbeat_interval_seconds: cloacina::fleet::DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
@@ -3570,9 +3685,10 @@ mod tests {
         let auth = crate::routes::auth::AuthenticatedKey {
             key_id: uuid::Uuid::new_v4(),
             name: "t1015-agent".to_string(),
-            permissions: "admin".to_string(),
-            tenant_id: None,
-            is_admin: true,
+            permissions: "agent".to_string(),
+            // CLOACINA-T-1118: an agent registers with a key of a tenant.
+            tenant_id: Some("public".to_string()),
+            is_admin: false,
         };
         // CLOACINA-T-1050: a report is taken only from a registered agent
         // that the caller key holds, so the agent registers first (through
@@ -3600,7 +3716,7 @@ mod tests {
         let rx = replica_a.fleet_coordinator.register_dispatch(
             task_id,
             cloacina::security::ownership::DispatchTarget {
-                tenant_id: None,
+                tenant_id: Some("public".to_string()),
                 agent_id: agent_id.clone(),
                 dispatch_id: Some("dispatch-1".to_string()),
             },
@@ -4807,15 +4923,157 @@ mod tests {
         }
     }
 
+    /// Labels that the cardinality guard leaves out of a label set
+    /// (CLOACINA-T-1104):
+    ///
+    /// - `le` and `quantile`: the series of one histogram or one summary. The
+    ///   exporter writes a histogram with no buckets as a summary, with 7
+    ///   `quantile` lines for each label set. They are a fixed number, not a
+    ///   label that grows.
+    /// - `tenant`: one value for each tenant (see "Metric reference" in the
+    ///   metrics catalog). The tests share one recorder, so the number of
+    ///   tenants in a scrape is the number of tenants the tests that ran
+    ///   before made. The guard counts the label sets of one tenant.
+    const CARDINALITY_IGNORED_LABELS: &[&str] = &["le", "quantile", "tenant"];
+
+    /// The most distinct label sets a metric may have in the guard, with the
+    /// labels of [`CARDINALITY_IGNORED_LABELS`] left out.
+    fn cardinality_ceiling(metric: &str) -> usize {
+        match metric {
+            "cloacina_api_request_duration_seconds" | "cloacina_api_requests_total" => 256,
+            _ => 64,
+        }
+    }
+
+    /// One summary line set for a label block, as the exporter writes it.
+    fn summary_lines(metric: &str, labels: &str) -> String {
+        let mut out = String::new();
+        for quantile in ["0", "0.5", "0.9", "0.95", "0.99", "0.999", "1"] {
+            out.push_str(&format!("{metric}{{{labels},quantile=\"{quantile}\"}} 1\n"));
+        }
+        out.push_str(&format!("{metric}_sum{{{labels}}} 7\n"));
+        out.push_str(&format!("{metric}_count{{{labels}}} 7\n"));
+        out
+    }
+
+    /// CLOACINA-T-1104: 40 tenants and the quantile lines of a summary do not
+    /// trip the guard. This is the scrape that failed: the two `kind` values
+    /// were counted once for each tenant and each quantile.
+    #[test]
+    fn the_cardinality_guard_counts_the_label_sets_of_one_tenant() {
+        let mut text = String::from("# TYPE cloacina_context_size_bytes summary\n");
+        for tenant in 0..40 {
+            for kind in ["input", "result"] {
+                text.push_str(&summary_lines(
+                    "cloacina_context_size_bytes",
+                    &format!("kind=\"{kind}\",tenant=\"tenant_{tenant}\""),
+                ));
+            }
+        }
+        // As the guard counted before: every tenant and every quantile.
+        assert_eq!(
+            distinct_label_sets(&text, &["le"])["cloacina_context_size_bytes"].len(),
+            40 * 2 * 8
+        );
+        let sets = distinct_label_sets(&text, CARDINALITY_IGNORED_LABELS);
+        assert_eq!(sets["cloacina_context_size_bytes"].len(), 2);
+        assert!(2 <= cardinality_ceiling("cloacina_context_size_bytes"));
+    }
+
+    /// The guard still fails a metric with an unbounded label, alone or next
+    /// to `tenant`.
+    #[test]
+    fn the_cardinality_guard_still_fails_an_unbounded_label() {
+        let mut text = String::new();
+        for id in 0..100 {
+            text.push_str(&format!("cloacina_bad_total{{task_id=\"task-{id}\"}} 1\n"));
+            text.push_str(&summary_lines(
+                "cloacina_bad_seconds",
+                &format!("tenant=\"acme\",task_id=\"task-{id}\""),
+            ));
+        }
+        // A label whose name only starts like an ignored one is counted.
+        for id in 0..100 {
+            text.push_str(&format!(
+                "cloacina_bad_names_total{{tenant_task=\"t{id}\"}} 1\n"
+            ));
+        }
+        let sets = distinct_label_sets(&text, CARDINALITY_IGNORED_LABELS);
+        for metric in [
+            "cloacina_bad_total",
+            "cloacina_bad_seconds",
+            "cloacina_bad_names_total",
+        ] {
+            assert_eq!(sets[metric].len(), 100, "{metric}");
+            assert!(sets[metric].len() > cardinality_ceiling(metric), "{metric}");
+        }
+    }
+
+    /// The distinct label sets of each `cloacina_*` metric in a Prometheus
+    /// scrape, with the labels named in `ignored` left out of each set.
+    fn distinct_label_sets(
+        text: &str,
+        ignored: &[&str],
+    ) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+        let mut label_sets: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for line in text.lines() {
+            if line.starts_with('#') || line.is_empty() {
+                continue;
+            }
+            // Capture metric name up to '{' or whitespace.
+            let name_end = line
+                .find('{')
+                .or_else(|| line.find(' '))
+                .unwrap_or(line.len());
+            let name = &line[..name_end];
+            // Strip the `_bucket`, `_sum` and `_count` suffixes so all series
+            // of one histogram or summary count as the same metric.
+            let canonical: &str = if let Some(stripped) = name.strip_suffix("_bucket") {
+                stripped
+            } else if let Some(stripped) = name.strip_suffix("_sum") {
+                stripped
+            } else if let Some(stripped) = name.strip_suffix("_count") {
+                stripped
+            } else {
+                name
+            };
+            if !canonical.starts_with("cloacina_") {
+                continue;
+            }
+            let labels = match (line.find('{'), line.rfind('}')) {
+                (Some(a), Some(b)) if b > a => &line[a + 1..b],
+                _ => "",
+            };
+            let canonical_labels: Vec<&str> = labels
+                .split(',')
+                .map(|kv| kv.trim())
+                .filter(|kv| {
+                    !kv.is_empty()
+                        && !ignored
+                            .iter()
+                            .any(|name| kv.strip_prefix(name).is_some_and(|r| r.starts_with('=')))
+                })
+                .collect();
+            label_sets
+                .entry(canonical.to_string())
+                .or_default()
+                .insert(canonical_labels.join(","));
+        }
+        label_sets
+    }
+
     /// I-0099 cardinality guard — assert that every `cloacina_*` metric
     /// introduced by the initiative stays under a fixed series ceiling.
     ///
     /// Emits each metric exactly as the production code does, scrapes
     /// `/metrics`, then groups all exposition lines by metric name and
     /// asserts each metric's distinct label-set count is below the
-    /// documented limit. Caught here, this protects against the
-    /// "someone added `tenant_id` as a label" failure mode that motivates
-    /// the cardinality discipline in I-0099.
+    /// documented limit. Caught here, this protects against the "someone
+    /// added a task id or an event key as a label" failure mode that
+    /// motivates the cardinality discipline in I-0099. The `tenant` label is
+    /// allowed (CLOACINA-T-1024) and is not counted: see
+    /// `CARDINALITY_IGNORED_LABELS`.
     #[tokio::test]
     #[serial]
     async fn test_i0099_cardinality_within_ceiling() {
@@ -5022,74 +5280,29 @@ mod tests {
         //
         // The ceiling below accommodates the per-test cardinality (one
         // graph/reactor/accumulator name) plus a safety margin. Inflated
-        // labels (e.g., tenant_id, event keys) would push any of these
+        // labels (e.g., task ids, event keys) would push any of these
         // metrics far above the ceiling.
         // Count DISTINCT LABEL SETS per canonical metric — not raw series.
-        // A histogram emits one `_bucket` series per `le` boundary plus `_sum`
-        // and `_count`; those are a fixed Prometheus artifact, not cardinality
-        // risk. Collapsing the `le` label so all buckets of one label set count
-        // once measures the thing the guard actually cares about (unbounded
-        // labels like tenant_id / raw paths still blow up the distinct-set
-        // count). This also keeps the count stable when many tests share one
-        // process-wide recorder (e.g. the request-duration histogram, which the
-        // middleware feeds on every test request).
-        let mut label_sets: HashMap<&str, std::collections::HashSet<String>> = HashMap::new();
-        for line in text.lines() {
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            // Capture metric name up to '{' or whitespace.
-            let name_end = line
-                .find('{')
-                .or_else(|| line.find(' '))
-                .unwrap_or(line.len());
-            let name = &line[..name_end];
-            // Strip Prometheus histogram suffixes so all buckets of one
-            // histogram count as the same metric for our purposes.
-            let canonical: &str = if let Some(stripped) = name.strip_suffix("_bucket") {
-                stripped
-            } else if let Some(stripped) = name.strip_suffix("_sum") {
-                stripped
-            } else if let Some(stripped) = name.strip_suffix("_count") {
-                stripped
-            } else {
-                name
-            };
-            if !canonical.starts_with("cloacina_") {
-                continue;
-            }
-            // Extract the label block between `{` and `}`, dropping the
-            // histogram `le` bucket boundary so buckets collapse to one set.
-            let labels = match (line.find('{'), line.rfind('}')) {
-                (Some(a), Some(b)) if b > a => &line[a + 1..b],
-                _ => "",
-            };
-            let canonical_labels: Vec<&str> = labels
-                .split(',')
-                .map(|kv| kv.trim())
-                .filter(|kv| !kv.is_empty() && !kv.starts_with("le="))
-                .collect();
-            label_sets
-                .entry(canonical)
-                .or_default()
-                .insert(canonical_labels.join(","));
-        }
-        let series_count: HashMap<&str, usize> =
-            label_sets.iter().map(|(k, v)| (*k, v.len())).collect();
+        // See `CARDINALITY_IGNORED_LABELS` for the labels left out of a set.
+        // Many tests share one process-wide recorder (e.g. the
+        // request-duration histogram, which the middleware feeds on every
+        // test request), so the count must not depend on which tests ran.
+        let label_sets = distinct_label_sets(&text, CARDINALITY_IGNORED_LABELS);
+        let series_count: HashMap<&str, usize> = label_sets
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.len()))
+            .collect();
 
         // Per-metric ceilings. The default stays deliberately tight — most
         // I-0099 metrics carry a handful of enum-bounded labels and sit far
-        // below it, so an unbounded label (tenant_id, event keys, raw paths)
+        // below it, so an unbounded label (task ids, event keys, raw paths)
         // trips the guard loudly. The two API metrics are labelled only by
         // (method, status): both bounded, but their product across the full
         // route surface legitimately exceeds the tight default, so they get a
         // higher (still bounded) ceiling that an unbounded label would blow
         // straight past. CLOACI-I-0127.
         for (metric, count) in &series_count {
-            let ceiling = match *metric {
-                "cloacina_api_request_duration_seconds" | "cloacina_api_requests_total" => 256usize,
-                _ => 64usize,
-            };
+            let ceiling = cardinality_ceiling(metric);
             assert!(
                 *count <= ceiling,
                 "I-0099 cardinality guard: {} has {} distinct label sets, \
@@ -6292,7 +6505,7 @@ mod tests {
         // Override the cache with a small cap for this test.
         state.tenant_runners = Arc::new(crate::tenant_runner_cache::TenantRunnerCache::new(
             std::num::NonZeroUsize::new(2).expect("cap=2"),
-            runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
+            runner_config_for_tenant_cache(None, "default", false, None, None, Default::default()),
         ));
 
         let schema_a = format!(
@@ -7055,6 +7268,12 @@ mod tests {
 
     /// Build a multipart request body with a file field.
     fn multipart_file_body(data: &[u8]) -> (String, Vec<u8>) {
+        multipart_upload_body(data, None)
+    }
+
+    /// Build a multipart request body with a file field and, when given, the
+    /// `signature` field of a signed upload (CLOACINA-T-1062).
+    fn multipart_upload_body(data: &[u8], signature: Option<&str>) -> (String, Vec<u8>) {
         let boundary = "----TestBoundary9876543210";
         let mut body = Vec::new();
         write!(
@@ -7063,6 +7282,13 @@ mod tests {
         )
         .unwrap();
         body.extend_from_slice(data);
+        if let Some(signature) = signature {
+            write!(
+                body,
+                "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"signature\"\r\n\r\n{signature}"
+            )
+            .unwrap();
+        }
         write!(body, "\r\n--{boundary}--\r\n").unwrap();
         (boundary.to_string(), body)
     }
@@ -7475,7 +7701,8 @@ mod tests {
     //
     // These exercise the full upload-route verification gate end-to-end:
     // a signed payload must pass the gate; an unsigned payload must be
-    // rejected with `signature_not_found`. They depend on TEST_DB_URL
+    // rejected with `signature_required`. The signature is the `signature`
+    // field of the upload (CLOACINA-T-1062). They depend on TEST_DB_URL
     // being reachable (same constraint as the rest of this test module)
     // and use random per-test org_ids to stay isolated.
 
@@ -7510,8 +7737,8 @@ mod tests {
         );
         let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("");
         assert_eq!(
-            code, "signature_not_found",
-            "expected signature_not_found code; got: {} body: {:?}",
+            code, "signature_required",
+            "expected signature_required code; got: {} body: {:?}",
             code, body
         );
     }
@@ -7543,12 +7770,9 @@ mod tests {
             .await
             .expect("trust_public_key");
 
-        // Sign the bytes and store the `package_signatures` row before upload.
-        // Make the payload unique per test run so prior runs' signatures don't
-        // collide on package_hash (the test DB persists across runs and
-        // `find_signature(hash)` returns one row — picking up a stale row from
-        // a previous run yields `untrusted_signer` because the old key
-        // fingerprint isn't trusted for *this* run's random org_id).
+        // Sign the bytes with the org's key. The payload is unique per test
+        // run. The signature goes to the server as the `signature` field of
+        // the upload (CLOACINA-T-1062); no row is stored before the upload.
         let pkg_bytes = format!(
             "signed contract-test payload {}",
             cloacina::UniversalUuid::new_v4()
@@ -7559,20 +7783,23 @@ mod tests {
         tf.as_file()
             .write_all(pkg_bytes)
             .expect("write tempfile bytes");
-        signer
+        let signature = signer
             .sign_package_with_db_key(
                 tf.path(),
                 org_id,
                 key_info.id,
                 &master_key,
-                /* store_signature= */ true,
+                /* store_signature= */ false,
             )
             .await
             .expect("sign_package_with_db_key");
+        let signature = cloacina::security::DetachedSignature::from_signature_info(&signature)
+            .to_json()
+            .expect("signature json");
 
         // Upload the same bytes through the HTTP handler.
         let app = build_router(state);
-        let (boundary, body) = multipart_file_body(pkg_bytes);
+        let (boundary, body) = multipart_upload_body(pkg_bytes, Some(&signature));
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/tenants/public/workflows")
@@ -7587,29 +7814,11 @@ mod tests {
         let (status, body) = send_request(app, req).await;
 
         // Contract: a valid signature must pass the verification gate.
-        // The bytes aren't a real .cloacina archive so the request will fail
-        // at the registration step downstream — that's fine; we're asserting
-        // verification specifically. If the response is 403, it must NOT be
-        // from a verification-related code.
-        if status == StatusCode::FORBIDDEN {
-            let code = body.get("code").and_then(|v| v.as_str()).unwrap_or("");
-            let verification_codes = [
-                "signature_not_found",
-                "package_tampered",
-                "untrusted_signer",
-                "invalid_signature",
-                "signature_verification_unconfigured",
-                "signature_verification_error",
-            ];
-            assert!(
-                !verification_codes.contains(&code),
-                "expected verification to pass; got 403 with verification code: {} body: {:?}",
-                code,
-                body
-            );
-        }
-        // If status is anything other than 403, the verification gate already
-        // accepted it (failure further downstream is out of scope here).
+        // The bytes aren't a real .cloacina archive, so the registration
+        // step after the gate refuses them with 400 `upload_failed`: that
+        // answer is past the gate.
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body:?}");
+        assert_eq!(body["code"], "upload_failed", "body: {body:?}");
     }
 
     // ── Signature config of the tenant runners ────────────────────────────
@@ -7619,15 +7828,36 @@ mod tests {
     #[test]
     fn tenant_runner_config_carries_the_signature_requirement() {
         let org = uuid::Uuid::new_v4();
-        let on =
-            runner_config_for_tenant_cache(None, "default", true, Some(org), Default::default());
+        let on = runner_config_for_tenant_cache(
+            None,
+            "default",
+            true,
+            Some(org),
+            None,
+            Default::default(),
+        );
         assert!(on.require_signatures());
         assert_eq!(
             on.verification_org_id(),
             Some(cloacina::UniversalUuid::from(org))
         );
+        // CLOACINA-T-1062: the reconciler of a tenant's runner asks the
+        // tenant's org first, then the server org.
+        let mut for_tenant = on.clone();
+        for_tenant.set_tenant_id("acme");
+        let reconciler = for_tenant.reconciler_config();
+        assert!(reconciler.require_signatures);
+        assert_eq!(
+            reconciler.signature_org_ids(),
+            vec![
+                cloacina::security::tenant_org_id("acme"),
+                cloacina::UniversalUuid::from(org)
+            ]
+        );
+        assert!(reconciler.signature_trust_database.is_none());
 
-        let off = runner_config_for_tenant_cache(None, "default", false, None, Default::default());
+        let off =
+            runner_config_for_tenant_cache(None, "default", false, None, None, Default::default());
         assert!(!off.require_signatures());
         assert_eq!(off.verification_org_id(), None);
     }

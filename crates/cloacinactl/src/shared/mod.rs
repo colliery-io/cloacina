@@ -20,5 +20,7 @@
 pub mod client;
 pub mod client_ctx;
 pub mod error;
+#[cfg(test)]
+pub mod flag_list;
 pub mod pid;
 pub mod render;

@@ -50,10 +50,12 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `tenant_removal_failed` | `DELETE /v1/tenants/{schema_name}` | The name is not a valid tenant name. A failed schema drop answers `500 internal_error`; a retry resumes from the failure point (each step is idempotent). |
 | `execution_failed` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | Tenant runner refused the execution (workflow not registered for the tenant, validation error in submitted context, etc.). |
 | `upload_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Package registration via the tenant's `WorkflowRegistry` failed (manifest invalid, duplicate version, etc.). |
+| `python_dependencies_not_locked` | `POST /v1/tenants/{tenant_id}/workflows` | A Python package declares dependencies in `pyproject.toml` and ships no `vendor/` folder, and has no `requirements.lock`, or a lock file that fails the compiler's checks: an option line, a URL or a path, a pin with no `--hash`, or a dependency it does not pin. The message names the lock file or the line, and the command that writes the lock (`cloacinactl package build`). Nothing is stored. The same checks as `cloacinactl package validate` and the compiler. (CLOACINA-T-1097) |
 | `workflow_input_invalid` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | A declared workflow param is missing or its top-level type doesn't match the declared schema; the message names the offending field(s). (CLOACI-T-0757) |
 | `reactor_input_invalid` | `POST /v1/health/reactors/{name}/fire` | The injected event doesn't match the reactor's declared input interface. (CLOACI-T-0758) |
 | `accumulator_input_invalid` | `POST /v1/health/accumulators/{name}/inject` | The injected event doesn't match the accumulator's declared input interface. (CLOACI-T-0759) |
 | `invalid_callback` | `GET /v1/auth/callback` | The OIDC callback is missing `code` or `state`. |
+| `malformed_signature` | `POST /v1/tenants/{tenant_id}/workflows` | The `signature` field of the upload is not a detached signature, is larger than 16 KiB, or names a version or an algorithm the server does not know. |
 | `invalid_public_key` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The PEM is not an Ed25519 public key, or `public_key` is not 64 hexadecimal characters. |
 
 ### 401 Unauthorized
@@ -71,10 +73,11 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `insufficient_permissions` | Tenant-scoped write routes (`execute_workflow`, package upload, etc.) | Authenticated key can read the tenant but lacks write/admin role. |
 | `identity_not_mapped` | `GET /v1/auth/callback` | A validated OIDC identity matched no rule in the god-owned tenant allowlist (`CLOACINA_OIDC_MAP`). (CLOACI-I-0118) |
 | `signature_verification_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Generic verification failure that doesn't match a more specific code below. |
-| `untrusted_signer` | `POST /v1/tenants/{tenant_id}/workflows` | The signer's key is not a live trusted key of the tenant, nor of the server-wide org if one is set: unknown, or revoked. |
+| `signature_required` | `POST /v1/tenants/{tenant_id}/workflows` | The upload has no `signature` field and the server requires signed packages. Sign the package and send its signature. |
+| `untrusted_signer` | `POST /v1/tenants/{tenant_id}/workflows` | The signer's key is not known to the tenant, nor to the server-wide org if one is set. A key that only another tenant trusts gets this answer too. |
+| `signer_revoked` | `POST /v1/tenants/{tenant_id}/workflows` | The signer's key is a revoked trusted key of the tenant or of the server-wide org, and neither holds it live. |
 | `invalid_signature` | `POST /v1/tenants/{tenant_id}/workflows` | Cryptographic signature check failed against the trusted key. |
 | `package_tampered` | `POST /v1/tenants/{tenant_id}/workflows` | The uploaded bytes do not match the hash the signature was made for. |
-| `signature_not_found` | `POST /v1/tenants/{tenant_id}/workflows` | No signature row found for this package in the trust database. Operator must sign before upload. |
 | `signature_verification_error` | `POST /v1/tenants/{tenant_id}/workflows` | Verification path hit an unexpected error (DAL failure, key-lookup error). Treat as transient; retry with backoff. |
 | (custom WS reasons) | `GET /v1/ws/accumulator/{name}`, `GET /v1/ws/reactor/{name}` | WebSocket upgrade rejected; the message names the specific reason (`tenant_mismatch`, `not_authorized`, `ticket_expired`, etc., aligned with the `cloacina_ws_auth_failures_total` metric labels). |
 
@@ -85,7 +88,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `key_not_found` | `DELETE /v1/auth/keys/{key_id}` | Key ID is well-formed but no key exists with that ID, or the key was already revoked. |
 | `execution_not_found` | `GET /v1/tenants/{tenant_id}/executions/{exec_id}` | Execution row missing from the tenant's schema. |
 | `trigger_not_found` | `GET /v1/tenants/{tenant_id}/triggers/{name}` | No schedule row with that name in the tenant's schema. |
-| `workflow_not_found` | `GET /v1/tenants/{tenant_id}/workflows/{name}`, `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | Tenant registry has no entry for `name` (or `(name, version)` for delete). |
+| `workflow_not_found` | `GET /v1/tenants/{tenant_id}/workflows/{name}`, `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | Tenant registry has no entry for `name` (or `(name, version)` for delete, in any build state). |
 | `trusted_key_not_found` | `DELETE /v1/tenants/{tenant_id}/trusted-keys/{key_id}` | No trusted key with that id in this tenant. The id of another tenant's key gives the same answer. |
 
 ### 409 Conflict
@@ -94,7 +97,9 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 |---|---|---|
 | `tenant_exists` | `POST /v1/tenants` | A tenant of this name exists. The message names the tenant. |
 | `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
+| `package_building` | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | The compiler is building the package version. Nothing is removed; delete it when the build ends. |
 | `trusted_key_exists` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The tenant already has this key, live or revoked. |
+| `package_in_use` | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | An execution that has not finished (not `Completed`, `Failed` or `Cancelled`) is pinned to this version, so its later tasks need the version's row and artifacts. Nothing is removed. The message names the version and the number of executions. Retry after they finish, or cancel them. (CLOACINA-T-1098) |
 
 ### 500 Internal Server Error
 
@@ -115,7 +120,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | 400 | `invalid_request`, `invalid_pagination`, `tenant_creation_failed` | **No.** Fix the request and retry only after correction. |
 | 401 `unauthorized` | (same) | **No.** Rotate or refresh credentials; the request is broken without new auth material. |
 | 403 (admin/tenant/permissions) | `admin_required`, `tenant_access_denied`, `insufficient_permissions` | **No.** The key lacks the role; talk to your operator. |
-| 403 (signature) | `invalid_signature`, `untrusted_signer`, `package_tampered`, `signature_not_found` | **No.** Fix the signing pipeline; the package will fail identically on retry. |
+| 403 (signature) | `signature_required`, `invalid_signature`, `untrusted_signer`, `signer_revoked`, `package_tampered` | **No.** Fix the signing pipeline; the package will fail identically on retry. |
 | 403 `signature_verification_error` | | **Yes, with backoff.** Indicates a transient DAL/key-lookup error. |
 | 404 | `*_not_found` | **No.** Verify the resource exists at the path you requested; check tenant scoping. |
 | 500 `internal_error` | | **Yes, with exponential backoff** (start 500ms, max 30s, give up after ~5 attempts). Log the `x-request-id` on every retry. |

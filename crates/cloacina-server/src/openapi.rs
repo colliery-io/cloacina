@@ -49,14 +49,21 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
 
 /// Multipart form for workflow package upload. Spec-only type: the handler
-/// accepts the first file field regardless of name; `file` is the
-/// conventional field name.
+/// reads the fields `file` and `signature` by name.
 #[derive(ToSchema)]
 #[allow(dead_code)]
 pub struct PackageUploadForm {
     /// The `.cloacina` package archive.
     #[schema(format = Binary, content_media_type = "application/octet-stream")]
     pub file: String,
+    /// The detached signature of the archive: the JSON text of the `.sig`
+    /// file that `cloacinactl package pack --sign` writes (`version`,
+    /// `algorithm`, `package_hash`, `key_fingerprint`, `signature`,
+    /// `signed_at`). Ed25519 over the SHA-256 of the archive. Needed when the
+    /// server requires signed packages; checked whenever it is sent.
+    /// Left out of an upload with no signature: the field has no null value.
+    #[schema(required = false)]
+    pub signature: String,
 }
 
 /// Adds the bearer API-key security scheme referenced by every

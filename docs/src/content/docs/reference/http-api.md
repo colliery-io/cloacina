@@ -302,7 +302,7 @@ List all API keys. No hashes or plaintext values are returned. Requires admin ro
 
 ### DELETE /v1/auth/keys/{key_id}
 
-Revoke an API key. The key is immediately invalidated (the cache is cleared).
+Revoke an API key. The key is invalidated at once on every replica (each one clears its key cache on the revocation notice).
 
 **Path parameters:**
 
@@ -510,22 +510,29 @@ List all tenant schemas.
 
 ### DELETE /v1/tenants/{schema_name}
 
-Remove a tenant via the **4-step teardown orchestration**. **Admin-only** (requires an `is_admin` key).
+Remove a tenant via the **teardown orchestration**. **Admin-only** (requires an `is_admin` key).
 
 The steps are top-down and each emits a structured audit event with
 duration:
 
-1. **Revoke API keys** for the tenant (closes the auth surface — new
-   requests against the tenant start failing immediately).
+1. **Revoke API keys** for the tenant and delete its WebSocket tickets
+   (closes the auth surface — new requests against the tenant start
+   failing immediately). Every server clears its key cache on the
+   revocation notice.
 2. **Evict the tenant's `DefaultRunner`** from `TenantRunnerCache`,
    awaiting a bounded graceful drain (`--tenant-deletion-drain-timeout-s`
    server flag, default 30s). Past the timeout the runner is
    **hard-evicted** — any task that ignored cooperative cancellation
-   will error on its next DB write once step 4 drops the schema.
+   will error on its next DB write once step 5 drops the schema.
 3. **Evict the tenant's `Database`** from `TenantDatabaseCache`
    (releases the per-tenant connection pool).
-4. **Drop the schema + user** via `DatabaseAdmin::remove_tenant`
-   (CASCADE).
+4. **Remove the tenant's compiler and agents** and delete its limit,
+   desired count, pools and agent rows, holding the fleet lock (waits
+   up to 30 s for it).
+5. **Delete the tenant's admin-schema rows and drop the schema + user**
+   via `DatabaseAdmin::remove_tenant` (CASCADE), in one transaction;
+   each lock wait is bounded to 5 s. The audit rows stay. See
+   [Decommission a tenant](../../how-to/service/decommission-a-tenant/#what-the-delete-removes-and-what-stays).
 
 Per-step failures bail out; earlier steps stay committed (each step
 is idempotent), so a retry resumes from the failure point. The
@@ -739,6 +746,25 @@ Upload a workflow package.
 | Field | Type | Description |
 |---|---|---|
 | `file` | binary | The `.cloacina` package archive |
+| `signature` | text, optional | The detached signature of the archive: the JSON text of the `.sig` file that `cloacinactl package pack --sign` writes. Needed when the server runs with `--require-signatures`; checked whenever it is sent |
+
+The fields are read by name, in either order. The `signature` field is at
+most 16 KiB. Its JSON:
+
+```json
+{
+  "version": 1,
+  "algorithm": "ed25519",
+  "package_hash": "<SHA-256 of the archive, 64 hexadecimal characters>",
+  "key_fingerprint": "<SHA-256 of the signer's public key, 64 hexadecimal characters>",
+  "signature": "<the 64-byte Ed25519 signature of the hash, base64>",
+  "signed_at": "2026-11-27T12:00:00Z"
+}
+```
+
+The signature is made over the 32 bytes of the SHA-256 of the archive.
+`signed_at` is not covered by it and the server does not keep it. See
+[Signature verification](#signature-verification) for the check.
 
 **Example (curl):**
 
@@ -746,6 +772,15 @@ Upload a workflow package.
 curl -X POST http://localhost:8080/v1/tenants/tenant_acme/workflows \
   -H "Authorization: Bearer clk_a1b2c3d4..." \
   -F "file=@my_workflow.cloacina"
+```
+
+With a signature:
+
+```bash
+curl -X POST http://localhost:8080/v1/tenants/tenant_acme/workflows \
+  -H "Authorization: Bearer clk_a1b2c3d4..." \
+  -F "file=@my_workflow.cloacina" \
+  -F "signature=<my_workflow.cloacina.sig"
 ```
 
 **Response:** `201 Created`
@@ -770,7 +805,14 @@ version stays in service. An upload of the same bytes returns the same
 |---|---|---|
 | `400` | `{"error": "no 'file' field in multipart request"}` | Missing file field |
 | `400` | `{"error": "empty package file"}` | Zero-byte file |
-| `400` | `{"error": "<detail>"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
+| `400` | `{"error": "…", "code": "malformed_signature"}` | The `signature` field is not a detached signature, is larger than 16 KiB, or names a version or an algorithm the server does not know |
+| `403` | `{"error": "…", "code": "signature_required"}` | No `signature` field, and the server requires signed packages |
+| `403` | `{"error": "…", "code": "package_tampered"}` | The signature was made for other bytes |
+| `403` | `{"error": "…", "code": "untrusted_signer"}` | The signer's key is known neither to the tenant nor to the server-wide org |
+| `403` | `{"error": "…", "code": "signer_revoked"}` | The signer's key is revoked |
+| `403` | `{"error": "…", "code": "invalid_signature"}` | The signature does not verify with the trusted key |
+| `400` | `{"error": "<detail>", "code": "upload_failed"}` | Package validation or registration failure. This includes a Python package that the server's Python cannot run: `requires_python` excludes it, or the dependencies are vendored for another Python `major.minor` |
+| `400` | `{"error": "package '<name>' declares dependencies in pyproject.toml (…) and has no requirements.lock and no vendor/ folder. Run 'cloacinactl package build' …", "code": "python_dependencies_not_locked"}` | A Python package with dependencies and no `vendor/` folder has no `requirements.lock`, or its lock file fails the compiler's checks (an option line, a URL or a path, a pin with no `--hash`, a dependency not pinned; the error names the line). The checks of `cloacinactl package validate` and the compiler. Nothing is stored and no build is queued |
 | `413` | `{"error": "package too large: the upload is <N> bytes (<M> MiB), and the limit of this server is <L> bytes (<K> MiB). …", "code": "package_too_large"}` | The upload is larger than `--max-package-bytes` (`CLOACINA_MAX_PACKAGE_BYTES`, default 100 MiB) |
 | `500` | `{"error": "internal registry error"}` | Registry initialization failure |
 
@@ -845,7 +887,8 @@ Get details for a specific workflow by package name.
 |---|---|---|
 | `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence. |
 | `build_status` | string | Real build state: `pending` / `building` / `failed` / `success`. |
-| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. |
+| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. |
+| `describe_error` | string | Present only when the compiler could not write the metadata document of a built package: a package built before the document existed that cannot be described from its stored build. `build_status` stays `success`. |
 | `paused` | boolean | Whether this workflow is paused. A paused workflow refuses new executions until resumed. |
 | `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
 | `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence. |
@@ -998,6 +1041,9 @@ versions.
 }
 ```
 
+A version has `describe_error` (a string) when the compiler could not write
+its metadata document from its stored build. The field is absent otherwise.
+
 #### POST /v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate
 
 Make an earlier built version the active one. There is no rebuild: the stored
@@ -1024,9 +1070,27 @@ Requires a `write`-or-better key. No request body.
 
 ### DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}
 
-Unregister a specific workflow version. Only the active version can be deleted
-this way. Deleting it does not make an earlier version active: use the
-activation route for that.
+Remove a package version in any build state: its rows and their stored
+archives. Deleting the active version does not make an earlier version
+active: use the activation route for that.
+
+| Build state of the version | Result |
+|---|---|
+| `success`, `pending`, `failed` | Removed. `200`, and one `package.delete` audit row. |
+| `building` | Refused: `409 package_building`. Nothing is removed. Delete it when the build ends. |
+| no such name and version | `404 workflow_not_found`. |
+
+A refused or missing delete writes no audit row. A later upload of the same
+bytes makes a new package row.
+
+A delete removes the version's row and what the compilers built for it: the
+library per target and the vendored Python set per platform
+(`package_artifacts`) and the bundled providers (`package_providers`), in one
+transaction. After it, an agent fetch by a digest of the version finds nothing.
+While an execution that has not finished (status other than `Completed`,
+`Failed` or `Cancelled`) is pinned to the version, the delete is refused with
+`409` and nothing is removed: its later tasks are dispatched from that version.
+Let the executions finish, or cancel them, then delete again.
 
 **Path parameters:**
 
@@ -1048,9 +1112,11 @@ activation route for that.
 
 **Errors:**
 
-| Status | Body |
-|---|---|
-| `404` | `{"error": "<detail>"}` |
+| Status | Code | Cause |
+|---|---|---|
+| `404` | `workflow_not_found` | No package of this name and version. |
+| `409` | `package_building` | The compiler is building the package. |
+| `409` | `package_in_use` | An execution that has not finished is pinned to the version: `version <version> of package '<name>' is in use: <N> execution(s) that have not finished run on it. …` |
 
 ### Named workflow instances
 
@@ -2087,7 +2153,7 @@ handlers scope work to the caller's tenant.
 An agent belongs to the key that registered it. `POST /v1/agent/register`
 with an `agent_id` that another tenant or another key holds answers
 `409 agent_id_taken`; with no `agent_id` the server assigns a new one.
-`heartbeat`, `keys` and `result` answer `404 agent_not_registered` for an
+A key with no tenant registers no agent: `403 agent_no_tenant`. `heartbeat`, `keys` and `result` answer `404 agent_not_registered` for an
 agent id that is not registered and `403 agent_access_denied` for an agent
 that another key holds. A result changes task state only when it comes from
 the agent the work packet is addressed to and carries the packet's
@@ -2173,10 +2239,14 @@ them.
 
 - The auth cache is an LRU with **256 entries and a 30-second TTL**.
   Key updates (rare) are not visible until the TTL expires.
-- Revoking a key via `DELETE /v1/auth/keys/{id}` clears the **entire**
-  cache, not just the revoked key. This makes revocation immediate but
-  causes a brief spike in database validation queries as subsequent
-  requests rewarm the cache.
+- A key revoke (`DELETE /v1/auth/keys/{id}`,
+  `DELETE /v1/tenants/{tenant_id}/keys/{key_id}`), a logout, a refresh and
+  a tenant delete send a revocation notice; every replica clears its
+  **entire** cache when it arrives, not just the revoked key. This makes
+  revocation take effect on each replica at once but causes a brief spike
+  in database validation queries as subsequent requests rewarm the cache.
+  A replica whose listener is down refuses the key within the 30-second
+  TTL.
 
 ### WebSocket tickets
 
@@ -2245,22 +2315,31 @@ been removed.
 
 ### Signature verification
 
+- The signature of a package comes with the upload, as the `signature`
+  field of `POST /v1/tenants/{tenant_id}/workflows`. The server does
+  **not** sign packages, only verifies: the publisher signs with its
+  own private key (`cloacinactl package pack --sign`, `package publish
+  --sign`), and the private key is never sent.
 - When `--require-signatures` (or `CLOACINA_REQUIRE_SIGNATURES=true`)
-  is set, the server verifies package signatures at upload. The
-  verification requires a signature row in the `package_signatures`
-  table, read by the hash of the uploaded bytes — the server does
-  **not** sign packages, only verifies. Client-side signing is **not
-  implemented yet** (`cloacinactl package pack --sign` fails hard by
-  design) and no route stores a signature — signature rows are written
-  through the library API, so `--require-signatures` cannot be satisfied
-  by the CLI packing path today.
-- The signer is looked up in the [trusted keys](#trusted-keys) of the
+  is set, an upload with no `signature` field is refused with `403
+  signature_required`. Without it, an upload with no signature passes.
+  A signature that is sent is checked in both cases.
+- The signature is checked against the bytes of the same request. The
+  signer is looked up in the [trusted keys](#trusted-keys) of the
   tenant in the path first, then in the trusted keys of the server-wide
   org if `--verification-org-id` is set. The first list that holds the
   key, live, decides. With no `--verification-org-id`, each tenant
   trusts only its own keys.
-- No signature row → `403 signature_not_found`. A signer in neither
-  list, or revoked → `403 untrusted_signer`.
+- A signer in neither list → `403 untrusted_signer`. A signer that a
+  list holds revoked and none holds live → `403 signer_revoked`. A
+  signature for other bytes → `403 package_tampered`. A signature that
+  does not verify → `403 invalid_signature`. A field that is no
+  detached signature → `400 malformed_signature`.
+- The signature of an accepted upload is stored in the tenant's schema
+  with the org whose key list held the signer. With
+  `--require-signatures`, each package is verified again when the
+  server loads it; a revoke of a key does not unload a loaded package.
+  See [Require signed packages](../../how-to/service/require-signed-packages/#how-a-package-is-checked-at-load).
 
 ### Metrics endpoint
 

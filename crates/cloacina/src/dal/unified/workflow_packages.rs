@@ -163,42 +163,167 @@ impl<'a> WorkflowPackagesDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
-    /// Delete package metadata from the database.
+    /// Write the version pin of an execution (CLOACINA-T-1018) in a
+    /// transaction that first takes a share lock on the pinned version's row
+    /// (CLOACINA-T-1130), so a delete of that version cannot run between its
+    /// in-use count and its delete with this pin unseen. Returns `false`, and
+    /// writes no pin, when the row is gone: a delete committed first.
+    async fn write_pin_if_version_exists(
+        &self,
+        pin: crate::dal::unified::models::WorkflowExecutionPackagePin,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_execution_package_pins as pins;
+
+        #[derive(diesel::QueryableByName)]
+        struct Found {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            n: i64,
+        }
+
+        let lock = row_locks(self.dal);
+        crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let present = if lock {
+                    // `FOR SHARE` cannot go with an aggregate: lock the row,
+                    // then count what was locked.
+                    diesel::sql_query(
+                        "SELECT COUNT(*) AS n FROM (SELECT id FROM workflow_packages \
+                         WHERE package_name = $1 AND version = $2 FOR SHARE) AS locked",
+                    )
+                    .bind::<diesel::sql_types::Text, _>(&pin.package_name)
+                    .bind::<diesel::sql_types::Text, _>(&pin.version)
+                    .get_result::<Found>(conn)?
+                    .n > 0
+                } else {
+                    true
+                };
+                if !present {
+                    return Ok(false);
+                }
+                diesel::insert_into(pins::table)
+                    .values(&pin)
+                    .on_conflict_do_nothing()
+                    .execute(conn)?;
+                Ok(true)
+            })
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
+    }
+
+    /// Delete a package version: its `workflow_packages` row and what was built
+    /// for it, the `package_artifacts` rows (a library per target, a vendored
+    /// Python set per platform) and the `package_providers` rows, in one
+    /// transaction (CLOACINA-T-1098).
+    ///
+    /// Refused with [`RegistryError::PackageInUse`], and nothing removed, while
+    /// an execution that has not finished has a version pin on it
+    /// (CLOACINA-T-1018): its later tasks are dispatched from this row and its
+    /// artifacts. A pin of a finished execution, or of an execution that
+    /// retention removed (CLOACINA-T-1023), does not count.
     pub async fn delete_package_metadata(
         &self,
         package_name: &str,
         version: &str,
     ) -> Result<(), RegistryError> {
-        let package_name = package_name.to_string();
-        let version = version.to_string();
+        use crate::dal::unified::retention::TERMINAL_EXECUTION_STATUSES;
+        use crate::database::schema::unified::{
+            package_artifacts, package_providers, workflow_execution_package_pins as pins,
+            workflow_executions,
+        };
 
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::delete(
-                workflow_packages::table
-                    .filter(workflow_packages::package_name.eq(&package_name))
-                    .filter(workflow_packages::version.eq(&version)),
-            )
-            .execute(conn)
+        let (pn, ver) = (package_name.to_string(), version.to_string());
+        let lock = row_locks(self.dal);
+        let in_use: i64 = crate::interact_on_backend!(self.dal, |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                // CLOACINA-T-1130: lock the version's row before the count. A
+                // pin write takes a share lock on it first, so a pin is either
+                // committed before this count or written after the delete,
+                // when the row is gone and the write makes no pin.
+                if lock {
+                    diesel::sql_query(
+                        "SELECT id FROM workflow_packages \
+                         WHERE package_name = $1 AND version = $2 FOR UPDATE",
+                    )
+                    .bind::<diesel::sql_types::Text, _>(&pn)
+                    .bind::<diesel::sql_types::Text, _>(&ver)
+                    .execute(conn)?;
+                }
+                let pinned: Vec<UniversalUuid> = pins::table
+                    .filter(pins::package_name.eq(&pn))
+                    .filter(pins::version.eq(&ver))
+                    .select(pins::workflow_execution_id)
+                    .load(conn)?;
+                // Pins of finished executions stay (nothing deletes them), so
+                // the ids are read in chunks to keep under the bind limits.
+                let mut in_use: i64 = 0;
+                for chunk in pinned.chunks(500) {
+                    in_use += workflow_executions::table
+                        .filter(workflow_executions::id.eq_any(chunk.to_vec()))
+                        .filter(
+                            workflow_executions::status
+                                .ne_all(TERMINAL_EXECUTION_STATUSES.to_vec()),
+                        )
+                        .count()
+                        .get_result::<i64>(conn)?;
+                }
+                if in_use > 0 {
+                    return Ok(in_use);
+                }
+                diesel::delete(
+                    package_artifacts::table
+                        .filter(package_artifacts::package_name.eq(&pn))
+                        .filter(package_artifacts::version.eq(&ver)),
+                )
+                .execute(conn)?;
+                diesel::delete(
+                    package_providers::table
+                        .filter(package_providers::package_name.eq(&pn))
+                        .filter(package_providers::version.eq(&ver)),
+                )
+                .execute(conn)?;
+                diesel::delete(
+                    workflow_packages::table
+                        .filter(workflow_packages::package_name.eq(&pn))
+                        .filter(workflow_packages::version.eq(&ver)),
+                )
+                .execute(conn)?;
+                Ok(0)
+            })
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
+        if in_use > 0 {
+            return Err(RegistryError::PackageInUse {
+                package_name: package_name.to_string(),
+                version: version.to_string(),
+                active_count: in_use as usize,
+            });
+        }
         Ok(())
     }
 
-    /// Delete package metadata by UUID from the database.
+    /// Delete a package version by the UUID of its row, as
+    /// [`Self::delete_package_metadata`] does. A row that is not there is not
+    /// an error.
     pub async fn delete_package_metadata_by_id(
         &self,
         package_id: Uuid,
     ) -> Result<(), RegistryError> {
         let id = UniversalUuid(package_id);
 
-        crate::interact_on_backend!(self.dal, |conn| {
-            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(id)))
-                .execute(conn)
+        let key: Option<(String, String)> = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(id))
+                .select((workflow_packages::package_name, workflow_packages::version))
+                .first::<(String, String)>(conn)
+                .optional()
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        Ok(())
+        match key {
+            Some((name, version)) => self.delete_package_metadata(&name, &version).await,
+            None => Ok(()),
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -892,29 +1017,36 @@ impl<'a> WorkflowPackagesDAL<'a> {
         {
             Some(pin) => pin,
             None => {
-                let Some(active) = self
-                    .get_active_row_for_package(package_name, tenant_id)
-                    .await?
-                else {
-                    return Ok(None);
+                // A version deleted between the read of the active row and the
+                // pin write is not pinned (CLOACINA-T-1130): read the active
+                // row again.
+                let mut tries = 0;
+                let active = loop {
+                    let Some(active) = self
+                        .get_active_row_for_package(package_name, tenant_id)
+                        .await?
+                    else {
+                        return Ok(None);
+                    };
+                    let pin = WorkflowExecutionPackagePin {
+                        workflow_execution_id,
+                        package_name: package_name.to_string(),
+                        package_id: active.id,
+                        version: active.version.clone(),
+                        created_at: UniversalTimestamp::now(),
+                    };
+                    if self.write_pin_if_version_exists(pin).await? {
+                        break active;
+                    }
+                    tries += 1;
+                    if tries == 3 {
+                        return Err(RegistryError::Internal(format!(
+                            "the active version of package `{}` was deleted while execution {} \
+                             was pinned to it, {} times",
+                            package_name, workflow_execution_id.0, tries
+                        )));
+                    }
                 };
-                let pin = WorkflowExecutionPackagePin {
-                    workflow_execution_id,
-                    package_name: package_name.to_string(),
-                    package_id: active.id,
-                    version: active.version.clone(),
-                    created_at: UniversalTimestamp::now(),
-                };
-                {
-                    use crate::database::schema::unified::workflow_execution_package_pins as pins;
-                    crate::interact_on_backend!(self.dal, |conn| {
-                        diesel::insert_into(pins::table)
-                            .values(&pin)
-                            .on_conflict_do_nothing()
-                            .execute(conn)
-                    })
-                    .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
-                }
                 // Read back: another task of the execution may have pinned first.
                 let stored = self
                     .get_execution_pin(workflow_execution_id, package_name)
@@ -1138,10 +1270,26 @@ pub fn select_provider_rows_for_target(
         .collect()
 }
 
+/// `true` when the backend takes row locks (`FOR UPDATE`, `FOR SHARE`):
+/// Postgres. SQLite runs one writer at a time and has no row locks.
+fn row_locks(dal: &DAL) -> bool {
+    #[cfg(feature = "postgres")]
+    {
+        matches!(dal.backend(), crate::database::BackendType::Postgres)
+    }
+    #[cfg(not(feature = "postgres"))]
+    {
+        let _ = dal;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "sqlite")]
     use crate::database::Database;
+    #[cfg(feature = "sqlite")]
     use crate::registry::loader::package_loader::{PackageMetadata, TaskMetadata};
 
     #[cfg(feature = "sqlite")]
@@ -1809,6 +1957,149 @@ mod tests {
             "{err}"
         );
     }
+
+    /// CLOACINA-T-1098: a delete of a version that an unfinished execution is
+    /// pinned to is refused and removes nothing. Once the execution has
+    /// finished, the delete removes the row, its `package_artifacts` rows
+    /// (library per target, vendored Python sets) and its `package_providers`
+    /// rows, and an agent fetch by any of its digests finds nothing.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_is_refused_while_pinned_and_then_removes_artifacts() {
+        use crate::database::schema::unified::workflow_executions;
+        use crate::models::workflow_execution::NewWorkflowExecution;
+
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let id = store_built(&dal, "t1098", "1.0.0", "digest-primary", vec![9]).await;
+        wp.upsert_artifact(
+            "t1098",
+            "1.0.0",
+            None,
+            "aarch64-unknown-linux-gnu",
+            "digest-lib",
+            vec![1],
+        )
+        .await
+        .unwrap();
+        wp.replace_python_vendor_artifacts(
+            "t1098",
+            "1.0.0",
+            vec![(
+                "x86_64-linux".to_string(),
+                "digest-vendor".to_string(),
+                vec![2],
+            )],
+        )
+        .await
+        .unwrap();
+        wp.upsert_provider(
+            "t1098",
+            "1.0.0",
+            None,
+            "prov",
+            "0.1.0",
+            "digest-provider",
+            vec![3],
+            "wasm",
+            None,
+        )
+        .await
+        .unwrap();
+
+        // A running execution whose first task pinned this version.
+        let exec = dal
+            .workflow_execution()
+            .create(NewWorkflowExecution {
+                workflow_name: "t1098".into(),
+                workflow_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap()
+            .id;
+        let pinned = wp
+            .resolve_dispatch_for_execution(exec, "t1098", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pinned.package_id, id);
+
+        let err = wp
+            .delete_package_metadata("t1098", "1.0.0")
+            .await
+            .expect_err("a pinned version must not be deleted");
+        match err {
+            RegistryError::PackageInUse { active_count, .. } => assert_eq!(active_count, 1),
+            other => panic!("expected PackageInUse, got {other:?}"),
+        }
+        // The by-id path is refused the same way.
+        assert!(matches!(
+            wp.delete_package_metadata_by_id(id).await,
+            Err(RegistryError::PackageInUse { .. })
+        ));
+        // Nothing was removed.
+        assert!(wp.get_package_metadata_by_id(id).await.unwrap().is_some());
+        assert_eq!(
+            wp.get_artifact_triples_for_package("t1098", "1.0.0")
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            wp.get_providers_for_package("t1098", "1.0.0", None)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // The execution finishes: the delete goes through.
+        let done = exec;
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_executions::table.find(done))
+                .set(workflow_executions::status.eq("Completed"))
+                .execute(conn)
+        })
+        .unwrap();
+        wp.delete_package_metadata_by_id(id).await.unwrap();
+
+        assert!(wp.get_package_metadata_by_id(id).await.unwrap().is_none());
+        assert!(
+            wp.get_artifact_triples_for_package("t1098", "1.0.0")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            wp.get_providers_for_package("t1098", "1.0.0", None)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        // An agent fetch by the digest of the deleted version finds nothing.
+        for digest in ["digest-primary", "digest-lib", "digest-vendor"] {
+            assert!(
+                wp.get_compiled_data_by_content_hash(digest)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "{digest} is still served"
+            );
+        }
+        assert!(
+            wp.get_python_vendor_artifact("t1098", "1.0.0", "x86_64-linux")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    // CLOACINA-T-1130's Postgres race test (a pin cannot land between the
+    // in-use check and the delete) needs a live Postgres: it is in
+    // tests/integration/dal/workflow_packages.rs.
 
     /// The per-target lookups are for one version: the artifact of another
     /// version of the same package and triple is never returned.

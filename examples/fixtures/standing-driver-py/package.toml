@@ -1,0 +1,18 @@
+# Fixture of the behaviour suite's standing workload (CLOACINA-T-1107): the
+# self-driving workflow. Its task acts on the server it runs on: it publishes
+# new versions of two other packages (sometimes with a build error, sometimes
+# a step back), starts other workflows, and starts runs by hand through the
+# API, with a write key of its own tenant that it reads from a tenant secret.
+[package]
+name = "standing-driver-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "standing_driver"
+language = "python"
+description = "standing workload: the self-driving workflow"
+author = "behaviour-suite"
+entry_module = "standing_driver.tasks"

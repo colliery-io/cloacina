@@ -126,6 +126,12 @@ spec:
               value: {{ .Values.fleet.agentImage | quote }}
             - name: CLOACINA_AGENT_SERVER_URL
               value: {{ .Values.fleet.agentServerUrl | default (printf "http://%s.%s.svc.cluster.local:%v" (include "cloacina-server.fullname" .) .Release.Namespace .Values.service.port) | quote }}
+            {{- if ne (.Values.fleet.agentLogFormat | default "text") "text" }}
+            # Log format of the agents the actuator starts (CLOACINA-T-1101).
+            # Not rendered for `text`, the agent's default.
+            - name: CLOACINA_AGENT_LOG_FORMAT
+              value: {{ .Values.fleet.agentLogFormat | quote }}
+            {{- end }}
             # Agent pod resource requests/limits (CLOACI-T-0819) — applied by the
             # actuator to every cloacina-agent pod it creates.
             - name: CLOACINA_AGENT_CPU_REQUEST
@@ -214,6 +220,52 @@ spec:
             - name: CLOACINA_TENANT_COMPILER_DATABASE_CIDRS
               value: {{ join "," . | quote }}
             {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_HOME_SIZE
+              value: {{ .Values.fleet.compiler.homeSize | quote }}
+            # The cache claim of the tenant compilers (CLOACINA-T-1117).
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM
+              value: {{ .Values.fleet.compiler.cacheClaim.enabled | quote }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM_SIZE
+              value: {{ .Values.fleet.compiler.cacheClaim.size | quote }}
+            {{- with .Values.fleet.compiler.cacheClaim.storageClass }}
+            - name: CLOACINA_TENANT_COMPILER_CACHE_CLAIM_STORAGE_CLASS
+              value: {{ . | quote }}
+            {{- end }}
+            # Python settings of the tenant compilers (CLOACINA-T-1117).
+            {{- with .Values.fleet.compiler.python }}
+            {{- with .platforms }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_PLATFORMS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .version }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_VERSION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .indexUrlSecretRef.name }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .indexUrlSecretRef.name }}
+                  key: {{ .indexUrlSecretRef.key }}
+            {{- else if .indexUrl }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_INDEX_URL
+              value: {{ .indexUrl | quote }}
+            {{- end }}
+            {{- with .wheelDir }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_WHEEL_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .offline }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_OFFLINE
+              value: "true"
+            {{- end }}
+            {{- with .uvCacheDir }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_UV_CACHE_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            - name: CLOACINA_TENANT_COMPILER_PYTHON_CACHE_SIZE
+              value: {{ .cacheSize | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             # Wait for the database at start (CLOACINA-T-1035).
@@ -231,6 +283,9 @@ spec:
               value: {{ .Values.fleetTaskTimeLimits.defaultSeconds | int64 | quote }}
             - name: CLOACINA_FLEET_TASK_TIMEOUT_MAX_S
               value: {{ .Values.fleetTaskTimeLimits.maxSeconds | int64 | quote }}
+            # Where agents run graph firings (CLOACINA-T-1125).
+            - name: CLOACINA_FLEET_GRAPH_FIRINGS
+              value: {{ .Values.fleet.graphFirings | default "inline" | quote }}
             {{- if or .Values.alertWebhook.url .Values.alertWebhook.urlSecretRef.name }}
             # Alert webhook (CLOACINA-T-1024). Rendered only when a URL is set.
             - name: CLOACINA_ALERT_WEBHOOK_URL
@@ -268,6 +323,14 @@ spec:
               value: {{ .Values.context.warnBytes | int64 | quote }}
             - name: CLOACINA_CONTEXT_MAX_BYTES
               value: {{ .Values.context.maxBytes | int64 | quote }}
+            # CLOACINA-T-1106: the wait for a package artifact, and the size
+            # limits of a package.
+            - name: CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S
+              value: {{ .Values.fleetTaskTimeLimits.artifactFetchWaitSeconds | int64 | quote }}
+            - name: CLOACINA_MAX_PACKAGE_BYTES
+              value: {{ .Values.packages.maxPackageBytes | int64 | quote }}
+            - name: CLOACINA_MAX_UNPACKED_BYTES
+              value: {{ .Values.packages.maxUnpackedBytes | int64 | quote }}
             {{- with .Values.server.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

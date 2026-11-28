@@ -101,23 +101,35 @@ Useful options (full list in the [CLI reference](../../../reference/cli/#agent))
 - `--pool <NAME>` / `CLOACINA_AGENT_POOL` — the agent pool the agent is in
   (default: the pool `default`).
 - `--cpu <QTY>` / `CLOACINA_AGENT_CPU` and `--memory <QTY>` /
-  `CLOACINA_AGENT_MEMORY` — the total CPU and memory the agent offers to tasks,
-  as Kubernetes quantities (`4`, `32Gi`). The server places tasks by their
-  requests against these. With neither, the server counts only the agent's
-  slots. The agent does not limit a task by them.
+  `CLOACINA_AGENT_MEMORY` — the total CPU and memory of the agent, as
+  Kubernetes quantities (`4`, `32Gi`): the limits of its pod. The server places
+  tasks by their requests against these. With neither, the server counts only
+  the agent's slots.
+- `--reserved-memory <QTY>` / `CLOACINA_AGENT_RESERVED_MEMORY` (default
+  `128Mi`) — the agent's own share of `--memory`. The agent offers the rest to
+  tasks. A task's memory request is its limit; a task with no request gets the
+  offered memory divided by `--max-concurrency`. See
+  [worker processes and limits](../../../explanation/service/execution-agent-fleet/#worker-processes-and-limits).
+- `--task-address-space-factor <N>` /
+  `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` (default 8) — the address-space
+  ceiling of a task's worker process, as a multiple of its memory limit. `0`
+  sets none.
 - `--cache-dir <PATH>` / `CLOACINA_AGENT_CACHE_DIR` — persist the fetched-cdylib
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
 - `--log-format json` / `CLOACINA_AGENT_LOG_FORMAT` — write one JSON object per
-  log line, with the task's ids on the lines written while a task runs. See
-  [Find a Task's Logs](../find-a-tasks-logs/).
+  log line, with the task's ids on the lines written while a task runs. For
+  agents that the server's fleet actuator starts, set the same variable in the
+  server's environment. See [Find a Task's Logs](../find-a-tasks-logs/).
 - `--api-key-file <PATH>` / `CLOACINA_API_KEY_FILE` — read the key from a file
   in place of `CLOACINA_API_KEY`.
 
-**The key and task code.** Tasks run inside the agent process. At start the
+**The key and task code.** A task runs in a worker process that the agent
+starts, with the agent's user id and the agent's environment; a task marked
+`inline` runs inside the agent process. At start the
 agent reads `CLOACINA_API_KEY`, overwrites the value in its start-time
 environment and removes the variable, so a task finds no key in `std::env`,
-`os.environ` or `/proc/self/environ`. A key given with `--api-key` on the command
+`os.environ` or `/proc/self/environ`, and a worker process starts with no key. A key given with `--api-key` on the command
 line stays in the process's argument list, and a key file stays readable by the
 agent's user: for an agent that runs untrusted tasks, give the key in
 `CLOACINA_API_KEY`. See
@@ -306,14 +318,24 @@ the large ones in a second pool.
    the oldest has waited. A count that stays above zero means the pool needs
    more agents (`--agents`) or larger ones.
 
-The server packs the tasks of a pool onto its agents by their requests: an
-agent with 32Gi runs one 24Gi task and four 2Gi tasks together, and a second
-24Gi task waits for room or goes to the pool's other agent. The rule is in
+The server packs the tasks of a pool onto its agents by their requests. An
+agent with 32Gi keeps 128Mi for itself; it runs one 24Gi task and three 2Gi
+tasks together, and a second 24Gi task waits for room or goes to the pool's
+other agent. The rule is in
 [How a task is placed](../../../explanation/service/execution-agent-fleet/#how-a-task-is-placed).
 
-A request decides where a task is sent. It is not a limit: nothing stops a task
-that uses more than it requested, and a pod that runs out of memory takes every
-task on that agent with it. Request what the task needs at its peak.
+A memory request is also the task's limit. The agent runs each task in a
+worker process and stops a task that uses more memory than it requested: the
+task fails with `task exceeded its memory limit of 24Gi`, and the other tasks
+on the agent go on. Request what the task needs at its peak. A task with no
+memory request gets a share of the agent as its limit. A CPU request is not a
+cap. What is enforced and what is not is in
+[worker processes and limits](../../../explanation/service/execution-agent-fleet/#worker-processes-and-limits).
+
+A task that is short, uses little memory and runs often can skip the worker
+process: mark it `inline = true` (`#[task(inline = true)]`,
+`@cloaca.task(inline=True)`). It then runs inside the agent process, with no
+memory limit and no kill.
 
 To use agents you start by hand in a pool, create the pool with `--agents 0`
 and give each agent its pool and its size:

@@ -520,18 +520,22 @@ export interface paths {
         post?: never;
         /**
          * DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
-         * @description CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
-         *     the four-step top-down order:
-         *       1. Revoke every still-active API key for the tenant (close the auth
-         *          surface so new requests fail).
+         * @description CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:
+         *       1. Revoke every still-active API key for the tenant and delete its
+         *          WebSocket tickets (close the auth surface so new requests fail);
+         *          clear this server's key cache and send the revocation notice, on
+         *          which every other server clears its key cache.
          *       2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
          *          awaiting its graceful shutdown (drains in-flight executions,
          *          stops scheduler loop, closes per-tenant DB pool).
          *       3. Evict the tenant's `Database` from `TenantDatabaseCache`.
-         *       4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
-         *
-         *     Before step 4 the fleet actuator removes the tenant's compiler, when it
-         *     runs one (CLOACINA-T-1034).
+         *       4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator
+         *          removes the tenant's compiler (CLOACINA-T-1034) and its agents, then
+         *          the tenant's limit, desired count, pools and agent rows are deleted.
+         *          After this no fleet tick has a reason to start an agent for it.
+         *       5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's
+         *          other rows in the admin schema, a `tenant.removed` audit row, the
+         *          schema and the user. The audit rows of the tenant stay.
          *
          *     Each step emits a structured audit event with duration. Per-step
          *     failures bail out — but earlier steps stay committed, so a retry
@@ -1914,11 +1918,26 @@ export interface components {
         ExecuteRequest: {
             /** @description Optional JSON context to pass to the workflow. */
             context?: unknown;
+            /**
+             * Format: int32
+             * @description The workflow priority this run asks for: an integer from 0 (the
+             *     highest) to 10 (CLOACINA-T-1045). With none, the run gets the
+             *     priority the workflow declares, or 5. A priority above what the
+             *     caller may set is not refused: the run gets the caller's limit, and
+             *     the answer says so in `priority` and `priority_notice`.
+             */
+            priority?: number | null;
         };
         /** @description `202 Accepted` body for a scheduled workflow execution. */
         ExecuteResponse: {
             /** @description UUID of the scheduled execution. */
             execution_id: string;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when the given priority is lower than the one asked for: one
+             *     sentence that says what was asked, what was given and why.
+             */
+            priority_notice?: string | null;
             /** @description Always `"scheduled"` at accept time. */
             status: string;
             tenant_id: string;
@@ -1927,6 +1946,7 @@ export interface components {
         /** @description `GET /tenants/{tenant_id}/executions/{id}` response. */
         ExecutionDetail: {
             execution_id: string;
+            priority?: components["schemas"]["PriorityGrant"] | null;
             status: string;
             tenant_id: string;
         };
@@ -1961,6 +1981,7 @@ export interface components {
             completed_at?: string | null;
             /** @description Execution UUID. */
             id: string;
+            priority?: components["schemas"]["PriorityGrant"] | null;
             /** @description RFC 3339 timestamp. */
             started_at: string;
             status: string;
@@ -2567,8 +2588,7 @@ export interface components {
         };
         /**
          * @description Multipart form for workflow package upload. Spec-only type: the handler
-         *     accepts the first file field regardless of name; `file` is the
-         *     conventional field name.
+         *     reads the fields `file` and `signature` by name.
          */
         PackageUploadForm: {
             /**
@@ -2576,6 +2596,34 @@ export interface components {
              * @description The `.cloacina` package archive.
              */
             file: string;
+            /**
+             * @description The detached signature of the archive: the JSON text of the `.sig`
+             *     file that `cloacinactl package pack --sign` writes (`version`,
+             *     `algorithm`, `package_hash`, `key_fingerprint`, `signature`,
+             *     `signed_at`). Ed25519 over the SHA-256 of the archive. Needed when the
+             *     server requires signed packages; checked whenever it is sent.
+             *     Left out of an upload with no signature: the field has no null value.
+             */
+            signature?: string;
+        };
+        /**
+         * @description A priority that was asked for and the priority that was given.
+         *
+         *     `given` is `asked` held to the limit of the principal that asked: the
+         *     highest priority that principal may set. A principal that asks for more
+         *     than it may set is not refused: it gets its limit, and the answer says so.
+         */
+        PriorityGrant: {
+            /**
+             * Format: int32
+             * @description The priority that was asked for.
+             */
+            asked: number;
+            /**
+             * Format: int32
+             * @description The priority the work runs at.
+             */
+            given: number;
         };
         /**
          * @description One recorded reactor fire (CLOACI-T-0766) — a row in
@@ -2801,6 +2849,7 @@ export interface components {
                 completed_at?: string | null;
                 /** @description Execution UUID. */
                 id: string;
+                priority?: components["schemas"]["PriorityGrant"] | null;
                 /** @description RFC 3339 timestamp. */
                 started_at: string;
                 status: string;
@@ -2949,6 +2998,12 @@ export interface components {
                 content_hash: string;
                 /** @description Upload time (RFC 3339). */
                 created_at: string;
+                /**
+                 * @description Why the compiler could not write the metadata document of this built
+                 *     version (CLOACINA-T-1074). Absent when the version is described, or
+                 *     has not been tried yet.
+                 */
+                describe_error?: string | null;
                 /** @description Package UUID of this version. */
                 id: string;
                 package_name: string;
@@ -3124,6 +3179,15 @@ export interface components {
              *     render a typed execute form and the server validate context.
              */
             declared_params?: components["schemas"]["InputSlot"][];
+            /**
+             * @description Why the compiler could not write the metadata document of this built
+             *     package (CLOACINA-T-1074). Set for a package that was built before the
+             *     document existed and cannot be described from its stored build.
+             *     Absent when the package is described, or has not been tried yet. A
+             *     package whose describe fails during a build has `build_status`
+             *     `failed` and the reason in `build_error`.
+             */
+            describe_error?: string | null;
             description?: string | null;
             /** @description Package UUID. */
             id: string;
@@ -3330,6 +3394,12 @@ export interface components {
             content_hash: string;
             /** @description Upload time (RFC 3339). */
             created_at: string;
+            /**
+             * @description Why the compiler could not write the metadata document of this built
+             *     version (CLOACINA-T-1074). Absent when the version is described, or
+             *     has not been tried yet.
+             */
+            describe_error?: string | null;
             /** @description Package UUID of this version. */
             id: string;
             package_name: string;
@@ -6282,7 +6352,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description The first file field is taken as the .cloacina package */
+        /** @description The `file` field is the .cloacina package. The optional `signature` field is its detached signature; a server that requires signed packages refuses an upload without it */
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["PackageUploadForm"];
@@ -6298,7 +6368,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowUploadedResponse"];
                 };
             };
-            /** @description Invalid or empty package */
+            /** @description Invalid or empty package, or a `signature` field that is not a detached signature (`malformed_signature`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6316,7 +6386,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Tenant/role denied or signature verification failed */
+            /** @description Tenant/role denied, or the signature check refused the upload: `signature_required`, `package_tampered`, `untrusted_signer`, `signer_revoked`, `invalid_signature` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7425,7 +7495,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workflow unregistered. Idempotent: also returned when no matching package existed */
+            /** @description The package version was removed, in any build state but `building`: its rows and stored archives */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7452,8 +7522,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Registry lookup failed */
+            /** @description `workflow_not_found`: no package of this name and version */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `package_building`: the compiler is building the package; `package_in_use`: an execution that has not finished is pinned to this version. Nothing was removed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -49,6 +49,12 @@ pub struct StaleClaimSweeperConfig {
     /// Without a cap, a task that reliably kills its runner recycles
     /// forever (CLOACI-T-0914).
     pub max_recovery_attempts: i32,
+    /// Leave the rows in a fleet dispatch to the fleet executor
+    /// (CLOACINA-T-1084, default `false`). Their executor's replica stopped,
+    /// but the agent can still run the task: the fleet executor of another
+    /// replica takes over the wait, or gives the row back when the dispatch
+    /// is lost. On when the runner's default executor is the fleet.
+    pub leave_fleet_dispatches: bool,
 }
 
 impl Default for StaleClaimSweeperConfig {
@@ -57,6 +63,7 @@ impl Default for StaleClaimSweeperConfig {
             sweep_interval: Duration::from_secs(30),
             stale_threshold: Duration::from_secs(60),
             max_recovery_attempts: 3,
+            leave_fleet_dispatches: false,
         }
     }
 }
@@ -129,13 +136,17 @@ impl StaleClaimSweeper {
             return;
         }
 
-        // Find tasks with stale heartbeats
-        let stale_claims = match self
-            .dal
-            .task_execution()
-            .find_stale_claims(self.config.stale_threshold)
-            .await
-        {
+        // Find tasks with stale heartbeats. CLOACINA-T-1084: with
+        // `leave_fleet_dispatches`, not the rows in a fleet dispatch.
+        let tasks = self.dal.task_execution();
+        let found = if self.config.leave_fleet_dispatches {
+            tasks
+                .find_stale_claims_outside_fleet_dispatches(self.config.stale_threshold)
+                .await
+        } else {
+            tasks.find_stale_claims(self.config.stale_threshold).await
+        };
+        let stale_claims = match found {
             Ok(claims) => claims,
             Err(e) => {
                 warn!("Stale claim sweep failed: {}", e);
@@ -244,6 +255,7 @@ mod tests {
         assert_eq!(config.sweep_interval, Duration::from_secs(30));
         assert_eq!(config.stale_threshold, Duration::from_secs(60));
         assert_eq!(config.max_recovery_attempts, 3);
+        assert!(!config.leave_fleet_dispatches);
     }
 
     #[test]
@@ -252,6 +264,7 @@ mod tests {
             sweep_interval: Duration::from_secs(10),
             stale_threshold: Duration::from_secs(120),
             max_recovery_attempts: 5,
+            leave_fleet_dispatches: true,
         };
         assert_eq!(config.sweep_interval, Duration::from_secs(10));
         assert_eq!(config.stale_threshold, Duration::from_secs(120));

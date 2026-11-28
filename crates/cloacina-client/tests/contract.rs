@@ -166,6 +166,36 @@ async fn full_rest_surface_contract() {
         .expect_err("garbage package must be rejected");
     assert!(matches!(upload_err, ClientError::InvalidRequest(_)));
 
+    // The signature of a signed upload reaches the server and is checked
+    // (CLOACINA-T-1062). A text that is no signature: 400
+    // `malformed_signature`. A signature made for other bytes: 403
+    // `package_tampered`, before any key is looked up.
+    let malformed = client
+        .upload_workflow_signed(b"not a real package".to_vec(), "not a signature", None)
+        .await
+        .expect_err("a field that is no signature must be rejected");
+    assert!(
+        matches!(malformed, ClientError::InvalidRequest(_)),
+        "expected the 400 of a malformed signature, got {malformed:?}"
+    );
+    let for_other_bytes = serde_json::json!({
+        "version": 1,
+        "algorithm": "ed25519",
+        "package_hash": "0".repeat(64),
+        "key_fingerprint": "0".repeat(64),
+        "signature": "AAAA",
+        "signed_at": "2026-01-01T00:00:00Z",
+    })
+    .to_string();
+    let tampered = client
+        .upload_workflow_signed(b"not a real package".to_vec(), &for_other_bytes, None)
+        .await
+        .expect_err("a signature for other bytes must be rejected");
+    assert!(
+        matches!(tampered, ClientError::Auth(_)),
+        "expected the 403 of the signature check, got {tampered:?}"
+    );
+
     let workflows = client.list_workflows(None).await.expect("list_workflows");
     assert_eq!(workflows.tenant_id, tenant);
     assert_eq!(workflows.total, workflows.items.len());
@@ -173,12 +203,12 @@ async fn full_rest_surface_contract() {
     let missing = client.get_workflow("does-not-exist", None).await;
     assert!(matches!(missing, Err(ClientError::NotFound(_))));
 
-    // Documented contract decision (T-0645): unregister is idempotent.
+    // CLOACINA-T-1122: a delete of a package that does not exist is a 404
+    // (it was an idempotent 200 under T-0645).
     let deleted = client
         .delete_workflow("does-not-exist", "0.0.0", None)
-        .await
-        .expect("idempotent delete");
-    assert_eq!(deleted.status, "deleted");
+        .await;
+    assert!(matches!(deleted, Err(ClientError::NotFound(_))));
 
     // CLOACINA-T-1018: a package with no version is a 404 on both routes.
     let no_versions = client.list_workflow_versions("does-not-exist", None).await;

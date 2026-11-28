@@ -23,9 +23,10 @@
 //! - it requests more CPU or memory than one agent of its pool can hold. What
 //!   an agent of a pool can hold is what the pool's settings say: its limit,
 //!   or its request when it sets no limit
-//!   ([`pool_agent_totals`](crate::actuator::settings::pool_agent_totals)). A
-//!   pool that sets neither has no size to compare with, so only the pool's
-//!   name is checked.
+//!   ([`pool_agent_totals`](crate::actuator::settings::pool_agent_totals)).
+//!   For memory the agent's own share (128Mi) comes off first: the agent
+//!   offers the rest to tasks (CLOACINA-T-1028). A pool that sets neither
+//!   has no size to compare with, so only the pool's name is checked.
 //!
 //! The check runs where the tenant's runner loads the package, which is the
 //! first moment its tasks are known (for a Rust package, after the compile):
@@ -36,7 +37,10 @@
 use async_trait::async_trait;
 use cloacina::database::Database;
 use cloacina::registry::{PlacedTask, TaskPlacementCheck};
-use cloacina_api_types::{AgentPoolSettings, parse_cpu_millis, parse_memory_bytes};
+use cloacina_api_types::{
+    AgentPoolSettings, DEFAULT_AGENT_RESERVED_MEMORY, DEFAULT_AGENT_RESERVED_MEMORY_BYTES,
+    parse_cpu_millis, parse_memory_bytes,
+};
 use tracing::warn;
 
 use crate::actuator::settings::{load_pools, pool_agent_totals};
@@ -68,18 +72,30 @@ pub fn check_tasks(
         // (what, the request as written, the request, the pool's size as
         // written, the pool's size). A size that does not parse is not
         // compared: the pool routes check it when it is set.
+        // `own_share`: what the agent keeps of the total for itself, and so
+        // does not offer to tasks, as written (CLOACINA-T-1028).
         let over = |what: &str,
                     asked_text: &Option<String>,
                     asked: Option<u64>,
                     total_text: &Option<String>,
-                    total: Option<u64>| {
+                    total: Option<u64>,
+                    own_share: Option<(&str, u64)>| {
+            let kept = own_share.map_or(0, |(_, bytes)| bytes);
             match (asked_text, asked, total_text, total) {
-                (Some(asked_text), Some(asked), Some(total_text), Some(total)) if asked > total => {
+                (Some(asked_text), Some(asked), Some(total_text), Some(total))
+                    if asked > total.saturating_sub(kept) =>
+                {
+                    let holds = match own_share {
+                        Some((share_text, _)) => {
+                            format!("{total_text} less the agent's own {share_text}")
+                        }
+                        None => total_text.clone(),
+                    };
                     Err(format!(
                         "task '{}' requests {} {}, but one agent of the pool '{}' holds {} at \
                          most. Lower the request, or raise the pool's {} limit, and publish \
                          again.",
-                        task.task_id, what, asked_text, pool_name, total_text, what
+                        task.task_id, what, asked_text, pool_name, holds, what
                     ))
                 }
                 _ => Ok(()),
@@ -91,7 +107,11 @@ pub fn check_tasks(
             task.placement.cpu_millis(),
             &cpu_total,
             cpu_total.as_deref().and_then(|t| parse_cpu_millis(t).ok()),
+            None,
         )?;
+        // An agent offers its memory less its own share to tasks, and the
+        // server places by what it offers. The default share is assumed: a
+        // managed agent runs with it.
         over(
             "memory",
             &task.placement.memory,
@@ -100,6 +120,10 @@ pub fn check_tasks(
             memory_total
                 .as_deref()
                 .and_then(|t| parse_memory_bytes(t).ok()),
+            Some((
+                DEFAULT_AGENT_RESERVED_MEMORY,
+                DEFAULT_AGENT_RESERVED_MEMORY_BYTES,
+            )),
         )?;
     }
     Ok(())
@@ -149,7 +173,7 @@ mod tests {
                 pool: pool.map(str::to_string),
                 cpu: cpu.map(str::to_string),
                 memory: memory.map(str::to_string),
-                inline: false,
+                ..Default::default()
             },
         }
     }
@@ -178,7 +202,7 @@ mod tests {
         let tasks = vec![
             task("plain", None, None, None),
             task("small", None, Some("500m"), Some("512Mi")),
-            task("big", Some("large"), Some("4"), Some("32Gi")),
+            task("big", Some("large"), Some("4"), Some("31Gi")),
             task("big-no-request", Some("large"), None, None),
         ];
         assert_eq!(check_tasks("acme", &pools(), &tasks), Ok(()));
@@ -208,7 +232,10 @@ mod tests {
         assert!(err.contains("task 'load_history'"), "{err}");
         assert!(err.contains("memory 64Gi"), "{err}");
         assert!(err.contains("pool 'large'"), "{err}");
-        assert!(err.contains("holds 32Gi at most"), "{err}");
+        assert!(
+            err.contains("holds 32Gi less the agent's own 128Mi at most"),
+            "{err}"
+        );
 
         let err = check_tasks(
             "acme",
@@ -221,11 +248,26 @@ mod tests {
         assert!(err.contains("holds 4 at most"), "{err}");
     }
 
-    /// The comparison is on amounts, not on text: `32768Mi` is `32Gi`.
+    /// The comparison is on amounts, not on text: `4000m` is `4`, and
+    /// `32640Mi` is 32Gi less the agent's own 128Mi.
     #[test]
     fn a_request_equal_to_the_pool_size_in_another_notation_passes() {
-        let tasks = vec![task("exact", Some("large"), Some("4000m"), Some("32768Mi"))];
+        let tasks = vec![task("exact", Some("large"), Some("4000m"), Some("32640Mi"))];
         assert_eq!(check_tasks("acme", &pools(), &tasks), Ok(()));
+    }
+
+    /// CLOACINA-T-1028: an agent keeps its own share of its memory, so a
+    /// task that requests the whole memory of the pool's agent fits none.
+    #[test]
+    fn a_request_for_the_whole_memory_of_an_agent_is_refused() {
+        let err = check_tasks(
+            "acme",
+            &pools(),
+            &[task("all_of_it", Some("large"), None, Some("32Gi"))],
+        )
+        .unwrap_err();
+        assert!(err.contains("task 'all_of_it'"), "{err}");
+        assert!(err.contains("the agent's own 128Mi"), "{err}");
     }
 
     /// With no limit the pool's request is the size of its agents.
@@ -242,7 +284,7 @@ mod tests {
                 },
             ),
         ];
-        let fits = [task("ok", Some("medium"), Some("64"), Some("8Gi"))];
+        let fits = [task("ok", Some("medium"), Some("64"), Some("7Gi"))];
         assert_eq!(
             check_tasks("acme", &pools, &fits),
             Ok(()),
@@ -254,7 +296,10 @@ mod tests {
             &[task("no", Some("medium"), None, Some("9Gi"))],
         )
         .unwrap_err();
-        assert!(err.contains("holds 8Gi at most"), "{err}");
+        assert!(
+            err.contains("holds 8Gi less the agent's own 128Mi at most"),
+            "{err}"
+        );
     }
 
     /// A pool that sets no size has nothing to compare a request with: its

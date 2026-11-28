@@ -197,20 +197,48 @@ pub async fn create_tenant(
     }
 }
 
+/// Step 4 of tenant removal (CLOACINA-T-1095), run while the fleet lock is
+/// held: the compiler (CLOACINA-T-1034), the agents of every pool, then the
+/// rows that would make the fleet loop start them again. The agents go first:
+/// the actuator reads the pool names from the rows. Each part can run again.
+async fn remove_tenant_fleet(state: &AppState, tenant: &str) -> Result<(), String> {
+    state
+        .fleet_actuator
+        .remove_compiler(tenant)
+        .await
+        .map_err(|e| format!("remove compiler: {e}"))?;
+    state
+        .fleet_actuator
+        .remove_agents(tenant)
+        .await
+        .map_err(|e| format!("remove agents: {e}"))?;
+    DatabaseAdmin::new(state.database.clone())
+        .remove_tenant_fleet_rows(tenant)
+        .await
+        .map_err(|e| format!("delete fleet rows: {e}"))
+}
+
+/// How long tenant removal waits for the fleet lock (CLOACINA-T-1095).
+pub(crate) const FLEET_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// DELETE /tenants/:schema_name — remove a tenant via orchestrated teardown.
 ///
-/// CLOACI-T-0581: replaces the old single-call `admin.remove_tenant` with
-/// the four-step top-down order:
-///   1. Revoke every still-active API key for the tenant (close the auth
-///      surface so new requests fail).
+/// CLOACI-T-0581, CLOACINA-T-1095: the steps, top-down:
+///   1. Revoke every still-active API key for the tenant and delete its
+///      WebSocket tickets (close the auth surface so new requests fail);
+///      clear this server's key cache and send the revocation notice, on
+///      which every other server clears its key cache.
 ///   2. Evict the tenant's `DefaultRunner` from `TenantRunnerCache`,
 ///      awaiting its graceful shutdown (drains in-flight executions,
 ///      stops scheduler loop, closes per-tenant DB pool).
 ///   3. Evict the tenant's `Database` from `TenantDatabaseCache`.
-///   4. Drop schema + user via `DatabaseAdmin::remove_tenant`.
-///
-/// Before step 4 the fleet actuator removes the tenant's compiler, when it
-/// runs one (CLOACINA-T-1034).
+///   4. Holding the fleet lock (no fleet tick runs meanwhile): the actuator
+///      removes the tenant's compiler (CLOACINA-T-1034) and its agents, then
+///      the tenant's limit, desired count, pools and agent rows are deleted.
+///      After this no fleet tick has a reason to start an agent for it.
+///   5. `DatabaseAdmin::remove_tenant`: in one transaction, the tenant's
+///      other rows in the admin schema, a `tenant.removed` audit row, the
+///      schema and the user. The audit rows of the tenant stay.
 ///
 /// Each step emits a structured audit event with duration. Per-step
 /// failures bail out — but earlier steps stay committed, so a retry
@@ -239,6 +267,17 @@ pub async fn remove_tenant(
 ) -> impl IntoResponse {
     let teardown_started = Instant::now();
 
+    // A name that is no tenant name is refused before any step.
+    if let Err(e) = cloacina::database::connection::validate_schema_name(&schema_name) {
+        return admin_error_response(
+            &schema_name,
+            "tenant_removal_failed",
+            "failed to remove tenant",
+            &AdminError::InvalidSchema(e),
+        )
+        .into_response();
+    }
+
     // Step 1: revoke keys.
     let step_started = Instant::now();
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -258,6 +297,36 @@ pub async fn remove_tenant(
             return ApiError::internal_logged("revoke keys failed", &e).into_response();
         }
     };
+    // A WebSocket ticket carries the key it was issued for: it goes with the
+    // keys (CLOACINA-T-1095).
+    if let Err(e) = dal.ws_tickets().delete_for_tenant(&schema_name).await {
+        warn!(
+            tenant_id = %schema_name,
+            error = %e,
+            "tenant teardown step 1 (delete WebSocket tickets) failed"
+        );
+        audit::log_tenant_teardown_outcome(
+            &schema_name,
+            false,
+            teardown_started.elapsed().as_millis() as u64,
+        );
+        return ApiError::internal_logged("delete WebSocket tickets failed", &e).into_response();
+    }
+    // Every server clears its key cache, so the revoked keys fail on each
+    // replica now, not after the cache's 30 s.
+    if let Err(e) = crate::routes::auth::announce_key_revocation(&state).await {
+        warn!(
+            tenant_id = %schema_name,
+            error = %e,
+            "tenant teardown step 1 (key revocation notice) failed"
+        );
+        audit::log_tenant_teardown_outcome(
+            &schema_name,
+            false,
+            teardown_started.elapsed().as_millis() as u64,
+        );
+        return ApiError::internal_logged("key revocation notice failed", &e).into_response();
+    }
     audit::log_tenant_teardown_step(
         audit::events::TENANT_TEARDOWN_KEYS_REVOKED,
         &schema_name,
@@ -295,25 +364,56 @@ pub async fn remove_tenant(
         step_started.elapsed().as_millis() as u64,
     );
 
-    // CLOACINA-T-1034: the tenant's compiler goes with the tenant, before its
-    // schema: a compiler left behind would hold a database credential and poll
-    // a schema that is gone. Nothing to do when the actuator runs none. A
-    // failure stops the teardown here; a retry is safe.
-    if let Err(e) = state.fleet_actuator.remove_compiler(&schema_name).await {
-        warn!(
-            tenant_id = %schema_name,
-            error = %e,
-            "tenant teardown: removing the tenant's compiler failed"
-        );
-        audit::log_tenant_teardown_outcome(
+    // Step 4: the tenant's compiler, agents and fleet rows, holding the fleet
+    // lock so that no fleet tick starts an agent between the removal and the
+    // delete of the rows. A failure stops the teardown here; a retry is safe.
+    let step_started = Instant::now();
+    let fleet = crate::autoscaler::leader::with_fleet_lock_waiting(
+        &state.database,
+        FLEET_LOCK_WAIT,
+        || remove_tenant_fleet(&state, &schema_name),
+    )
+    .await;
+    match fleet {
+        Some(Ok(())) => audit::log_tenant_teardown_step(
+            audit::events::TENANT_TEARDOWN_FLEET_REMOVED,
             &schema_name,
-            false,
-            teardown_started.elapsed().as_millis() as u64,
-        );
-        return ApiError::internal_logged("remove tenant compiler failed", &e).into_response();
+            1,
+            step_started.elapsed().as_millis() as u64,
+        ),
+        Some(Err(message)) => {
+            warn!(
+                tenant_id = %schema_name,
+                error = %message,
+                "tenant teardown step 4 (compiler, agents, fleet rows) failed"
+            );
+            audit::log_tenant_teardown_outcome(
+                &schema_name,
+                false,
+                teardown_started.elapsed().as_millis() as u64,
+            );
+            return ApiError::internal_logged("remove tenant fleet failed", &message)
+                .into_response();
+        }
+        None => {
+            warn!(
+                tenant_id = %schema_name,
+                "tenant teardown step 4: the fleet lock was not free in time"
+            );
+            audit::log_tenant_teardown_outcome(
+                &schema_name,
+                false,
+                teardown_started.elapsed().as_millis() as u64,
+            );
+            return ApiError::internal_logged(
+                "remove tenant fleet failed",
+                "the fleet lock was not free in time",
+            )
+            .into_response();
+        }
     }
 
-    // Step 4: drop schema + user.
+    // Step 5: the tenant's rows in the admin schema, schema + user.
     let step_started = Instant::now();
     let admin = DatabaseAdmin::new(state.database.clone());
     match admin.remove_tenant(&schema_name, &schema_name).await {
@@ -336,8 +436,11 @@ pub async fn remove_tenant(
                 db_cache_evicted = db_evicted,
                 "tenant teardown complete"
             );
+            // A platform row (no tenant): a tenant made later with the same
+            // name must not read the delete of the old one as its own
+            // (CLOACINA-T-1095). `GET /v1/audit` gives it.
             audit_record::note(
-                Some(&schema_name),
+                None,
                 AuditEvent::ok(audit_record::actions::TENANT_DELETE, schema_name.as_str())
                     .detail(serde_json::json!({ "revoked_keys": revoked_count })),
             );
@@ -354,7 +457,7 @@ pub async fn remove_tenant(
             warn!(
                 tenant_id = %schema_name,
                 error = %e,
-                "tenant teardown step 4 (drop schema) failed"
+                "tenant teardown step 5 (rows, schema, user) failed"
             );
             audit::log_tenant_teardown_outcome(
                 &schema_name,

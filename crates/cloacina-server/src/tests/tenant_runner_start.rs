@@ -324,7 +324,7 @@ async fn tenants_above_the_limit_keep_their_runners_and_schedules() {
     let mut state = test_state().await;
     state.tenant_runners = Arc::new(TenantRunnerCache::new(
         std::num::NonZeroUsize::new(1).expect("limit 1"),
-        runner_config_for_tenant_cache(None, "default", false, None, Default::default()),
+        runner_config_for_tenant_cache(None, "default", false, None, None, Default::default()),
     ));
     let first = make_tenant(&state, "limit_a").await;
     let second = make_tenant(&state, "limit_b").await;
@@ -440,6 +440,76 @@ async fn the_pass_follows_the_list_of_tenant_schemas() {
     );
 
     clean_up(&[&state], &[&stays, &goes]).await;
+}
+
+/// The runner of `tenant` on `state`, as the routes get it.
+async fn runner_of(state: &AppState, tenant: &str) -> Arc<cloacina::DefaultRunner> {
+    let database = state
+        .tenant_databases
+        .resolve(tenant, &state.database)
+        .await
+        .expect("resolve");
+    state
+        .tenant_runners
+        .get_or_create(tenant, database)
+        .await
+        .expect("runner")
+}
+
+/// Drop and make again the schema and the role of `tenant`, as a delete and a
+/// create through another replica do. A runner of `state` may hold a lock in
+/// the schema for a moment: the drop is tried again.
+async fn remake_tenant(state: &AppState, tenant: &str) {
+    let admin = cloacina::database::DatabaseAdmin::new(state.database.clone());
+    let mut removed = false;
+    for _ in 0..3 {
+        if admin.remove_tenant(tenant, tenant).await.is_ok() {
+            removed = true;
+            break;
+        }
+    }
+    assert!(removed, "the tenant could not be removed");
+    admin
+        .create_tenant(cloacina::database::TenantConfig {
+            schema_name: tenant.to_string(),
+            username: tenant.to_string(),
+            password: "testpass123".to_string(),
+        })
+        .await
+        .expect("create tenant again");
+}
+
+/// CLOACINA-T-1129: a tenant deleted and made again with the same name
+/// between two passes of this server. The pass finds the name in the list and
+/// still stops the runner made for the dropped schema, and makes a new one.
+#[tokio::test]
+#[serial]
+async fn the_pass_stops_a_runner_whose_schema_was_made_again() {
+    use crate::tenant_runner_cache::apply_tenant_list;
+
+    let other = test_state().await;
+    let tenant = make_tenant(&other, "remade").await;
+    let listed = [tenant.clone()];
+    assert_eq!(apply_tenant_list(&other, &[], &listed).await, (1, 0));
+    let old = runner_of(&other, &tenant).await;
+
+    remake_tenant(&other, &tenant).await;
+
+    let held = other.tenant_runners.tenant_ids().await;
+    let outcome = apply_tenant_list(&other, &held, &listed).await;
+    let new = runner_of(&other, &tenant).await;
+    assert!(
+        !Arc::ptr_eq(&old, &new),
+        "the server keeps the runner of the dropped schema after its pass"
+    );
+    assert_eq!(outcome, (1, 1), "one runner stopped, one made");
+    // A second pass finds nothing to do.
+    let held = other.tenant_runners.tenant_ids().await;
+    assert_eq!(apply_tenant_list(&other, &held, &listed).await, (0, 0));
+
+    drop(old);
+    drop(new);
+    clean_up(&[&other], &[&tenant]).await;
 }
 
 /// The tenant create route and the package upload route make the tenant's

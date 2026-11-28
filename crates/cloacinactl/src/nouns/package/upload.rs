@@ -18,12 +18,20 @@ use std::path::Path;
 
 use reqwest::multipart;
 
+use super::sign::UploadSignature;
 use crate::GlobalOpts;
 use crate::commands::config::CloacinaConfig;
 use crate::shared::client_ctx::ClientContext;
 use crate::shared::error::CliError;
 
-pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
+/// Upload the archive. `signature` is the signature that goes with it
+/// (CLOACINA-T-1062), sent as the `signature` field of the upload; `None`
+/// sends none.
+pub async fn run(
+    globals: &GlobalOpts,
+    file: &Path,
+    signature: Option<UploadSignature>,
+) -> Result<(), CliError> {
     let config = CloacinaConfig::load(&globals.home.join("config.toml"));
     let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
 
@@ -32,12 +40,19 @@ pub async fn run(globals: &GlobalOpts, file: &Path) -> Result<(), CliError> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "package.cloacina".to_string());
+    let signature = match signature {
+        Some(signature) => signature.resolve(file, &bytes)?,
+        None => None,
+    };
 
     let part = multipart::Part::bytes(bytes)
         .file_name(filename)
         .mime_str("application/octet-stream")
         .map_err(CliError::from_reqwest)?;
-    let form = multipart::Form::new().part("file", part);
+    let mut form = multipart::Form::new().part("file", part);
+    if let Some(signature) = signature {
+        form = form.text("signature", signature);
+    }
 
     let http = reqwest::Client::new();
     let tenant = ctx.tenant_segment();

@@ -116,7 +116,10 @@ pub use connection::{DbConnection, DbPool};
 
 // Re-export admin types for tenant management (PostgreSQL only)
 #[cfg(feature = "postgres")]
-pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
+pub use admin::{
+    AdminError, BUILD_ROLE_GRANTS, BuildCredential, DatabaseAdmin, TenantConfig, TenantCredentials,
+    build_role_name,
+};
 
 /// Type alias for database operation results.
 ///

@@ -19,20 +19,22 @@
 //! upload check against the tenant's org first, then the server org. They
 //! need Postgres, like the other router tests of this crate.
 //!
-//! No route stores a signature yet (CLOACINA-T-1062): the upload tests write
-//! the signature row through the library. Every key is made in the test.
+//! The upload tests send the signature as the `signature` field of the upload
+//! (CLOACINA-T-1062); `tests/package_signing.rs` has the tests of that field.
+//! Every key is made in the test.
 
 use super::*;
 
 use base64::Engine as _;
 use cloacina::crypto::{GeneratedKeypair, generate_signing_keypair};
-use cloacina::security::{DbKeyManager, DbPackageSigner, KeyManager, PackageSigner, tenant_org_id};
+use cloacina::security::{DbKeyManager, DetachedSignature, KeyManager, tenant_org_id};
 
 /// The codes of an upload that the signature check refused.
-const VERIFICATION_CODES: [&str; 5] = [
-    "signature_not_found",
+const VERIFICATION_CODES: [&str; 6] = [
+    "signature_required",
     "package_tampered",
     "untrusted_signer",
+    "signer_revoked",
     "invalid_signature",
     "signature_verification_error",
 ];
@@ -428,19 +430,15 @@ async fn state_requiring_signatures(server_org: Option<cloacina::UniversalUuid>)
     state
 }
 
-/// Bytes no other run has, with a signature row by `keypair`, written through
-/// the library as the signing flow does.
-async fn signed_payload(state: &AppState, keypair: &GeneratedKeypair) -> Vec<u8> {
+/// Bytes no other run has, with their detached signature by `keypair`: what
+/// a publisher sends in the `file` and `signature` fields.
+fn signed_payload(keypair: &GeneratedKeypair) -> (Vec<u8>, String) {
     let bytes = format!("t1061 signed payload {}", uuid::Uuid::new_v4()).into_bytes();
-    let signer = DbPackageSigner::new(cloacina::dal::DAL::new(state.database.clone()));
-    let signature = signer
-        .sign_package_data(&bytes, &keypair.private_key, &keypair.public_key)
-        .expect("sign the payload");
-    signer
-        .store_signature(&signature)
-        .await
-        .expect("store the signature row");
-    bytes
+    let signature = DetachedSignature::sign(&bytes, &keypair.private_key)
+        .expect("sign the payload")
+        .to_json()
+        .expect("signature json");
+    (bytes, signature)
 }
 
 async fn upload(
@@ -448,8 +446,9 @@ async fn upload(
     tenant: &str,
     token: &str,
     bytes: &[u8],
+    signature: Option<&str>,
 ) -> (StatusCode, serde_json::Value) {
-    let (boundary, body) = multipart_file_body(bytes);
+    let (boundary, body) = multipart_upload_body(bytes, signature);
     let req = axum::http::Request::builder()
         .method("POST")
         .uri(format!("/v1/tenants/{tenant}/workflows"))
@@ -499,29 +498,36 @@ async fn test_upload_signed_by_a_key_of_the_tenant_passes_and_a_revoked_key_is_r
     let keypair = generate_signing_keypair();
 
     // Before the tenant trusts the key: refused.
-    let bytes = signed_payload(&state, &keypair).await;
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
+    let (bytes, signature) = signed_payload(&keypair);
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
     assert!(refused_as(&answer, "untrusted_signer"), "{answer:?}");
 
     // The tenant admin adds the key through the route: the same bytes pass.
     let (status, body) = add_key(&state, UPLOAD_TENANT, &admin, &keypair).await;
     assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
     let key_id = body["id"].as_str().expect("id").to_string();
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
     assert!(passed_the_signature_check(&answer), "{answer:?}");
 
-    // Bytes with no signature row are refused, key or no key.
-    let answer = upload(&state, UPLOAD_TENANT, &admin, b"t1061 unsigned bytes").await;
-    assert!(refused_as(&answer, "signature_not_found"), "{answer:?}");
+    // Bytes with no signature are refused, key or no key.
+    let answer = upload(&state, UPLOAD_TENANT, &admin, b"t1061 unsigned bytes", None).await;
+    assert!(refused_as(&answer, "signature_required"), "{answer:?}");
 
     // After the revoke: refused, for the old bytes and for new ones.
     let (status, body) = revoke_key(&state, UPLOAD_TENANT, &admin, &key_id).await;
     assert_eq!(status, StatusCode::OK, "body: {body:?}");
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
-    assert!(refused_as(&answer, "untrusted_signer"), "{answer:?}");
-    let fresh = signed_payload(&state, &keypair).await;
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &fresh).await;
-    assert!(refused_as(&answer, "untrusted_signer"), "{answer:?}");
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
+    assert!(refused_as(&answer, "signer_revoked"), "{answer:?}");
+    let (fresh, fresh_signature) = signed_payload(&keypair);
+    let answer = upload(
+        &state,
+        UPLOAD_TENANT,
+        &admin,
+        &fresh,
+        Some(&fresh_signature),
+    )
+    .await;
+    assert!(refused_as(&answer, "signer_revoked"), "{answer:?}");
 }
 
 #[tokio::test]
@@ -545,16 +551,16 @@ async fn test_upload_signed_by_a_key_of_the_server_org_passes_for_a_tenant() {
     assert!(in_tenant.is_none());
 
     // The second step of the lookup accepts it.
-    let bytes = signed_payload(&state, &keypair).await;
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
+    let (bytes, signature) = signed_payload(&keypair);
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
     assert!(passed_the_signature_check(&answer), "{answer:?}");
 
     // Revoked in the server org: refused.
     km.revoke_trusted_key(server_org, server_key.id)
         .await
         .expect("revoke in the server org");
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
-    assert!(refused_as(&answer, "untrusted_signer"), "{answer:?}");
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
+    assert!(refused_as(&answer, "signer_revoked"), "{answer:?}");
 }
 
 #[tokio::test]
@@ -570,8 +576,8 @@ async fn test_upload_signed_by_a_key_of_another_tenant_only_is_refused() {
     let (status, body) = add_key(&state, &other, &other_admin, &keypair).await;
     assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
 
-    let bytes = signed_payload(&state, &keypair).await;
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
+    let (bytes, signature) = signed_payload(&keypair);
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
     assert!(refused_as(&answer, "untrusted_signer"), "{answer:?}");
 }
 
@@ -584,17 +590,17 @@ async fn test_upload_with_no_server_org_is_checked_against_the_tenant_only() {
     let keypair = generate_signing_keypair();
 
     // No key yet: the upload is refused for its signer, not for the config.
-    let bytes = signed_payload(&state, &keypair).await;
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
+    let (bytes, signature) = signed_payload(&keypair);
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
     assert!(refused_as(&answer, "untrusted_signer"), "{answer:?}");
-    let answer = upload(&state, UPLOAD_TENANT, &admin, b"t1061 unsigned bytes").await;
-    assert!(refused_as(&answer, "signature_not_found"), "{answer:?}");
+    let answer = upload(&state, UPLOAD_TENANT, &admin, b"t1061 unsigned bytes", None).await;
+    assert!(refused_as(&answer, "signature_required"), "{answer:?}");
 
     // With the tenant's key: passes.
     let (status, body) = add_key(&state, UPLOAD_TENANT, &admin, &keypair).await;
     assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
     let key_id = body["id"].as_str().expect("id").to_string();
-    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes).await;
+    let answer = upload(&state, UPLOAD_TENANT, &admin, &bytes, Some(&signature)).await;
     assert!(passed_the_signature_check(&answer), "{answer:?}");
 
     let (status, _) = revoke_key(&state, UPLOAD_TENANT, &admin, &key_id).await;
