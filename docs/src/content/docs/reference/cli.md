@@ -760,11 +760,13 @@ what, when, in which tenant.
 | `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
 | `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. |
 
-The `key` noun always uses the **global** `/v1/auth/keys` surface,
-which is restricted to platform-admin (god-mode) keys since
-CLOACI-T-0784. Tenant admins mint tenant-scoped keys via the HTTP API
-directly (`POST /v1/tenants/{tenant}/keys`) — there is no cloacinactl
-verb for that surface today.
+`key create --tenant <TENANT> <NAME> [--role <ROLE>]` calls
+`POST /v1/tenants/<tenant>/keys` and makes a key of that tenant, with
+the same body and roles. A platform admin key or an `admin` key of the
+tenant can call it. Without `--tenant`, `key create` calls the
+**global** `/v1/auth/keys` surface, which is restricted to
+platform-admin (god-mode) keys and makes a key of `public`. `key list`
+and `key revoke` always use the global surface.
 
 ## `trigger`
 
