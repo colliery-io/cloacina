@@ -127,6 +127,32 @@ async fn run_build_with_heartbeat(
             )
             .increment(1);
             warn!(%package_id, "build failed");
+            // CLOACINA-T-1085: the one rebuild the in-process path asked for
+            // still has another interface. The row goes back to its library,
+            // in service, marked as needing a new publish. A new upload of
+            // another interface fails as any build does.
+            if cloacina::registry::plugin_interface::is_stale_artifact_error(&err) {
+                use cloacina::registry::plugin_interface::{
+                    built_for_of_error, needs_new_build_reason,
+                };
+                let built_for = built_for_of_error(&err);
+                let reason = needs_new_build_reason(
+                    built_for,
+                    "it resolves the crates of the old release again (a pin to the old minor, \
+                     or its Cargo.lock)",
+                );
+                match registry
+                    .end_interface_rebuild(package_id, built_for, &reason)
+                    .await
+                {
+                    Ok(true) => {
+                        warn!(%package_id, %reason, "a package needs a new publish");
+                        return;
+                    }
+                    Ok(false) => {}
+                    Err(e) => warn!(%e, %package_id, "end_interface_rebuild failed"),
+                }
+            }
             if let Err(e) = registry.mark_build_failed(package_id, &err).await {
                 warn!(%e, %package_id, "mark_build_failed failed");
             }
@@ -217,6 +243,186 @@ pub async fn describe_pass(
     count
 }
 
+/// The most packages one pass of [`interface_pass`] checks. A check can
+/// rebuild a package, so the batch is small.
+const INTERFACE_PASS_BATCH: i64 = 5;
+
+/// The longest text of a failed rebuild that goes into the reason a team
+/// reads.
+const MAX_WHY: usize = 2000;
+
+/// Check packages in service for this compiler's plugin interface
+/// (CLOACINA-T-1085): rows with no interface recorded, or another one, that
+/// were not checked for this interface yet. Returns how many it worked on.
+///
+/// A Python package has no interface: it is recorded as checked. A Rust
+/// package's stored library is opened in the describe child. It opens: the
+/// row gets this interface. It was built for another interface or fidius
+/// ABI: the package gets one rebuild from its kept source, in place, and
+/// stays in service meanwhile. The rebuild has this interface: the row gets
+/// the new library and runs with no publish. It does not (the package pins
+/// the old minor, or its Cargo.lock does), or the rebuild fails: the row is
+/// marked as needing a new publish, with the reason and the step. Each row
+/// is checked once per interface version, across restarts and replicas.
+pub async fn interface_pass(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    config: &CompilerConfig,
+) -> usize {
+    let packages = match registry
+        .list_packages_to_check_interface(INTERFACE_PASS_BATCH)
+        .await
+    {
+        Ok(packages) => packages,
+        Err(e) => {
+            warn!(%e, "list_packages_to_check_interface failed");
+            return 0;
+        }
+    };
+    let count = packages.len();
+    for package in packages {
+        if let Err(e) = check_interface(registry, &package, config).await {
+            warn!(%e, package_id = %package.id, "storing the interface check failed");
+        }
+    }
+    count
+}
+
+async fn check_interface(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package: &cloacina::registry::workflow_registry::InterfaceCheck,
+    config: &CompilerConfig,
+) -> Result<(), cloacina::registry::RegistryError> {
+    use cloacina::registry::plugin_interface::{
+        built_for_of_error, is_stale_artifact_error, needs_new_build_reason,
+    };
+
+    let library = registry
+        .get_compiled_data_by_id(package.id)
+        .await?
+        .unwrap_or_default();
+    if library.is_empty() {
+        // A Python package: no plugin interface.
+        registry.record_interface_checked(package.id).await?;
+        return Ok(());
+    }
+    let opened = crate::build::open_stored_library(&library, config).await;
+    let stale = match opened {
+        Ok(()) => {
+            registry.record_interface_current(package.id).await?;
+            return Ok(());
+        }
+        Err(reason) if is_stale_artifact_error(&reason) => reason,
+        Err(reason) => {
+            // Not the interface: the describe pass reports what it can.
+            warn!(
+                package_id = %package.id,
+                package_name = %package.package_name,
+                version = %package.version,
+                %reason,
+                "the stored library of a package does not open; not an interface mismatch"
+            );
+            registry.record_interface_checked(package.id).await?;
+            return Ok(());
+        }
+    };
+    let old = built_for_of_error(&stale).or(package.plugin_interface_version);
+    info!(
+        package_id = %package.id,
+        package_name = %package.package_name,
+        version = %package.version,
+        built_for = ?old,
+        "a package was built for another plugin interface; one rebuild from its kept source"
+    );
+    let mark = |built_for: Option<u32>, why: String| {
+        let reason = needs_new_build_reason(built_for, &why);
+        async move {
+            warn!(
+                package_id = %package.id,
+                package_name = %package.package_name,
+                version = %package.version,
+                %reason,
+                "a package needs a new publish"
+            );
+            metrics::counter!("cloacina_compiler_interface_checks_total", "status" => "needs_new_build")
+                .increment(1);
+            registry
+                .mark_needs_new_build(package.id, built_for, &reason)
+                .await
+                .map(|_| ())
+        }
+    };
+    match crate::build::execute_build(registry, package.id, config).await {
+        crate::build::BuildOutcome::Success {
+            artifact,
+            task_docs,
+            declared_params,
+            declared_surfaces,
+            document: Some(document),
+        } if !artifact.is_empty() => {
+            let written = registry
+                .replace_build_in_place(
+                    package.id,
+                    artifact,
+                    &document,
+                    task_docs,
+                    declared_params,
+                    declared_surfaces,
+                )
+                .await?;
+            if written {
+                info!(
+                    package_id = %package.id,
+                    package_name = %package.package_name,
+                    version = %package.version,
+                    "the rebuild from kept source has this plugin interface; the package runs \
+                     with no new publish"
+                );
+                metrics::counter!("cloacina_compiler_interface_checks_total", "status" => "rebuilt")
+                    .increment(1);
+            }
+            Ok(())
+        }
+        crate::build::BuildOutcome::Success { .. } => {
+            mark(
+                old,
+                "the rebuild gave no library or no metadata document".into(),
+            )
+            .await
+        }
+        crate::build::BuildOutcome::Failed(err) => {
+            let built_for = built_for_of_error(&err).or(old);
+            let why = if is_stale_artifact_error(&err) {
+                "it resolves the crates of the old release again (a pin to the old minor, or \
+                 its Cargo.lock)"
+                    .to_string()
+            } else {
+                format!("the rebuild failed: {}", tail(&err))
+            };
+            mark(built_for, why).await
+        }
+        crate::build::BuildOutcome::TimedOut { elapsed } => {
+            mark(
+                old,
+                format!("the rebuild timed out after {}s", elapsed.as_secs()),
+            )
+            .await
+        }
+    }
+}
+
+/// The end of a long text, on a character boundary.
+fn tail(text: &str) -> String {
+    let text = text.trim();
+    if text.len() <= MAX_WHY {
+        return text.to_string();
+    }
+    let mut start = text.len() - MAX_WHY;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    format!("…{}", &text[start..])
+}
+
 pub(crate) async fn run(
     registry: Arc<WorkflowRegistryImpl<UnifiedRegistryStorage>>,
     config: CompilerConfig,
@@ -263,6 +469,9 @@ pub(crate) async fn run(
                 // CLOACINA-T-1074: packages in service with no metadata
                 // document get one, from their stored build.
                 describe_pass(&registry, &config).await;
+                // CLOACINA-T-1085: packages in service built for another
+                // plugin interface get one rebuild, or the mark.
+                interface_pass(&registry, &config).await;
                 // SQL-derived queue-depth gauge (REC-06 / I-0108 pattern) —
                 // re-seeded every sweep tick so a panic between
                 // enqueue/dequeue can't drift the gauge. Best-effort:

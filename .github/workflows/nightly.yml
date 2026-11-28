@@ -88,6 +88,45 @@ jobs:
         run: cargo test -p cloacina --features constructors-wasm --test '*constructor*' --test provider_bundle
 
   # -----------------------------------------------------------------------
+  # Packages across a plugin interface change (CLOACINA-T-1085)
+  #
+  # The compiler builds as a user's build does, with no --dev-workspace: a
+  # package pinned to the old minor resolves it from crates.io and is listed
+  # as needing a new publish; a package pinned to the release under test
+  # reaches it through a [patch.crates-io] path override and is rebuilt with
+  # the new interface. Needs crates.io, so nightly only.
+  # -----------------------------------------------------------------------
+
+  plugin-interface-registry:
+    name: Plugin interface change (crates.io)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL dev libraries
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      # The describe child embeds the interpreter: the build links libpython.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-compiler-tests"
+
+      - name: Old minor from crates.io, the release under test through a path override
+        run: cargo test -p cloacina-compiler --features sqlite --test interface_registry -- --ignored --nocapture
+
+  # -----------------------------------------------------------------------
   # Code coverage — cargo-tarpaulin on cloacina core
   # -----------------------------------------------------------------------
 
@@ -270,6 +309,265 @@ jobs:
         run: angreal test sdk-contract
 
   # -----------------------------------------------------------------------
+  # The previous minor on the new schema (CLOACINA-T-1087)
+  #
+  # During a rolling upgrade the server of the previous minor runs on the
+  # schema that the head migrated. The head's server migrates a fresh
+  # Postgres; then the DAL and server tests of the last release tag run on
+  # it. Their migration step finds nothing to run (a tag with the release
+  # guard sees a schema one minor ahead). An SQL error or a failing test
+  # fails the job. The rule starts at 0.13.0: with a last tag below it the
+  # job is skipped, with a notice.
+  # -----------------------------------------------------------------------
+
+  previous-minor-schema:
+    name: Previous minor on the new schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cloacina
+          POSTGRES_PASSWORD: cloacina
+          POSTGRES_DB: cloacina
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloacina"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: head
+          fetch-depth: 0
+
+      - name: Last release tag
+        id: tag
+        working-directory: head
+        run: |
+          set -euo pipefail
+          tag=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+          minor=$(echo "${tag#v}" | cut -d. -f2)
+          major=$(echo "${tag#v}" | cut -d. -f1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$major" -eq 0 ] && [ "$minor" -lt 13 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::last release $tag is before 0.13.0, where the previous-minor rule starts; nothing to check"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the last release
+        if: steps.tag.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          path: previous
+
+      - name: Install PostgreSQL dev libraries
+        if: steps.tag.outputs.run == 'true'
+        uses: ./head/.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      - name: Set up Rust
+        if: steps.tag.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        if: steps.tag.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            head -> target
+            previous -> target
+          shared-key: "cloacina-nightly-previous-minor"
+
+      - name: Migrate with the head's server
+        if: steps.tag.outputs.run == 'true'
+        working-directory: head
+        run: |
+          set -euo pipefail
+          cargo build -p cloacina-server
+          home=$(mktemp -d)
+          ./target/debug/cloacina-server \
+            --single-trust \
+            --home "$home" \
+            --database-url postgres://cloacina:cloacina@localhost:15432/cloacina \
+            --bind 127.0.0.1:18080 \
+            --bootstrap-key previous-minor-bootstrap-key \
+            > "$home/server.log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:18080/health > /dev/null; then
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat "$home/server.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/health
+          kill "$pid"
+          wait "$pid" || true
+          psql postgres://cloacina:cloacina@localhost:15432/cloacina \
+            -c "SELECT written_by FROM cloacina_schema_release"
+
+      # As the coverage job: the reconciler tests read these fixture builds.
+      - name: Pre-build the last release's test fixtures
+        if: steps.tag.outputs.run == 'true'
+        working-directory: previous
+        run: |
+          for fixture in reactor-only-rust reactor-subscriber-rust trigger-only-rust mixed-rust; do
+            (cd "examples/fixtures/$fixture" && cargo build -p "$fixture")
+          done
+
+      - name: The last release's DAL tests on the new schema
+        if: steps.tag.outputs.run == 'true'
+        working-directory: previous
+        env:
+          DATABASE_URL: postgres://cloacina:cloacina@localhost:15432/cloacina
+        run: cargo test -p cloacina --test integration -- --test-threads=1 --skip sqlite
+
+      - name: The last release's server tests on the new schema
+        if: steps.tag.outputs.run == 'true'
+        working-directory: previous
+        env:
+          DATABASE_URL: postgres://cloacina:cloacina@localhost:15432/cloacina
+        run: cargo test -p cloacina-server --lib -- --test-threads=1
+
+  # -----------------------------------------------------------------------
+  # SDK version skew (CLOACINA-T-1086)
+  #
+  # The server accepts clients of the minor before its own. The SDK contract
+  # suites of the last release tag (its Rust, Python and TypeScript clients)
+  # run against the server of the head, on a fresh database. Nightly, not on
+  # each pull request.
+  # -----------------------------------------------------------------------
+
+  sdk-skew:
+    name: SDK skew (last release's clients, head's server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cloacina
+          POSTGRES_PASSWORD: cloacina
+          POSTGRES_DB: cloacina
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloacina"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CLOACINA_SERVER_URL: http://127.0.0.1:18085
+      CLOACINA_API_KEY: sdk-skew-bootstrap-key
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: head
+          fetch-depth: 0
+
+      - name: Last release tag
+        id: tag
+        working-directory: head
+        run: |
+          set -euo pipefail
+          tag=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "last release: $tag"
+
+      - name: Check out the last release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          path: previous
+
+      - name: Install PostgreSQL dev libraries
+        uses: ./head/.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            head -> target
+            previous -> target
+          shared-key: "cloacina-nightly-sdk-skew"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Start the head's server
+        working-directory: head
+        env:
+          CLOACINA_SECRET_KEK: c2RrLWNvbnRyYWN0LWtlay1hYmNkZWZnaGlqMTIzNCE=
+        run: |
+          set -euo pipefail
+          cargo build -p cloacina-server
+          home=$(mktemp -d)
+          echo "SERVER_HOME=$home" >> "$GITHUB_ENV"
+          nohup ./target/debug/cloacina-server \
+            --single-trust \
+            --home "$home" \
+            --database-url postgres://cloacina:cloacina@localhost:15432/cloacina \
+            --bind 127.0.0.1:18085 \
+            --bootstrap-key "$CLOACINA_API_KEY" \
+            > "$home/server.log" 2>&1 &
+          for _ in $(seq 1 120); do
+            if curl -fsS "$CLOACINA_SERVER_URL/health" > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS "$CLOACINA_SERVER_URL/health"
+
+      - name: Rust client of the last release
+        working-directory: previous
+        run: cargo test -p cloacina-client
+
+      - name: Python client of the last release
+        working-directory: previous/clients/python
+        run: uv run pytest -q
+
+      - name: TypeScript client of the last release
+        working-directory: previous/clients/typescript
+        run: |
+          npm ci
+          npm run test:contract
+
+      - name: Server log
+        if: always()
+        run: cat "$SERVER_HOME/server.log" || true
+
+  # -----------------------------------------------------------------------
   # UI acceptance e2e (CLOACI-I-0117 / T-0661)
   #
   # Full Playwright suite against the orchestrated stack (server + compiler +
@@ -316,6 +614,26 @@ jobs:
 
       - name: Run UI acceptance e2e
         run: angreal test ui-e2e
+
+  # -----------------------------------------------------------------------
+  # Package signing e2e (CLOACINA-T-1121)
+  #
+  # publish --sign to a server with --require-signatures: a signed package
+  # runs to Completed, an unsigned one and an untrusted signer are refused.
+  # Release-blocking: this workflow is the release gate.
+  # -----------------------------------------------------------------------
+
+  signing-e2e:
+    name: Signing E2E
+    uses: ./.github/workflows/signing-e2e.yml
+
+  # -----------------------------------------------------------------------
+  # CLI e2e (CLOACINA-T-1142): cloacinactl against a live server.
+  # -----------------------------------------------------------------------
+
+  cli-e2e:
+    name: CLI E2E
+    uses: ./.github/workflows/cli-e2e.yml
 
   # -----------------------------------------------------------------------
   # Nightly Docker image (CLOACI-I-0111 / T-0604)
@@ -445,7 +763,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, cli-e2e, nightly-docker-manifest]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -509,7 +827,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, cli-e2e, nightly-docker-manifest]
     if: success()
     runs-on: ubuntu-latest
     permissions:
@@ -557,7 +875,7 @@ jobs:
 
   prune-caches:
     name: Prune Stale Caches
-    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, ui-e2e, nightly-docker-manifest]
+    needs: [cloacina-tests, examples-docs, constructor-suite, coverage, macos-library-daemon, sdk-contract, previous-minor-schema, sdk-skew, ui-e2e, signing-e2e, cli-e2e, nightly-docker-manifest]
     if: always()
     runs-on: ubuntu-latest
     permissions:

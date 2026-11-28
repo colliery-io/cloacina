@@ -25,7 +25,8 @@ pub mod filesystem;
 mod package;
 
 pub use database::{
-    BuildQueueStats, PackageVersionDelete, ReconcilerStats, StoredDescription, UndescribedPackage,
+    BuildQueueStats, InterfaceCheck, InterfaceRebuild, InterfaceStatus, PackageNeedingNewBuild,
+    PackageVersionDelete, ReconcilerStats, StoredDescription, UndescribedPackage,
     build_queue_stats, reconciler_stats,
 };
 
@@ -312,6 +313,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         Ok(workflows
             .iter()
             .any(|w| w.workflow_name == name || w.package_name == name))
+    }
+
+    /// The package of the workflow addressed by `name` (its `workflow_name`
+    /// or `package_name`), or `None` when this registry does not hold it
+    /// (CLOACINA-T-1134).
+    pub async fn package_of_workflow(&self, name: &str) -> Result<Option<String>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        Ok(workflows
+            .into_iter()
+            .find(|w| w.workflow_name == name || w.package_name == name)
+            .map(|w| w.package_name))
     }
 
     /// Workflow names subscribed to `trigger_name` via `#[workflow(triggers = […])]`
@@ -959,6 +971,16 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         package_id: crate::registry::types::WorkflowPackageId,
     ) -> Result<bool, RegistryError> {
         self.request_recompile(package_id).await
+    }
+
+    async fn request_interface_rebuild(
+        &self,
+        package_id: crate::registry::types::WorkflowPackageId,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<InterfaceRebuild, RegistryError> {
+        self.request_interface_rebuild(package_id, built_for, reason)
+            .await
     }
 
     async fn refuse_package(

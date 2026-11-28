@@ -423,6 +423,21 @@ pub trait FleetSecretResolverFactory: Send + Sync {
     ) -> Option<Arc<dyn SecretResolver>>;
 }
 
+/// Whether this server starts agents for waiting work (CLOACINA-T-1029): an
+/// actuator is active and the autoscaler is on. Set once at start.
+static AUTOSCALED_AGENTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Say that this server starts agents for waiting work. The dispatch gate
+/// ([`FleetExecutor`]'s `has_capacity`) then lets every task through to the
+/// agent selection, so a task for a pool at zero agents waits there.
+pub fn set_autoscaled_agents(on: bool) {
+    AUTOSCALED_AGENTS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn autoscaled_agents() -> bool {
+    AUTOSCALED_AGENTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct FleetExecutor {
     dal: cloacina::dal::DAL,
     /// CLOACI-T-0781: the ADMIN (public-schema) DAL, used ONLY for the
@@ -966,51 +981,62 @@ impl TaskExecutor for FleetExecutor {
             // CLOACINA-T-1018: the lookup goes through the execution's version
             // pin. The first task of an execution pins the active version; each
             // later task gets that version, also after a newer one is active.
-            let (primary_digest, language, package_version, python_platforms, declared_secrets) =
-                match self
-                    .dal
-                    .workflow_packages()
-                    .resolve_dispatch_for_execution(
-                        event.workflow_execution_id,
-                        &namespace.package_name,
-                        None,
-                    )
-                    .await
-                {
-                    Ok(Some(pkg)) => (
-                        pkg.content_hash,
-                        pkg.language,
-                        pkg.version,
-                        pkg.python_platforms,
-                        pkg.declared_secrets,
-                    ),
-                    Ok(None) => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!(
-                                    "no active (success, non-superseded) artifact for package `{}` \
+            let (
+                pinned_package_id,
+                primary_digest,
+                language,
+                package_version,
+                python_platforms,
+                declared_secrets,
+                package_interface,
+                needs_new_build,
+            ) = match self
+                .dal
+                .workflow_packages()
+                .resolve_dispatch_for_execution(
+                    event.workflow_execution_id,
+                    &namespace.package_name,
+                    None,
+                )
+                .await
+            {
+                Ok(Some(pkg)) => (
+                    pkg.package_id,
+                    pkg.content_hash,
+                    pkg.language,
+                    pkg.version,
+                    pkg.python_platforms,
+                    pkg.declared_secrets,
+                    pkg.plugin_interface_version,
+                    pkg.needs_new_build,
+                ),
+                Ok(None) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!(
+                                "no active (success, non-superseded) artifact for package `{}` \
                                  in tenant {:?}",
-                                    namespace.package_name, task_tenant
-                                ),
-                            )
-                            .await);
-                    }
-                    Err(e) => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!("artifact digest lookup failed: {}", e),
-                            )
-                            .await);
-                    }
-                };
+                                namespace.package_name, task_tenant
+                            ),
+                        )
+                        .await);
+                }
+                Err(e) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!("artifact digest lookup failed: {}", e),
+                        )
+                        .await);
+                }
+            };
 
             // CLOACI-T-0780: an INTERPRETED package (e.g. Python) has no arch-specific
             // cdylib — it runs from its source on ANY agent. A COMPILED package runs
@@ -1078,9 +1104,53 @@ impl TaskExecutor for FleetExecutor {
                 .filter(|p| p.task_id != event.task_execution_id)
                 .collect();
             let load = fleet_load(&snapshot, &others);
+            // CLOACINA-T-1086: a Rust package goes only to an agent that loads
+            // its plugin interface version.
+            let loading = crate::agent_registry::agents_loading(&snapshot, package_interface);
             let Some(agent) =
-                select_fleet_agent(&snapshot, &task_tenant, &runnable_triples, &demand, &load)
+                select_fleet_agent(&loading, &task_tenant, &runnable_triples, &demand, &load)
             else {
+                if let Some(reason) = crate::agent_registry::plugin_interface_wait_reason(
+                    &snapshot,
+                    &task_tenant,
+                    demand.pool,
+                    package_interface,
+                ) {
+                    // CLOACINA-T-1085: a package of another interface than
+                    // this server's has no agent of its interface live: it
+                    // fails at once, with the reason and the step, not
+                    // through its retries. One of the server's own interface
+                    // waits for an agent, as above.
+                    if let Some(message) = crate::agent_registry::fails_at_once_reason(
+                        &reason,
+                        package_interface,
+                        needs_new_build.as_deref(),
+                    ) {
+                        warn!(
+                            task_id = %event.task_execution_id,
+                            package = %namespace.package_name,
+                            "fleet: the task fails: {message}"
+                        );
+                        let no_retries = RetryPolicy {
+                            max_attempts: 0,
+                            ..retry_policy.clone()
+                        };
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &no_retries,
+                                start.elapsed(),
+                                message,
+                            )
+                            .await);
+                    }
+                    info!(
+                        task_id = %event.task_execution_id,
+                        "fleet: the task waits: {reason}"
+                    );
+                    return Ok(self.defer_for_capacity(&event, &reason).await);
+                }
                 // CLOACINA-T-1012: a wait for capacity, not a failure. The task
                 // stays Ready and keeps its attempt count.
                 debug!(
@@ -1179,9 +1249,19 @@ impl TaskExecutor for FleetExecutor {
             //       build the merged dependency context via the SHARED
             //       TaskContextBuilder so the agent receives exactly the input
             //       context a thread run would produce.
-            let dependencies: Vec<cloacina::task::TaskNamespace> = match loaded_task.as_ref() {
-                Some(task) => task.dependencies().to_vec(),
-                None => {
+            //
+            // CLOACINA-T-1137: the dependencies are those of the version the
+            // execution is pinned to, from the task list stored on its row.
+            // The loaded task is the active version, which can differ. A row
+            // with no stored task list falls back to the loaded task.
+            let pinned_dependencies = match self
+                .dal
+                .workflow_packages()
+                .task_dependencies_in_version(pinned_package_id, &namespace)
+                .await
+            {
+                Ok(deps) => deps,
+                Err(e) => {
                     return Ok(self
                         .reconcile_error(
                             &event,
@@ -1189,14 +1269,33 @@ impl TaskExecutor for FleetExecutor {
                             &retry_policy,
                             start.elapsed(),
                             format!(
-                                "task `{}` not loaded in server runtime — cannot resolve \
-                                 dependency context for fleet dispatch",
-                                event.task_name
+                                "dependencies of task `{}` in version {} could not be read: {}",
+                                event.task_name, package_version, e
                             ),
                         )
                         .await);
                 }
             };
+            let dependencies: Vec<cloacina::task::TaskNamespace> =
+                match (pinned_dependencies, loaded_task.as_ref()) {
+                    (Some(deps), _) => deps,
+                    (None, Some(task)) => task.dependencies().to_vec(),
+                    (None, None) => {
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &retry_policy,
+                                start.elapsed(),
+                                format!(
+                                    "task `{}` not loaded in server runtime — cannot resolve \
+                                 dependency context for fleet dispatch",
+                                    event.task_name
+                                ),
+                            )
+                            .await);
+                    }
+                };
             let context = match self
                 .context_builder
                 .build(&claimed_task, &dependencies)
@@ -1606,6 +1705,13 @@ impl TaskExecutor for FleetExecutor {
     }
 
     fn has_capacity(&self) -> bool {
+        // CLOACINA-T-1029: with the autoscaler on, a pool at zero agents
+        // starts one for waiting work. The dispatch goes through to the
+        // agent selection, which puts the task off for capacity: it waits,
+        // keeps its attempt, and its wait is stamped.
+        if autoscaled_agents() {
+            return true;
+        }
         // Sync trait method — served from the replica-local cache of the last
         // DB roster read (refreshed on every roster touch + each sweeper
         // tick). Selection itself always re-reads the DB.
@@ -1654,6 +1760,11 @@ impl FleetExecutor {
     /// The outbox row is read before the stored reports: an agent stores its
     /// report before it acks, so an acked row with no stored report has no
     /// report to come. Returns what was done, per task.
+    ///
+    /// Only a dispatch recorded under the claim it finds stale is taken over
+    /// (CLOACINA-T-1136). A runner of the previous release claims and sends a
+    /// task without writing the dispatch columns, so its row can name an
+    /// older dispatch; the stale claim sweeper recovers that row.
     pub async fn take_over_stale_dispatches(self: &Arc<Self>) -> Vec<(UniversalUuid, Takeover)> {
         let stale = match self
             .dal
@@ -2629,6 +2740,9 @@ mod tests {
                         max_concurrency: 1,
                         cpu_millis: None,
                         memory_bytes: None,
+                        agent_version: None,
+                        protocol_version: None,
+                        plugin_interface_version: None,
                     },
                     cloacina::security::ServerKeyPool::new(),
                     // CLOACINA-T-1050: the agent's tenant is its key's.
@@ -3183,6 +3297,174 @@ mod tests {
             );
         }
 
+        // ── CLOACINA-T-1137: the dependency context of the pinned version ───
+
+        /// The execution's version (1.0.0) has `long_task` depend on
+        /// `extract`. Version 2.0.0 is active and loaded, and its `long_task`
+        /// depends on nothing. The work packet carries the output of
+        /// `extract`, as version 1.0.0 says.
+        #[tokio::test]
+        async fn the_dependency_context_comes_from_the_pinned_version() {
+            use cloacina::database::schema::unified::workflow_packages;
+            use cloacina::models::task_execution_metadata::NewTaskExecutionMetadata;
+            use diesel::prelude::*;
+
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+
+            // Version 1.0.0 (the row of `stack`) lists the edge.
+            let v1_metadata = serde_json::json!({
+                "package_name": "full_pkg",
+                "workflow_name": "full_wf",
+                "version": "1.0.0",
+                "description": null,
+                "author": null,
+                "tasks": [
+                    {"index": 0, "local_id": "extract",
+                     "namespaced_id_template": "{tenant}::full_pkg::full_wf::extract",
+                     "dependencies": [], "description": "", "source_location": ""},
+                    {"index": 1, "local_id": "long_task",
+                     "namespaced_id_template": "{tenant}::full_pkg::full_wf::long_task",
+                     "dependencies": ["extract"], "description": "", "source_location": ""},
+                ],
+                "graph_data": null,
+                "architecture": "any",
+                "symbols": [],
+            })
+            .to_string();
+            let set: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(stack.dal, |conn| {
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::package_name.eq("full_pkg")),
+                    )
+                    .set(workflow_packages::metadata.eq(v1_metadata))
+                    .execute(conn)
+                });
+            assert_eq!(set.unwrap(), 1);
+
+            // The execution starts on version 1.0.0: its first task pinned it.
+            let v1 = stack
+                .dal
+                .workflow_packages()
+                .resolve_dispatch_for_execution(event.workflow_execution_id, "full_pkg", None)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(v1.version, "1.0.0");
+
+            // `extract` completed with an output.
+            let extract = "public::full_pkg::full_wf::extract";
+            let extract_row = stack
+                .dal
+                .task_execution()
+                .create(NewTaskExecution {
+                    workflow_execution_id: event.workflow_execution_id,
+                    task_name: extract.into(),
+                    status: "Completed".into(),
+                    attempt: 1,
+                    max_attempts: 3,
+                    trigger_rules: r#"{"type":"Always"}"#.into(),
+                    task_configuration: "{}".into(),
+                })
+                .await
+                .unwrap();
+            let mut output = Context::new();
+            output.insert("rows", serde_json::json!(42)).unwrap();
+            let context_id = stack.dal.context().create(&output).await.unwrap();
+            stack
+                .dal
+                .task_execution_metadata()
+                .create(NewTaskExecutionMetadata {
+                    task_execution_id: extract_row.id,
+                    workflow_execution_id: event.workflow_execution_id,
+                    task_name: extract.into(),
+                    context_id,
+                    context_size_bytes: None,
+                })
+                .await
+                .unwrap();
+
+            // Version 2.0.0 becomes active; the loaded `long_task` (of
+            // `stack`) has no dependency.
+            let v2_metadata = serde_json::from_value(serde_json::json!({
+                "package_name": "full_pkg",
+                "workflow_name": "full_wf",
+                "version": "2.0.0",
+                "description": null,
+                "author": null,
+                "tasks": [],
+                "graph_data": null,
+                "architecture": "any",
+                "symbols": [],
+            }))
+            .unwrap();
+            let v1_id = UniversalUuid(v1.package_id);
+            let retired: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(stack.dal, |conn| {
+                    diesel::update(workflow_packages::table.find(v1_id))
+                        .set(
+                            workflow_packages::superseded
+                                .eq(cloacina::database::universal_types::UniversalBool(true)),
+                        )
+                        .execute(conn)
+                });
+            assert_eq!(retired.unwrap(), 1);
+            let v2_id = stack
+                .dal
+                .workflow_packages()
+                .store_package_metadata(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &v2_metadata,
+                    cloacina::models::workflow_packages::StorageType::Database,
+                    None,
+                )
+                .await
+                .unwrap();
+            let built: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(stack.dal, |conn| {
+                    diesel::update(workflow_packages::table.find(UniversalUuid(v2_id)))
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::content_hash.eq("digest-2"),
+                        ))
+                        .execute(conn)
+                });
+            assert_eq!(built.unwrap(), 1);
+
+            // Dispatch `long_task` and read its packet.
+            let executor = stack.executor.clone();
+            let dispatched = event.clone();
+            let run = tokio::spawn(async move { executor.execute(dispatched).await });
+            let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT);
+            let mut packet = None;
+            for _ in 0..400 {
+                let open = stack
+                    .dal
+                    .delivery_outbox()
+                    .list_open_for_recipient(&recipient, 10)
+                    .await
+                    .unwrap_or_default();
+                if let Some(push) = open.into_iter().next() {
+                    packet = Some(serde_json::from_slice::<WorkPacket>(&push.payload).unwrap());
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let packet = packet.expect("the executor enqueues a work packet");
+            agent_reports(&stack, &event, 0, refused(RefusalReason::Shutdown)).await;
+            run.await.unwrap().expect("the dispatch returns a result");
+
+            assert_eq!(packet.artifact.digest, "digest-1", "the pinned build");
+            assert_eq!(
+                packet.context.get("rows"),
+                Some(&serde_json::json!(42)),
+                "the packet carries the output of `extract`, a dependency in the \
+                 pinned version: {}",
+                packet.context
+            );
+        }
+
         // ── CLOACINA-T-1084: the replica that sent a task stops ─────────────
         //
         // Two replicas are two stacks over one database. Replica A dispatches
@@ -3552,6 +3834,77 @@ mod tests {
                     .unwrap();
                 let after = until_status(&b.dal, &event, "Completed").await;
                 assert_eq!(after.status, "Completed");
+            }
+
+            /// A runner of the previous release takes the claim of the row
+            /// and sends the task as its own dispatch, then stops too. Its
+            /// code does not know the dispatch columns: it leaves them as
+            /// they are, and its heartbeat goes stale (CLOACINA-T-1136).
+            async fn claimed_by_a_previous_release_runner(dal: &DAL, event: &TaskReadyEvent) {
+                use cloacina::database::schema::unified::task_executions;
+                use diesel::prelude::*;
+
+                let task_id = event.task_execution_id;
+                let runner = UniversalUuid::new_v4();
+                let at = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(120));
+                let claimed: Result<usize, diesel::result::Error> =
+                    cloacina::interact_on_backend!(dal, |conn| {
+                        diesel::update(task_executions::table.find(task_id))
+                            .set((
+                                task_executions::claimed_by.eq(Some(runner)),
+                                task_executions::heartbeat_at.eq(Some(at)),
+                            ))
+                            .execute(conn)
+                    });
+                assert_eq!(claimed.unwrap(), 1);
+            }
+
+            /// The row names replica A's dispatch, but its claim is a
+            /// previous-release runner's, whose dispatch the row does not
+            /// name. No replica waits for A's dispatch in its place: the
+            /// sweeper sends the task again, once, and the report of that
+            /// dispatch resolves it (CLOACINA-T-1136).
+            #[tokio::test]
+            async fn a_dispatch_recorded_under_another_claim_is_not_taken_over() {
+                let a = stack(policy(3, RetryCondition::AllErrors)).await;
+                let b = another_replica(&a);
+                let event = waiting_task(&a.dal).await;
+                let (first_row, first) = dispatched_then_replica_stops(&a, &event).await;
+                claimed_by_a_previous_release_runner(&a.dal, &event).await;
+                assert_eq!(
+                    row(&a.dal, &event).await.fleet_dispatch_id,
+                    first.dispatch_id
+                );
+
+                // What every replica runs.
+                sweep(&b.dal).await;
+                assert_eq!(
+                    b.executor.take_over_stale_dispatches().await,
+                    vec![],
+                    "a replica took over the wait of a dispatch that is not its claim's"
+                );
+                let swept = row(&b.dal, &event).await;
+                assert_eq!(swept.status, "Ready");
+                assert_eq!(swept.recovery_attempts, 1);
+                assert_eq!(swept.fleet_dispatch_id, None);
+                scheduler_tick(&b, &event).await;
+
+                let sent: Vec<_> = packets(&b, &event)
+                    .await
+                    .into_iter()
+                    .filter(|(id, _)| *id != first_row)
+                    .collect();
+                assert_eq!(sent.len(), 1, "sent again once");
+                let (_, again) = &sent[0];
+                assert_eq!(
+                    b.coordinator
+                        .accept(&b.dal, event.task_execution_id, report(again, done()))
+                        .await,
+                    Ok(crate::fleet_coordinator::Accepted::Local)
+                );
+                let after = until_status(&b.dal, &event, "Completed").await;
+                assert_eq!(after.status, "Completed");
+                assert!(b.executor.take_over_stale_dispatches().await.is_empty());
             }
 
             #[tokio::test]

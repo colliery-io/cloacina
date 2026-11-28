@@ -21,6 +21,7 @@ Prerequisites for `helm test`:
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -162,10 +163,17 @@ def helm_lint():
         "--set", FLEET_CHOICE,
     ], stdout=subprocess.DEVNULL)
 
-    # Variant 3: bundled Postgres subchart.
+    # Variant 3: bundled Postgres subchart, with an operator's password
+    # (CLOACINA-T-1069): the Secret holds it, and the URLs read it from the
+    # Secret.
     out = _render(["--set", "postgresql.enabled=true",
                    "--set", "postgresql.auth.password=test"])
-    _expect(out, "bundled Postgres", present=["postgresql"])
+    _expect(out, "bundled Postgres", present=[
+        'POSTGRES_PASSWORD: "test"',
+        _env_from_secret("CLOACINA_BUNDLED_DB_PASSWORD", "cloacina-postgresql",
+                         "POSTGRES_PASSWORD"),
+        "postgres://cloacina:$(CLOACINA_BUNDLED_DB_PASSWORD)@cloacina-postgresql:5432",
+    ], absent=["cloacina:test@"])
 
     # Metrics variants (CLOACINA-T-1025, CLOACINA-T-1032). Each one is
     # rendered and its text is checked.
@@ -199,16 +207,17 @@ def helm_lint():
     ])
 
     # Metrics off: one value brings back /metrics on the API port, with no
-    # metrics Service and no NetworkPolicy.
+    # metrics Service and no metrics rule; the API port policy stays.
     out = _render(db + ["--set", "metrics.enabled=false",
                         "--set", "serviceMonitor.enabled=true"])
     _expect(out, "metrics.enabled=false", present=[
         "kind: ServiceMonitor",
         "- port: http",
+        "kind: NetworkPolicy",
     ], absent=[
         "--metrics-bind",
-        "kind: NetworkPolicy",
         "-metrics",
+        "port: 9090",
     ])
 
     # A named Prometheus namespace, the ServiceMonitor and the compiler.
@@ -235,12 +244,143 @@ def helm_lint():
               "compiler", file=sys.stderr)
         sys.exit(1)
 
-    # NetworkPolicy off: the listener and its Service stay.
+    # The metrics rule off: the listener and its Service stay, and the
+    # metrics port is open to every source.
+    open_metrics = "    - ports:\n        - protocol: TCP\n          port: 9090"
     out = _render(db + ["--set", "metrics.networkPolicy.enabled=false"])
     _expect(out, "metrics.networkPolicy.enabled=false", present=[
         '- "--metrics-bind"',
         "name: cloacina-cloacina-server-metrics",
-    ], absent=["kind: NetworkPolicy"])
+        "kind: NetworkPolicy",
+        open_metrics,
+    ])
+
+    # ── Network policies (CLOACINA-T-1069) ─────────────────────────────
+    server_peer = (
+        "    - from:\n"
+        "        - podSelector:\n"
+        "            matchLabels:\n"
+        "              app.kubernetes.io/name: cloacina-server\n"
+        "              app.kubernetes.io/instance: cloacina\n"
+        "            matchExpressions:\n"
+        "              - key: app.kubernetes.io/component\n"
+        "                operator: NotIn\n"
+        "                values:\n"
+        "                  - compiler\n"
+    )
+    agent_peer = (
+        "        - namespaceSelector:\n"
+        "            matchLabels:\n"
+        '              cloacina.managed: "true"\n'
+        "          podSelector:\n"
+        "            matchLabels:\n"
+        '              cloacina.managed: "true"\n'
+    )
+    open_api = "    - ports:\n        - protocol: TCP\n          port: 8080"
+    ingress_peer = (
+        "server.networkPolicy.from[0].namespaceSelector.matchLabels."
+        "kubernetes\\.io/metadata\\.name=ingress-nginx"
+    )
+
+    # Default: the API port is open to the server pods only; no agent rule
+    # without the Kubernetes actuator; no open API rule.
+    out = _render(db)
+    _expect(out, "server policy, default", present=[server_peer],
+            absent=[agent_peer, open_api, "ingress-nginx"])
+
+    # The Kubernetes actuator adds the agents of the tenant namespaces.
+    out = _render(db + ["--set", "fleet.actuator=kubernetes"])
+    _expect(out, "server policy, kubernetes actuator",
+            present=[server_peer, agent_peer], absent=[open_api])
+
+    # A listed peer: the ingress controller.
+    out = _render(db + ["--set", ingress_peer])
+    _expect(out, "server policy, a listed peer", present=[
+        server_peer
+        + "        - namespaceSelector:\n"
+        "            matchLabels:\n"
+        "              kubernetes.io/metadata.name: ingress-nginx\n"
+        "      ports:\n"
+        "        - protocol: TCP\n"
+        "          port: 8080",
+    ])
+
+    # Server policy off: the API port is open to every source; the metrics
+    # rule stays.
+    out = _render(db + ["--set", "server.networkPolicy.enabled=false"])
+    _expect(out, "server.networkPolicy.enabled=false",
+            present=[open_api, "kind: NetworkPolicy"], absent=[server_peer])
+
+    # Both off: no policy for the server pods.
+    out = _render(db + ["--set", "server.networkPolicy.enabled=false",
+                        "--set", "metrics.networkPolicy.enabled=false"])
+    _expect(out, "both policies off", absent=["kind: NetworkPolicy"])
+
+    # The chart's compiler: its bind port is open to nobody by default, and
+    # to compiler.networkPolicy.from when listed.
+    out = _render(db + ["--set", "compiler.enabled=true"])
+    _expect(out, "compiler policy, default", present=[
+        "name: cloacina-cloacina-server-compiler\n",
+        "  ingress: []",
+    ], absent=["port: 9000"])
+    out = _render(db + [
+        "--set", "compiler.enabled=true",
+        "--set", "compiler.networkPolicy.from[0].namespaceSelector.matchLabels."
+                 "kubernetes\\.io/metadata\\.name=ops",
+    ])
+    _expect(out, "compiler policy, a listed peer", present=[
+        "              kubernetes.io/metadata.name: ops\n"
+        "      ports:\n"
+        "        - protocol: TCP\n"
+        "          port: 9000",
+    ])
+    out = _render(db + ["--set", "compiler.enabled=true",
+                        "--set", "server.networkPolicy.enabled=false"])
+    _expect(out, "compiler policy, server policy off", present=[
+        "    - ports:\n        - protocol: TCP\n          port: 9000",
+    ])
+
+    # Bundled Postgres: open to the chart's pods; the tenant compilers with
+    # the Kubernetes actuator; a listed peer; off with its value.
+    pg = ["--set", "postgresql.enabled=true"]
+    pg_policy = "name: cloacina-postgresql\n  labels:\n    helm.sh/chart: cloacina-server"
+    tenant_compilers = (
+        "          podSelector:\n"
+        "            matchLabels:\n"
+        "              app.kubernetes.io/name: cloacina-compiler\n"
+    )
+    out = _render(pg)
+    _expect(out, "Postgres policy, default", present=[
+        pg_policy,
+        "          port: 5432",
+    ], absent=[tenant_compilers])
+    out = _render(pg + ["--set", "fleet.actuator=kubernetes"])
+    _expect(out, "Postgres policy, tenant compilers", present=[tenant_compilers])
+    out = _render(pg + ["--set", "postgresql.networkPolicy.from[0].podSelector."
+                                 "matchLabels.app=backup"])
+    _expect(out, "Postgres policy, a listed peer", present=["              app: backup\n"])
+    out = _render(pg + ["--set", "postgresql.networkPolicy.enabled=false"])
+    _expect(out, "Postgres policy off", absent=[pg_policy])
+
+    # Bundled Postgres with no password: one is generated (helm template
+    # cannot look up the Secret of an install), never the old default.
+    out = _render(pg)
+    match = re.search(r'POSTGRES_PASSWORD: "([^"]*)"', out)
+    if not match or len(match.group(1)) != 32 or match.group(1) == "cloacina":
+        print("error: expected a generated 32-character Postgres password, got: "
+              + (match.group(1) if match else "none"), file=sys.stderr)
+        sys.exit(1)
+    _expect(out, "generated Postgres password", absent=[f":{match.group(1)}@"])
+
+    # Agent drain time (CLOACINA-T-1029): not set by default; set, it reaches
+    # the server as CLOACINA_AGENT_DRAIN_S.
+    out = _render(db + ["--set", "fleet.actuator=kubernetes"])
+    _expect(out, "agent drain, default", absent=["CLOACINA_AGENT_DRAIN_S"])
+    out = _render(db + ["--set", "fleet.actuator=kubernetes",
+                        "--set", "fleet.agentDrainSeconds=600"])
+    _expect(out, "agent drain, set", present=[
+        '- name: CLOACINA_AGENT_DRAIN_S\n              value: "600"',
+    ])
 
     # Retention, fleet time limits and alert webhook (CLOACINA-T-1039).
     db = "database.url=postgres://u:p@h:5432/d"
@@ -402,6 +542,32 @@ def helm_lint():
         "--set", "apiKeySecretRef.name=cloacina-agent-key",
     ], stdout=subprocess.DEVNULL)
 
+    # Agent CA file (CLOACINA-T-1069): none by default; a ConfigMap or a
+    # Secret is mounted and named in CLOACINA_AGENT_CA_FILE; not both.
+    agent = ["helm", "template", "fleet", str(AGENT_CHART_DIR),
+             "--set", "server.url=https://cloacina.example.com",
+             "--set", "apiKey=dev-key"]
+    print(f"$ {' '.join(agent)}", flush=True)
+    out = subprocess.run(agent, check=True, capture_output=True, text=True).stdout
+    _expect(out, "agent, no CA", absent=["CLOACINA_AGENT_CA_FILE", "name: ca"])
+    for kind, ref in (("configMap", "name: cluster-ca"), ("secret", "secretName: cluster-ca")):
+        cmd = agent + ["--set", f"server.ca.{kind}=cluster-ca"]
+        print(f"$ {' '.join(cmd)}", flush=True)
+        out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+        _expect(out, f"agent, CA from a {kind}", present=[
+            '- name: CLOACINA_AGENT_CA_FILE\n              value: "/etc/cloacina/ca/ca.crt"',
+            "- name: ca\n              mountPath: /etc/cloacina/ca\n              readOnly: true",
+            ref,
+        ])
+    rc = subprocess.run(
+        agent + ["--set", "server.ca.configMap=a", "--set", "server.ca.secret=b"],
+        capture_output=True, text=True, check=False,
+    )
+    if rc.returncode == 0 or "not both" not in rc.stderr:
+        print("error: agent helm template should fail with both server.ca values:\n"
+              + rc.stderr, file=sys.stderr)
+        sys.exit(1)
+
     # Agent variant 3: validate fail-fast — must error when unconfigured.
     rc = subprocess.run(
         ["helm", "template", "fleet", str(AGENT_CHART_DIR)],
@@ -448,6 +614,9 @@ def _kubectl_get_health(namespace: str, service: str) -> bool:
     cmd = [
         "kubectl", "run", f"healthcheck-{uuid.uuid4().hex[:4]}",
         "-n", namespace,
+        # CLOACINA-T-1069: the release lists this label in
+        # server.networkPolicy.from.
+        "--labels=cloacina-e2e-client=true",
         "--rm", "--restart=Never", "-i",
         "--image=curlimages/curl:8.10.1",
         "--",
@@ -511,6 +680,9 @@ def helm_test():
             "--set", f"image.repository={IMAGE_TAG.split(':')[0]}",
             "--set", f"image.tag={IMAGE_TAG.split(':')[1]}",
             "--set", "image.pullPolicy=Never",  # use loaded image, never pull
+            # CLOACINA-T-1069: the /health check pod reaches the API port.
+            "--set-string",
+            "server.networkPolicy.from[0].podSelector.matchLabels.cloacina-e2e-client=true",
             "--set", "postgresql.enabled=true",
             "--set", f"postgresql.auth.password={password}",
             # CLOACINA-T-1075: the install must say where tasks run; this
@@ -934,6 +1106,13 @@ def helm_fleet():
             "    username: cloacina\n"
             "    password: cloacina\n"
             "    database: cloacina\n"
+            # CLOACINA-T-1069: bundled Postgres is closed to other pods; the
+            # compiler of this test is one of them.
+            "  networkPolicy:\n"
+            "    from:\n"
+            "      - podSelector:\n"
+            "          matchLabels:\n"
+            "            app: cloacina-compiler\n"
             "apiKeySecretRef:\n"
             "  name: fleet-bootstrap\n"
             "  key: key\n"
@@ -952,6 +1131,13 @@ def helm_fleet():
             '      value: "5"\n'
             "    - name: CLOACINA_AGENT_LIVENESS_MISSES\n"
             '      value: "2"\n'
+            # CLOACINA-T-1069: the API port is closed to other pods; the
+            # agents of this test are one of them.
+            "  networkPolicy:\n"
+            "    from:\n"
+            "      - podSelector:\n"
+            "          matchLabels:\n"
+            "            app: cloacina-agent\n"
         )
         _run([
             "helm", "install", FLEET_RELEASE, str(CHART_DIR),

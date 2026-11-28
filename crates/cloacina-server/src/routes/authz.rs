@@ -794,6 +794,12 @@ pub fn build_authz_table() -> AuthzTable {
         Row::platform(P::CompilerRead),
     );
     t.add(get.clone(), "/v1/audit", Row::platform(P::AuditRead));
+    // CLOACINA-T-1085: the packages of every tenant that need a new publish.
+    t.add(
+        get.clone(),
+        "/v1/packages/needs-new-build",
+        Row::platform(P::WorkflowsRead),
+    );
     // The global key routes: a tenant admin uses the tenant routes below.
     t.add(
         post.clone(),
@@ -1358,8 +1364,12 @@ async fn authenticate(
                     .or_else(|| v.strip_prefix("bearer "))
             });
             if let Some(token) = bearer {
-                return validate_token(state, token).await.map(Some).map_err(|_| {
+                return validate_token(state, token).await.map(Some).map_err(|e| {
                     record_ws_auth_failure("invalid_signature");
+                    // CLOACINA-T-1083: an expired key keeps its own code.
+                    if e.code == crate::routes::auth::KEY_EXPIRED_CODE {
+                        return Box::new(e.into_response());
+                    }
                     Box::new(ApiError::unauthorized("invalid bearer token").into_response())
                 });
             }
@@ -2240,8 +2250,9 @@ mod tests {
         // CLOACINA-T-1020), `POST /v1/agent/keys`, three WebSockets and seven
         // public routes; the three trusted key routes of CLOACINA-T-1061;
         // `POST /v1/agent/undecodable` of CLOACINA-T-1058;
-        // `GET /v1/agent/python-vendor/{digest}` of CLOACINA-T-1073.
-        assert_eq!(table.len(), 97);
+        // `GET /v1/agent/python-vendor/{digest}` of CLOACINA-T-1073;
+        // `GET /v1/packages/needs-new-build` of CLOACINA-T-1085.
+        assert_eq!(table.len(), 98);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()

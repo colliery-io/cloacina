@@ -1104,6 +1104,82 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
     }
 
+    /// The dependencies of `task` in the package row `package_id`, from the
+    /// task list stored on the row (CLOACINA-T-1137). An execution builds a
+    /// task's input context from the version it is pinned to, not from the
+    /// version that is loaded now.
+    ///
+    /// A dependency is stored as a local task id or as a
+    /// `{tenant}::package::workflow::task` template; both resolve in the
+    /// tenant, package and workflow of `task`, as the task registrar does.
+    ///
+    /// Returns `Ok(None)` when the row stores no task list (metadata from
+    /// before the list was stored): the caller uses the loaded task. Returns
+    /// an error when the row is gone, or lists tasks but not `task`.
+    pub async fn task_dependencies_in_version(
+        &self,
+        package_id: Uuid,
+        task: &crate::task::TaskNamespace,
+    ) -> Result<Option<Vec<crate::task::TaskNamespace>>, RegistryError> {
+        use crate::registry::loader::package_loader::PackageMetadata;
+        use crate::task::TaskNamespace;
+
+        let pid = UniversalUuid(package_id);
+        let stored: Option<String> = crate::interact_on_backend!(self.dal, |conn| {
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .select(workflow_packages::metadata)
+                .first::<String>(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        let stored = stored.ok_or_else(|| {
+            RegistryError::Internal(format!(
+                "package row {} of task `{}` is gone",
+                package_id, task
+            ))
+        })?;
+        let metadata: PackageMetadata =
+            serde_json::from_str(&stored).map_err(RegistryError::Serialization)?;
+        if metadata.tasks.is_empty() {
+            return Ok(None);
+        }
+        let entry = metadata
+            .tasks
+            .iter()
+            .find(|t| t.local_id == task.task_id)
+            .ok_or_else(|| {
+                RegistryError::Internal(format!(
+                    "version {} of package `{}` has no task `{}`",
+                    metadata.version, task.package_name, task.task_id
+                ))
+            })?;
+        entry
+            .dependencies
+            .iter()
+            .map(|dep| {
+                if dep.contains("::") {
+                    let full = dep.replace("{tenant}", &task.tenant_id);
+                    crate::parse_namespace(&full).map_err(|e| {
+                        RegistryError::Internal(format!(
+                            "version {} of package `{}`: dependency `{}` of task `{}` does \
+                             not parse: {}",
+                            metadata.version, task.package_name, dep, task.task_id, e
+                        ))
+                    })
+                } else {
+                    Ok(TaskNamespace::new(
+                        &task.tenant_id,
+                        &task.package_name,
+                        &task.workflow_id,
+                        dep,
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    }
+
     async fn get_active_row_for_package(
         &self,
         package_name: &str,
@@ -1206,6 +1282,15 @@ pub struct DispatchPackage {
     /// its stored metadata document. `None` when the row has no document (not
     /// described yet, or the describe failed), or the document does not read.
     pub declared_secrets: Option<Vec<String>>,
+    /// CLOACINA-T-1086: the plugin interface version of a Rust build, as its
+    /// compiler recorded. Dispatch sends the package only to an agent with
+    /// the same number. `None`: a Python package, or a build from before the
+    /// column; it goes to any agent, as before.
+    pub plugin_interface_version: Option<u32>,
+    /// CLOACINA-T-1085: why the package needs a new publish, with the step:
+    /// its rebuild from kept source still had another plugin interface.
+    /// `None`: it needs nothing.
+    pub needs_new_build: Option<String>,
 }
 
 impl DispatchPackage {
@@ -1230,6 +1315,17 @@ impl DispatchPackage {
             language: if has_cdylib { "rust" } else { "python" }.to_string(),
             python_platforms,
             declared_secrets,
+            plugin_interface_version: if has_cdylib {
+                row.plugin_interface_version
+                    .and_then(|v| u32::try_from(v).ok())
+            } else {
+                None
+            },
+            needs_new_build: if has_cdylib {
+                row.needs_new_build
+            } else {
+                None
+            },
         }
     }
 }
@@ -1974,6 +2070,95 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(still.package_id, v2);
+    }
+
+    /// CLOACINA-T-1137: the dependencies of a task come from the task list of
+    /// the row that is asked, also when another version is active.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_task_dependencies_in_version() {
+        use crate::task::TaskNamespace;
+        let dal = unique_dal().await;
+        let wp = dal.workflow_packages();
+        let v1 = store_built(&dal, "deps", "1.0.0", "digest-v1", vec![1]).await;
+
+        // Version 1: `load` depends on `extract` (a local id) and on `clean`
+        // (a template).
+        let mut meta = sample_metadata("deps", "1.0.0");
+        let task = |index, id: &str, deps: Vec<&str>| TaskMetadata {
+            index,
+            local_id: id.to_string(),
+            namespaced_id_template: format!("{{tenant}}::deps::deps::{id}"),
+            dependencies: deps.into_iter().map(str::to_string).collect(),
+            description: String::new(),
+            source_location: String::new(),
+            doc_what: None,
+            doc_why: None,
+        };
+        meta.tasks = vec![
+            task(0, "extract", vec![]),
+            task(1, "clean", vec![]),
+            task(2, "load", vec!["extract", "{tenant}::deps::deps::clean"]),
+        ];
+        let (pid, json) = (UniversalUuid(v1), serde_json::to_string(&meta).unwrap());
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::metadata.eq(json))
+                .execute(conn)
+        })
+        .unwrap();
+
+        // Version 2 is active, and its `load` (the sample task list) is not
+        // the same.
+        set_superseded(&dal, v1, true).await;
+        let v2 = store_built(&dal, "deps", "2.0.0", "digest-v2", vec![2]).await;
+
+        let load = TaskNamespace::new("acme", "deps", "deps", "load");
+        assert_eq!(
+            wp.task_dependencies_in_version(v1, &load).await.unwrap(),
+            Some(vec![
+                TaskNamespace::new("acme", "deps", "deps", "extract"),
+                TaskNamespace::new("acme", "deps", "deps", "clean"),
+            ])
+        );
+        let extract = TaskNamespace::new("acme", "deps", "deps", "extract");
+        assert_eq!(
+            wp.task_dependencies_in_version(v1, &extract).await.unwrap(),
+            Some(vec![])
+        );
+
+        // A task the version does not have is an error.
+        let err = wp
+            .task_dependencies_in_version(v2, &load)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("version 2.0.0 of package `deps` has no task `load`"),
+            "{err}"
+        );
+
+        // A row with no stored task list: the caller uses the loaded task.
+        let mut empty = sample_metadata("deps", "2.0.0");
+        empty.tasks = vec![];
+        let (pid, json) = (UniversalUuid(v2), serde_json::to_string(&empty).unwrap());
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::metadata.eq(json))
+                .execute(conn)
+        })
+        .unwrap();
+        assert_eq!(
+            wp.task_dependencies_in_version(v2, &load).await.unwrap(),
+            None
+        );
+
+        // A row that is gone is an error.
+        assert!(
+            wp.task_dependencies_in_version(Uuid::new_v4(), &load)
+                .await
+                .is_err()
+        );
     }
 
     /// No pin and no active version: nothing to dispatch. A pinned version

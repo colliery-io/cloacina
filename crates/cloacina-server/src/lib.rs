@@ -331,13 +331,43 @@ pub struct AppState {
 /// config (`registry_storage_backend` is the same; reconcile interval
 /// honors the operator override).
 /// The environment variable that sets the ageing interval of waiting work,
-/// in seconds (CLOACINA-T-1045).
+/// in seconds (CLOACINA-T-1045). The server's flag
+/// `--priority-aging-interval-s` reads it too (CLOACINA-T-1123).
 pub const PRIORITY_AGING_INTERVAL_ENV: &str = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS";
 
-/// The ageing interval of waiting work (CLOACINA-T-1045): the value of
+/// The ageing interval set at start by `--priority-aging-interval-s`, in
+/// seconds. `u64::MAX`: not set.
+static PRIORITY_AGING_INTERVAL_SECONDS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Set the ageing interval of waiting work (`--priority-aging-interval-s`,
+/// CLOACINA-T-1123). Called once at start, before the runners are made. `0`
+/// switches ageing off.
+pub fn set_priority_aging_interval_seconds(seconds: u64) -> Result<(), String> {
+    if seconds == u64::MAX {
+        return Err(format!(
+            "--priority-aging-interval-s must be below {} seconds",
+            u64::MAX
+        ));
+    }
+    PRIORITY_AGING_INTERVAL_SECONDS.store(seconds, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// The ageing interval of waiting work (CLOACINA-T-1045): the value set at
+/// start by `--priority-aging-interval-s`; when the server was started
+/// without its command line (a test, an embedding), the value of
 /// [`PRIORITY_AGING_INTERVAL_ENV`] in seconds, or two minutes. `0` switches
-/// ageing off. A value that is not a whole number of seconds is ignored with
-/// a warning.
+/// ageing off.
+pub fn priority_aging_interval() -> std::time::Duration {
+    match PRIORITY_AGING_INTERVAL_SECONDS.load(std::sync::atomic::Ordering::Relaxed) {
+        u64::MAX => priority_aging_interval_from_env(),
+        seconds => std::time::Duration::from_secs(seconds),
+    }
+}
+
+/// The ageing interval from [`PRIORITY_AGING_INTERVAL_ENV`], or two minutes.
+/// A value that is not a whole number of seconds is ignored with a warning.
 pub fn priority_aging_interval_from_env() -> std::time::Duration {
     parse_priority_aging_interval(std::env::var(PRIORITY_AGING_INTERVAL_ENV).ok().as_deref())
 }
@@ -375,7 +405,7 @@ fn runner_config_for_tenant_cache(
     let mut builder = cloacina::DefaultRunnerConfig::builder();
     builder = builder.registry_storage_backend("database");
     // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
-    builder = builder.priority_aging_interval(priority_aging_interval_from_env());
+    builder = builder.priority_aging_interval(priority_aging_interval());
     builder = builder.package_load_mode(package_load_mode);
     // CLOACINA-T-1081: a tenant's in-process task reads only the secrets its
     // package declares.
@@ -650,8 +680,9 @@ pub async fn run(
     );
     metrics::describe_gauge!(
         "cloacina_waiting_tasks",
-        "Tasks that wait for capacity, by tenant and agent pool (a task with \
-         no pool is in `default`): status Ready and past \
+        "Tasks that wait for capacity, by tenant, agent pool (a task with \
+         no pool is in `default`) and workflow priority (`priority`, 0 to \
+         10, as stored on the task): status Ready and past \
          their `waiting_since`. Read from the database every 5 seconds. A \
          task that is put off because no agent had a free slot is counted \
          the whole time. A task in a retry backoff is not counted until the \
@@ -660,7 +691,8 @@ pub async fn run(
     metrics::describe_gauge!(
         "cloacina_oldest_waiting_task_age_seconds",
         "Seconds since the oldest waiting task began to wait \
-         (`waiting_since`), by tenant and agent pool; 0 when no task waits. Read with \
+         (`waiting_since`), by tenant, agent pool and workflow priority; 0 \
+         when no task waits. Read with \
          `cloacina_waiting_tasks`."
     );
     metrics::describe_gauge!(
@@ -813,6 +845,7 @@ pub async fn run(
     crate::alerts::describe_metrics();
     crate::actuator::compiler::describe_metrics();
     crate::fleet_poll_dispatcher::describe_metrics();
+    crate::autoscaler::step::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -956,7 +989,7 @@ pub async fn run(
     let mut runner_builder = DefaultRunnerConfig::builder();
     runner_builder = runner_builder.registry_storage_backend("database");
     // CLOACINA-T-1045: one server-wide ageing interval for waiting work.
-    runner_builder = runner_builder.priority_aging_interval(priority_aging_interval_from_env());
+    runner_builder = runner_builder.priority_aging_interval(priority_aging_interval());
     // CLOACINA-T-1047: one server-wide limit on the size of a task context.
     runner_builder = runner_builder
         .context_warn_bytes(context_limits.warn_bytes)
@@ -1035,6 +1068,25 @@ pub async fn run(
             tracing::error!("{e}");
             anyhow::anyhow!(e)
         })?;
+    // CLOACINA-T-1071: rewrite stored secrets once in the form bound to their
+    // tenant and name. Without a KEK no secret can be read, so there is
+    // nothing to rewrite.
+    match cloacina::security::SecretStoreResolver::kek_from_env() {
+        Ok(kek) => {
+            startup_migrations::bind_secrets_at_start(
+                &admin_database,
+                &database_url,
+                startup_migrations::TenantSchemas::All,
+                &kek,
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("{e}");
+                anyhow::anyhow!(e)
+            })?;
+        }
+        Err(e) => info!("stored secrets not checked for the bound form: {e}"),
+    }
     // CLOACINA-T-1027: each runner's reconciler asks this check when it loads
     // a package: a task that names an agent pool the tenant does not have, or
     // requests more than one agent of its pool can hold, refuses the package.
@@ -1441,18 +1493,38 @@ pub async fn run(
     // actuator.
     let agent_log_format =
         crate::actuator::agent_log_format_from_env().map_err(|e| anyhow::anyhow!("FATAL: {e}"))?;
+    // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
+    // the key cache of this one when the notice arrives. Made before the
+    // actuator, which sends the notice when it revokes agent keys
+    // (CLOACINA-T-1083).
+    let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
+    let key_notice: Arc<dyn crate::actuator::KeyRevocationNotice> =
+        Arc::new(crate::routes::auth::DbKeyRevocationNotice::new(
+            runner.database().clone(),
+            key_cache.clone(),
+        ));
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
         runner.database().clone(),
         tenant_compilers,
         agent_log_format,
+        Some(key_notice),
     )
     .map_err(|e| {
         anyhow::anyhow!(
             "FATAL: fleet actuator (CLOACINA_FLEET_ACTUATOR={actuator_kind}) refused to start \
              — {e}. Set CLOACINA_FLEET_ACTUATOR to a valid, safe value (none | docker | kubernetes) or fix \
              the substrate. The server will not start with a misconfigured actuator."
+        )
+    })?;
+    // CLOACINA-T-1069: the actuator's start checks. With the Kubernetes
+    // actuator and its agent NetworkPolicy on, a server that cannot write the
+    // policy does not start.
+    fleet_actuator.preflight().await.map_err(|e| {
+        anyhow::anyhow!(
+            "FATAL: fleet actuator (CLOACINA_FLEET_ACTUATOR={actuator_kind}) start check \
+             failed — {e}"
         )
     })?;
     info!(
@@ -1490,9 +1562,6 @@ pub async fn run(
         }
     }
 
-    // CLOACINA-T-1095: a key revoked on any server (a tenant delete) clears
-    // the key cache of this one when the notice arrives.
-    let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
     #[cfg(feature = "postgres")]
     crate::routes::auth::spawn_key_revocation_listener(
         database_url.clone(),
@@ -1632,8 +1701,10 @@ pub async fn run(
 
         // CLOACI-T-0722: computation-graph firings also dispatch to the fleet.
         // The scheduler's default in-process executor is swapped for the fleet
-        // one; every fire event still carries the compiled closure, so
-        // undispatched graphs (embedded, Python, no agent) fall back in-process.
+        // one. A firing no agent takes fails with its reason; the server does
+        // not run it (CLOACINA-T-1076). If the fleet graph executor cannot be
+        // built the server does not start, so firings never fall back to the
+        // in-process executor.
         let storage =
             cloacina::dal::unified::workflow_registry_storage::UnifiedRegistryStorage::new(
                 state.database.clone(),
@@ -1663,10 +1734,10 @@ pub async fn run(
                     .await;
                 info!("Fleet GRAPH executor installed on the CG scheduler (CLOACI-T-0722)");
             }
-            Err(e) => warn!(
-                "Fleet graph executor NOT installed (registry init failed: {}); \
-                 CG firings stay in-process",
-                e
+            Err(e) => anyhow::bail!(
+                "the fleet graph executor could not be built (registry init failed: {e}); \
+                 with --default-executor fleet the server does not run graph firings \
+                 in its process"
             ),
         }
     }
@@ -1868,23 +1939,23 @@ pub async fn run(
             .unwrap_or(true);
         let default_max = default_max_agents;
         let tick = scale_cfg.interval;
+        // CLOACINA-T-1029: a task for a pool at zero agents goes through to
+        // the wait, where the autoscaler sees it.
+        crate::fleet_executor::set_autoscaled_agents(autoscale_enabled);
         info!(
             actuator = %fleet_actuator.kind(),
             interval_s = tick.as_secs(),
             autoscale_enabled,
-            up_threshold = scale_cfg.up_threshold,
-            down_threshold = scale_cfg.down_threshold,
+            idle_s = scale_cfg.idle.as_secs(),
             cooldown_s = scale_cfg.cooldown.as_secs(),
             floor = scale_cfg.floor,
             "fleet control loop started (leader-gated)"
         );
         tokio::spawn(async move {
-            use crate::autoscaler::{ScaleAction, decide, should_act_at, tenant_utilizations};
-            // Cooldown state lives in the DB (`agent_desired_counts.last_autoscaled_at`),
-            // not in a per-replica in-memory map: leadership rotates per tick, so an
-            // in-memory cooldown could be bypassed by a later-leading replica. Reading
-            // the wall-clock timestamp back each tick honors the cooldown regardless of
-            // which replica leads (CLOACI-A-0008 refinement).
+            // The autoscaler's state (idle time, last scale-down) lives in the
+            // DB (`agent_pool_scale`), not in a per-replica in-memory map:
+            // leadership rotates per tick, so the rules hold whichever replica
+            // leads (CLOACI-A-0008 refinement).
             let mut ticker = tokio::time::interval(tick);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -1913,91 +1984,25 @@ pub async fn run(
                             };
                             metrics::gauge!("cloacina_fleet_poll_floor_tenants").set(poll_tenants.len() as f64);
 
-                            // (a) AUTOSCALE — adjust desired_count from utilization.
+                            // (a) AUTOSCALE (CLOACINA-T-1029) — each pool of each
+                            // tenant scales on its waiting work that does not fit,
+                            // and goes back to its min when idle.
                             if autoscale_enabled {
-                                // CLOACI-T-0916: utilization from the DB-backed live
-                                // roster — the WHOLE fleet, not this replica's slice.
-                                let live = match loop_registry.live_agents().await {
-                                    Ok(live) => live,
-                                    Err(e) => {
-                                        warn!(error = %e, "fleet autoscale: roster read failed; skipping autoscale step");
-                                        Vec::new()
+                                // CLOACI-T-0916: the DB-backed live roster — the
+                                // WHOLE fleet, not this replica's slice.
+                                match loop_registry.live_agents().await {
+                                    Ok(live) => {
+                                        crate::autoscaler::step::run(crate::autoscaler::step::StepInputs {
+                                            admin: &loop_db,
+                                            tenants: &loop_tenant_databases,
+                                            live: &live,
+                                            poll_tenants: &poll_tenants,
+                                            default_max_agents: default_max,
+                                            cfg: &scale_cfg,
+                                        })
+                                        .await;
                                     }
-                                };
-                                let utils = tenant_utilizations(&live);
-                                // Tenant set = everyone with a desired_count row
-                                // PLUS any tenant with live registered agents.
-                                // `list_all_with_last` also carries each tenant's
-                                // last_autoscaled_at (DB wall-clock) for the cooldown gate.
-                                let desired_rows = match loop_dal.agent_desired().list_all_with_last().await {
-                                    Ok(rows) => rows,
-                                    Err(e) => {
-                                        warn!(error = %e, "fleet autoscale: failed to read desired counts; skipping autoscale step");
-                                        Vec::new()
-                                    }
-                                };
-                                let mut tenants: std::collections::HashSet<String> =
-                                    desired_rows.iter().map(|(t, _, _)| t.clone()).collect();
-                                tenants.extend(utils.keys().cloned());
-                                tenants.extend(poll_tenants.iter().cloned());
-                                let desired_map: std::collections::HashMap<String, u32> =
-                                    desired_rows.iter().map(|(t, d, _)| (t.clone(), *d)).collect();
-                                let last_autoscaled_map: std::collections::HashMap<String, chrono::NaiveDateTime> =
-                                    desired_rows
-                                        .into_iter()
-                                        .filter_map(|(t, _, last)| last.map(|l| (t, l)))
-                                        .collect();
-
-                                let now = chrono::Utc::now().naive_utc();
-                                for tenant in tenants {
-                                    let util = utils.get(&tenant).copied().unwrap_or(0.0);
-                                    let desired = desired_map.get(&tenant).copied().unwrap_or(0);
-                                    let effective_limit = match loop_dal
-                                        .agent_limits()
-                                        .effective_limit(&tenant, default_max)
-                                        .await
-                                    {
-                                        Ok(l) => l,
-                                        Err(e) => {
-                                            warn!(tenant = %tenant, error = %e, "fleet autoscale: effective_limit read failed; skipping tenant");
-                                            continue;
-                                        }
-                                    };
-                                    // CLOACINA-T-1077: a tenant with a poll trigger
-                                    // never scales below one agent.
-                                    let floor = crate::fleet_poll_dispatcher::tenant_floor(
-                                        scale_cfg.floor,
-                                        poll_tenants.contains(&tenant),
-                                    );
-                                    let action = decide(util, desired, effective_limit, floor, &scale_cfg);
-                                    if matches!(action, ScaleAction::Hold) {
-                                        continue;
-                                    }
-                                    if !should_act_at(last_autoscaled_map.get(&tenant).copied(), now, scale_cfg.cooldown) {
-                                        continue; // within cooldown (DB wall-clock, cross-replica)
-                                    }
-                                    let new_desired = match action {
-                                        ScaleAction::Up => (desired + 1).min(effective_limit),
-                                        ScaleAction::Down => desired.saturating_sub(1).max(floor),
-                                        ScaleAction::Hold => desired,
-                                    };
-                                    if new_desired == desired {
-                                        continue;
-                                    }
-                                    match loop_dal.agent_desired().set_desired_autoscaled(&tenant, new_desired).await {
-                                        Ok(()) => {
-                                            info!(
-                                                tenant = %tenant,
-                                                util,
-                                                from = desired,
-                                                to = new_desired,
-                                                effective_limit,
-                                                action = ?action,
-                                                "fleet autoscale: adjusted desired_count"
-                                            );
-                                        }
-                                        Err(e) => warn!(tenant = %tenant, error = %e, "fleet autoscale: set_desired failed"),
-                                    }
+                                    Err(e) => warn!(error = %e, "fleet autoscale: roster read failed; skipping autoscale step"),
                                 }
                             }
 
@@ -2430,6 +2435,12 @@ fn registered_routes(
         .get("/agents", crate::routes::agent::list_agents)
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124
         .get("/compiler/status", crate::routes::compiler::compiler_status)
+        // CLOACINA-T-1085: the packages of every tenant that need a new
+        // publish after a plugin interface change (platform admin).
+        .get(
+            "/packages/needs-new-build",
+            crate::routes::workflows::list_packages_needing_new_build,
+        )
         // Audit record (CLOACINA-T-1024): the platform form and the tenant form.
         .get("/audit", crate::routes::audit::list_audit)
         .get(
@@ -2841,6 +2852,8 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
         ))
         // API request metrics (counts by method and status)
         .layer(middleware::from_fn(api_request_metrics))
+        // CLOACINA-T-1086: the server's release on every answer.
+        .layer(middleware::from_fn(version_header))
         // Request ID + tracing span (outermost — wraps everything)
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
@@ -2872,15 +2885,34 @@ async fn api_request_metrics(
     response
 }
 
+/// Adds the header `x-cloacina-version` with the server's release to every
+/// answer (CLOACINA-T-1086). A client reads it to warn when its minor
+/// differs; the server refuses no client by version.
+async fn version_header(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        cloacina_api_types::version::VERSION_HEADER,
+        axum::http::HeaderValue::from_static(cloacina_api_types::version::RELEASE),
+    );
+    response
+}
+
 /// GET /health — liveness check (no auth, no DB)
 #[utoipa::path(
     get,
     path = "/health",
     tag = "operational",
-    responses((status = 200, description = "Server process is alive — `{\"status\": \"ok\"}`"))
+    responses((status = 200, description = "Server process is alive — `{\"status\": \"ok\", \"version\": \"<release>\"}`"))
 )]
 async fn health() -> impl IntoResponse {
-    Json(serde_json::json!({"status": "ok"}))
+    // CLOACINA-T-1086: the server's release, on a route with no key.
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": cloacina_api_types::version::RELEASE,
+    }))
 }
 
 /// GET /ready — readiness check, scoped to PLATFORM health only (DB
@@ -3002,24 +3034,31 @@ async fn shutdown_signal() {
     }
 }
 
-/// Bootstrap: create an admin API key on first startup if none exist.
+/// Bootstrap: create a platform admin API key at a start with no live
+/// platform admin key (CLOACINA-T-1065). Tenant keys do not count, so an
+/// operator who lost every platform admin key revokes them in the database
+/// and restarts.
 ///
-/// Writes the plaintext key to `~/.cloacina/bootstrap-key` with mode 0600.
-/// The key is never logged.
+/// Writes the plaintext key to `<home>/bootstrap-key` with mode 0600, over
+/// an older file. The key is never logged.
 async fn bootstrap_admin_key(
     state: &AppState,
     home: &std::path::Path,
     provided_key: Option<&str>,
 ) -> Result<()> {
     let dal = cloacina::dal::DAL::new(state.database.clone());
-    let has_keys = dal.api_keys().has_any_keys().await.unwrap_or(false);
+    let has_admin = dal
+        .api_keys()
+        .has_live_platform_admin_key()
+        .await
+        .context("Failed to look for a live platform admin key")?;
 
-    if has_keys {
-        info!("API keys exist — skipping bootstrap");
+    if has_admin {
+        info!("A live platform admin key exists — skipping bootstrap");
         return Ok(());
     }
 
-    info!("No API keys found — creating bootstrap admin key");
+    info!("No live platform admin key found — creating bootstrap admin key");
 
     let (plaintext, hash) = if let Some(key) = provided_key {
         // Use provided key
@@ -3033,7 +3072,14 @@ async fn bootstrap_admin_key(
     dal.api_keys()
         .create_key(&hash, "bootstrap-admin", None, true, "admin")
         .await
-        .context("Failed to create bootstrap admin key")?;
+        .with_context(|| {
+            if provided_key.is_some() {
+                "Failed to create bootstrap admin key. A CLOACINA_BOOTSTRAP_KEY value that \
+                 was used before (and revoked) cannot be used again: set a new value"
+            } else {
+                "Failed to create bootstrap admin key"
+            }
+        })?;
 
     // Write plaintext to file (never log it)
     let key_path = home.join("bootstrap-key");
@@ -3246,6 +3292,8 @@ mod tests {
 
     /// Router tests of the audit record (CLOACINA-T-1024).
     mod agent_ownership;
+    /// The tasks route gives the error of each failed attempt (CLOACINA-T-1100).
+    mod attempt_errors;
     mod audit_routes;
     /// Router tests of the authorization model (CLOACINA-T-1055).
     mod authz_routes;
@@ -3253,6 +3301,8 @@ mod tests {
     mod backfill_routes;
     /// The package delete in each build state (CLOACINA-T-1122).
     mod package_delete;
+    /// A run with a priority through the router (CLOACINA-T-1123).
+    mod priority_routes;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     /// A signed upload end to end, and the signature check at load
@@ -3268,11 +3318,31 @@ mod tests {
     /// Tenant delete reports a failed drop (CLOACINA-T-1068).
     mod tenant_removal;
 
+    /// Two tenants never share a Kubernetes namespace (CLOACINA-T-1070).
+    mod tenant_namespace;
+
+    /// A graph firing with no agent fails; it does not run in the server
+    /// (CLOACINA-T-1076).
+    mod graph_firing_fallback;
+
     /// The build role of a tenant's compiler (CLOACINA-T-1063).
     mod build_role;
 
     /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
     mod key_revocation_notice;
+
+    /// Platform admin keys: make, refuse, rotate (CLOACINA-T-1065).
+    mod platform_admin_keys;
+
+    /// Key expiry: the optional field, `key_expired`, actuator keys (CLOACINA-T-1083).
+    mod agent_key_expiry;
+
+    /// OIDC sessions follow the group map and the IdP (CLOACINA-T-1082).
+    mod oidc_group_changes;
+
+    /// The execute and instance routes refuse an undeclared secret binding
+    /// (CLOACINA-T-1134).
+    mod secret_binding_routes;
 
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
@@ -3601,6 +3671,48 @@ mod tests {
         assert_eq!(body["status"], "ok");
     }
 
+    /// CLOACINA-T-1086: the server tells its release in `/health` (no key)
+    /// and in the header `x-cloacina-version` of every answer, an error
+    /// answer too.
+    #[tokio::test]
+    #[serial]
+    async fn test_t1086_the_server_tells_its_release() {
+        use tower::ServiceExt;
+        let release = cloacina_api_types::version::RELEASE;
+        let state = test_state().await;
+        let app = build_router(state);
+
+        for uri in ["/health", "/v1/tenants", "/no-such-route"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response
+                    .headers()
+                    .get("x-cloacina-version")
+                    .and_then(|v| v.to_str().ok()),
+                Some(release),
+                "{uri}"
+            );
+        }
+        let (_, body) = send_request(
+            app,
+            axum::http::Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(body["version"], release);
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_ready_returns_200_with_db() {
@@ -3866,6 +3978,9 @@ mod tests {
                     max_concurrency: 1,
                     cpu_millis: None,
                     memory_bytes: None,
+                    agent_version: None,
+                    protocol_version: None,
+                    plugin_interface_version: None,
                 },
                 cloacina::security::ServerKeyPool::new(),
                 &crate::routes::agent::principal_of(&auth),
@@ -4081,6 +4196,9 @@ mod tests {
                     // row, so every replica packs against the same size.
                     cpu_millis: Some(4000),
                     memory_bytes: Some(32 << 30),
+                    agent_version: None,
+                    protocol_version: None,
+                    plugin_interface_version: None,
                 },
                 cloacina::security::ServerKeyPool::new(),
                 &owner_key,

@@ -246,6 +246,24 @@ impl PollDispatcher for FleetPollDispatcher {
         })?;
         let capable = poll_capable(&live);
         let tenant = Some(request.tenant_id.clone());
+        // CLOACINA-T-1086: only an agent that loads the package's plugin
+        // interface version.
+        if let Some(reason) = crate::agent_registry::plugin_interface_wait_reason(
+            &capable,
+            &tenant,
+            cloacina_api_types::DEFAULT_AGENT_POOL,
+            active.plugin_interface_version,
+        ) {
+            return Err(missed(
+                "no_agent",
+                format!(
+                    "poll of trigger '{}' not run: {reason}",
+                    request.trigger_name
+                ),
+            ));
+        }
+        let capable =
+            crate::agent_registry::agents_loading(&capable, active.plugin_interface_version);
         let Some(agent) = select_fleet_agent(
             &capable,
             &tenant,

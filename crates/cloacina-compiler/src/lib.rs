@@ -25,12 +25,13 @@ mod health;
 mod loopp;
 mod param_parse;
 mod python;
+pub mod schema_wait;
 
 pub use build::{BuildOutcome, execute_build};
 pub use cloacina_workflow_plugin::python_vendor::WheelSource;
 pub use config::{BuildRlimits, CompilerConfig, DEFAULT_DESCRIBE_TIMEOUT_S};
 pub use describe::{DESCRIBE_MODE, run_child as run_describe_child};
-pub use loopp::describe_pass;
+pub use loopp::{describe_pass, interface_pass};
 pub use python::PythonVendorConfig;
 
 use std::sync::Arc;
@@ -98,16 +99,12 @@ pub async fn run(config: CompilerConfig) -> Result<()> {
         }
         None => Database::new(&config.database_url, "", 5),
     };
-    // The public/admin schema owns its migrations; tenant schemas are migrated by
-    // the server, at tenant creation and at each server start (CLOACINA-T-1056),
-    // so a tenant-scoped compiler must NOT migrate
-    // (avoids racing the server and confining each compiler to its own schema).
-    if config.tenant_schema.is_none() {
-        database
-            .run_migrations()
-            .await
-            .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
-    }
+    // CLOACINA-T-1087: the compiler runs no migration, in any mode. Only the
+    // server migrates. A compiler upgraded before the server waits for the
+    // server's migration; a schema too new for it stops it at once.
+    schema_wait::wait_for_schema(&database, &schema_wait::WaitSettings::default())
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
     let storage = UnifiedRegistryStorage::new(database.clone());
     // CLOACI-T-0780: a per-target compiler needs a DAL handle for the scan-and-fill
     // (the registry move below consumes `database`).
@@ -198,6 +195,13 @@ fn register_compiler_metrics() {
         "Describes of packages that were built before the metadata document \
          existed, from their stored build. `status` ∈ `ok`, `failed`. A \
          failed describe is recorded on the package (`describe_error`)."
+    );
+    metrics::describe_counter!(
+        "cloacina_compiler_interface_checks_total",
+        "Rust packages in service built for another plugin interface \
+         (CLOACINA-T-1085). `status` ∈ `rebuilt` (the rebuild from kept \
+         source has this interface), `needs_new_build` (the package is \
+         marked: its team publishes again)."
     );
     metrics::describe_counter!(
         "cloacina_compiler_heartbeat_failures_total",

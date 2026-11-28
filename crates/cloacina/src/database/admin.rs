@@ -602,6 +602,10 @@ mod postgres_impl {
         ("workflow_registry", "SELECT"),
         ("package_providers", "SELECT, INSERT, DELETE"),
         ("package_artifacts", "SELECT, INSERT, DELETE"),
+        // The compiler's schema check at start reads which migrations are
+        // applied and which release wrote the schema (CLOACINA-T-1087).
+        ("__diesel_schema_migrations", "SELECT"),
+        ("cloacina_schema_release", "SELECT"),
     ];
 
     /// The name of a tenant's build role (CLOACINA-T-1063): `<tenant>$build`,
@@ -858,6 +862,7 @@ mod postgres_impl {
     pub const TENANT_FLEET_ROWS: &[(&str, &str)] = &[
         ("agent_capacity_limits", "tenant_id = $1"),
         ("agent_desired_counts", "tenant_id = $1"),
+        ("agent_pool_scale", "tenant_id = $1"),
         ("agent_pools", "tenant_id = $1"),
         ("fleet_agents", "tenant_id = $1"),
     ];

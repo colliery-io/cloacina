@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Self, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Self, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.task_attempt_error_detail import TaskAttemptErrorDetail
+
 
 T = TypeVar("T", bound="TaskExecutionDetail")
 
@@ -24,6 +28,10 @@ class TaskExecutionDetail:
         status (str):
         task_name (str): Task identifier within the workflow.
         updated_at (str): Row-updated timestamp (RFC 3339) — always present; a fallback "end".
+        attempt_errors (list[TaskAttemptErrorDetail] | Unset): The error of each failed attempt, oldest first; empty
+            when no attempt
+            failed (CLOACINA-T-1100). The last entry of a failed task is the
+            error in `last_error` and `error_details`.
         completed_at (None | str | Unset): RFC 3339 timestamp; `null` while still running.
         context_size_bytes (int | None | Unset): Serialized size in bytes of the context the task returned; `null`
             when the task has saved no context.
@@ -43,6 +51,7 @@ class TaskExecutionDetail:
     status: str
     task_name: str
     updated_at: str
+    attempt_errors: list[TaskAttemptErrorDetail] | Unset = UNSET
     completed_at: None | str | Unset = UNSET
     context_size_bytes: int | None | Unset = UNSET
     error_details: None | str | Unset = UNSET
@@ -66,6 +75,13 @@ class TaskExecutionDetail:
         task_name = self.task_name
 
         updated_at = self.updated_at
+
+        attempt_errors: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.attempt_errors, Unset):
+            attempt_errors = []
+            for attempt_errors_item_data in self.attempt_errors:
+                attempt_errors_item = attempt_errors_item_data.to_dict()
+                attempt_errors.append(attempt_errors_item)
 
         completed_at: None | str | Unset
         if isinstance(self.completed_at, Unset):
@@ -122,6 +138,8 @@ class TaskExecutionDetail:
                 "updated_at": updated_at,
             }
         )
+        if attempt_errors is not UNSET:
+            field_dict["attempt_errors"] = attempt_errors
         if completed_at is not UNSET:
             field_dict["completed_at"] = completed_at
         if context_size_bytes is not UNSET:
@@ -141,6 +159,8 @@ class TaskExecutionDetail:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
+        from ..models.task_attempt_error_detail import TaskAttemptErrorDetail
+
         d = dict(src_dict)
         attempt = d.pop("attempt")
 
@@ -155,6 +175,17 @@ class TaskExecutionDetail:
         task_name = d.pop("task_name")
 
         updated_at = d.pop("updated_at")
+
+        _attempt_errors = d.pop("attempt_errors", UNSET)
+        attempt_errors: list[TaskAttemptErrorDetail] | Unset = UNSET
+        if _attempt_errors is not UNSET:
+            attempt_errors = []
+            for attempt_errors_item_data in _attempt_errors:
+                attempt_errors_item = TaskAttemptErrorDetail.from_dict(
+                    attempt_errors_item_data
+                )
+
+                attempt_errors.append(attempt_errors_item)
 
         def _parse_completed_at(data: object) -> None | str | Unset:
             if data is None:
@@ -229,6 +260,7 @@ class TaskExecutionDetail:
             status=status,
             task_name=task_name,
             updated_at=updated_at,
+            attempt_errors=attempt_errors,
             completed_at=completed_at,
             context_size_bytes=context_size_bytes,
             error_details=error_details,

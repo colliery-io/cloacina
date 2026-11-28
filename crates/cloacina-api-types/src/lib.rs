@@ -51,6 +51,7 @@ pub mod secrets;
 pub mod tenants;
 pub mod triggers;
 pub mod trusted_keys;
+pub mod version;
 pub mod workflows;
 
 pub use audit::{AuditEventInfo, AuditListResponse, ListAuditQuery};
@@ -64,7 +65,8 @@ pub use delivery::{ClientMessage, DELIVERY_PROTOCOL_VERSION, EnvelopeError, Serv
 pub use error::ErrorBody;
 pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskAttemptErrorDetail,
+    TaskExecutionDetail,
 };
 pub use fleet::{
     AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressRule, AgentInfo, AgentPoolInfo,
@@ -108,7 +110,8 @@ pub use triggers::{
 };
 pub use trusted_keys::{AddTrustedKeyRequest, TrustedKeyRevokedResponse, TrustedKeySummary};
 pub use workflows::{
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
-    WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
-    WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    NeedsNewBuild, PackageNeedingNewBuild, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowTaskNode, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
+    WorkflowVersionSummary,
 };

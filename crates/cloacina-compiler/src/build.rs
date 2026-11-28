@@ -383,6 +383,24 @@ pub(crate) async fn describe_existing(
     Ok(document)
 }
 
+/// Open a stored Rust library in the describe child, to see whether it has
+/// this build's plugin interface (CLOACINA-T-1085). `Ok` when it opens and
+/// describes; an `Err` is the child's reason, which names both interface
+/// versions when the interface is the cause.
+pub(crate) async fn open_stored_library(
+    library: &[u8],
+    config: &CompilerConfig,
+) -> Result<(), String> {
+    let tmp_root = config.tmp_root_or_default();
+    std::fs::create_dir_all(&tmp_root)
+        .map_err(|e| format!("failed to ensure tmp_root {}: {e}", tmp_root.display()))?;
+    let work = TempDir::new_in(&tmp_root)
+        .map_err(|e| format!("failed to create a scratch folder: {e}"))?;
+    crate::describe::describe(DescribeInput::Rust { library }, work.path(), config)
+        .await
+        .map(|_| ())
+}
+
 async fn run_build(
     registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
     package_id: uuid::Uuid,
