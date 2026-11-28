@@ -2089,11 +2089,14 @@ applies the settings on its next tick; a changed setting rolls the pool's agents
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed, a `min_agents` above `max_agents`. The message names the field. |
+| `400` | `invalid_pool_settings` | The body is not the JSON object above (for example an unknown field, at any level), or a value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed, a `min_agents` above `max_agents`. The message names the field. |
 | `401` | (auth) | Missing or invalid API key. |
 | `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
-| `422` | | The body is not the JSON object above (for example an unknown field). |
 | `500` | `internal_error` | Failed to store the pool. |
+
+The request refuses an unknown field; the answers of the pool routes do not.
+A client reads an answer with a field it does not know, from a newer server,
+and ignores that field.
 
 #### DELETE /v1/tenants/{tenant_id}/pools/{pool}
 

@@ -5,10 +5,20 @@ from .account_info import AccountInfo
 from .accumulator_status import AccumulatorStatus
 from .add_trusted_key_request import AddTrustedKeyRequest
 from .agent_egress_port import AgentEgressPort
+from .agent_egress_port_info import AgentEgressPortInfo
 from .agent_egress_rule import AgentEgressRule
+from .agent_egress_rule_info import AgentEgressRuleInfo
 from .agent_info import AgentInfo
 from .agent_pool_info import AgentPoolInfo
 from .agent_pool_settings import AgentPoolSettings
+from .agent_pool_settings_info import AgentPoolSettingsInfo
+from .agent_pool_settings_info_pod_annotations import (
+    AgentPoolSettingsInfoPodAnnotations,
+)
+from .agent_pool_settings_info_pod_labels import AgentPoolSettingsInfoPodLabels
+from .agent_pool_settings_info_service_account_annotations import (
+    AgentPoolSettingsInfoServiceAccountAnnotations,
+)
 from .agent_pool_settings_pod_annotations import AgentPoolSettingsPodAnnotations
 from .agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
 from .agent_pool_settings_service_account_annotations import (
@@ -167,10 +177,16 @@ __all__ = (
     "AccumulatorStatus",
     "AddTrustedKeyRequest",
     "AgentEgressPort",
+    "AgentEgressPortInfo",
     "AgentEgressRule",
+    "AgentEgressRuleInfo",
     "AgentInfo",
     "AgentPoolInfo",
     "AgentPoolSettings",
+    "AgentPoolSettingsInfo",
+    "AgentPoolSettingsInfoPodAnnotations",
+    "AgentPoolSettingsInfoPodLabels",
+    "AgentPoolSettingsInfoServiceAccountAnnotations",
     "AgentPoolSettingsPodAnnotations",
     "AgentPoolSettingsPodLabels",
     "AgentPoolSettingsServiceAccountAnnotations",

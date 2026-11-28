@@ -1465,6 +1465,19 @@ export interface components {
             protocol?: string | null;
         };
         /**
+         * @description One port of an [`AgentEgressRuleInfo`]. An unknown field is ignored
+         *     (CLOACINA-T-1149).
+         */
+        AgentEgressPortInfo: {
+            /**
+             * Format: int32
+             * @description Port number, 1 to 65535.
+             */
+            port: number;
+            /** @description `TCP` (the default), `UDP` or `SCTP`. */
+            protocol?: string | null;
+        };
+        /**
          * @description One extra egress rule: a CIDR block the agent pods may reach, on the listed
          *     ports. No ports means every port.
          */
@@ -1473,6 +1486,16 @@ export interface components {
             cidr: string;
             /** @description Ports the rule allows. Empty: every port. */
             ports?: components["schemas"]["AgentEgressPort"][];
+        };
+        /**
+         * @description One extra egress rule, as the pool routes return it. An unknown field is
+         *     ignored (CLOACINA-T-1149).
+         */
+        AgentEgressRuleInfo: {
+            /** @description IPv4 or IPv6 CIDR block. */
+            cidr: string;
+            /** @description Ports the rule allows. Empty: every port. */
+            ports?: components["schemas"]["AgentEgressPortInfo"][];
         };
         /** @description One registered execution agent in the in-memory fleet roster. */
         AgentInfo: {
@@ -1514,15 +1537,21 @@ export interface components {
              * @description The pool's settings as stored. A field that is absent means the
              *     server-wide default.
              */
-            settings: components["schemas"]["AgentPoolSettings"];
+            settings: components["schemas"]["AgentPoolSettingsInfo"];
             tenant_id: string;
         };
         /**
-         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021).
+         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request
+         *     sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
          *
          *     Each field is optional. A field that is absent means the server-wide
          *     default (`CLOACINA_AGENT_*` on the server). The settings apply to every
          *     managed agent of the pool: a pool has one size of agent.
+         *
+         *     A request with an unknown field is refused. The answers of the pool
+         *     routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+         *     so that an older client reads an answer of a newer server
+         *     (CLOACINA-T-1149).
          */
         AgentPoolSettings: {
             /**
@@ -1594,6 +1623,63 @@ export interface components {
              * @description Name of the Kubernetes ServiceAccount the agent pods run as. The
              *     actuator creates it in the tenant namespace. Absent: the namespace's
              *     `default` ServiceAccount.
+             */
+            service_account_name?: string | null;
+        };
+        /**
+         * @description The settings of one agent pool, as the pool routes return them. The same
+         *     fields and the same JSON as [`AgentPoolSettings`], but an unknown field is
+         *     ignored: a client reads an answer of a newer server (CLOACINA-T-1149).
+         */
+        AgentPoolSettingsInfo: {
+            /** @description The pod's `automountServiceAccountToken`. Absent means `false`. */
+            automount_service_account_token?: boolean | null;
+            /** @description CPU limit of the agent container, a Kubernetes quantity (`4`). */
+            cpu_limit?: string | null;
+            /** @description CPU request of the agent container, a Kubernetes quantity (`500m`). */
+            cpu_request?: string | null;
+            /**
+             * @description Extra egress rules for the pool's pods, added to the default (cluster
+             *     DNS and the server only).
+             */
+            extra_egress?: components["schemas"]["AgentEgressRuleInfo"][];
+            /** @description Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`. */
+            image?: string | null;
+            /**
+             * Format: int32
+             * @description Most agents of the pool.
+             */
+            max_agents?: number | null;
+            /**
+             * Format: int32
+             * @description How many tasks one agent runs at the same time. Absent: the agent's
+             *     own default.
+             */
+            max_concurrency?: number | null;
+            /** @description Memory limit of the agent container, a Kubernetes quantity (`32Gi`). */
+            memory_limit?: string | null;
+            /** @description Memory request of the agent container, a Kubernetes quantity (`8Gi`). */
+            memory_request?: string | null;
+            /**
+             * Format: int32
+             * @description Fewest agents of the pool. Absent: the pool keeps `max_agents` agents.
+             */
+            min_agents?: number | null;
+            /** @description Annotations added to the pool's pods. */
+            pod_annotations?: {
+                [key: string]: string;
+            };
+            /** @description Labels added to the pool's pods. */
+            pod_labels?: {
+                [key: string]: string;
+            };
+            /** @description Annotations the actuator puts on that ServiceAccount. */
+            service_account_annotations?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Name of the Kubernetes ServiceAccount the agent pods run as. Absent:
+             *     the namespace's `default` ServiceAccount.
              */
             service_account_name?: string | null;
         };
@@ -2389,7 +2475,7 @@ export interface components {
                  * @description The pool's settings as stored. A field that is absent means the
                  *     server-wide default.
                  */
-                settings: components["schemas"]["AgentPoolSettings"];
+                settings: components["schemas"]["AgentPoolSettingsInfo"];
                 tenant_id: string;
             }[];
             total: number;

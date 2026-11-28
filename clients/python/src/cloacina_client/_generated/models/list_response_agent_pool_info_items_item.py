@@ -7,7 +7,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
-    from ..models.agent_pool_settings import AgentPoolSettings
+    from ..models.agent_pool_settings_info import AgentPoolSettingsInfo
 
 
 T = TypeVar("T", bound="ListResponseAgentPoolInfoItemsItem")
@@ -22,18 +22,16 @@ class ListResponseAgentPoolInfoItemsItem:
             count for `default`, the pool's `max_agents` for another pool.
         live_agents (int): How many agents of the pool are registered and alive now.
         pool (str): Pool name. Every tenant has `default`.
-        settings (AgentPoolSettings): Settings of one agent pool of a tenant (CLOACINA-T-1021).
-
-            Each field is optional. A field that is absent means the server-wide
-            default (`CLOACINA_AGENT_*` on the server). The settings apply to every
-            managed agent of the pool: a pool has one size of agent.
+        settings (AgentPoolSettingsInfo): The settings of one agent pool, as the pool routes return them. The same
+            fields and the same JSON as [`AgentPoolSettings`], but an unknown field is
+            ignored: a client reads an answer of a newer server (CLOACINA-T-1149).
         tenant_id (str):
     """
 
     desired_agents: int
     live_agents: int
     pool: str
-    settings: AgentPoolSettings
+    settings: AgentPoolSettingsInfo
     tenant_id: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -64,7 +62,7 @@ class ListResponseAgentPoolInfoItemsItem:
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
-        from ..models.agent_pool_settings import AgentPoolSettings
+        from ..models.agent_pool_settings_info import AgentPoolSettingsInfo
 
         d = dict(src_dict)
         desired_agents = d.pop("desired_agents")
@@ -73,7 +71,7 @@ class ListResponseAgentPoolInfoItemsItem:
 
         pool = d.pop("pool")
 
-        settings = AgentPoolSettings.from_dict(d.pop("settings"))
+        settings = AgentPoolSettingsInfo.from_dict(d.pop("settings"))
 
         tenant_id = d.pop("tenant_id")
 

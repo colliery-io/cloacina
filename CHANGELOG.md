@@ -71,6 +71,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each task of the run was refused the secret. A client that sends bindings
   its package does not declare must drop them, or the package must declare
   them (`secrets(...)`, `@cloaca.workflow_secrets(...)`).
+- **`cloacina-api-types`: the pool answers carry open settings types**
+  (CLOACINA-T-1149). `AgentPoolInfo.settings` is now `AgentPoolSettingsInfo`
+  (with `AgentEgressRuleInfo` and `AgentEgressPortInfo`), which ignores a
+  field it does not know, so a client reads the answer of a newer server.
+  `AgentPoolSettings`, `AgentEgressRule` and `AgentEgressPort` stay the
+  request types and still refuse an unknown field. The JSON is the same. A
+  Rust caller that read `info.settings` as `AgentPoolSettings` converts it
+  with `AgentPoolSettings::from(info.settings)`. `PUT
+  /v1/tenants/{tenant_id}/pools/{pool}` answers a body it cannot read
+  (an unknown field, a wrong type) with `400 invalid_pool_settings`, as the
+  spec documents; it was `422`.
 - **`cloacina-client`: `ClientError::Auth` and `ClientError::InvalidRequest`
   keep the error code** (CLOACINA-T-1141). Each holds an `ApiErrorDetail`
   with the server's `message` and its `code`, in place of a `String`.
