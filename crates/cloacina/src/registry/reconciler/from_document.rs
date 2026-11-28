@@ -428,6 +428,7 @@ impl RegistryReconciler {
             cron_schedule_ids: created_schedule_ids.clone(),
             triggerless_graph_names: Vec::new(),
         };
+        self.record_task_versions(&state);
         self.loaded_packages
             .write()
             .await
@@ -987,6 +988,19 @@ mod tests {
         assert_eq!(state.task_namespaces.len(), 2);
         assert_eq!(state.workflow_name.as_deref(), Some("wf"));
         assert!(registry.refused.lock().unwrap().is_empty());
+        drop(loaded_packages);
+
+        // CLOACINA-T-1137: each task carries the version it was loaded from,
+        // until the package is unloaded.
+        assert_eq!(
+            runtime.task_version(&ns),
+            Some(crate::runtime::LoadedTaskVersion {
+                package_id: meta.id,
+                version: meta.version.clone(),
+            })
+        );
+        reconciler.unload_package(meta.id).await.expect("unload");
+        assert_eq!(runtime.task_version(&ns), None);
     }
 
     /// A package of `public` is loaded the same way as one of a named tenant.

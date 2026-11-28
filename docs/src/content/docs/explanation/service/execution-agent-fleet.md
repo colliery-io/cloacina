@@ -89,7 +89,9 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    placement of the task come from the task the server has loaded, which is
    the active version. The scheduler decides when a task is ready from the
    edges of the active version. A runner that executes tasks in its own
-   process (no fleet) holds one loaded version of a package and is not pinned.
+   process (no fleet) holds one loaded version of a package: it pins an
+   execution to that version too, and fails a later task of the execution
+   when another version is loaded, with an error that names both versions.
    Computation graph fires have no execution and always use the active
    version.
 4. **Inline the context.** It builds the merged dependency context with the same

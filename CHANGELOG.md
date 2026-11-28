@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **In-process executions are pinned to their package version**
+  (CLOACINA-T-1137). An execution run by the in-process executor runs all its
+  tasks on the version of the package its first task ran on, as on the agent
+  fleet. After a new version is loaded, a later task of an execution that
+  started on the old version fails, with an error that names both versions;
+  it no longer runs the code of the new version. Executions that start after
+  the swap run on the new version. Tasks not loaded from a package (macros,
+  embedded use) are not pinned.
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task
