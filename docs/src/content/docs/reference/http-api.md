@@ -1128,7 +1128,7 @@ detail page and `cloacinactl instance` drives the same endpoints.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip", "max_active_runs": 1}` — `params`, `cron`, `timezone`, `enabled`, `catchup_policy` and `max_active_runs` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`. `max_active_runs` is the most runs of the schedule active at once, 1 or more; omitted, a `run_all` schedule runs one fire time at a time and a `skip` schedule has no limit. A wrong value, or either option with no `cron`, is a `400` (`invalid_schedule_options`). Returns `201` with the instance summary. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip", "max_active_runs": 1}` — `params`, `cron`, `timezone`, `enabled`, `catchup_policy` and `max_active_runs` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`. `max_active_runs` is the most runs of the schedule active at once, 1 or more; omitted, a `run_all` schedule runs one fire time at a time and a `skip` schedule has no limit. A wrong value, or either option with no `cron`, is a `400` (`invalid_schedule_options`). A `params` entry that binds a secret (`{"$secret": "<stored>"}`) under a name the workflow's package does not declare is a `400` (`secret_not_declared`), and no instance is made. Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
@@ -1289,6 +1289,7 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 |---|---|---|
 | `400` | `workflow_input_invalid` | The submitted `context` failed validation against the workflow's `declared_params`. Undeclared workflows accept free-form context and never raise this. |
 | `400` | `invalid_interval` | The `context` sets `interval_start` or `interval_end` and they are not two RFC 3339 timestamps with `interval_end` after `interval_start`. A context with neither key is not checked. |
+| `400` | `secret_not_declared` | The `context` binds a secret (`{"$secret": "<stored>"}`) under a name the workflow's package does not declare, in the stored metadata document of its active version. A package with no stored document declares nothing. No run is made. |
 | `400` | (other) | Generic execution failure (`{"error": "<detail>"}`). |
 | `409` | `workflow_paused` | The workflow is paused; resume it before executing. |
 

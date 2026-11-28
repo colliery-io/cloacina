@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **Server: a run or an instance that binds an undeclared secret is refused**
+  (CLOACINA-T-1134). `POST .../workflows/{name}/execute` and
+  `POST .../workflows/{name}/instances` answer `400 secret_not_declared` when
+  the context or params bind a secret (`{"$secret": "<stored>"}`) under a name
+  the workflow's package does not declare. Before, the route accepted it and
+  each task of the run was refused the secret. A client that sends bindings
+  its package does not declare must drop them, or the package must declare
+  them (`secrets(...)`, `@cloaca.workflow_secrets(...)`).
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task

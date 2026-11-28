@@ -200,6 +200,15 @@ pub async fn execute_workflow(
                 Ok(_) => {}
                 Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
             }
+
+            // CLOACINA-T-1134: a binding of a secret the package does not
+            // declare is refused here, before a run is made.
+            if let Some(refused) =
+                refuse_undeclared_bindings(&tenant_db, &registry, &name, provided_ctx.as_ref())
+                    .await
+            {
+                return refused;
+            }
         }
     }
 
@@ -743,6 +752,66 @@ pub(crate) fn validate_declared_params(
         }
     }
     errors
+}
+
+/// The secret bindings (`binding name -> stored secret`) of a request's
+/// params: each top-level `{"$secret": "<stored>"}` value. Names only.
+pub(crate) fn request_secret_bindings(
+    params: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> std::collections::BTreeMap<String, String> {
+    params
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, v)| {
+            cloacina::workflow_instance::secret_ref_target(v)
+                .ok()
+                .flatten()
+                .map(|stored| (k.clone(), stored))
+        })
+        .collect()
+}
+
+/// CLOACINA-T-1134: refuse, with 400 `secret_not_declared`, a request that
+/// binds a secret name the workflow's package does not declare. The
+/// declaration is the one dispatch reads: the stored metadata document of the
+/// package's active version. Without this check the run starts and each of
+/// its tasks is refused the secret at dispatch.
+///
+/// A registry or database error lets the request through, with a warning, as
+/// the other checks of these routes do.
+pub(crate) async fn refuse_undeclared_bindings(
+    tenant_db: &cloacina::Database,
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    name: &str,
+    params: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Option<axum::response::Response> {
+    let bindings = request_secret_bindings(params);
+    if bindings.is_empty() {
+        return None;
+    }
+    let package = match registry.package_of_workflow(name).await {
+        Ok(Some(package)) => package,
+        // Not in this tenant's registry: no package declares anything.
+        Ok(None) => name.to_string(),
+        Err(e) => {
+            warn!("package lookup failed for workflow '{}': {}", name, e);
+            return None;
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db.clone());
+    match cloacina::security::undeclared_run_binding(&dal, &package, &bindings).await {
+        Ok(Some(refused)) => {
+            Some(ApiError::bad_request("secret_not_declared", refused.message).into_response())
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!(
+                "declared-secrets lookup failed for package '{}': {}",
+                package, e
+            );
+            None
+        }
+    }
 }
 
 /// Validate a single JSON value against one slot's schema (CLOACI-I-0128 T-0759).

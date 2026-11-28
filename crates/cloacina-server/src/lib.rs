@@ -3274,6 +3274,10 @@ mod tests {
     /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
     mod key_revocation_notice;
 
+    /// The execute and instance routes refuse an undeclared secret binding
+    /// (CLOACINA-T-1134).
+    mod secret_binding_routes;
+
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.
