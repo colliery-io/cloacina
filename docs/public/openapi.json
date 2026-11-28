@@ -6173,7 +6173,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other\nthan `default` runs exactly this many agents.",
+            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for\nanother pool.",
             "minimum": 0
           },
           "max_concurrency": {
@@ -6205,7 +6205,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Fewest agents of the pool. Not for the pool `default` (its floor is\nthe server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than\n`default` is not autoscaled yet: set it equal to `max_agents`.",
+            "description": "Fewest agents of the pool, at most `max_agents`. The pool scales\nbetween the two on the work that waits for it, and goes back to this\ncount when it is idle; `0` lets it scale to zero. Absent: the pool\nkeeps `max_agents` agents. Not for the pool `default` (its floor is the\nserver-wide `CLOACINA_AUTOSCALE_FLOOR`).",
             "minimum": 0
           },
           "pod_annotations": {

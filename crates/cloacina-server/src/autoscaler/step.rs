@@ -311,14 +311,14 @@ pub async fn run(inputs: StepInputs<'_>) {
             // pool above its min (an idle pool at its min has nothing to do).
             let stored_idle = view.idle_since.is_some();
             let idle = !now_view.busy;
-            if idle != stored_idle && (desired > min || stored_idle) {
-                if let Err(e) = admin_dal
+            if idle != stored_idle
+                && (desired > min || stored_idle)
+                && let Err(e) = admin_dal
                     .agent_pool_scale()
                     .set_idle(&tenant, pool, idle)
                     .await
-                {
-                    warn!(tenant = %tenant, pool = %pool, error = %e, "fleet autoscale: idle state not written");
-                }
+            {
+                warn!(tenant = %tenant, pool = %pool, error = %e, "fleet autoscale: idle state not written");
             }
 
             match decision {

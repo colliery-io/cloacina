@@ -41,15 +41,17 @@ class AgentPoolSettings:
                 DNS and the server only).
             image (None | str | Unset): Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`.
             max_agents (int | None | Unset): Most agents of the pool. Not for the pool `default` (its max is the
-                tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
-                than `default` runs exactly this many agents.
+                tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for
+                another pool.
             max_concurrency (int | None | Unset): How many tasks one agent runs at the same time (the agent's
                 `--max-concurrency`). Absent: the agent's own default.
             memory_limit (None | str | Unset): Memory limit of the agent container, a Kubernetes quantity (`32Gi`).
             memory_request (None | str | Unset): Memory request of the agent container, a Kubernetes quantity (`8Gi`).
-            min_agents (int | None | Unset): Fewest agents of the pool. Not for the pool `default` (its floor is
-                the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
-                `default` is not autoscaled yet: set it equal to `max_agents`.
+            min_agents (int | None | Unset): Fewest agents of the pool, at most `max_agents`. The pool scales
+                between the two on the work that waits for it, and goes back to this
+                count when it is idle; `0` lets it scale to zero. Absent: the pool
+                keeps `max_agents` agents. Not for the pool `default` (its floor is the
+                server-wide `CLOACINA_AUTOSCALE_FLOOR`).
             pod_annotations (AgentPoolSettingsPodAnnotations | Unset): Annotations added to the pool's pods (the pod
                 template of its
                 Deployment).

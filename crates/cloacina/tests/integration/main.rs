@@ -26,6 +26,7 @@
 
 pub mod agent_desired;
 pub mod agent_limits;
+pub mod agent_pool_scale;
 pub mod computation_graph;
 pub mod context;
 pub mod dal;
