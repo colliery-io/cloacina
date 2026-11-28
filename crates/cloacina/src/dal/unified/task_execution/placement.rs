@@ -69,7 +69,79 @@ pub struct PoolPriorityWaitingTasks {
     pub waiting: WaitingTasks,
 }
 
+/// Waiting tasks of one pool with the same requests (CLOACINA-T-1029).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitingDemand {
+    /// The pool. A task with no pool is in `default`.
+    pub pool: String,
+    /// The CPU request of each of these tasks in millicores. `None`: none.
+    pub cpu_request_millis: Option<u64>,
+    /// The memory request of each of these tasks in bytes. `None`: none.
+    pub memory_request_bytes: Option<u64>,
+    /// How many tasks wait with these requests.
+    pub count: u64,
+}
+
 impl<'a> TaskExecutionDAL<'a> {
+    /// The waiting work of each pool, grouped by requests (CLOACINA-T-1029):
+    /// the tasks that are `Ready`, waiting (the rows of
+    /// [`waiting_task_stats_by_pool`](Self::waiting_task_stats_by_pool)) and
+    /// on no agent. A task in the middle of a dispatch (claimed, not placed)
+    /// is still waiting; a placed one is in flight.
+    ///
+    /// One grouped read: task sizes are few distinct values, so the autoscaler
+    /// packs groups, not rows. Sorted by pool, then by memory and CPU.
+    pub async fn waiting_demand_by_pool(&self) -> Result<Vec<WaitingDemand>, ValidationError> {
+        let now = UniversalTimestamp::now();
+        type Row = (Option<String>, Option<i64>, Option<i64>, i64);
+        let rows: Vec<Row> = crate::interact_on_backend!(self.dal, |conn| {
+            task_executions::table
+                .filter(task_executions::status.eq("Ready"))
+                .filter(task_executions::fleet_agent_id.is_null())
+                .filter(
+                    task_executions::waiting_since
+                        .le(now)
+                        .or(task_executions::waiting_since.is_null().and(
+                            task_executions::retry_at
+                                .is_null()
+                                .or(task_executions::retry_at.le(now)),
+                        )),
+                )
+                .group_by((
+                    task_executions::pool,
+                    task_executions::cpu_request_millis,
+                    task_executions::memory_request_bytes,
+                ))
+                .select((
+                    task_executions::pool,
+                    task_executions::cpu_request_millis,
+                    task_executions::memory_request_bytes,
+                    diesel::dsl::count_star(),
+                ))
+                .load::<Row>(conn)
+        })?;
+        // A row with no pool and a row that names `default` are one pool.
+        let mut merged: std::collections::BTreeMap<(String, Option<u64>, Option<u64>), u64> =
+            std::collections::BTreeMap::new();
+        for (pool, cpu, memory, count) in rows {
+            let key = (
+                pool.unwrap_or_else(|| DEFAULT_POOL.to_string()),
+                cpu.and_then(|v| u64::try_from(v).ok()),
+                memory.and_then(|v| u64::try_from(v).ok()),
+            );
+            *merged.entry(key).or_insert(0) += u64::try_from(count).unwrap_or(0);
+        }
+        Ok(merged
+            .into_iter()
+            .map(|((pool, cpu, memory), count)| WaitingDemand {
+                pool,
+                cpu_request_millis: cpu,
+                memory_request_bytes: memory,
+                count,
+            })
+            .collect())
+    }
+
     /// Record that the fleet placed a task on an agent. Only the runner that
     /// holds the claim can place the task. Returns `false` when it does not
     /// hold the claim (the row is not changed).
@@ -636,6 +708,64 @@ mod tests {
             .collect();
         assert_eq!(pools, vec![("default", 3), ("large", 1)]);
         assert!((600.0..660.0).contains(&by_pool[0].waiting.oldest_age_seconds(now)));
+    }
+
+    /// CLOACINA-T-1029: the waiting work of each pool, grouped by requests.
+    /// A placed task and a started one are not waiting; a task with no pool
+    /// is in `default`; a task put off for capacity is still waiting.
+    #[tokio::test]
+    async fn waiting_demand_is_grouped_by_pool_and_requests() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        assert!(
+            dal.task_execution()
+                .waiting_demand_by_pool()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        create_task(&dal, wf, "plain-1", None, None).await;
+        create_task(&dal, wf, "plain-2", Some("default"), None).await;
+        for i in 0..3 {
+            create_task(&dal, wf, &format!("small-{i}"), Some("large"), Some(2 * GI)).await;
+        }
+        let deferred = create_task(&dal, wf, "deferred", Some("large"), Some(2 * GI)).await;
+        let later = UniversalTimestamp(chrono::Utc::now() + chrono::Duration::seconds(2));
+        assert!(
+            dal.task_execution()
+                .defer_dispatch(deferred, later)
+                .await
+                .unwrap()
+        );
+        create_task(&dal, wf, "big", Some("large"), Some(24 * GI)).await;
+        let placed = create_task(&dal, wf, "placed", Some("large"), Some(24 * GI)).await;
+        let me = UniversalUuid::new_v4();
+        dal.task_execution()
+            .claim_for_runner(placed, me)
+            .await
+            .unwrap();
+        assert!(
+            dal.task_execution()
+                .place_on_fleet_agent(placed, me, "a1", Some(1000), Some(24 * GI as u64))
+                .await
+                .unwrap()
+        );
+        let started = create_task(&dal, wf, "started", Some("large"), Some(2 * GI)).await;
+        dal.task_execution().mark_started(started).await.unwrap();
+
+        let demand = dal.task_execution().waiting_demand_by_pool().await.unwrap();
+        let got: Vec<(&str, Option<u64>, u64)> = demand
+            .iter()
+            .map(|d| (d.pool.as_str(), d.memory_request_bytes, d.count))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("default", None, 2),
+                ("large", Some(2 * GI as u64), 4),
+                ("large", Some(24 * GI as u64), 1),
+            ]
+        );
     }
 
     /// A task put off for capacity stays in its pool's count; a started task

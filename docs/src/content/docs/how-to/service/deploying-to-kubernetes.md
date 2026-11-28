@@ -624,8 +624,9 @@ helm upgrade --install cloacina \
 ```
 
 > **No HorizontalPodAutoscaler.** The chart intentionally ships none. Server
-> *fleet* scaling is driven by the control-plane back-pressure autoscaler, which
-> sees per-tenant utilization an HPA's CPU/memory metrics cannot. Scale the
+> *fleet* scaling is driven by the control-plane autoscaler, which sees the
+> waiting work of each tenant's pools and what it requests, which an HPA's
+> CPU/memory metrics cannot. Scale the
 > server *replica* count by hand (or your own policy) for HTTP/HA headroom.
 
 ## Upgrades

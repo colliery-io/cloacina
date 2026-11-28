@@ -1544,8 +1544,8 @@ export interface components {
             /**
              * Format: int32
              * @description Most agents of the pool. Not for the pool `default` (its max is the
-             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
-             *     than `default` runs exactly this many agents.
+             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for
+             *     another pool.
              */
             max_agents?: number | null;
             /**
@@ -1560,9 +1560,11 @@ export interface components {
             memory_request?: string | null;
             /**
              * Format: int32
-             * @description Fewest agents of the pool. Not for the pool `default` (its floor is
-             *     the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
-             *     `default` is not autoscaled yet: set it equal to `max_agents`.
+             * @description Fewest agents of the pool, at most `max_agents`. The pool scales
+             *     between the two on the work that waits for it, and goes back to this
+             *     count when it is idle; `0` lets it scale to zero. Absent: the pool
+             *     keeps `max_agents` agents. Not for the pool `default` (its floor is the
+             *     server-wide `CLOACINA_AUTOSCALE_FLOOR`).
              */
             min_agents?: number | null;
             /**

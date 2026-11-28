@@ -108,6 +108,20 @@ async fn pool_infos(
 ) -> Result<Vec<AgentPoolInfo>, ApiError> {
     let live = live_by_pool(state, tenant_id).await?;
     let default_desired = default_desired(state, tenant_id).await?;
+    // CLOACINA-T-1029: the counts the autoscaler stored for the other pools.
+    let stored: std::collections::HashMap<String, u32> =
+        cloacina::dal::DAL::new(state.database.clone())
+            .agent_pool_scale()
+            .list_all()
+            .await
+            .map_err(|e| {
+                warn!("pool counts read failed: {}", e);
+                ApiError::internal("failed to read pool counts")
+            })?
+            .into_iter()
+            .filter(|s| s.tenant_id == tenant_id)
+            .filter_map(|s| s.desired_count.map(|d| (s.pool, d)))
+            .collect();
     Ok(pools
         .into_iter()
         .map(|(pool, settings)| AgentPoolInfo {
@@ -115,7 +129,7 @@ async fn pool_infos(
             desired_agents: if pool == DEFAULT_AGENT_POOL {
                 default_desired
             } else {
-                settings::fixed_agent_count(&settings)
+                settings::pool_agent_count(&settings, stored.get(&pool).copied())
             },
             live_agents: live.get(&pool).copied().unwrap_or(0),
             pool,
@@ -175,10 +189,11 @@ fn service_account_conflict(
 /// rule is to refuse while the pool has agents, not to drain it: set its
 /// `max_agents` to 0, wait until no agent of it is alive, then remove it.
 fn removal_blocker(pool: &str, settings: &AgentPoolSettings, live_agents: u32) -> Option<String> {
-    let wanted = settings::fixed_agent_count(settings);
+    // CLOACINA-T-1029: an autoscaled pool can start agents up to its max.
+    let wanted = settings.max_agents.unwrap_or(0);
     if wanted > 0 {
         return Some(format!(
-            "the pool '{pool}' is set to {wanted} agents; set max_agents to 0 first"
+            "the pool '{pool}' may run up to {wanted} agents; set max_agents to 0 first"
         ));
     }
     if live_agents > 0 {
@@ -387,6 +402,14 @@ pub async fn delete_pool(
             .map_err(|e| {
                 warn!(tenant = %tenant_id, pool = %pool, "remove pool failed: {}", e);
                 ApiError::internal("failed to remove the pool's agents")
+            })?;
+        // CLOACINA-T-1029: the autoscaler's state of the pool.
+        dal.agent_pool_scale()
+            .delete_pool(&tenant_id, &pool)
+            .await
+            .map_err(|e| {
+                warn!("delete pool state failed: {}", e);
+                ApiError::internal("failed to remove agent pool")
             })?;
         delete_row().await?;
         audit().await;

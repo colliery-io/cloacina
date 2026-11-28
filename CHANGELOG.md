@@ -131,6 +131,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`. A value of that variable that is
   not a whole number of seconds now stops the server at start; before, it was
   ignored with a warning.
+- **Fleet: each agent pool scales on the waiting work that does not fit**
+  (CLOACINA-T-1029). The autoscaler no longer scales on utilization:
+  `CLOACINA_AUTOSCALE_UP_THRESHOLD` and `CLOACINA_AUTOSCALE_DOWN_THRESHOLD`
+  no longer apply.
+  - Each tick, for each pool of each tenant, the waiting tasks are packed by
+    their CPU and memory requests onto the free room of the pool's agents,
+    then into new agents of the pool's size; the pool grows to hold them in
+    one step, up to its max.
+  - A pool goes back to its min when it has been idle (no task in flight,
+    none waiting) for `CLOACINA_AUTOSCALE_IDLE_S` (default 300 s).
+    `CLOACINA_AUTOSCALE_COOLDOWN_S` (60 s) is now the gap between two
+    scale-downs; a scale-up does not wait.
+  - A pool other than `default` may set `min_agents` below `max_agents`
+    (`cloacinactl tenant pool set ... --min-agents`); `0` lets it scale to
+    zero. A pool with no `min_agents` keeps `max_agents` agents, as before.
+  - New gauges per tenant and pool: `cloacina_fleet_pool_agents_desired`,
+    `_agents_ready`, `_cpu_requested_millis`, `_cpu_offered_millis`,
+    `_memory_requested_bytes`, `_memory_offered_bytes`, `_waiting_tasks`,
+    `_waiting_unplaceable_tasks`, and `cloacina_fleet_pool_scaled_total`.
+  - Migration 072 (Postgres) adds the table `agent_pool_scale`.
+- **Fleet: an agent drains on SIGTERM** (CLOACINA-T-1029). It takes no new
+  work, lets what it runs finish for `--drain-seconds` /
+  `CLOACINA_AGENT_DRAIN_SECONDS` (default 25 s), then hands the rest back:
+  those tasks are Ready again with the same attempt. Before, a stopped agent
+  dropped its work, which ran again after the stale-claim sweep. With
+  `CLOACINA_AGENT_DRAIN_S` set on the server, the Kubernetes actuator gives
+  its agents that drain time and sets the pods'
+  `terminationGracePeriodSeconds` to it plus 15 s; setting it rolls the agent
+  pods once.
 
 ### Fixed
 

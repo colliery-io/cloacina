@@ -858,6 +858,7 @@ mod postgres_impl {
     pub const TENANT_FLEET_ROWS: &[(&str, &str)] = &[
         ("agent_capacity_limits", "tenant_id = $1"),
         ("agent_desired_counts", "tenant_id = $1"),
+        ("agent_pool_scale", "tenant_id = $1"),
         ("agent_pools", "tenant_id = $1"),
         ("fleet_agents", "tenant_id = $1"),
     ];

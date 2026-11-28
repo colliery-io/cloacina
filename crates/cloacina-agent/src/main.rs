@@ -38,6 +38,7 @@
 //! [`worker`]). The agent holds each worker to its memory limit and its time
 //! limit (see [`memory`]). A task marked `inline` runs in the agent process.
 
+mod drain;
 mod memory;
 mod tls;
 mod worker;
@@ -108,6 +109,12 @@ struct Args {
     /// Max concurrent work packets this agent will accept.
     #[arg(long, env = "CLOACINA_AGENT_MAX_CONCURRENCY", default_value_t = 4)]
     max_concurrency: u32,
+    /// On SIGTERM, how long the agent lets the work it runs finish before
+    /// it hands the rest back to the server and exits (CLOACINA-T-1029). It
+    /// takes no new work from the signal on. Keep it under the pod's
+    /// termination grace period.
+    #[arg(long, env = "CLOACINA_AGENT_DRAIN_SECONDS", default_value_t = drain::DEFAULT_DRAIN_SECONDS)]
+    drain_seconds: u64,
     /// Free-form capability tags advertised at registration.
     #[arg(long, value_delimiter = ',')]
     capabilities: Vec<String>,
@@ -538,6 +545,10 @@ async fn run(args: Args) -> Result<()> {
     // task still running when the WS drops is still counted on reconnect.
     let in_flight = Arc::new(AtomicU32::new(0));
 
+    // CLOACINA-T-1029: on SIGTERM the agent drains and exits. The reconnect
+    // loop below keeps running meanwhile, so reports and acks still go out.
+    drain::spawn_on_sigterm(in_flight.clone(), Duration::from_secs(args.drain_seconds));
+
     // CLOACI-T-0861 / D-5 — process-wide one-time ephemeral key pool. Shared
     // across reconnect sessions and per-packet workers: a task still unwrapping
     // secrets when the WS drops must keep the private key it needs, and each
@@ -959,7 +970,12 @@ fn spawn_heartbeat_loop(
                 protocol_version: AGENT_PROTOCOL_VERSION,
                 agent_id: agent_id.clone(),
                 in_flight: n,
-                available_capacity: max_concurrency.saturating_sub(n),
+                // CLOACINA-T-1029: a stopping agent offers no slot.
+                available_capacity: if drain::draining() {
+                    0
+                } else {
+                    max_concurrency.saturating_sub(n)
+                },
                 in_flight_push_ids: push_registry().in_work_ids(),
                 worker_counts: warm.take_counts(),
             };
@@ -1176,10 +1192,12 @@ async fn handle_text_frame(
                         return Ok(());
                     }
                 };
-                if cur >= max_concurrency {
+                // CLOACINA-T-1029: a stopping agent refuses new work too.
+                let stopping = drain::draining();
+                if cur >= max_concurrency || stopping {
                     warn!(
                         in_flight = cur,
-                        max_concurrency, "saturated; refusing graph firing"
+                        max_concurrency, stopping, "saturated or stopping; refusing graph firing"
                     );
                     guard.hand_over();
                     spawn_graph_refusal(
@@ -1188,7 +1206,11 @@ async fn handle_text_frame(
                         api_key.to_string(),
                         agent_id.to_string(),
                         packet,
-                        "agent at max_concurrency".to_string(),
+                        if stopping {
+                            drain::STOPPING.to_string()
+                        } else {
+                            "agent at max_concurrency".to_string()
+                        },
                         ack_tx.clone(),
                         push_id,
                     );
@@ -1251,8 +1273,11 @@ async fn handle_text_frame(
                 };
                 guard.hand_over();
                 let cur = in_flight.load(Ordering::SeqCst);
-                if cur >= max_concurrency {
-                    warn!(in_flight = cur, max_concurrency, "saturated; refusing poll");
+                if cur >= max_concurrency || drain::draining() {
+                    warn!(
+                        in_flight = cur,
+                        max_concurrency, "saturated or stopping; refusing poll"
+                    );
                     spawn_poll_report(
                         http.clone(),
                         server.to_string(),
@@ -1309,10 +1334,12 @@ async fn handle_text_frame(
             // re-pushes to a less-loaded peer; here we accept + refuse so
             // the contract is observable.)
             let cur = in_flight.load(Ordering::SeqCst);
-            if cur >= max_concurrency {
+            // CLOACINA-T-1029: a stopping agent refuses new work too.
+            let stopping = drain::draining();
+            if cur >= max_concurrency || stopping {
                 warn!(
                     in_flight = cur,
-                    max_concurrency, "saturated; refusing packet"
+                    max_concurrency, stopping, "saturated or stopping; refusing packet"
                 );
                 guard.hand_over();
                 spawn_refusal(
@@ -1322,7 +1349,11 @@ async fn handle_text_frame(
                     agent_id.to_string(),
                     packet,
                     RefusalReason::Shutdown,
-                    "agent at max_concurrency".to_string(),
+                    if stopping {
+                        drain::STOPPING.to_string()
+                    } else {
+                        "agent at max_concurrency".to_string()
+                    },
                     ack_tx.clone(),
                     push_id,
                 );
@@ -1541,8 +1572,10 @@ fn spawn_packet_worker(
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
-        match end {
-            worker::PacketEnd::Report(outcome) => {
+        // CLOACINA-T-1029: a worker the agent stopped at the end of its drain
+        // is reported as handed back.
+        match drain::report_of(end, packet.dispatch_id.as_deref()) {
+            Some(outcome) => {
                 let req = AgentResultRequest {
                     protocol_version: AGENT_PROTOCOL_VERSION,
                     agent_id: agent_id.clone(),
@@ -1558,7 +1591,7 @@ fn spawn_packet_worker(
                 report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
             }
             // The server gave up on this dispatch and waits for no report.
-            worker::PacketEnd::Cancelled => debug!(
+            None => debug!(
                 task_id = %packet.task_execution_id,
                 dispatch_id = ?packet.dispatch_id,
                 "dispatch cancelled by the server; no report"
@@ -1800,8 +1833,10 @@ fn spawn_graph_worker(
             &settings,
         )
         .await;
-        match end {
-            worker::PacketEnd::Report(outcome) => {
+        // CLOACINA-T-1029: a worker the agent stopped at the end of its drain
+        // is reported as handed back.
+        match drain::report_of(end, Some(packet.firing_id.as_str())) {
+            Some(outcome) => {
                 let req = graph_report(
                     &agent_id,
                     &packet,
@@ -1812,7 +1847,7 @@ fn spawn_graph_worker(
                 report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
             }
             // The server gave up on this firing and waits for no report.
-            worker::PacketEnd::Cancelled => debug!(
+            None => debug!(
                 firing_id = %packet.firing_id,
                 graph = %packet.graph_name,
                 "graph firing cancelled by the server; no report"

@@ -861,9 +861,10 @@ refused: create it with `max_agents` 0, so the server starts no agents for it.
 
 ### What pools do not do
 
-- **Only `default` is autoscaled.** Another pool runs a fixed number of agents,
-  its `max_agents`. The tenant's agent limit and the provision API are for
-  `default`; they do not count or bound the other pools.
+- **The tenant's agent limit is for `default`.** The tenant's agent limit and
+  the provision API do not count or bound the other pools; each has its own
+  `min_agents` and `max_agents`, set by a platform admin. See
+  [How a pool scales](#how-a-pool-scales).
 - **No cap on the CPU of a task.** A task's memory is limited and its CPU is
   not. See [worker processes and limits](#worker-processes-and-limits).
 
@@ -874,9 +875,9 @@ them on every tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30s) and the
 Kubernetes actuator applies each pool's Deployment with server-side apply. A
 changed image, resource, concurrency or service account changes the pod
 template, so Kubernetes rolls the Deployment: new pods start with the new
-settings and the old ones are stopped. A task that was running on a stopped
-agent is reclaimed and run again, as for any agent that goes away. A changed
-egress rule changes the pool's NetworkPolicy only; no pod restarts.
+settings and the old ones are stopped. An old agent drains first (see
+[Stopping an agent](#stopping-an-agent)). A changed egress rule changes the
+pool's NetworkPolicy only; no pod restarts.
 
 If the settings cannot be read, the actuator changes nothing for that tenant on
 that tick. It does not fall back to the defaults, which would resize the agents.
@@ -930,7 +931,7 @@ nothing else.
 
 These numbers are for the pool `default` (see [Agent pools](#agent-pools)).
 
-Two numbers bound a tenant's fleet:
+Two numbers bound a tenant's pool `default`:
 
 - **Effective limit** — the hard ceiling. It is the platform default
   (`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) unless a platform admin sets a
@@ -944,29 +945,101 @@ Two numbers bound a tenant's fleet:
   autoscaler moves it within `[CLOACINA_AUTOSCALE_FLOOR, effective_limit]` — the
   floor bounds the autoscaler, not the manual deprovision API.
 
-A **back-pressure autoscaler** can move `desired_count` on its own. It runs as a
-single control loop that, each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default
-30s), computes each tenant's **utilization** — Σ `in_flight` / Σ
-`max_concurrency` over that tenant's live agents of the pool `default` — and
-decides (capacity is what each agent registered, so a pool with another
-`max_concurrency` is measured against its own capacity):
+The autoscaler moves `desired_count` on its own, and the count of every other
+pool: see [How a pool scales](#how-a-pool-scales). After it, the same loop
+**reconciles** actual → desired through the actuator. `CLOACINA_AUTOSCALE=false`
+freezes automatic scaling while leaving reconciliation running: operators then
+drive `desired_count` by hand, and another pool runs its `min_agents`.
 
-- **up** (+1) when utilization exceeds the up-threshold (default 0.8) and there
-  is room under the effective limit;
-- **down** (−1) when it drops below the down-threshold (default 0.2) and there is
-  room above the floor;
-- **hold** otherwise (the band between the thresholds is hysteresis that prevents
-  thrash, and a per-tenant cooldown — default 60s — rate-limits changes).
+The autoscaler decision lives in Cloacina's control plane rather than a
+Kubernetes HPA because the signal is *per tenant and per pool* (the tasks that
+wait and what they request) and a tenant is the isolation boundary: an HPA
+cannot see it.
 
-After adjusting `desired_count`, the same loop **reconciles** actual → desired
-through the actuator. The autoscale step is a separate decision from the signal
-plumbing, so `CLOACINA_AUTOSCALE=false` freezes automatic scaling while leaving
-reconciliation running — operators can then drive `desired_count` by hand.
+### How a pool scales
 
-Utilization is the v1 signal deliberately: it is reactive (it only rises once the
-fleet is already saturated). The autoscaler decision lives in Cloacina's control
-plane rather than a Kubernetes HPA precisely because the relevant signal is
-*per-tenant* and a tenant is the isolation boundary — an HPA cannot see it.
+Each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30 s), for each pool of
+each tenant:
+
+1. **The waiting work.** The pool's tasks that are Ready and on no agent:
+   tasks put off because no agent had room, and tasks not yet tried.
+2. **What does not fit.** They are packed, largest first, onto the free room
+   of the pool's live agents: free slots, and CPU and memory less what the
+   tasks in flight request. A task with no request counts as one slot's share
+   of an agent, as in [placement](#how-a-task-is-placed). What is left does
+   not fit.
+3. **Up.** What is left is packed, largest first, into empty agents of the
+   pool's size (what a live agent of the pool reports, else the pool's
+   settings). The pool's count becomes its live agents plus those new agents,
+   at most its max, in one step. Agents that are still starting count: a
+   tick while they start adds no more. A scale-up does not wait for a
+   cooldown.
+4. **Down.** A pool with no task in flight and none waiting is idle. When it
+   has been idle for `CLOACINA_AUTOSCALE_IDLE_S` (default 300 s), and its last
+   scale-down is `CLOACINA_AUTOSCALE_COOLDOWN_S` (default 60 s) ago, it goes
+   back to its min. The work is read again just before the write; a task
+   placed in between keeps the pool. A pool with work is never shrunk, so a
+   scale-down stops no agent with work in flight.
+
+So ten tasks that request 2 Gi on a pool of 8 Gi agents with a max of 3 take
+the pool from 0 to 3 agents in one tick: each agent offers 8 Gi less its own
+128 Mi, so three tasks fit on one, and the tenth waits for a free slot.
+
+| Pool | min | max |
+|---|---|---|
+| `default` | `CLOACINA_AUTOSCALE_FLOOR` (0), at least 1 for a tenant with an active poll trigger | the tenant's effective limit |
+| another pool | its `min_agents`; with none, its `max_agents` (a fixed count, as before pools scaled) | its `max_agents` |
+
+**Scale to zero.** A pool with min 0 has no agent until work comes. With the
+autoscaler on, the dispatch of a task for it goes through to the agent
+selection, finds no agent and puts the task off for capacity: the task waits
+with its attempt kept, and its wait is counted from then. The next tick starts
+an agent. The time to the first run is one tick plus the agent's start.
+
+**A task larger than one agent of its pool** (the pool was made smaller after
+the package was published) cannot be placed by more agents. It does not scale
+the pool and does not keep it busy; it is counted in
+`cloacina_fleet_pool_waiting_unplaceable_tasks`.
+
+**What an operator sees.** The pool routes (`GET /v1/tenants/{t}/pools`) give
+each pool's `desired_agents` and `live_agents`. The gauges, labelled `tenant`
+and `pool`: `cloacina_fleet_pool_agents_desired`,
+`cloacina_fleet_pool_agents_ready`, `cloacina_fleet_pool_cpu_requested_millis`,
+`cloacina_fleet_pool_cpu_offered_millis`,
+`cloacina_fleet_pool_memory_requested_bytes`,
+`cloacina_fleet_pool_memory_offered_bytes`, `cloacina_fleet_pool_waiting_tasks`
+and `cloacina_fleet_pool_waiting_unplaceable_tasks`; the age of the oldest
+waiting task is `cloacina_oldest_waiting_task_age_seconds{tenant,pool}`. Each change of a
+count is a log line (tenant, pool, from, to) and
+`cloacina_fleet_pool_scaled_total{direction}`.
+
+The state of each pool (its count, since when it is idle, its last
+scale-down) is in the database, with the database clock, so the rules hold
+whichever server replica leads a tick.
+
+### Stopping an agent
+
+Kubernetes stops an agent pod with SIGTERM: a scale-down, a roll (new
+settings, a new agent key, a new image), a node drain. The agent then:
+
+1. takes no new work: a packet that arrives is refused as "stopping", which
+   the server reads as "not run" (the task waits for another agent, with no
+   use of a retry attempt), and its heartbeat offers no free slot;
+2. lets the work it runs finish and report, for up to its drain time
+   (`CLOACINA_AGENT_DRAIN_SECONDS`, default 25 s);
+3. stops the workers that still run and hands their work back: the task is
+   Ready again with the same attempt, and runs again on another agent from
+   the start. Then the agent exits.
+
+The pod's grace period must be longer than the drain time. The Kubernetes
+default is 30 s. With `CLOACINA_AGENT_DRAIN_S` set on the server, the actuator
+gives each agent that drain time and sets the pods'
+`terminationGracePeriodSeconds` to it plus 15 s; set it to the longest task
+time limit of the tenant's pools so a roll lets every task finish. A task
+marked `inline` and a poll run in the agent process and cannot be handed back:
+they end with the process, and the server takes the task back by its stale
+claim sweep. The Docker actuator stops a container with Docker's own timeout
+(10 s), after which Docker kills it.
 
 Because every replica runs the same loop, the fleet is driven through
 **Postgres-advisory-lock leader election**: each tick, only the replica holding

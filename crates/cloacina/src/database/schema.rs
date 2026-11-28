@@ -1149,6 +1149,18 @@ mod postgres_schema {
         }
     }
 
+    // CLOACINA-T-1029: the autoscaler's state per agent pool (server mode only — Postgres).
+    diesel::table! {
+        agent_pool_scale (tenant_id, pool) {
+            tenant_id -> Text,
+            pool -> Text,
+            desired_count -> Nullable<Int4>,
+            idle_since -> Nullable<Timestamptz>,
+            last_scaled_down_at -> Nullable<Timestamptz>,
+            updated_at -> Timestamptz,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.

@@ -119,14 +119,16 @@ pub struct AgentPoolSettings {
     /// DNS and the server only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_egress: Vec<AgentEgressRule>,
-    /// Fewest agents of the pool. Not for the pool `default` (its floor is
-    /// the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
-    /// `default` is not autoscaled yet: set it equal to `max_agents`.
+    /// Fewest agents of the pool, at most `max_agents`. The pool scales
+    /// between the two on the work that waits for it, and goes back to this
+    /// count when it is idle; `0` lets it scale to zero. Absent: the pool
+    /// keeps `max_agents` agents. Not for the pool `default` (its floor is the
+    /// server-wide `CLOACINA_AUTOSCALE_FLOOR`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_agents: Option<u32>,
     /// Most agents of the pool. Not for the pool `default` (its max is the
-    /// tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
-    /// than `default` runs exactly this many agents.
+    /// tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for
+    /// another pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_agents: Option<u32>,
 }
