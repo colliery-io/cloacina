@@ -251,7 +251,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
    as that ServiceAccount.
 2. Wire the actuator env into the container: `CLOACINA_FLEET_ACTUATOR=kubernetes`,
    `CLOACINA_AGENT_IMAGE` (from `fleet.agentImage`, default
-   `ghcr.io/colliery-software/cloacina-agent:latest`), and
+   `ghcr.io/colliery-io/cloacina-agent:latest`), and
    `CLOACINA_AGENT_SERVER_URL` (from `fleet.agentServerUrl`, defaulting to this
    release's in-cluster Service DNS).
 3. Render the agent-pod hardening + per-tenant NetworkPolicy knobs (see
@@ -260,7 +260,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | Value | Default | Effect |
 |------|---------|--------|
 | `fleet.actuator` | `none` | `none` (off) or `kubernetes`. |
-| `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
+| `fleet.agentImage` | `ghcr.io/colliery-io/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
 | `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |
 | `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |

@@ -79,7 +79,7 @@ WORKDIR /home/cloacina
 # Artifact cache dir for fetched cdylibs (defaults under TMPDIR otherwise).
 ENV CLOACINA_AGENT_CACHE_DIR=/home/cloacina/.cloacina-agent-cache
 
-LABEL org.opencontainers.image.source="https://github.com/colliery-software/cloacina"
+LABEL org.opencontainers.image.source="https://github.com/colliery-io/cloacina"
 LABEL org.opencontainers.image.description="cloacina-agent — DB-less execution agent for the Cloacina fleet"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
