@@ -164,6 +164,26 @@ pub struct TaskExecutionDetail {
     /// URL of this attempt's logs in the operator's log stack, when the
     /// server has a log URL template (`--task-log-url-template`).
     pub log_url: Option<String>,
+    /// The error of each failed attempt, oldest first; empty when no attempt
+    /// failed (CLOACINA-T-1100). The last entry of a failed task is the
+    /// error in `last_error` and `error_details`.
+    #[serde(default)]
+    pub attempt_errors: Vec<TaskAttemptErrorDetail>,
+}
+
+/// The error of one failed attempt of a task (CLOACINA-T-1100).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskAttemptErrorDetail {
+    /// The attempt that failed, from 1.
+    pub attempt: i32,
+    /// The error message of the attempt.
+    pub message: String,
+    /// The details of the failure (a Python traceback), at most 16 KiB; a
+    /// cut keeps the end.
+    pub details: Option<String>,
+    /// RFC 3339 timestamp of the failure.
+    pub failed_at: String,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}/tasks` response.

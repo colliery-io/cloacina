@@ -129,6 +129,50 @@ that sends no `email_verified` claim, use `group:` or `sub:` rules.
 In-flight login state (`state` / nonce / PKCE verifier) is persisted in Postgres,
 so the callback can land on **any replica** — no sticky sessions.
 
+## 4. Refresh, group changes and map changes
+
+A minted key lives 15 minutes; the UI refreshes it with `POST /v1/auth/refresh`.
+The login session behind it has an absolute deadline,
+`CLOACINA_OIDC_SESSION_MAX_AGE_S` (default `28800`, 8 hours). Past it the user
+signs in through the IdP again.
+
+The server stores the login's claims (`sub`, `email`, `email_verified`,
+`groups`) on the session. At each refresh it runs the **current** allowlist on
+them:
+
+- a rule that now gives a lower (or higher) role gives that role to the new key;
+- a tenant the identity no longer maps to ends that tenant's session: the
+  refresh answers `401` and the key is revoked.
+
+**Group changes at the IdP.** When the IdP's token response at login has a
+refresh token and `CLOACINA_SECRET_KEK` is set, the server stores the token,
+encrypted (AES-256-GCM, bound to the login). Once per
+`CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S` (default `3600`, one hour) a refresh
+spends it at the IdP's token endpoint and reads the groups again, from the new
+ID token or else from the userinfo endpoint. A person removed from a group
+loses the role at the first refresh after the next check: within the interval
+plus 15 minutes.
+
+- The IdP refuses the refresh token (the person was disabled, or the token
+  was revoked): the session ends.
+- The IdP cannot be reached: the session keeps its last claims and runs to its
+  deadline. The server logs a warning and tries again after the next interval.
+- The IdP gives no refresh token (some need the `offline_access` scope in
+  `CLOACINA_OIDC_SCOPES`), or no `CLOACINA_SECRET_KEK` is set: the groups are
+  read only at login, and the deadline is the bound on a group removal.
+
+Not every IdP puts `groups` in a refreshed ID token or in userinfo. Check that
+yours does before you rely on the hourly check.
+
+**Changing the allowlist.** `CLOACINA_OIDC_MAP` is read at start. A change
+applies without downtime: a rolling restart, then live sessions follow at
+their next refresh (at most 15 minutes). A map with a role that is not `read`,
+`write` or `admin` stops the start of the new server, and the log says why;
+with a rolling update the old servers keep serving with the old map.
+
+Sessions opened before this release have no stored claims: they keep their
+role until their deadline.
+
 ## Multi-tenant memberships
 
 A single sign-on can grant access to several tenants at once. When the allowlist

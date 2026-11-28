@@ -20,8 +20,10 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::{HeartbeatResult, RunnerClaimResult, StaleClaim, TaskExecutionDAL};
-use crate::dal::unified::models::{NewUnifiedExecutionEvent, UnifiedTaskExecution};
-use crate::database::schema::unified::{execution_events, task_executions};
+use crate::dal::unified::models::{
+    NewUnifiedExecutionEvent, TaskAttemptError, UnifiedTaskExecution,
+};
+use crate::database::schema::unified::{execution_events, task_attempt_errors, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
@@ -34,6 +36,20 @@ fn stale_cutoff(threshold: std::time::Duration) -> UniversalTimestamp {
         chrono::Utc::now()
             - chrono::Duration::from_std(threshold).unwrap_or(chrono::Duration::seconds(60)),
     )
+}
+
+/// Whether the row is in a fleet dispatch recorded under its claim
+/// (CLOACINA-T-1136): `fleet_dispatch_id` is set and
+/// `fleet_dispatch_claimed_by` is the runner of the claim. Only then is the
+/// dispatch it names the live one of its claim.
+///
+/// A runner of the previous release claims and sends a task without knowing
+/// the dispatch columns; it neither writes nor clears them. Its row can still
+/// name an older dispatch, recorded under another claim or under none.
+fn in_recorded_fleet_dispatch(task: &UnifiedTaskExecution) -> bool {
+    task.fleet_dispatch_id.is_some()
+        && task.claimed_by.is_some()
+        && task.fleet_dispatch_claimed_by == task.claimed_by
 }
 
 impl<'a> TaskExecutionDAL<'a> {
@@ -49,14 +65,20 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// Clears `artifact_fetch_wait_since` (CLOACINA-T-1064): the wait for the
     /// package artifact has its limit per attempt, and this starts a new one.
+    ///
+    /// `error` is the failure text of the attempt that failed (CLOACINA-T-1100):
+    /// with one, a row of `task_attempt_errors` keeps it for that attempt
+    /// (`new_attempt - 1`), in the same transaction.
     pub async fn schedule_retry(
         &self,
         task_id: UniversalUuid,
         retry_at: UniversalTimestamp,
         new_attempt: i32,
+        error: Option<&str>,
     ) -> Result<(), ValidationError> {
         use diesel::connection::Connection;
 
+        let error = error.map(str::to_string);
         crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
@@ -64,6 +86,18 @@ impl<'a> TaskExecutionDAL<'a> {
                 // Get task info for event
                 let task: UnifiedTaskExecution =
                     task_executions::table.find(task_id).first(conn)?;
+
+                if let Some(text) = &error {
+                    diesel::insert_into(task_attempt_errors::table)
+                        .values(&TaskAttemptError::new(
+                            task_id,
+                            task.workflow_execution_id,
+                            new_attempt - 1,
+                            text,
+                            now,
+                        ))
+                        .execute(conn)?;
+                }
 
                 // Update task retry state
                 diesel::update(task_executions::table.find(task_id))
@@ -327,7 +361,8 @@ impl<'a> TaskExecutionDAL<'a> {
     /// Clears `claimed_by` and `heartbeat_at`, and `fleet_agent_id`
     /// (CLOACINA-T-1027): a task with no dispatch is on no agent. Also the
     /// fleet dispatch (`fleet_dispatch_id`, `fleet_packet_row_id`,
-    /// CLOACINA-T-1084): a dispatch lasts as long as its claim.
+    /// CLOACINA-T-1084, `fleet_dispatch_claimed_by`, CLOACINA-T-1136): a
+    /// dispatch lasts as long as its claim.
     pub async fn release_runner_claim(
         &self,
         task_id: UniversalUuid,
@@ -341,6 +376,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::fleet_agent_id.eq(None::<String>),
                     task_executions::fleet_dispatch_id.eq(None::<String>),
                     task_executions::fleet_packet_row_id.eq(None::<i64>),
+                    task_executions::fleet_dispatch_claimed_by.eq(None::<UniversalUuid>),
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -353,9 +389,10 @@ impl<'a> TaskExecutionDAL<'a> {
     /// (CLOACINA-T-1084), in one write: what
     /// [`mark_started`](Self::mark_started) writes (`Running`, `started_at`,
     /// no `waiting_since`), plus the `dispatch_id` of the work packet and the
-    /// packet's `delivery_outbox` row. Written by the fleet executor that
-    /// holds the claim, when it hands the packet to an agent; the dispatch
-    /// is cleared with the claim
+    /// packet's `delivery_outbox` row, and the runner of the claim it is
+    /// recorded under (`fleet_dispatch_claimed_by`, CLOACINA-T-1136). Written
+    /// by the fleet executor that holds the claim, when it hands the packet
+    /// to an agent; the dispatch is cleared with the claim
     /// ([`release_runner_claim`](Self::release_runner_claim)).
     ///
     /// With these, another server replica can take over the wait of the
@@ -385,6 +422,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::waiting_since.eq(None::<UniversalTimestamp>),
                 task_executions::fleet_dispatch_id.eq(Some(dispatch_id)),
                 task_executions::fleet_packet_row_id.eq(Some(packet_row_id)),
+                task_executions::fleet_dispatch_claimed_by.eq(Some(runner_id)),
                 task_executions::updated_at.eq(now),
             ))
             .execute(conn)
@@ -393,8 +431,14 @@ impl<'a> TaskExecutionDAL<'a> {
     }
 
     /// The fleet dispatches whose executor stopped (CLOACINA-T-1084): rows in
-    /// a fleet dispatch (`fleet_dispatch_id` set) with a claim whose
-    /// heartbeat is older than `threshold`, `Running` or `Ready`.
+    /// a fleet dispatch recorded under their claim (see
+    /// `in_recorded_fleet_dispatch`) whose heartbeat is older than
+    /// `threshold`, `Running` or `Ready`.
+    ///
+    /// A row whose dispatch columns were left by a runner that does not
+    /// write them (the previous release) is not one (CLOACINA-T-1136): the
+    /// dispatch it names is not the one of its claim. The stale claim sweeper
+    /// recovers it as any stale claim.
     ///
     /// The fleet executor reads these to take over the wait of a dispatch
     /// that is still in flight on an agent
@@ -414,13 +458,19 @@ impl<'a> TaskExecutionDAL<'a> {
                 .filter(task_executions::status.eq_any(vec!["Running", "Ready"]))
                 .load(conn)
         })?;
-        Ok(stale.into_iter().map(Into::into).collect())
+        Ok(stale
+            .into_iter()
+            .filter(in_recorded_fleet_dispatch)
+            .map(Into::into)
+            .collect())
     }
 
     /// Move a stale claim to `new_runner` (CLOACINA-T-1084): the claim is
-    /// still `old_runner`'s and its heartbeat is still older than
-    /// `threshold`. Sets the heartbeat to now. The fleet dispatch columns are
-    /// kept: the dispatch goes on under the new claim.
+    /// still `old_runner`'s, its heartbeat is still older than `threshold`,
+    /// and its fleet dispatch was recorded under it (CLOACINA-T-1136). Sets
+    /// the heartbeat to now. The fleet dispatch columns are kept and the
+    /// dispatch is recorded under the new claim: the dispatch goes on under
+    /// it.
     ///
     /// The compare and set is the guard between replicas: of two that try,
     /// one moves the claim. A runner that heartbeats again in the meantime
@@ -439,11 +489,13 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::table
                     .find(task_id)
                     .filter(task_executions::claimed_by.eq(Some(old_runner)))
+                    .filter(task_executions::fleet_dispatch_claimed_by.eq(Some(old_runner)))
                     .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
                     .filter(task_executions::status.eq_any(vec!["Running", "Ready"])),
             )
             .set((
                 task_executions::claimed_by.eq(Some(new_runner)),
+                task_executions::fleet_dispatch_claimed_by.eq(Some(new_runner)),
                 task_executions::heartbeat_at.eq(Some(now)),
                 task_executions::updated_at.eq(now),
             ))
@@ -475,6 +527,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .set((
                 task_executions::fleet_dispatch_id.eq(None::<String>),
                 task_executions::fleet_packet_row_id.eq(None::<i64>),
+                task_executions::fleet_dispatch_claimed_by.eq(None::<UniversalUuid>),
                 task_executions::updated_at.eq(now),
             ))
             .execute(conn)
@@ -483,7 +536,10 @@ impl<'a> TaskExecutionDAL<'a> {
     }
 
     /// [`find_stale_claims`](Self::find_stale_claims) without the rows in a
-    /// fleet dispatch (`fleet_dispatch_id` set, CLOACINA-T-1084).
+    /// fleet dispatch recorded under their claim (CLOACINA-T-1084,
+    /// CLOACINA-T-1136; see `in_recorded_fleet_dispatch`). A row whose
+    /// dispatch columns name a dispatch of another claim is in it: no
+    /// takeover waits for it.
     ///
     /// For a runner whose fleet executor takes over those rows itself: a
     /// fleet dispatch whose executor stopped can still be in flight on an
@@ -526,19 +582,16 @@ impl<'a> TaskExecutionDAL<'a> {
         let cutoff = stale_cutoff(threshold);
 
         let stale: Vec<UnifiedTaskExecution> = crate::interact_on_backend!(self.dal, |conn| {
-            let mut query = task_executions::table
+            task_executions::table
                 .filter(task_executions::claimed_by.is_not_null())
                 .filter(task_executions::heartbeat_at.lt(Some(cutoff)))
                 .filter(task_executions::status.eq_any(vec!["Running", "Ready"]))
-                .into_boxed();
-            if outside_fleet_dispatches {
-                query = query.filter(task_executions::fleet_dispatch_id.is_null());
-            }
-            query.load(conn)
+                .load(conn)
         })?;
 
         Ok(stale
             .into_iter()
+            .filter(|t| !(outside_fleet_dispatches && in_recorded_fleet_dispatch(t)))
             .filter_map(|t| {
                 Some(StaleClaim {
                     task_id: t.id,
@@ -950,7 +1003,7 @@ mod defer_dispatch_after_start_tests {
         assert!(row(&dal, task_id).await.artifact_fetch_wait_since.is_some());
 
         dal.task_execution()
-            .schedule_retry(task_id, in_seconds(5), 3)
+            .schedule_retry(task_id, in_seconds(5), 3, None)
             .await
             .unwrap();
 
@@ -1081,6 +1134,7 @@ mod fleet_dispatch_tests {
         assert_eq!(task.waiting_since, None);
         assert_eq!(task.fleet_dispatch_id.as_deref(), Some("d1"));
         assert_eq!(task.fleet_packet_row_id, Some(7));
+        assert_eq!(task.fleet_dispatch_claimed_by, Some(runner));
 
         // Another runner cannot write it.
         assert!(
@@ -1101,6 +1155,84 @@ mod fleet_dispatch_tests {
         let task = row(&dal, task_id).await;
         assert_eq!(task.fleet_dispatch_id, None);
         assert_eq!(task.fleet_packet_row_id, None);
+        assert_eq!(task.fleet_dispatch_claimed_by, None);
+    }
+
+    /// Write the claim as a runner of the previous release does: it knows
+    /// no dispatch columns and leaves them as they are. Its heartbeat is
+    /// stale (CLOACINA-T-1136).
+    async fn claim_as_previous_release(dal: &DAL, task_id: UniversalUuid, runner: UniversalUuid) {
+        let at = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(120));
+        let claimed: Result<usize, diesel::result::Error> =
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(task_executions::table.find(task_id))
+                    .set((
+                        task_executions::claimed_by.eq(Some(runner)),
+                        task_executions::heartbeat_at.eq(Some(at)),
+                    ))
+                    .execute(conn)
+            });
+        assert_eq!(claimed.unwrap(), 1);
+    }
+
+    /// A stale row is not taken over and is swept, also by the sweeper of a
+    /// fleet runner.
+    async fn assert_swept_not_taken_over(
+        dal: &DAL,
+        task_id: UniversalUuid,
+        stale_runner: UniversalUuid,
+    ) {
+        let tasks = dal.task_execution();
+        assert!(
+            tasks
+                .find_stale_fleet_dispatches(STALE)
+                .await
+                .unwrap()
+                .is_empty(),
+            "a dispatch not recorded under the claim is not taken over"
+        );
+        assert!(
+            !tasks
+                .take_over_stale_claim(task_id, stale_runner, UniversalUuid::new_v4(), STALE)
+                .await
+                .unwrap()
+        );
+        let swept = tasks
+            .find_stale_claims_outside_fleet_dispatches(STALE)
+            .await
+            .unwrap();
+        assert_eq!(swept.len(), 1);
+        assert_eq!(swept[0].task_id, task_id);
+        assert_eq!(swept[0].claimed_by, stale_runner);
+    }
+
+    #[tokio::test]
+    async fn a_dispatch_left_under_the_claim_of_a_previous_release_runner_is_swept() {
+        let dal = unique_dal().await;
+        let task_id = dispatched_task(&dal, UniversalUuid::new_v4()).await;
+        let old_release = UniversalUuid::new_v4();
+        claim_as_previous_release(&dal, task_id, old_release).await;
+
+        assert_swept_not_taken_over(&dal, task_id, old_release).await;
+    }
+
+    /// A row the previous release wrote as a whole: a dispatch id and no
+    /// runner recorded with it.
+    #[tokio::test]
+    async fn a_dispatch_with_no_runner_recorded_is_swept() {
+        let dal = unique_dal().await;
+        let runner = UniversalUuid::new_v4();
+        let task_id = dispatched_task(&dal, runner).await;
+        let cleared: Result<usize, diesel::result::Error> =
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(task_executions::table.find(task_id))
+                    .set(task_executions::fleet_dispatch_claimed_by.eq(None::<UniversalUuid>))
+                    .execute(conn)
+            });
+        assert_eq!(cleared.unwrap(), 1);
+        age_heartbeat(&dal, task_id, 120).await;
+
+        assert_swept_not_taken_over(&dal, task_id, runner).await;
     }
 
     #[tokio::test]
@@ -1168,6 +1300,11 @@ mod fleet_dispatch_tests {
 
         let task = row(&dal, task_id).await;
         assert_eq!(task.claimed_by, Some(b));
+        assert_eq!(
+            task.fleet_dispatch_claimed_by,
+            Some(b),
+            "the dispatch is recorded under the new claim"
+        );
         assert!(
             task.heartbeat_at
                 .is_some_and(|at| (chrono::Utc::now() - at.0).num_seconds() < 5)

@@ -1,0 +1,8 @@
+---
+server:
+  bind: "0.0.0.0:8080"
+  drainTimeoutSeconds: 30
+  logFormat: json
+resources:
+  limits:
+    memory: 1Gi

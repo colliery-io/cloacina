@@ -294,6 +294,76 @@ fn sqlite_a_package_on_a_host_that_binds_no_log_interface_still_runs() {
     std::mem::forget(dir);
 }
 
+/// CLOACINA-T-1144: a Rust poll trigger opened as the agent opens it
+/// (`FfiTriggerImpl::open`) writes its `tracing` line in the host's log, in
+/// the span of the poll.
+#[test]
+fn sqlite_a_rust_poll_triggers_tracing_line_reaches_the_host_log_with_the_poll_ids() {
+    use cloacina::cloacina_workflow::Trigger;
+    use cloacina::registry::loader::ffi_trigger::FfiTriggerImpl;
+
+    // A copy at its own path is its own image of the library, with its own
+    // bind cells, as a build the agent fetched.
+    let dir = tempfile::TempDir::new().unwrap();
+    let copy = dir.path().join(
+        fixture_library()
+            .file_name()
+            .expect("the library has a file name"),
+    );
+    std::fs::copy(fixture_library(), &copy).unwrap();
+
+    let capture = Capture::default();
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(capture.clone())
+            .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+            .finish(),
+    );
+    let thread_dispatch = dispatch.clone();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .on_thread_start(move || {
+            std::mem::forget(tracing::dispatcher::set_default(&thread_dispatch));
+        })
+        .build()
+        .unwrap();
+
+    tracing::dispatcher::with_default(&dispatch, || {
+        rt.block_on(async {
+            let trigger = FfiTriggerImpl::open(
+                &copy,
+                "task_logs_poll",
+                std::time::Duration::from_secs(60),
+                false,
+            )
+            .expect("the library opens");
+            let span =
+                tracing::info_span!("poll", poll_id = %"p-1144", trigger = %"task_logs_poll");
+            let answer = tracing::Instrument::instrument(trigger.poll(), span)
+                .await
+                .expect("the poll answers");
+            assert!(!answer.should_fire(), "the fixture skips");
+            // Keep the library loaded for the process.
+            std::mem::forget(trigger);
+        })
+    });
+    rt.shutdown_background();
+    std::mem::forget(dir);
+
+    let log = capture.text();
+    let line = line_with(&log, "packaged poll line")
+        .unwrap_or_else(|| panic!("the poll's tracing line is in the host's log:\n{log}"));
+    println!("{line}");
+    assert!(line.contains(" INFO "), "level kept: {line}");
+    assert!(line.contains("task_logs::poll"), "target kept: {line}");
+    assert!(
+        line.contains("poll{poll_id=p-1144 trigger=task_logs_poll}"),
+        "the poll's ids: {line}"
+    );
+}
+
 /// A package built before this change still loads and runs. Run by hand:
 /// build the fixture at a commit before CLOACINA-T-1099 and give the path
 /// of its library in `CLOACINA_T1099_OLD_LIBRARY`.

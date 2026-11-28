@@ -43,6 +43,18 @@ pub struct ApiKeyInfo {
     pub issued_via: Option<String>,
 }
 
+/// The answer of [`ApiKeyDAL::revoke_key_keeping_platform_admin`]
+/// (CLOACINA-T-1065).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevokeOutcome {
+    /// The key was live and is revoked now.
+    Revoked,
+    /// No such key, or it was revoked already.
+    NotFound,
+    /// The key is the last live platform admin key: not revoked.
+    LastPlatformAdmin,
+}
+
 /// The role of the key of an execution agent.
 pub const AGENT_ROLE: &str = "agent";
 
@@ -81,7 +93,33 @@ impl<'a> ApiKeyDAL<'a> {
         is_admin: bool,
         role: &str,
     ) -> Result<ApiKeyInfo, ValidationError> {
-        crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role).await
+        crud::create_key(self.dal, key_hash, name, tenant_id, is_admin, role, None).await
+    }
+
+    /// [`Self::create_key`] with an expiry (CLOACINA-T-1083). `None`: the key
+    /// does not expire. After `expires_at` the key is refused.
+    #[cfg(feature = "postgres")]
+    pub async fn create_key_expiring(
+        &self,
+        key_hash: &str,
+        name: &str,
+        tenant_id: Option<&str>,
+        is_admin: bool,
+        role: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<ApiKeyInfo, ValidationError> {
+        crud::create_key(
+            self.dal, key_hash, name, tenant_id, is_admin, role, expires_at,
+        )
+        .await
+    }
+
+    /// True when the hash is of a key that is not revoked and whose expiry
+    /// has passed (CLOACINA-T-1083). Asked only after [`Self::validate_hash`]
+    /// refused the hash, to answer `key_expired` in place of `unauthorized`.
+    #[cfg(feature = "postgres")]
+    pub async fn is_expired_hash(&self, key_hash: &str) -> Result<bool, ValidationError> {
+        crud::is_expired_hash(self.dal, key_hash).await
     }
 
     /// CLOACI-T-0792: mint a short-TTL, provenance-tagged key (never god-mode).
@@ -127,6 +165,23 @@ impl<'a> ApiKeyDAL<'a> {
     #[cfg(feature = "postgres")]
     pub async fn revoke_key(&self, id: uuid::Uuid) -> Result<bool, ValidationError> {
         crud::revoke_key(self.dal, id).await
+    }
+
+    /// Revoke a key unless it is the last live platform admin key
+    /// (CLOACINA-T-1065).
+    #[cfg(feature = "postgres")]
+    pub async fn revoke_key_keeping_platform_admin(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<RevokeOutcome, ValidationError> {
+        crud::revoke_key_keeping_platform_admin(self.dal, id).await
+    }
+
+    /// True when a live platform admin key exists: the bootstrap runs when
+    /// none does (CLOACINA-T-1065).
+    #[cfg(feature = "postgres")]
+    pub async fn has_live_platform_admin_key(&self) -> Result<bool, ValidationError> {
+        crud::has_live_platform_admin_key(self.dal).await
     }
 
     /// CLOACI-T-0784: list keys scoped to a single tenant (tenant-admin view).

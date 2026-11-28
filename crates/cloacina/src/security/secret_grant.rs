@@ -186,6 +186,84 @@ pub async fn declared_secret_grant(
     }
 }
 
+/// A binding of a run request that the package does not declare
+/// (CLOACINA-T-1134).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndeclaredBinding {
+    /// The binding name of the request.
+    pub binding: String,
+    /// The package of the workflow.
+    pub package: String,
+    /// The text of the refusal: the binding, the package and how to declare
+    /// it.
+    pub message: String,
+}
+
+/// The first name of `bindings` that `declared` does not hold. `declared`
+/// `None` (no stored document) holds no name.
+pub fn undeclared_binding(
+    package: &str,
+    version: Option<&str>,
+    declared: Option<&[String]>,
+    bindings: &BTreeMap<String, String>,
+) -> Option<UndeclaredBinding> {
+    let binding = bindings
+        .keys()
+        .find(|name| !declared.is_some_and(|d| d.iter().any(|n| n == *name)))?;
+    let version = version.map(|v| format!(" v{v}")).unwrap_or_default();
+    let why = match declared {
+        None => format!("package `{package}`{version} has no stored metadata document"),
+        Some(_) => format!("package `{package}`{version} does not declare it"),
+    };
+    Some(UndeclaredBinding {
+        binding: binding.clone(),
+        package: package.to_string(),
+        message: format!(
+            "secret binding `{binding}`: {why}; a run binds only the secrets its package \
+             declares (`secrets({binding})` in `#[workflow]`, \
+             `@cloaca.workflow_secrets(\"{binding}\")` in Python)"
+        ),
+    })
+}
+
+/// The first binding of a run request of `package_name` that the package does
+/// not declare, read through `dal` (the tenant's schema) from the package's
+/// active version: the declaration the first task of the run pins.
+///
+/// A package that is not stored refuses every binding, as its run-time grant
+/// is empty. `Err` when the package row cannot be read.
+pub async fn undeclared_run_binding(
+    dal: &DAL,
+    package_name: &str,
+    bindings: &BTreeMap<String, String>,
+) -> Result<Option<UndeclaredBinding>, crate::registry::error::RegistryError> {
+    if bindings.is_empty() {
+        return Ok(None);
+    }
+    let pkg = dal
+        .workflow_packages()
+        .get_active_dispatch(package_name, None)
+        .await?;
+    Ok(match pkg {
+        Some(pkg) => undeclared_binding(
+            package_name,
+            Some(&pkg.version),
+            pkg.declared_secrets.as_deref(),
+            bindings,
+        ),
+        None => bindings.keys().next().map(|binding| UndeclaredBinding {
+            binding: binding.clone(),
+            package: package_name.to_string(),
+            message: format!(
+                "secret binding `{binding}`: package `{package_name}` has no built version, \
+                 so its tasks read no secret; a run binds only the secrets its package \
+                 declares (`secrets({binding})` in `#[workflow]`, \
+                 `@cloaca.workflow_secrets(\"{binding}\")` in Python)"
+            ),
+        }),
+    })
+}
+
 /// One refused request for a secret. Names only, never a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretRefusal {
@@ -662,6 +740,61 @@ mod declared_tests {
         assert_eq!(refusal.tenant, "public");
         assert!(!format!("{refusal:?}").contains("value-b"));
     }
+
+    fn binding_map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// CLOACINA-T-1134: a run request's bindings are read against the
+    /// declaration of the package's active version, the one dispatch reads.
+    #[tokio::test]
+    async fn a_run_request_binding_is_checked_against_the_stored_declaration() {
+        let (dal, _) = tenant().await;
+        package(&dal, "undescribed", None).await;
+
+        // Declared names only: accepted. No binding: not checked.
+        let ok = undeclared_run_binding(&dal, "pkg_a", &binding_map(&[("db", "a_secret")]))
+            .await
+            .unwrap();
+        assert_eq!(ok, None);
+        let none = undeclared_run_binding(&dal, "not_stored", &BTreeMap::new())
+            .await
+            .unwrap();
+        assert_eq!(none, None);
+
+        // A name pkg_a does not declare.
+        let refused = undeclared_run_binding(
+            &dal,
+            "pkg_a",
+            &binding_map(&[("db", "a_secret"), ("b_db", "b_secret")]),
+        )
+        .await
+        .unwrap()
+        .expect("refused");
+        assert_eq!(refused.binding, "b_db");
+        assert_eq!(refused.package, "pkg_a");
+        assert!(
+            refused.message.contains("does not declare it"),
+            "{refused:?}"
+        );
+
+        // No stored document, and no stored package: every binding.
+        for (package, why) in [
+            ("undescribed", "has no stored metadata document"),
+            ("not_stored", "has no built version"),
+        ] {
+            let refused =
+                undeclared_run_binding(&dal, package, &binding_map(&[("db", "a_secret")]))
+                    .await
+                    .unwrap()
+                    .expect("refused");
+            assert_eq!(refused.binding, "db");
+            assert!(refused.message.contains(why), "{package}: {refused:?}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -711,6 +844,51 @@ mod tests {
         let grant = SecretGrant::from_declaration("pkg_a", None, Some(&[]), &BTreeMap::new());
         let message = grant.refusal_message("b_secret");
         assert!(message.starts_with("b_secret: package `pkg_a` does not declare it"));
+    }
+
+    /// CLOACINA-T-1134: the refusal names the binding, the package and how to
+    /// declare it.
+    #[test]
+    fn an_undeclared_binding_is_named_with_its_package() {
+        let declared = ["db".to_string()];
+        assert_eq!(
+            undeclared_binding(
+                "pkg_a",
+                Some("1.0.0"),
+                Some(&declared),
+                &bindings(&[("db", "x")])
+            ),
+            None
+        );
+        let refused = undeclared_binding(
+            "pkg_a",
+            Some("1.0.0"),
+            Some(&declared),
+            &bindings(&[("db", "x"), ("warehouse", "y")]),
+        )
+        .expect("refused");
+        assert_eq!(refused.binding, "warehouse");
+        assert_eq!(refused.package, "pkg_a");
+        assert!(
+            refused.message.starts_with(
+                "secret binding `warehouse`: package `pkg_a` v1.0.0 does not declare it"
+            ),
+            "{}",
+            refused.message
+        );
+        assert!(refused.message.contains("secrets(warehouse)"));
+        assert!(
+            refused
+                .message
+                .contains("@cloaca.workflow_secrets(\"warehouse\")")
+        );
+        // The stored secret's name is not the binding name: still refused.
+        let refused = undeclared_binding("pkg_a", None, Some(&[]), &bindings(&[("x", "db")]))
+            .expect("refused");
+        assert_eq!(refused.binding, "x");
+        let refused =
+            undeclared_binding("pkg_a", None, None, &bindings(&[("db", "x")])).expect("refused");
+        assert!(refused.message.contains("has no stored metadata document"));
     }
 
     #[test]

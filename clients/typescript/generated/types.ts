@@ -110,8 +110,9 @@ export interface paths {
         put?: never;
         /**
          * POST /auth/keys — create a new API key.
-         * @description Requires admin role. Non-admin keys cannot create keys with higher
-         *     permissions than their own (prevents privilege escalation).
+         * @description Platform admin only (the route table). Without `platform_admin` the key
+         *     belongs to the tenant `public`. With `platform_admin: true` it is a
+         *     platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
          *     Returns the plaintext key exactly once. It cannot be retrieved again.
          */
         post: operations["create_key"];
@@ -1464,6 +1465,19 @@ export interface components {
             protocol?: string | null;
         };
         /**
+         * @description One port of an [`AgentEgressRuleInfo`]. An unknown field is ignored
+         *     (CLOACINA-T-1149).
+         */
+        AgentEgressPortInfo: {
+            /**
+             * Format: int32
+             * @description Port number, 1 to 65535.
+             */
+            port: number;
+            /** @description `TCP` (the default), `UDP` or `SCTP`. */
+            protocol?: string | null;
+        };
+        /**
          * @description One extra egress rule: a CIDR block the agent pods may reach, on the listed
          *     ports. No ports means every port.
          */
@@ -1472,6 +1486,16 @@ export interface components {
             cidr: string;
             /** @description Ports the rule allows. Empty: every port. */
             ports?: components["schemas"]["AgentEgressPort"][];
+        };
+        /**
+         * @description One extra egress rule, as the pool routes return it. An unknown field is
+         *     ignored (CLOACINA-T-1149).
+         */
+        AgentEgressRuleInfo: {
+            /** @description IPv4 or IPv6 CIDR block. */
+            cidr: string;
+            /** @description Ports the rule allows. Empty: every port. */
+            ports?: components["schemas"]["AgentEgressPortInfo"][];
         };
         /** @description One registered execution agent in the in-memory fleet roster. */
         AgentInfo: {
@@ -1513,15 +1537,21 @@ export interface components {
              * @description The pool's settings as stored. A field that is absent means the
              *     server-wide default.
              */
-            settings: components["schemas"]["AgentPoolSettings"];
+            settings: components["schemas"]["AgentPoolSettingsInfo"];
             tenant_id: string;
         };
         /**
-         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021).
+         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request
+         *     sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
          *
          *     Each field is optional. A field that is absent means the server-wide
          *     default (`CLOACINA_AGENT_*` on the server). The settings apply to every
          *     managed agent of the pool: a pool has one size of agent.
+         *
+         *     A request with an unknown field is refused. The answers of the pool
+         *     routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+         *     so that an older client reads an answer of a newer server
+         *     (CLOACINA-T-1149).
          */
         AgentPoolSettings: {
             /**
@@ -1544,8 +1574,8 @@ export interface components {
             /**
              * Format: int32
              * @description Most agents of the pool. Not for the pool `default` (its max is the
-             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
-             *     than `default` runs exactly this many agents.
+             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for
+             *     another pool.
              */
             max_agents?: number | null;
             /**
@@ -1560,9 +1590,11 @@ export interface components {
             memory_request?: string | null;
             /**
              * Format: int32
-             * @description Fewest agents of the pool. Not for the pool `default` (its floor is
-             *     the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
-             *     `default` is not autoscaled yet: set it equal to `max_agents`.
+             * @description Fewest agents of the pool, at most `max_agents`. The pool scales
+             *     between the two on the work that waits for it, and goes back to this
+             *     count when it is idle; `0` lets it scale to zero. Absent: the pool
+             *     keeps `max_agents` agents. Not for the pool `default` (its floor is the
+             *     server-wide `CLOACINA_AUTOSCALE_FLOOR`).
              */
             min_agents?: number | null;
             /**
@@ -1591,6 +1623,63 @@ export interface components {
              * @description Name of the Kubernetes ServiceAccount the agent pods run as. The
              *     actuator creates it in the tenant namespace. Absent: the namespace's
              *     `default` ServiceAccount.
+             */
+            service_account_name?: string | null;
+        };
+        /**
+         * @description The settings of one agent pool, as the pool routes return them. The same
+         *     fields and the same JSON as [`AgentPoolSettings`], but an unknown field is
+         *     ignored: a client reads an answer of a newer server (CLOACINA-T-1149).
+         */
+        AgentPoolSettingsInfo: {
+            /** @description The pod's `automountServiceAccountToken`. Absent means `false`. */
+            automount_service_account_token?: boolean | null;
+            /** @description CPU limit of the agent container, a Kubernetes quantity (`4`). */
+            cpu_limit?: string | null;
+            /** @description CPU request of the agent container, a Kubernetes quantity (`500m`). */
+            cpu_request?: string | null;
+            /**
+             * @description Extra egress rules for the pool's pods, added to the default (cluster
+             *     DNS and the server only).
+             */
+            extra_egress?: components["schemas"]["AgentEgressRuleInfo"][];
+            /** @description Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`. */
+            image?: string | null;
+            /**
+             * Format: int32
+             * @description Most agents of the pool.
+             */
+            max_agents?: number | null;
+            /**
+             * Format: int32
+             * @description How many tasks one agent runs at the same time. Absent: the agent's
+             *     own default.
+             */
+            max_concurrency?: number | null;
+            /** @description Memory limit of the agent container, a Kubernetes quantity (`32Gi`). */
+            memory_limit?: string | null;
+            /** @description Memory request of the agent container, a Kubernetes quantity (`8Gi`). */
+            memory_request?: string | null;
+            /**
+             * Format: int32
+             * @description Fewest agents of the pool. Absent: the pool keeps `max_agents` agents.
+             */
+            min_agents?: number | null;
+            /** @description Annotations added to the pool's pods. */
+            pod_annotations?: {
+                [key: string]: string;
+            };
+            /** @description Labels added to the pool's pods. */
+            pod_labels?: {
+                [key: string]: string;
+            };
+            /** @description Annotations the actuator puts on that ServiceAccount. */
+            service_account_annotations?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Name of the Kubernetes ServiceAccount the agent pods run as. Absent:
+             *     the namespace's `default` ServiceAccount.
              */
             service_account_name?: string | null;
         };
@@ -1842,7 +1931,19 @@ export interface components {
         };
         /** @description Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`. */
         CreateKeyRequest: {
+            /**
+             * @description Optional. When the key expires, as an RFC 3339 timestamp in the
+             *     future (for example `2027-01-31T00:00:00Z`). After it the key is
+             *     refused with 401 `key_expired`. Not set: the key does not expire.
+             */
+            expires_at?: string | null;
             name: string;
+            /**
+             * @description `POST /auth/keys` only: make a platform admin key (no tenant, role
+             *     `admin`, the platform admin flag). Needs `role: admin`. The tenant
+             *     route refuses `true` with 400 (CLOACINA-T-1065).
+             */
+            platform_admin?: boolean;
             /**
              * @description Required. A request with no role is refused with 400: the server does
              *     not choose a role for the caller.
@@ -2185,9 +2286,14 @@ export interface components {
         KeyCreatedResponse: {
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /** @description When the key expires (RFC 3339); `null`: it does not expire. */
+            expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
-            /** @description God-mode flag — never granted via the create endpoints. */
+            /**
+             * @description Platform admin flag. Set only by `POST /auth/keys` with
+             *     `platform_admin: true`, and by the bootstrap.
+             */
             is_admin: boolean;
             /** @description One-time plaintext API key. */
             key: string;
@@ -2201,6 +2307,11 @@ export interface components {
         KeyInfo: {
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /**
+             * @description When the key expires (RFC 3339); `null`: it does not expire. The
+             *     keys the Kubernetes actuator mints for agents expire.
+             */
+            expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
             is_admin: boolean;
@@ -2364,7 +2475,7 @@ export interface components {
                  * @description The pool's settings as stored. A field that is absent means the
                  *     server-wide default.
                  */
-                settings: components["schemas"]["AgentPoolSettings"];
+                settings: components["schemas"]["AgentPoolSettingsInfo"];
                 tenant_id: string;
             }[];
             total: number;
@@ -2422,6 +2533,11 @@ export interface components {
             items: {
                 /** @description RFC 3339 timestamp. */
                 created_at: string;
+                /**
+                 * @description When the key expires (RFC 3339); `null`: it does not expire. The
+                 *     keys the Kubernetes actuator mints for agents expire.
+                 */
+                expires_at?: string | null;
                 /** @description Key UUID. */
                 id: string;
                 is_admin: boolean;
@@ -2748,10 +2864,33 @@ export interface components {
             /** @description RFC 3339 timestamp. */
             updated_at: string;
         };
+        /** @description The error of one failed attempt of a task (CLOACINA-T-1100). */
+        TaskAttemptErrorDetail: {
+            /**
+             * Format: int32
+             * @description The attempt that failed, from 1.
+             */
+            attempt: number;
+            /**
+             * @description The details of the failure (a Python traceback), at most 16 KiB; a
+             *     cut keeps the end.
+             */
+            details?: string | null;
+            /** @description RFC 3339 timestamp of the failure. */
+            failed_at: string;
+            /** @description The error message of the attempt. */
+            message: string;
+        };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
             /** Format: int32 */
             attempt: number;
+            /**
+             * @description The error of each failed attempt, oldest first; empty when no attempt
+             *     failed (CLOACINA-T-1100). The last entry of a failed task is the
+             *     error in `last_error` and `error_details`.
+             */
+            attempt_errors?: components["schemas"]["TaskAttemptErrorDetail"][];
             /** @description RFC 3339 timestamp; `null` while still running. */
             completed_at?: string | null;
             /**
@@ -3468,7 +3607,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Server process is alive — `{"status": "ok"}` */
+            /** @description Server process is alive — `{"status": "ok", "version": "<release>"}` */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3683,7 +3822,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin` with a role other than admin, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3701,7 +3840,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Admin role required */
+            /** @description Platform admin key required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3771,6 +3910,15 @@ export interface operations {
             };
             /** @description Key not found or already revoked */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The key is the last live platform admin key */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4490,7 +4638,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description A tenant of this name exists (`tenant_exists`) */
+            /** @description A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5189,7 +5337,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin: true`, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;

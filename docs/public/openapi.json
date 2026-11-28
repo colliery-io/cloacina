@@ -23,7 +23,7 @@
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "Server process is alive — `{\"status\": \"ok\"}`"
+            "description": "Server process is alive — `{\"status\": \"ok\", \"version\": \"<release>\"}`"
           }
         }
       }
@@ -285,7 +285,7 @@
           "keys"
         ],
         "summary": "POST /auth/keys — create a new API key.",
-        "description": "Requires admin role. Non-admin keys cannot create keys with higher\npermissions than their own (prevents privilege escalation).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
+        "description": "Platform admin only (the route table). Without `platform_admin` the key\nbelongs to the tenant `public`. With `platform_admin: true` it is a\nplatform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
         "operationId": "create_key",
         "requestBody": {
           "content": {
@@ -309,7 +309,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin` with a role other than admin, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -329,7 +329,7 @@
             }
           },
           "403": {
-            "description": "Admin role required",
+            "description": "Platform admin key required",
             "content": {
               "application/json": {
                 "schema": {
@@ -417,6 +417,16 @@
           },
           "404": {
             "description": "Key not found or already revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The key is the last live platform admin key",
             "content": {
               "application/json": {
                 "schema": {
@@ -1357,7 +1367,7 @@
             }
           },
           "409": {
-            "description": "A tenant of this name exists (`tenant_exists`)",
+            "description": "A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2393,7 +2403,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin: true`, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -6016,6 +6026,28 @@
         },
         "additionalProperties": false
       },
+      "AgentEgressPortInfo": {
+        "type": "object",
+        "description": "One port of an [`AgentEgressRuleInfo`]. An unknown field is ignored\n(CLOACINA-T-1149).",
+        "required": [
+          "port"
+        ],
+        "properties": {
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Port number, 1 to 65535.",
+            "minimum": 0
+          },
+          "protocol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`TCP` (the default), `UDP` or `SCTP`."
+          }
+        }
+      },
       "AgentEgressRule": {
         "type": "object",
         "description": "One extra egress rule: a CIDR block the agent pods may reach, on the listed\nports. No ports means every port.",
@@ -6036,6 +6068,26 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentEgressRuleInfo": {
+        "type": "object",
+        "description": "One extra egress rule, as the pool routes return it. An unknown field is\nignored (CLOACINA-T-1149).",
+        "required": [
+          "cidr"
+        ],
+        "properties": {
+          "cidr": {
+            "type": "string",
+            "description": "IPv4 or IPv6 CIDR block."
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEgressPortInfo"
+            },
+            "description": "Ports the rule allows. Empty: every port."
+          }
+        }
       },
       "AgentInfo": {
         "type": "object",
@@ -6120,7 +6172,7 @@
             "description": "Pool name. Every tenant has `default`."
           },
           "settings": {
-            "$ref": "#/components/schemas/AgentPoolSettings",
+            "$ref": "#/components/schemas/AgentPoolSettingsInfo",
             "description": "The pool's settings as stored. A field that is absent means the\nserver-wide default."
           },
           "tenant_id": {
@@ -6130,7 +6182,7 @@
       },
       "AgentPoolSettings": {
         "type": "object",
-        "description": "Settings of one agent pool of a tenant (CLOACINA-T-1021).\n\nEach field is optional. A field that is absent means the server-wide\ndefault (`CLOACINA_AGENT_*` on the server). The settings apply to every\nmanaged agent of the pool: a pool has one size of agent.",
+        "description": "Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request\nsends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).\n\nEach field is optional. A field that is absent means the server-wide\ndefault (`CLOACINA_AGENT_*` on the server). The settings apply to every\nmanaged agent of the pool: a pool has one size of agent.\n\nA request with an unknown field is refused. The answers of the pool\nroutes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,\nso that an older client reads an answer of a newer server\n(CLOACINA-T-1149).",
         "properties": {
           "automount_service_account_token": {
             "type": [
@@ -6173,7 +6225,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other\nthan `default` runs exactly this many agents.",
+            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for\nanother pool.",
             "minimum": 0
           },
           "max_concurrency": {
@@ -6205,7 +6257,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Fewest agents of the pool. Not for the pool `default` (its floor is\nthe server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than\n`default` is not autoscaled yet: set it equal to `max_agents`.",
+            "description": "Fewest agents of the pool, at most `max_agents`. The pool scales\nbetween the two on the work that waits for it, and goes back to this\ncount when it is idle; `0` lets it scale to zero. Absent: the pool\nkeeps `max_agents` agents. Not for the pool `default` (its floor is the\nserver-wide `CLOACINA_AUTOSCALE_FLOOR`).",
             "minimum": 0
           },
           "pod_annotations": {
@@ -6247,6 +6299,125 @@
           }
         },
         "additionalProperties": false
+      },
+      "AgentPoolSettingsInfo": {
+        "type": "object",
+        "description": "The settings of one agent pool, as the pool routes return them. The same\nfields and the same JSON as [`AgentPoolSettings`], but an unknown field is\nignored: a client reads an answer of a newer server (CLOACINA-T-1149).",
+        "properties": {
+          "automount_service_account_token": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "The pod's `automountServiceAccountToken`. Absent means `false`."
+          },
+          "cpu_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU limit of the agent container, a Kubernetes quantity (`4`)."
+          },
+          "cpu_request": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "CPU request of the agent container, a Kubernetes quantity (`500m`)."
+          },
+          "extra_egress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEgressRuleInfo"
+            },
+            "description": "Extra egress rules for the pool's pods, added to the default (cluster\nDNS and the server only)."
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`."
+          },
+          "max_agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Most agents of the pool.",
+            "minimum": 0
+          },
+          "max_concurrency": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many tasks one agent runs at the same time. Absent: the agent's\nown default.",
+            "minimum": 0
+          },
+          "memory_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory limit of the agent container, a Kubernetes quantity (`32Gi`)."
+          },
+          "memory_request": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory request of the agent container, a Kubernetes quantity (`8Gi`)."
+          },
+          "min_agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Fewest agents of the pool. Absent: the pool keeps `max_agents` agents.",
+            "minimum": 0
+          },
+          "pod_annotations": {
+            "type": "object",
+            "description": "Annotations added to the pool's pods.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "pod_labels": {
+            "type": "object",
+            "description": "Labels added to the pool's pods.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "service_account_annotations": {
+            "type": "object",
+            "description": "Annotations the actuator puts on that ServiceAccount.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "service_account_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the Kubernetes ServiceAccount the agent pods run as. Absent:\nthe namespace's `default` ServiceAccount."
+          }
+        }
       },
       "AuditEventInfo": {
         "type": "object",
@@ -6700,8 +6871,19 @@
           "role"
         ],
         "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional. When the key expires, as an RFC 3339 timestamp in the\nfuture (for example `2027-01-31T00:00:00Z`). After it the key is\nrefused with 401 `key_expired`. Not set: the key does not expire."
+          },
           "name": {
             "type": "string"
+          },
+          "platform_admin": {
+            "type": "boolean",
+            "description": "`POST /auth/keys` only: make a platform admin key (no tenant, role\n`admin`, the platform admin flag). Needs `role: admin`. The tenant\nroute refuses `true` with 400 (CLOACINA-T-1065)."
           },
           "role": {
             "$ref": "#/components/schemas/KeyRole",
@@ -7395,13 +7577,20 @@
             "type": "string",
             "description": "RFC 3339 timestamp."
           },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the key expires (RFC 3339); `null`: it does not expire."
+          },
           "id": {
             "type": "string",
             "description": "Key UUID."
           },
           "is_admin": {
             "type": "boolean",
-            "description": "God-mode flag — never granted via the create endpoints."
+            "description": "Platform admin flag. Set only by `POST /auth/keys` with\n`platform_admin: true`, and by the bootstrap."
           },
           "key": {
             "type": "string",
@@ -7438,6 +7627,13 @@
           "created_at": {
             "type": "string",
             "description": "RFC 3339 timestamp."
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the key expires (RFC 3339); `null`: it does not expire. The\nkeys the Kubernetes actuator mints for agents expire."
           },
           "id": {
             "type": "string",
@@ -7752,7 +7948,7 @@
                   "description": "Pool name. Every tenant has `default`."
                 },
                 "settings": {
-                  "$ref": "#/components/schemas/AgentPoolSettings",
+                  "$ref": "#/components/schemas/AgentPoolSettingsInfo",
                   "description": "The pool's settings as stored. A field that is absent means the\nserver-wide default."
                 },
                 "tenant_id": {
@@ -7890,6 +8086,13 @@
                 "created_at": {
                   "type": "string",
                   "description": "RFC 3339 timestamp."
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "When the key expires (RFC 3339); `null`: it does not expire. The\nkeys the Kubernetes actuator mints for agents expire."
                 },
                 "id": {
                   "type": "string",
@@ -8543,6 +8746,37 @@
           }
         }
       },
+      "TaskAttemptErrorDetail": {
+        "type": "object",
+        "description": "The error of one failed attempt of a task (CLOACINA-T-1100).",
+        "required": [
+          "attempt",
+          "message",
+          "failed_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The attempt that failed, from 1."
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The details of the failure (a Python traceback), at most 16 KiB; a\ncut keeps the end."
+          },
+          "failed_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp of the failure."
+          },
+          "message": {
+            "type": "string",
+            "description": "The error message of the attempt."
+          }
+        }
+      },
       "TaskExecutionDetail": {
         "type": "object",
         "description": "One per-task row of an execution (CLOACI-I-0124 / WS-1).",
@@ -8559,6 +8793,13 @@
           "attempt": {
             "type": "integer",
             "format": "int32"
+          },
+          "attempt_errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskAttemptErrorDetail"
+            },
+            "description": "The error of each failed attempt, oldest first; empty when no attempt\nfailed (CLOACINA-T-1100). The last entry of a failed task is the\nerror in `last_error` and `error_details`."
           },
           "completed_at": {
             "type": [

@@ -1,0 +1,24 @@
+// A fixture of the release gate tests: metric calls the scanner reads.
+// metrics::counter!("cloacina_commented_out_total") is a comment and is not read.
+
+const SWEEPS: &str = "cloacina_sweeps_total";
+
+pub fn record(ok: bool) {
+    metrics::counter!("cloacina_jobs_total", "status" => if ok { "ok" } else { "failed" })
+        .increment(1);
+    metrics::counter!(SWEEPS).increment(1);
+    metrics::gauge!(
+        "cloacina_queue_depth",
+        "state" => "queued"
+    )
+    .set(1.0);
+    metrics::counter!("cloacina_unlisted_total").increment(1);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_test_metric_is_not_read() {
+        metrics::counter!("cloacina_test_only_total").increment(1);
+    }
+}

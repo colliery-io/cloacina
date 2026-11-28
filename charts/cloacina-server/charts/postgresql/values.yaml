@@ -18,12 +18,12 @@ image:
   tag: "17"
   pullPolicy: IfNotPresent
 
-# Credentials embedded into the rendered Secret. Override on
-# `helm install` for anything beyond local PoC use. The parent chart's
-# DATABASE_URL template reads these directly.
+# Credentials of the rendered Secret. An empty password is generated at
+# install and kept across upgrades (CLOACINA-T-1069). The parent chart's
+# DATABASE_URL reads the password from the Secret.
 auth:
   username: cloacina
-  password: cloacina
+  password: ""
   database: cloacina
 
 # Persistence. Defaults to a 10 Gi PVC bound to the pod's `/var/lib/postgresql/data`.

@@ -23,11 +23,17 @@ T = TypeVar("T", bound="AgentPoolSettings")
 
 @_attrs_define
 class AgentPoolSettings:
-    """Settings of one agent pool of a tenant (CLOACINA-T-1021).
+    """Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request
+    sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
 
     Each field is optional. A field that is absent means the server-wide
     default (`CLOACINA_AGENT_*` on the server). The settings apply to every
     managed agent of the pool: a pool has one size of agent.
+
+    A request with an unknown field is refused. The answers of the pool
+    routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+    so that an older client reads an answer of a newer server
+    (CLOACINA-T-1149).
 
         Attributes:
             automount_service_account_token (bool | None | Unset): The pod's `automountServiceAccountToken`. Absent means
@@ -41,15 +47,17 @@ class AgentPoolSettings:
                 DNS and the server only).
             image (None | str | Unset): Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`.
             max_agents (int | None | Unset): Most agents of the pool. Not for the pool `default` (its max is the
-                tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
-                than `default` runs exactly this many agents.
+                tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for
+                another pool.
             max_concurrency (int | None | Unset): How many tasks one agent runs at the same time (the agent's
                 `--max-concurrency`). Absent: the agent's own default.
             memory_limit (None | str | Unset): Memory limit of the agent container, a Kubernetes quantity (`32Gi`).
             memory_request (None | str | Unset): Memory request of the agent container, a Kubernetes quantity (`8Gi`).
-            min_agents (int | None | Unset): Fewest agents of the pool. Not for the pool `default` (its floor is
-                the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
-                `default` is not autoscaled yet: set it equal to `max_agents`.
+            min_agents (int | None | Unset): Fewest agents of the pool, at most `max_agents`. The pool scales
+                between the two on the work that waits for it, and goes back to this
+                count when it is idle; `0` lets it scale to zero. Absent: the pool
+                keeps `max_agents` agents. Not for the pool `default` (its floor is the
+                server-wide `CLOACINA_AUTOSCALE_FLOOR`).
             pod_annotations (AgentPoolSettingsPodAnnotations | Unset): Annotations added to the pool's pods (the pod
                 template of its
                 Deployment).

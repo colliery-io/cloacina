@@ -178,11 +178,12 @@ started it, and per task one `task_executions` row, one
 `task_execution_metadata` row and one `contexts` row with the full context
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
 row. A run of a packaged workflow adds one `workflow_execution_package_pins`
-row per package, the version it runs on. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
+row per package, the version it runs on. Each failed task attempt adds one
+`task_attempt_errors` row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
-| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
+| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, the errors of their failed attempts, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
@@ -231,11 +232,12 @@ For a directly-managed server (`cloacinactl server start` or the container image
 upgrade like this:
 
 1. **Back up the database first.** Run a fresh backup ([Back Up and Restore](../backup-and-restore/)) so you can roll back if a migration misbehaves.
-2. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.12.0`), never `:latest`, so the rollout is reproducible.
-3. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed. The start migrates the `public` schema and then the schema of each tenant, one after the other. A new tenant's schema gets its migrations when the tenant is created. The pending migrations of one schema run in one transaction under a PostgreSQL advisory lock: replicas that start together run them once (the others wait, then find nothing to do), and a migration that fails rolls back all of that schema's pending migrations and leaves the schema as it was. If a tenant's schema fails, the server goes on to the other tenants, logs each failure with the tenant's name, and then exits with an error that names every tenant that failed; the schemas that did migrate stay migrated. Fix the named schema and start the server again. A tenant schema with nothing pending costs one short transaction at start.
+2. **Stop the compilers and pause package uploads.** Stop each `cloacina-compiler` before the server upgrade, and send no package uploads until every server runs the new version. Start the new compilers after the servers. A compiler runs no migration: started before the server has migrated, it waits for the server (see [Schema versions](#schema-versions)).
+3. **Pin the new version.** Deploy a specific image tag (e.g. `ghcr.io/colliery-io/cloacina-server:0.12.0`), never `:latest`, so the rollout is reproducible.
+4. **Drain, then swap.** Stop sending new traffic at the reverse proxy, let in-flight requests finish, stop the old process, and start the new one against the **same** `DATABASE_URL`. The server **runs any pending schema migrations automatically on startup** (embedded, transaction-safe), so no manual migration step is needed. The start migrates the `public` schema and then the schema of each tenant, one after the other. A new tenant's schema gets its migrations when the tenant is created. The pending migrations of one schema run in one transaction under a PostgreSQL advisory lock: replicas that start together run them once (the others wait, then find nothing to do), and a migration that fails rolls back all of that schema's pending migrations and leaves the schema as it was. If a tenant's schema fails, the server goes on to the other tenants, logs each failure with the tenant's name, and then exits with an error that names every tenant that failed; the schemas that did migrate stay migrated. Fix the named schema and start the server again. A tenant schema with nothing pending costs one short transaction at start.
 
    A tenant schema is migrated at three moments: when the tenant is created, at each server start, and when a replica first opens the tenant (before it makes the tenant's runner or serves a route of the tenant). The third covers a tenant created through an older replica during a rolling upgrade: the newer replica brings it to its own level when it first opens it. If that migration fails, the replica logs the tenant's name, makes no runner for it, and answers `500 internal_error` for its routes; it tries again at the next request and at the next runner pass (every 30 seconds).
-4. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
+5. **Gate traffic on readiness.** Wait for `GET /ready` to return 200 before re-enabling proxy traffic — it confirms the DB pool is reachable and no loaded graph crashed on boot.
 
 **Downtime note:** a single-replica server has a brief gap between stop and ready.
 For zero-downtime, run multiple replicas against one PostgreSQL database (see
@@ -246,6 +248,47 @@ roll them one at a time behind the proxy.
 
 **Upgrade note, secrets:** a task reads only the secrets its package declares (`secrets(...)` in `#[workflow]`, `@cloaca.workflow_secrets(...)`), through the run's `$secret` bindings. Any other name answers `secret not granted`, on agents and in the server process. A package that reads a secret it does not declare, or one built before `secrets(...)`, stops reading secrets until a new version declares them. A package with no metadata document reads no secret until its compiler describes it. Each refusal by the server writes an audit row with the action `secret.refused`, the secret name and the package. See [Use Secrets in a Workflow](../../workflows/use-secrets/).
 
+**Upgrade note, stored secrets bound to tenant and name:** each stored secret is now bound to its tenant and its name, and each tenant's data key to its tenant (see [Secrets](../../../explanation/service/secrets/)). At its first start with `CLOACINA_SECRET_KEK` set, the new server rewrites the secrets of `public` and of each tenant schema once, one transaction per schema, under the migration lock; later starts find nothing to rewrite. No step is needed from the operator. What to expect:
+
+- With several replicas, a replica of the old version fails every secret read and write of a tenant that the new version has rewritten, with a decryption error, until it stops. A task that runs there and reads a secret fails. To avoid that window, scale the old replicas to zero before the new one starts.
+- A secret created or rotated on an old replica during the roll may be written in the old form. A new server reads it only after its next start rewrites it; a rotate that lands after the rewrite of its tenant fails on the old replica.
+- A schema whose data key does not unwrap under the KEK is left as it is, with a warning at start that names the tenant. A secret row that does not decrypt is left and named the same way.
+- A database error during the rewrite stops the start and names each schema; the schemas already rewritten stay rewritten.
+- Rollback: the previous version cannot read rewritten secrets. Restore the pre-upgrade backup from step 1, or create the secrets again.
+- An embedded program that stores secrets with `SecretStore` calls `SecretStore::bind_stored_rows(org_id, kek)` once for each `org_id` it uses before it reads them.
+
+**Upgrade note, graph firings with the fleet:** with `--default-executor fleet`, a computation-graph firing that no agent takes now fails with its reason (no owning package, no agent with room in the tenant, a refusal of the agent, an enqueue error). Before, the server ran such a firing in its own process. A tenant with graphs and no live agent sees its firings fail, also during a short gap such as a roll of the agent pool; each failure is in the reactor's recent fires. A server that cannot build the fleet graph executor at start no longer starts.
+
+**Upgrade note, active packages (from 0.12):** migration 052 changes which package version is active: the newest version that is not superseded and whose build succeeded. The servers of 0.12 read the active version as the newest that is not superseded. While both run, an upload makes a version that the two read differently until its build ends. Step 2 (no uploads while the servers roll) keeps such a version from being made during the upgrade.
+
+### Schema versions
+
+Each schema (`public`, each tenant schema, and the SQLite file of an embedded
+runner or of `cloacinactl daemon`) records the release that last migrated it,
+in the table `cloacina_schema_release`. The binary that runs the migrations
+writes it in the same transaction, and only raises it. Before it migrates, a
+binary reads it:
+
+| The schema was last migrated by | What the binary does |
+|---|---|
+| no release (a schema from before the table), an older release, or its own minor | runs the pending migrations and records its release |
+| the next minor (one minor ahead) | runs no migration, logs a warning with both releases, and starts. This is the previous minor's server during a rolling upgrade |
+| a release more than one minor ahead, or another major | refuses: the server and the daemon exit, a tenant schema is not opened, and the error names both releases |
+
+Only the server, an embedded runner and `cloacinactl daemon` migrate.
+`cloacina-compiler` runs no migration: at start it reads its schema. While the
+schema lacks migrations of its binary, it waits for the server, logs every 30
+seconds with both releases, and exits after 10 minutes. On a schema more than
+one minor ahead it exits at once with both releases.
+
+Migrations are forward only: no release reverts one, and an older release
+does not run on a schema more than one minor ahead of it. Each migration of a
+minor leaves the previous minor's server working on the new schema: it only
+adds tables, nullable columns, columns with a default and indexes; a column or
+table that the previous minor uses is removed one minor later.
+
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
-against the same database. If a migration changed the schema incompatibly, restore
-the pre-upgrade backup from step 1.
+against the same database: the previous minor runs on the new schema. To go
+back further, or if the new schema does not work for the previous version,
+restore the pre-upgrade backup from step 1. There is no downgrade of a
+schema.
