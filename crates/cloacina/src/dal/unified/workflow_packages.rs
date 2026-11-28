@@ -1104,6 +1104,51 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))
     }
 
+    /// The version pin of an execution for a package, written now when there
+    /// is none (CLOACINA-T-1137). The in-process executor calls it with the
+    /// version it has loaded: the first task of an execution pins that version,
+    /// and each later task gets the stored pin back, which can be another
+    /// version. Errors when the version `package_id` names was deleted before
+    /// the pin was written.
+    pub async fn pin_execution_to_version(
+        &self,
+        workflow_execution_id: UniversalUuid,
+        package_name: &str,
+        package_id: UniversalUuid,
+        version: &str,
+    ) -> Result<crate::dal::unified::models::WorkflowExecutionPackagePin, RegistryError> {
+        use crate::dal::unified::models::WorkflowExecutionPackagePin;
+
+        if let Some(pin) = self
+            .get_execution_pin(workflow_execution_id, package_name)
+            .await?
+        {
+            return Ok(pin);
+        }
+        let pin = WorkflowExecutionPackagePin {
+            workflow_execution_id,
+            package_name: package_name.to_string(),
+            package_id,
+            version: version.to_string(),
+            created_at: UniversalTimestamp::now(),
+        };
+        if !self.write_pin_if_version_exists(pin).await? {
+            return Err(RegistryError::Internal(format!(
+                "version {} of package `{}` was deleted before execution {} was pinned to it",
+                version, package_name, workflow_execution_id.0
+            )));
+        }
+        // Read back: another task of the execution may have pinned first.
+        self.get_execution_pin(workflow_execution_id, package_name)
+            .await?
+            .ok_or_else(|| {
+                RegistryError::Internal(format!(
+                    "version pin of execution {} for package `{}` was not stored",
+                    workflow_execution_id.0, package_name
+                ))
+            })
+    }
+
     /// The dependencies of `task` in the package row `package_id`, from the
     /// task list stored on the row (CLOACINA-T-1137). An execution builds a
     /// task's input context from the version it is pinned to, not from the
