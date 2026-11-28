@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **`cloacina-client`: `ClientError::Auth` and `ClientError::InvalidRequest`
+  keep the error code** (CLOACINA-T-1141). Each holds an `ApiErrorDetail`
+  with the server's `message` and its `code`, in place of a `String`.
+  `ClientError::code()` now gives the code of a 400, 401, 403 or 422 too.
+  The error text is unchanged. A caller that read the `String` reads
+  `detail.message` (or `detail.to_string()`); read the code to tell
+  refusals apart.
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task

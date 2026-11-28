@@ -48,7 +48,7 @@ mod profile;
 mod ws;
 
 pub use cloacina_api_types as types;
-pub use error::ClientError;
+pub use error::{ApiErrorDetail, ClientError};
 pub use profile::resolve_api_key_scheme;
 pub use ws::{DELIVERY_PROTOCOL_VERSION, DeliveryPush, SubscribeOptions};
 
