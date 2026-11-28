@@ -76,11 +76,14 @@ until an agent of its tenant can take it. A poll trigger's polls run on an
 agent of its tenant too: with `fleet.actuator=kubernetes` a tenant with a poll
 trigger keeps one agent; with `fleet.externalAgents=true` keep one agent of
 each such tenant running ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+A Python polling accumulator's poll function runs on an agent of its tenant
+as well; the agent floor does not count it, so keep one agent of such a
+tenant running ([Polling accumulators on agents](../../../explanation/service/execution-agent-fleet/#polling-accumulators-on-agents)).
 A package that uses a stream accumulator on a native provider, a Python
-polling or stream accumulator, or a polling accumulator in a Rust package does
-not load: its `build_status` is `failed` and `build_error` names what it uses.
-Python reactors and graphs with other accumulators load, and their firings run
-on agents. A native provider that only a constructor-node task uses loads: the
+stream accumulator, or a polling accumulator in a Rust package does not load:
+its `build_status` is `failed` and `build_error` names what it uses. Python
+reactors and graphs with other accumulators load, and their firings run on
+agents. A native provider that only a constructor-node task uses loads: the
 task runs on an agent.
 
 `server.singleTrust=true` is for a server whose every tenant is trusted as

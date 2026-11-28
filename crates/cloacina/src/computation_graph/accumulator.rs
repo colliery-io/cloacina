@@ -680,6 +680,10 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
 
     let interval = poller.interval();
     let mut timer = tokio::time::interval(interval);
+    // One poll at a time: an interval that passes while a poll runs is
+    // skipped, never queued (CLOACINA-T-1156; a poll on an agent can take
+    // longer than its interval).
+    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // Skip the first immediate tick — we want to wait one interval before first poll
     timer.tick().await;
 
@@ -693,7 +697,16 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
         tokio::select! {
             _ = timer.tick() => {
                 let emit_started = std::time::Instant::now();
-                if let Some(output) = poller.poll().await {
+                // A poll still out at shutdown is dropped: its value would
+                // have no reactor to go to.
+                let polled = tokio::select! {
+                    polled = poller.poll() => polled,
+                    _ = shutdown.changed() => {
+                        tracing::debug!(name = %ctx.name, "polling accumulator shutting down during a poll");
+                        break;
+                    }
+                };
+                if let Some(output) = polled {
                     if let Err(e) = ctx.output.send(&output).await {
                         tracing::error!(name = %ctx.name, "polling boundary send failed: {}", e);
                     } else {

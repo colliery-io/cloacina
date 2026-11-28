@@ -923,6 +923,7 @@ impl RegistryReconciler {
                         &cloacina_manifest.metadata,
                         cg_provider_root.as_deref(),
                         graph_reactor,
+                        None,
                     )
                     .await?;
                     if let Some(graph_meta) = cg_view.graph.as_ref() {
@@ -2132,6 +2133,21 @@ impl RegistryReconciler {
         // resolve there — never against process-wide state another tenant shares.
         provider_root: Option<&std::path::Path>,
     ) -> Result<(), RegistryError> {
+        self.step_load_reactors_with_polls(metadata, view, manifest, provider_root, None)
+            .await
+    }
+
+    /// [`step_load_reactors`](Self::step_load_reactors) where, with `polls`,
+    /// each polling accumulator polls through the dispatcher of the runner
+    /// (CLOACINA-T-1156, the metadata-only load of a Python package).
+    pub(super) async fn step_load_reactors_with_polls(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        provider_root: Option<&std::path::Path>,
+        polls: Option<&crate::computation_graph::packaging_bridge::DispatchedPolls>,
+    ) -> Result<(), RegistryError> {
         // CLOACINA-T-1135: the reactor of this package that its graph binds
         // to runs with the graph's input strategy (the manifest's, else the
         // graph's own), on every load path. A reactor of another package keeps
@@ -2147,8 +2163,15 @@ impl RegistryReconciler {
                 crate::computation_graph::packaging_bridge::input_strategy_named(strategy),
             ))
         });
-        self.step_load_reactors_with(metadata, view, manifest, provider_root, graph_reactor)
-            .await
+        self.step_load_reactors_with(
+            metadata,
+            view,
+            manifest,
+            provider_root,
+            graph_reactor,
+            polls,
+        )
+        .await
     }
 
     /// [`Self::step_load_reactors`], with the reactor the package's graph
@@ -2162,6 +2185,7 @@ impl RegistryReconciler {
         manifest: &cloacina_workflow_plugin::CloacinaMetadata,
         provider_root: Option<&std::path::Path>,
         graph_reactor: Option<(&str, crate::computation_graph::reactor::InputStrategy)>,
+        polls: Option<&crate::computation_graph::packaging_bridge::DispatchedPolls>,
     ) -> Result<(), RegistryError> {
         if view.reactors.is_empty() {
             return Ok(());
@@ -2177,13 +2201,14 @@ impl RegistryReconciler {
             return Ok(());
         };
         if let Err(e) =
-            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler_in(
+            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler_with_polls(
                 &view.reactors,
                 scheduler,
                 &manifest.accumulators,
                 Some(self.config.default_tenant_id.clone()),
                 provider_root,
                 graph_reactor,
+                polls,
             )
             .await
         {
@@ -2324,6 +2349,29 @@ impl RegistryReconciler {
         // `step_load_reactors`).
         provider_root: Option<&std::path::Path>,
     ) -> Result<Option<String>, RegistryError> {
+        self.step_load_reactor_bound_cgs_with_polls(
+            metadata,
+            view,
+            manifest,
+            library_data,
+            provider_root,
+            None,
+        )
+        .await
+    }
+
+    /// [`step_load_reactor_bound_cgs`](Self::step_load_reactor_bound_cgs)
+    /// where, with `polls`, each polling accumulator of the graph polls
+    /// through the dispatcher of the runner (CLOACINA-T-1156).
+    pub(super) async fn step_load_reactor_bound_cgs_with_polls(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        library_data: Option<&[u8]>,
+        provider_root: Option<&std::path::Path>,
+        polls: Option<&crate::computation_graph::packaging_bridge::DispatchedPolls>,
+    ) -> Result<Option<String>, RegistryError> {
         let Some(graph_meta) = view.graph.clone() else {
             return Ok(None);
         };
@@ -2435,6 +2483,13 @@ impl RegistryReconciler {
             ),
         };
         decl.tenant_id = Some(self.config.default_tenant_id.clone());
+        if let Some(polls) = polls {
+            crate::computation_graph::packaging_bridge::dispatch_polling_accumulators(
+                &mut decl.accumulators,
+                &graph_meta.accumulators,
+                polls,
+            );
+        }
 
         // Mirror the CG into the scoped Runtime so executors can look it
         // up without going through the global registry.

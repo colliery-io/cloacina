@@ -37,13 +37,17 @@
 //! - each poll trigger, as a [`DispatchedTrigger`] and its schedule row
 //!   (CLOACINA-T-1077): the scheduler polls it at the interval of the
 //!   document, and each poll runs on an agent of the tenant, which answers
-//!   fire or skip.
+//!   fire or skip;
+//! - each polling accumulator of a Python package, with no code
+//!   (CLOACINA-T-1156): the timer, the boundary send and the checkpoint stay
+//!   here, and each poll runs on an agent of the tenant, which answers a
+//!   value or no change.
 //!
 //! A package whose code would have to run in this process is refused, with
 //! the reason. For a document of format 2 the list is in
 //! [`crate::registry::in_process`]: a stream accumulator on a native
-//! provider, a Python polling or stream accumulator, and a Rust package's
-//! polling accumulator. A document of format 1 keeps the rule of
+//! provider, a Python stream accumulator, and a Rust package's polling
+//! accumulator. A document of format 1 keeps the rule of
 //! CLOACINA-T-1075, less the poll trigger: any bundled native provider, and
 //! any Python reactor, graph or accumulator.
 //!
@@ -328,14 +332,38 @@ impl RegistryReconciler {
 
         // Cron schedules: data.
         created_schedule_ids.extend(self.step_load_cron_triggers(metadata, &view).await?);
+        // CLOACINA-T-1156: a Python polling accumulator keeps its timer, its
+        // boundary send and its checkpoint here; each poll goes to an agent
+        // of the tenant through the runner's dispatcher.
+        let polls = (document.language == "python").then(|| {
+            crate::computation_graph::packaging_bridge::DispatchedPolls {
+                tenant_id: self.config.default_tenant_id.clone(),
+                package_name: metadata.package_name.clone(),
+                package_version: metadata.version.clone(),
+                dispatcher: self.poll_dispatcher.clone(),
+            }
+        });
         // Reactors: their accumulators are code of this crate.
-        self.step_load_reactors(metadata, &view, manifest, provider_root.as_deref())
-            .await?;
+        self.step_load_reactors_with_polls(
+            metadata,
+            &view,
+            manifest,
+            provider_root.as_deref(),
+            polls.as_ref(),
+        )
+        .await?;
         // The graph, with no code behind it: the graph executor sends each
         // firing to an agent. A Python graph reaches here only from a
         // document of format 2 (CLOACINA-T-1078); format 1 refused it above.
         let graph_name = self
-            .step_load_reactor_bound_cgs(metadata, &view, manifest, None, provider_root.as_deref())
+            .step_load_reactor_bound_cgs_with_polls(
+                metadata,
+                &view,
+                manifest,
+                None,
+                provider_root.as_deref(),
+                polls.as_ref(),
+            )
             .await?;
 
         // Tasks and the workflow.
@@ -1423,17 +1451,127 @@ mod tests {
         scheduler.shutdown_all().await;
     }
 
+    /// Records each firing's input, in place of the fleet graph executor.
+    #[derive(Default)]
+    struct Firings(Mutex<Vec<std::collections::HashMap<String, String>>>);
+
+    #[async_trait]
+    impl crate::computation_graph::graph_executor::GraphExecutor for Firings {
+        async fn execute(
+            &self,
+            fire: crate::computation_graph::graph_executor::GraphFireEvent,
+        ) -> cloacina_computation_graph::GraphResult {
+            let cache = crate::computation_graph::packaging_bridge::input_cache_to_ffi_cache(
+                &fire.snapshot,
+            )
+            .unwrap();
+            self.0.lock().unwrap().push(cache);
+            cloacina_computation_graph::GraphResult::completed(Vec::new())
+        }
+    }
+
+    /// Stands in for the fleet: each poll of a polling accumulator answers
+    /// the next value of a count, then no change.
+    #[derive(Default)]
+    struct AccumulatorPolls(Mutex<Vec<crate::trigger::AccumulatorPollRequest>>);
+
+    #[async_trait]
+    impl crate::trigger::PollDispatcher for AccumulatorPolls {
+        async fn poll(
+            &self,
+            _request: &crate::trigger::PollRequest,
+        ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
+            Ok(cloacina_workflow::TriggerResult::Skip)
+        }
+        async fn poll_accumulator(
+            &self,
+            request: &crate::trigger::AccumulatorPollRequest,
+        ) -> Result<Option<serde_json::Value>, String> {
+            let mut seen = self.0.lock().unwrap();
+            seen.push(request.clone());
+            Ok((seen.len() == 1).then(|| serde_json::json!({"price": 42, "from": "agent"})))
+        }
+        fn wait(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+    }
+
+    /// A Python polling accumulator loads from a format 2 document
+    /// (CLOACINA-T-1156): the server keeps its timer, each poll asks the
+    /// runner's dispatcher with the tenant, the package and the accumulator,
+    /// and the value answered reaches the graph's firing. "No change" fires
+    /// nothing.
+    #[tokio::test]
+    async fn a_python_polling_accumulator_polls_through_the_dispatcher_into_the_graph() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let (mut reconciler, scheduler) = reconciler_with_graphs(registry.clone());
+        let slot = crate::trigger::empty_poll_dispatcher_slot();
+        reconciler.set_poll_dispatcher_slot(slot.clone());
+        let polls = Arc::new(AccumulatorPolls::default());
+        *slot.write().unwrap() = Some(polls.clone());
+        let firings = Arc::new(Firings::default());
+        scheduler.set_graph_executor(firings.clone()).await;
+        let meta = metadata("pkg");
+        *registry.stored.lock().unwrap() = Some(stored(python_graph_document(vec![accumulator(
+            "ticks",
+            "polling",
+            &[("interval", "100ms")],
+        )])));
+
+        load(&reconciler, &meta, "python").await.expect("loads");
+        assert!(registry.refused.lock().unwrap().is_empty());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while firings.0.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // A few more intervals: each answers no change.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let fired = firings.0.lock().unwrap().clone();
+        assert_eq!(fired.len(), 1, "one value, one firing: {fired:?}");
+        let value: serde_json::Value = serde_json::from_str(&fired[0]["ticks"]).unwrap();
+        assert_eq!(value, serde_json::json!({"price": 42, "from": "agent"}));
+        let seen = polls.0.lock().unwrap().clone();
+        assert!(seen.len() >= 2, "{seen:?}");
+        assert_eq!(
+            seen[0],
+            crate::trigger::AccumulatorPollRequest {
+                tenant_id: "acme".to_string(),
+                package_name: "pkg".to_string(),
+                package_version: "1.0.0".to_string(),
+                accumulator_name: "ticks".to_string(),
+            }
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// With no dispatcher, a polling accumulator emits nothing: its poll
+    /// function never runs in this process.
+    #[tokio::test]
+    async fn with_no_dispatcher_a_python_polling_accumulator_emits_nothing() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let (reconciler, scheduler) = reconciler_with_graphs(registry.clone());
+        let firings = Arc::new(Firings::default());
+        scheduler.set_graph_executor(firings.clone()).await;
+        *registry.stored.lock().unwrap() = Some(stored(python_graph_document(vec![accumulator(
+            "ticks",
+            "polling",
+            &[("interval", "100ms")],
+        )])));
+        load(&reconciler, &metadata("pkg"), "python")
+            .await
+            .expect("loads");
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(firings.0.lock().unwrap().is_empty());
+        scheduler.shutdown_all().await;
+    }
+
     /// Each kind that stays refused on a format 2 document is refused and
     /// recorded, with the kind and the names in the reason; nothing is
     /// loaded.
     #[tokio::test]
     async fn the_refused_kinds_of_a_format_2_document() {
         let cases: Vec<(&str, PackageDescription, &str)> = vec![
-            (
-                "python",
-                python_graph_document(vec![accumulator("ticks", "polling", &[("interval", "2s")])]),
-                "Python polling accumulator(s) 'ticks'",
-            ),
             (
                 "python",
                 python_graph_document(vec![accumulator(

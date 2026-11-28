@@ -383,9 +383,15 @@ In a package, the server builds each accumulator from its type and its config (t
 |---|---|---|
 | `passthrough`, `batch`, `state` | loads | loads |
 | `stream` | loads, unless its `provider` is native | refused |
-| `polling` | refused: a package carries no poll code | refused: the poll function would run in the server |
+| `polling` | refused: a package carries no poll code | loads; the poll function runs on an agent of the tenant |
 
 The graph of a package that loads runs on an agent of the tenant at each firing. A refused package gets `build_status` `failed`, and `build_error` names the accumulators. With `--single-trust`, and in embedded use and the daemon, no type is refused.
+
+A Python `polling` accumulator keeps its timer, its last-output checkpoint and the send to its reactor in the server; at each interval the server sends the poll to an agent of the tenant, which calls the poll function and answers its value or no change ([polling accumulators on agents](../../../explanation/service/execution-agent-fleet/#polling-accumulators-on-agents)). So on a server:
+
+- each poll is one dispatch and needs a live agent of the tenant; a poll with no answer emits nothing that interval;
+- one poll runs at a time; an interval that passes while a poll is out is skipped;
+- module globals of the poll function last only as long as the agent's worker that runs the polls; keep state that must last outside the process.
 
 ### Input strategy
 

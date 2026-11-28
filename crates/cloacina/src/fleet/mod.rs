@@ -26,7 +26,8 @@ pub mod poll;
 pub mod protocol;
 
 pub use poll::{
-    POLL_JOB_CAPABILITY, POLL_PACKET_KIND, PollFailure, PollWorkPacket, poll_outcome,
+    ACCUMULATOR_POLL_CAPABILITY, POLL_JOB_CAPABILITY, POLL_PACKET_KIND, PollFailure,
+    PollWorkPacket, accumulator_poll_from_outcome, accumulator_poll_outcome, poll_outcome,
     poll_result_from_outcome,
 };
 pub use protocol::*;

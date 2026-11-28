@@ -225,7 +225,7 @@ impl WorkerInput {
                 stop_id: Some(job.packet.poll_id.clone()),
                 timeout_seconds: job.packet.timeout_seconds,
                 memory_request: None,
-                name: job.packet.trigger_name.clone(),
+                name: job.packet.target_name().to_string(),
                 noun: "poll",
             },
         }
@@ -2897,6 +2897,7 @@ pub(crate) mod tests {
                 tenant_id: None,
                 language: Some("rust".into()),
                 not_after_unix_ms: None,
+                accumulator_name: None,
             },
             package: PreparedPackage {
                 digest: "none".into(),
@@ -3113,6 +3114,127 @@ pub(crate) mod tests {
             ctx.get("polled_by").and_then(|v| v.as_u64()),
             Some(u64::from(here))
         );
+    }
+
+    // ── Polls of polling accumulators (CLOACINA-T-1156) ───────────────────
+
+    /// Pack a Python graph package with two polling accumulators and a
+    /// reactor: `t1156_tick` answers the process id as `polled_by`,
+    /// `t1156_quiet` answers `None`.
+    fn python_accumulator_package(dir: &std::path::Path) -> PreparedPackage {
+        let source = dir.join("t1156-py");
+        std::fs::create_dir_all(source.join("workflow/t1156_py")).unwrap();
+        std::fs::write(
+            source.join("package.toml"),
+            "[package]\nname = \"t1156-py\"\nversion = \"0.1.0\"\n\
+             interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+             extension = \"cloacina\"\n\n[metadata]\ngraph_name = \"t1156_graph\"\n\
+             language = \"python\"\ndescription = \"worker test\"\n\
+             entry_module = \"t1156_py.graph\"\nreaction_mode = \"when_any\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("workflow/t1156_py/__init__.py"), "").unwrap();
+        std::fs::write(
+            source.join("workflow/t1156_py/graph.py"),
+            "import os\nimport cloaca\n\n\n\
+             @cloaca.polling_accumulator(interval=\"5s\")\n\
+             def t1156_tick():\n    return {\"polled_by\": os.getpid()}\n\n\n\
+             @cloaca.polling_accumulator(interval=\"5s\")\n\
+             def t1156_quiet():\n    return None\n\n\n\
+             @cloaca.reactor(name=\"t1156_reactor\", accumulators=[\"t1156_tick\", \"t1156_quiet\"], mode=\"when_any\")\n\
+             class _Reactor:\n    pass\n",
+        )
+        .unwrap();
+        let archive = dir.join("t1156-py.cloacina");
+        fidius_core::package::pack_package(&source, Some(&archive)).unwrap();
+        PreparedPackage {
+            digest: format!("t1156-py-{}", std::process::id()),
+            library: None,
+            source_archive: Some(archive),
+            vendored_set: None,
+            providers: Providers::None,
+        }
+    }
+
+    /// A poll of `accumulator` in the package of
+    /// [`python_accumulator_package`].
+    fn python_accumulator_job(name: &str, package: &PreparedPackage, accumulator: &str) -> PollJob {
+        let mut one = poll_job(name, None);
+        one.package = package.clone();
+        one.packet.language = Some("python".into());
+        one.packet.package_name = "t1156-py".into();
+        one.packet.workflow_name = String::new();
+        one.packet.trigger_name = String::new();
+        one.packet.accumulator_name = Some(accumulator.to_string());
+        one
+    }
+
+    /// The value as the server reads it from the report.
+    fn accumulator_answer(end: PacketEnd) -> Option<serde_json::Value> {
+        match end {
+            PacketEnd::Report(outcome) => {
+                match cloacina::fleet::accumulator_poll_from_outcome(outcome) {
+                    Ok(answer) => answer,
+                    Err(e) => panic!("not an accumulator poll answer: {e}"),
+                }
+            }
+            PacketEnd::Cancelled => panic!("the poll was cancelled"),
+        }
+    }
+
+    /// A real Python polling accumulator's poll function runs in a worker:
+    /// its value reaches the server with the worker's process id; `None` is
+    /// no change; an accumulator the package does not have fails with why.
+    /// The same poll in the agent process gives the value from this process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_python_polling_accumulator_runs_in_a_worker_and_answers_its_value() {
+        let settings = test_settings("py-acc-poll", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let package = python_accumulator_package(&settings.work_root);
+        let here = std::process::id();
+
+        let value = accumulator_answer(
+            run_poll_in_worker(
+                python_accumulator_job("acc_tick", &package, "t1156_tick"),
+                &settings,
+            )
+            .await,
+        )
+        .expect("a value");
+        let polled_by = value["polled_by"].as_u64().unwrap();
+        assert_ne!(polled_by, u64::from(here), "a worker process ran the poll");
+
+        let quiet = accumulator_answer(
+            run_poll_in_worker(
+                python_accumulator_job("acc_quiet", &package, "t1156_quiet"),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(quiet, None, "no change");
+
+        let missing = run_poll_in_worker(
+            python_accumulator_job("acc_missing", &package, "t1156_none"),
+            &settings,
+        )
+        .await;
+        let (class, message) = failure(missing);
+        assert_eq!(class, FailureClassification::TaskError);
+        assert!(
+            message.contains("has no polling accumulator 't1156_none'"),
+            "{message}"
+        );
+
+        cloacina_python::install();
+        let mut inline = python_accumulator_job("acc_inline", &package, "t1156_tick");
+        inline.work_dir = settings.work_root.join("t1156-inline");
+        let value = cloacina::fleet::accumulator_poll_from_outcome(
+            crate::run_poll_job(inline, Some(Duration::from_secs(30)), || {}).await,
+        )
+        .expect("an answer")
+        .expect("a value");
+        assert_eq!(value["polled_by"].as_u64(), Some(u64::from(here)));
     }
 
     /// A second poll of one build reuses the warm worker, under a key of

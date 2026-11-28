@@ -31,6 +31,19 @@
 //! An agent that can run polls says so at registration with the capability
 //! [`POLL_JOB_CAPABILITY`]. The server sends polls only to such an agent, so
 //! an agent of a release before this one is never sent one.
+//!
+//! The same packet carries a poll of a Python polling accumulator
+//! (CLOACINA-T-1156): [`PollWorkPacket::accumulator_name`] names it. The agent
+//! calls the accumulator's poll function and answers with one of:
+//!
+//! - `Success { context: {"decision": "emit", "value": …} }`: the JSON value
+//!   the poll function returned;
+//! - `Success { context: {"decision": "skip"} }`: no change (the function
+//!   returned `None`);
+//! - `Failure` and `Refused` as for a trigger.
+//!
+//! An agent that can run them registers [`ACCUMULATOR_POLL_CAPABILITY`]; an
+//! agent with only [`POLL_JOB_CAPABILITY`] is never sent one.
 
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +57,12 @@ pub const POLL_PACKET_KIND: &str = "agent_poll";
 /// The capability an agent registers when it can run poll packets.
 pub const POLL_JOB_CAPABILITY: &str = "job:poll";
 
-/// One poll of one trigger, sent to an agent of the trigger's tenant.
+/// The capability an agent registers when it can run polls of polling
+/// accumulators (CLOACINA-T-1156).
+pub const ACCUMULATOR_POLL_CAPABILITY: &str = "job:accumulator_poll";
+
+/// One poll of one trigger, or of one polling accumulator, sent to an agent
+/// of its tenant.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PollWorkPacket {
     pub protocol_version: u32,
@@ -73,12 +91,66 @@ pub struct PollWorkPacket {
     /// that the server moves to another agent after an eviction is the case.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_after_unix_ms: Option<i64>,
+    /// A poll of this polling accumulator of the package, not of a trigger
+    /// (CLOACINA-T-1156). `trigger_name` is then empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accumulator_name: Option<String>,
 }
 
 impl PollWorkPacket {
     /// Whether the server still waits for the answer at `now_unix_ms`.
     pub fn still_wanted(&self, now_unix_ms: i64) -> bool {
         self.not_after_unix_ms.is_none_or(|end| now_unix_ms <= end)
+    }
+
+    /// The trigger or the accumulator the poll is of, for logs.
+    pub fn target_name(&self) -> &str {
+        self.accumulator_name
+            .as_deref()
+            .unwrap_or(&self.trigger_name)
+    }
+}
+
+/// The outcome an agent reports for one poll of a polling accumulator
+/// (CLOACINA-T-1156): `Ok(Some(value))` is emit, `Ok(None)` no change, `Err`
+/// the poll function's error.
+pub fn accumulator_poll_outcome(result: Result<Option<serde_json::Value>, String>) -> AgentOutcome {
+    match result {
+        Ok(Some(value)) => AgentOutcome::Success {
+            context: serde_json::json!({ "decision": "emit", "value": value }),
+        },
+        Ok(None) => AgentOutcome::Success {
+            context: serde_json::json!({ "decision": "skip" }),
+        },
+        Err(message) => AgentOutcome::Failure {
+            message,
+            classification: FailureClassification::TaskError,
+        },
+    }
+}
+
+/// Read an agent's outcome for a poll of a polling accumulator:
+/// `Ok(Some(value))` to emit, `Ok(None)` for no change.
+pub fn accumulator_poll_from_outcome(
+    outcome: AgentOutcome,
+) -> Result<Option<serde_json::Value>, PollFailure> {
+    match outcome {
+        AgentOutcome::Success { context } => {
+            match context.get("decision").and_then(|d| d.as_str()) {
+                Some("skip") => Ok(None),
+                Some("emit") => match context.get("value") {
+                    Some(value) => Ok(Some(value.clone())),
+                    None => Err(PollFailure::BadAnswer(format!(
+                        "an emit with no value: {context}"
+                    ))),
+                },
+                _ => Err(PollFailure::BadAnswer(format!(
+                    "no decision \"emit\" or \"skip\" in {context}"
+                ))),
+            }
+        }
+        AgentOutcome::Failure { message, .. } => Err(PollFailure::TriggerFailed(message)),
+        AgentOutcome::Refused { reason, message } => Err(PollFailure::Refused { reason, message }),
     }
 }
 
@@ -187,7 +259,52 @@ mod tests {
             tenant_id: Some("acme".into()),
             language: Some("python".into()),
             not_after_unix_ms: not_after,
+            accumulator_name: None,
         }
+    }
+
+    /// A poll of a polling accumulator names it, and an older packet with no
+    /// such field reads as a trigger poll.
+    #[test]
+    fn an_accumulator_poll_names_its_accumulator_on_the_wire() {
+        let mut p = packet(None);
+        assert!(
+            !serde_json::to_string(&p)
+                .unwrap()
+                .contains("accumulator_name")
+        );
+        assert_eq!(p.target_name(), "watch_inbox");
+        p.trigger_name = String::new();
+        p.accumulator_name = Some("prices".into());
+        let back: PollWorkPacket =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back.accumulator_name.as_deref(), Some("prices"));
+        assert_eq!(back.target_name(), "prices");
+    }
+
+    /// Emit with its value, no change, and the poll function's error cross
+    /// the wire; a trigger's answer is not an accumulator's.
+    #[test]
+    fn an_accumulator_poll_answer_crosses_the_wire() {
+        let value = serde_json::json!({"price": 7});
+        assert_eq!(
+            accumulator_poll_from_outcome(accumulator_poll_outcome(Ok(Some(value.clone()))))
+                .unwrap(),
+            Some(value)
+        );
+        assert_eq!(
+            accumulator_poll_from_outcome(accumulator_poll_outcome(Ok(None))).unwrap(),
+            None
+        );
+        let failed =
+            accumulator_poll_from_outcome(accumulator_poll_outcome(Err("feed down".into())))
+                .unwrap_err();
+        assert!(matches!(&failed, PollFailure::TriggerFailed(m) if m == "feed down"));
+        let fire = poll_outcome(Ok(TriggerResult::Fire(None)));
+        assert!(matches!(
+            accumulator_poll_from_outcome(fire),
+            Err(PollFailure::BadAnswer(_))
+        ));
     }
 
     #[test]

@@ -1145,6 +1145,61 @@ the gauge `cloacina_fleet_poll_floor_tenants`.
 With `--single-trust` the server polls in its own process, as the daemon
 does; the scheduler's claim and the off-loop poll are the same.
 
+## Polling accumulators on agents
+
+A Python polling accumulator (`@cloaca.polling_accumulator(interval=...)`)
+calls its poll function at each interval and emits what it returns to its
+reactor. On a server its poll function runs on an agent of its tenant
+(CLOACINA-T-1156); the accumulator itself stays in the server:
+
+1. **Timer and owner.** The accumulator runs with its reactor, on the server
+   replica that owns the reactor, so one replica polls each accumulator. Its
+   timer, its last-output checkpoint and the send of each value to the
+   reactor stay there, as for any accumulator.
+2. **The poll.** At each interval the server picks a live agent of the
+   tenant, pool `default`, with a free slot and the capability
+   `job:accumulator_poll`, and sends a poll packet (kind `agent_poll`, with
+   the accumulator's name) on the delivery outbox. A poll takes one slot of
+   the agent while it runs.
+3. **On the agent.** A worker process imports the package, as for a poll
+   trigger, and calls the poll function. The agent answers its value (JSON)
+   or no change (the function returned `None`). The limits, the time limit
+   `--fleet-poll-timeout-s` and the warm workers are those of a poll trigger
+   above; the warm worker key is the same (kind `poll`).
+4. **On the server.** A value goes to the reactor and is the new checkpoint,
+   as a value polled in process was. No change sends nothing.
+
+**One poll at a time.** The next poll starts when the last one ended. An
+interval that passes while a poll is out is skipped, never queued, and
+counted in `cloacina_accumulator_polls_total{outcome="in_flight"}`.
+
+**A poll that gets no answer** (no live agent that can run it, no answer
+in time, a refusal, the poll function raised or returned a value that is not
+JSON) emits nothing that interval. The server logs the reason and counts it
+in `cloacina_fleet_polls_missed_total{reason}` or
+`cloacina_fleet_polls_total{answer="failed"}`, and the next interval polls
+again. An agent of a release before polling accumulators registers no
+`job:accumulator_poll` and is never sent one.
+
+**Keep one agent.** The fleet's floor of one agent counts poll triggers only.
+A tenant whose polling accumulators are its only polled code keeps its
+configured floor (`CLOACINA_AUTOSCALE_FLOOR`, 0 by default) and can scale to
+zero; then nothing is polled. Keep one agent running for such a tenant: a
+floor of 1, or an agent the operator runs.
+
+**State between polls.** Module globals of the poll function last as long as
+the worker that runs the polls of the build: the same rules as a poll
+trigger's state above. A count kept in a module global starts again in a new
+worker. Keep state that must last in a store outside the process.
+
+**Metrics.** `cloacina_accumulator_polls_total{outcome}` (`emit`, `skip`,
+`missed`, `in_flight`), as the accumulator sees its polls, and
+`cloacina_fleet_polls_total{answer}` (`emit`, `skip`, `failed`, `missed`)
+and `cloacina_fleet_polls_missed_total{reason}`, shared with poll triggers.
+
+With `--single-trust` the server imports the package and calls the poll
+function in its own process, as the daemon does.
+
 ## When to use the fleet
 
 | Situation | Use |
