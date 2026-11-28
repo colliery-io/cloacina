@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
-from .suite import workload
+from .suite import alerts, workload
 from .world import PublishWorld
 
 TERMINAL = ("Completed", "Failed", "Cancelled")
@@ -161,6 +162,19 @@ class StandingWorld(PublishWorld):
             self.ensure_driver_secret(tenant)
             self.setup_schedules(tenant)
         self.workload_ready = True
+
+    def deploy_alert_receiver(self, image):
+        """The suite's alert receiver (`suite/alerts.py`, CLOACINA-T-1115) in
+        the deployment's namespace, on `image` (the agent image: it has
+        Python). The server's alert webhook points at its Service."""
+        script = (Path(__file__).resolve().parent / "suite" / "alerts.py").read_text()
+        items = alerts.manifests(self.ns, image, script)
+        proc = subprocess.run(["kubectl", "apply", "-f", "-"],
+                              input=json.dumps({"apiVersion": "v1", "kind": "List", "items": items}),
+                              env=self._kube_env(), text=True, capture_output=True, check=False)
+        if proc.returncode != 0:
+            raise AssertionError(f"failed to apply the alert receiver: {proc.stderr}")
+        self.kubectl("rollout", "status", f"deploy/{alerts.NAME}", "-n", self.ns, "--timeout=180s")
 
     # -- reading ---------------------------------------------------------------
 

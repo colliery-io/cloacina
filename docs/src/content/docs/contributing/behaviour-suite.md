@@ -123,8 +123,11 @@ angreal test bdd standing --down           # remove the cluster and everything i
 The first call makes the cluster `cloacina-k8s-bdd-standing`; later calls
 attach to it. It installs the server with the Helm chart, with the fleet
 executor, two server replicas (`--server-replicas N` sets another number), a
-database that keeps its data across a restart of its pod, and a run history
-retention of two days. Then it creates the three tenants, their
+database that keeps its data across a restart of its pod, a run history
+retention of two days, and an alert webhook that points at the suite's alert
+receiver. The receiver (`.angreal/test/bdd/suite/alerts.py`) runs in the
+deployment's namespace on the agent image, as the Deployment and Service
+`cloacina-bdd-alerts`, and keeps each alert it gets. Then it creates the three tenants, their
 agents, keys and compilers, publishes the workload's packages with each
 tenant's own key, stores each tenant's secret, creates the scheduled
 workflow instances, and runs `features/standing/standing_workload.feature`.
@@ -141,8 +144,9 @@ pass, with the facts it observed.
 angreal test bdd standing --check
 ```
 
-This forwards the server and the database of the standing deployment to
-localhost, and runs the checker until it is stopped. The report is at
+This forwards the server, the database, the alert receiver (to port 18090)
+and the metrics listener of one server replica (to port 19090) of the
+standing deployment to localhost, and runs the checker until it is stopped. The report is at
 `http://127.0.0.1:8377/`, and as JSON at `http://127.0.0.1:8377/report.json`.
 `--interval` sets the seconds between passes (default 60) and `--port` the
 port of the report.
@@ -185,6 +189,8 @@ judge. `angreal test bdd standing --check` passes both.
 | `--replay FILE…` | Judge recorded snapshots again, with no server. |
 | `--list` | Print the rules, and the promises with no rule yet. |
 | `--disturbances FILE` | The disturbance record. Default `<out>/disturbances.jsonl`. |
+| `--alerts-url URL` | The alert receiver's list (`alerts_url` in the config file). Without it the alert rules cannot judge. |
+| `--metrics-url URL` | The server's `/metrics` (`metrics_url` in the config file). Without it the gauge rules cannot judge. |
 
 The checker needs one key for each tenant with the `read` role, and a
 database user that can read each tenant's schema. It uses the Python

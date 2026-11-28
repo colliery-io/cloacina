@@ -8,6 +8,7 @@ deployment of server, compilers and agents.
 |---|---|---|
 | `capacity/` | Work waits when a team is full, and a task lands on an agent that fits it (CLOACINA-T-1114) | `angreal test bdd standing --chapter capacity` |
 | `publishing/` | A team publishes its own jobs to a shared orchestrator (CLOACINA-T-1026) | `angreal test bdd publish`, or `angreal test bdd standing --chapter publishing` |
+| `operations/` | Alerts, the audit record, the backlog and the lag, retention, a server log with no task output (CLOACINA-T-1115) | `angreal test bdd standing --chapter operations` |
 | `standing/` | The standing workload of several teams (CLOACINA-T-1107) | `angreal test bdd standing` |
 | `tenant_code/` | Tenant code runs only on the tenant's agents and in its compiler: one scenario for each claim of CLOACINA-A-0019 (CLOACINA-T-1079) | `angreal test bdd standing --chart-actuator --chapter tenant_code` |
 | `failure/` | An agent dies, the server restarts, Postgres goes away, and work survives (CLOACINA-T-1112) | `angreal test bdd standing --chapter failure` |

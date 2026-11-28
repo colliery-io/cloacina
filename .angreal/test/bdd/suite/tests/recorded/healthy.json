@@ -7,8 +7,29 @@
     {"id": "d-20261127T100200Z-restart_server", "kind": "restart_server", "target": "server pod bdd-standing-cloacina-server-6c9d7-k2x4p", "pod": "bdd-standing-cloacina-server-6c9d7-k2x4p", "replicas": 2, "mode": "force", "start": "2026-11-27T10:02:00Z", "end": "2026-11-27T10:02:41Z", "settle_until": "2026-11-27T10:17:41Z", "outcome": "pod deleted; bdd-standing-cloacina-server available again"},
     {"id": "d-20261127T110200Z-kill_agent", "kind": "kill_agent", "target": "team_a pod cloacina-agent-7f6b9-q8r2s", "tenant": "team_a", "pod": "cloacina-agent-7f6b9-q8r2s", "agent_id": "a1f0c2d4", "in_flight": 1, "mode": "force", "start": "2026-11-27T11:02:00Z", "end": "2026-11-27T11:02:20Z", "settle_until": "2026-11-27T11:17:20Z", "outcome": "pod deleted; cloacina-agent available again"}
   ],
+  "alerts": {"body": {"started_at": 1795770000.0, "records": [
+    {"received_at": 1795779006.4, "event": "workflow_execution.failed", "delivery": "6f1a0000-0000-4000-8000-0000000a1130", "signed": false,
+     "body": {"schema_version": 1, "event": "workflow_execution.failed", "tenant": "team_a", "workflow": "standing_flaky", "execution_id": "6f1a0000-0000-4000-8000-0000000a1130", "status": "Failed", "trigger_origin": "schedule", "scheduled_time": "2026-11-27T11:30:00+00:00", "failed_task_count": 1}},
+    {"received_at": 1795780807.1, "event": "workflow_execution.failed", "delivery": "6f1a0000-0000-4000-8000-0000000b1200", "signed": false,
+     "body": {"schema_version": 1, "event": "workflow_execution.failed", "tenant": "team_b", "workflow": "standing_flaky", "execution_id": "6f1a0000-0000-4000-8000-0000000b1200", "status": "Failed", "trigger_origin": "schedule", "scheduled_time": "2026-11-27T12:00:00+00:00", "failed_task_count": 1}}
+  ]}},
+  "metrics": {"text": "# HELP cloacina_waiting_tasks Tasks that wait for capacity\n# TYPE cloacina_waiting_tasks gauge\ncloacina_waiting_tasks{pool=\"default\",priority=\"5\",tenant=\"team_a\"} 4\ncloacina_waiting_tasks{pool=\"default\",priority=\"5\",tenant=\"team_b\"} 0\ncloacina_waiting_tasks{pool=\"default\",priority=\"5\",tenant=\"team_c\"} 0\n# TYPE cloacina_schedule_lag_seconds gauge\ncloacina_schedule_lag_seconds{tenant=\"team_a\"} 0\ncloacina_schedule_lag_seconds{tenant=\"team_b\"} 93\ncloacina_schedule_lag_seconds{tenant=\"team_c\"} 0\n"},
   "admin": {
     "db": {
+      "operations_audit": {"rows": [
+        {"id": 4101, "created_at": "2026-11-27T11:15:03.010", "tenant_id": "team_c", "actor_key_id": "c0de0000-0000-4000-8000-0000000c0001", "actor_key_name": "team_c-self-driving", "action": "package.upload", "target": "0c6f3f0e-0000-4000-8000-000000000011", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-py\", \"version\": \"0.1.1\", \"content_hash\": \"ca11\", \"size_bytes\": 611}"},
+        {"id": 4110, "created_at": "2026-11-27T11:35:03.020", "tenant_id": "team_b", "actor_key_id": "c0de0000-0000-4000-8000-0000000b0001", "actor_key_name": "team_b-self-driving", "action": "package.upload", "target": "0b6f3f0e-0000-4000-8000-000000000011", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-py\", \"version\": \"0.1.1\", \"content_hash\": \"ba11\", \"size_bytes\": 610}"},
+        {"id": 4111, "created_at": "2026-11-27T11:35:04.030", "tenant_id": "team_b", "actor_key_id": "c0de0000-0000-4000-8000-0000000b0001", "actor_key_name": "team_b-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000b1135\"}"},
+        {"id": 4120, "created_at": "2026-11-27T11:40:03.010", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "package.upload", "target": "0a6f3f0e-0000-4000-8000-000000000013", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-py\", \"version\": \"0.1.3\", \"content_hash\": \"aa13\", \"size_bytes\": 612}"},
+        {"id": 4121, "created_at": "2026-11-27T11:40:04.020", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1140\"}"},
+        {"id": 4130, "created_at": "2026-11-27T11:50:03.010", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "package.upload", "target": "0a6f3f0e-0000-4000-8000-000000000022", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-rust\", \"version\": \"0.1.2\", \"content_hash\": \"ab12\", \"size_bytes\": 1490}"},
+        {"id": 4131, "created_at": "2026-11-27T11:50:04.020", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1150\"}"},
+        {"id": 4140, "created_at": "2026-11-27T12:15:03.010", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "package.activate", "target": "standing-target-py", "outcome": "ok", "detail": "{\"version\": \"0.1.2\", \"package_id\": \"0a6f3f0e-0000-4000-8000-000000000012\"}"},
+        {"id": 4141, "created_at": "2026-11-27T12:15:03.200", "tenant_id": "team_b", "actor_key_id": "c0de0000-0000-4000-8000-0000000b0001", "actor_key_name": "team_b-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000b1215\"}"},
+        {"id": 4142, "created_at": "2026-11-27T12:15:03.300", "tenant_id": "team_c", "actor_key_id": "c0de0000-0000-4000-8000-0000000c0001", "actor_key_name": "team_c-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000c1215\"}"},
+        {"id": 4143, "created_at": "2026-11-27T12:15:04.020", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1215\"}"},
+        {"id": 4144, "created_at": "2026-11-27T12:16:00.000", "tenant_id": null, "actor_key_id": "c0de0000-0000-4000-8000-000000000001", "actor_key_name": "bootstrap", "action": "tenant.create", "target": "team_d", "outcome": "ok", "detail": "{}"}
+      ]},
       "clock": {"rows": [{"now": "2026-11-27T12:20:00.123456+00:00"}]},
       "capacity_live_agents": {"rows": [
         {"agent_id": "agent-a1", "tenant_id": "team_a", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 3, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:55.101"},
@@ -99,6 +120,15 @@
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:15:00", "status": "Completed"}
         ]},
+        "operations_failed_runs": {"rows": [
+          {"id": "6f1a0000-0000-4000-8000-0000000a1130", "workflow_name": "standing_flaky", "completed_at": "2026-11-27T11:30:05.400"}
+        ]},
+        "operations_retried_runs": {"rows": [
+          {"id": "6f1a0000-0000-4000-8000-0000000a1205", "workflow_name": "standing_flaky", "completed_at": "2026-11-27T12:05:09.100"}
+        ]},
+        "operations_waiting": {"rows": [{"waiting": 4}]},
+        "operations_lag": {"rows": [{"lag_seconds": null, "due": 0}]},
+        "operations_retention": {"rows": [{"old_finished": 0, "oldest_active": "2026-11-24T10:00:03.000", "orphan_tasks": 0, "tenant_since": "2026-11-24T09:00:04.000"}]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:05.210", "runs": 412}]},
         "capacity_hold_tasks": {"rows": [
           {"run": "4e1d0000-0000-4000-8000-0000000a0001", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0001", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.100", "started_at": "2026-11-27T11:20:05.300", "completed_at": "2026-11-27T11:22:05.400", "attempt_errors": 0},
@@ -208,6 +238,13 @@
           {"workflow_name": "standing_flaky", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"}
         ]},
+        "operations_failed_runs": {"rows": [
+          {"id": "6f1a0000-0000-4000-8000-0000000b1200", "workflow_name": "standing_flaky", "completed_at": "2026-11-27T12:00:06.200"}
+        ]},
+        "operations_retried_runs": {"rows": []},
+        "operations_waiting": {"rows": [{"waiting": 0}]},
+        "operations_lag": {"rows": [{"lag_seconds": 95.2, "due": 1}]},
+        "operations_retention": {"rows": [{"old_finished": 0, "oldest_active": null, "orphan_tasks": 0, "tenant_since": "2026-11-24T09:00:05.000"}]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:06.870", "runs": 398}]},
         "capacity_hold_tasks": {"rows": []},
         "capacity_failures": {"rows": []},
@@ -278,6 +315,11 @@
           {"workflow_name": "standing_flaky", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"}
         ]},
+        "operations_failed_runs": {"rows": []},
+        "operations_retried_runs": {"rows": []},
+        "operations_waiting": {"rows": [{"waiting": 0}]},
+        "operations_lag": {"rows": [{"lag_seconds": null, "due": 0}]},
+        "operations_retention": {"rows": [{"old_finished": 0, "oldest_active": null, "orphan_tasks": 0, "tenant_since": "2026-11-24T09:00:06.000"}]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:07.440", "runs": 401}]},
         "capacity_hold_tasks": {"rows": []},
         "capacity_failures": {"rows": []},

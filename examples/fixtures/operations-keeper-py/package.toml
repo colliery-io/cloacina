@@ -1,0 +1,16 @@
+# Fixture of the behaviour suite's "Operations" chapter (CLOACINA-T-1115): a
+# task of the agent pool `keeper`, which no agent serves. A run of it stays
+# active; the retention rule checks that the retention job leaves it.
+[package]
+name = "operations-keeper-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "operations_keeper"
+language = "python"
+description = "operations chapter: a run that stays active, for the retention rule"
+author = "behaviour-suite"
+entry_module = "operations_keeper.tasks"

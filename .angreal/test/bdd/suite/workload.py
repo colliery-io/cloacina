@@ -22,6 +22,9 @@ AGENT_SLOTS = 4
 # The tenant's limit on agents. Equal to AGENTS_PER_TENANT, so a full tenant
 # stays full until its held work ends.
 MAX_AGENTS_PER_TENANT = 2
+# Days of finished runs the standing deployment keeps (`retention.runHistoryDays`;
+# decided on COLLIERY-I-0685, note n-3).
+RUN_HISTORY_DAYS = 2
 
 # The tenant secret that holds a write key of the tenant itself, for its
 # self-driving workflow. One field, `key`.
