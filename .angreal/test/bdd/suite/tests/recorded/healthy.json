@@ -10,6 +10,14 @@
   "admin": {
     "db": {
       "clock": {"rows": [{"now": "2026-11-27T12:20:00.123456+00:00"}]},
+      "capacity_live_agents": {"rows": [
+        {"agent_id": "agent-a1", "tenant_id": "team_a", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 3, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:55.101"},
+        {"agent_id": "agent-a2", "tenant_id": "team_a", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 4, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:54.020"},
+        {"agent_id": "agent-b1", "tenant_id": "team_b", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 4, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:57.330"},
+        {"agent_id": "agent-b2", "tenant_id": "team_b", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 4, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:56.410"},
+        {"agent_id": "agent-c1", "tenant_id": "team_c", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 3, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:51.004"},
+        {"agent_id": "agent-c2", "tenant_id": "team_c", "capabilities": "[\"pool:sized\"]", "max_concurrency": 4, "available_capacity": 2, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:50.870"}
+      ]},
       "agents": {"rows": [
         {"tenant_id": "team_a", "agents": 2, "last_heartbeat": "2026-11-27T12:19:55.101"},
         {"tenant_id": "team_b", "agents": 2, "last_heartbeat": "2026-11-27T12:19:57.330"},
@@ -92,6 +100,22 @@
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:15:00", "status": "Completed"}
         ]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:05.210", "runs": 412}]},
+        "capacity_hold_tasks": {"rows": [
+          {"run": "4e1d0000-0000-4000-8000-0000000a0001", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0001", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.100", "started_at": "2026-11-27T11:20:05.300", "completed_at": "2026-11-27T11:22:05.400", "attempt_errors": 0},
+          {"run": "4e1d0000-0000-4000-8000-0000000a0002", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0002", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.200", "started_at": "2026-11-27T11:22:06.100", "completed_at": "2026-11-27T11:24:06.200", "attempt_errors": 0},
+          {"run": "4e1d0000-0000-4000-8000-0000000a0003", "run_status": "Completed", "priority": 9, "task": "4e1d0000-0000-4000-8000-0000000b0003", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.300", "started_at": "2026-11-27T11:25:30.000", "completed_at": "2026-11-27T11:27:30.100", "attempt_errors": 0},
+          {"run": "4e1d0000-0000-4000-8000-0000000a0004", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0004", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:10.000", "started_at": "2026-11-27T11:22:06.300", "completed_at": "2026-11-27T11:24:06.400", "attempt_errors": 0}
+        ]},
+        "capacity_failures": {"rows": [
+          {"workflow": "standing_flaky", "task": "settle", "kind": "task", "at": "2026-11-27T11:00:03.400", "error": "standing_flaky: planned failure of the run"},
+          {"workflow": "standing_flaky", "task": "wobble", "kind": "attempt", "at": "2026-11-27T11:25:03.100", "error": "standing_flaky: planned failure of the first attempt"}
+        ]},
+        "capacity_scheduled_runs": {"rows": [
+          {"workflow": "standing_rollup", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:41.200"}
+        ]},
+        "capacity_in_flight": {"rows": [
+          {"task": "4e1d0000-0000-4000-8000-0000000c0001", "task_name": "public::standing_rollup::rollup", "status": "Running", "pool": null, "cpu_request_millis": null, "memory_request_bytes": null, "fleet_agent_id": "agent-a1"}
+        ]},
         "last_runs": {"rows": [
           {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.004"},
           {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.310"},
@@ -185,6 +209,14 @@
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"}
         ]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:06.870", "runs": 398}]},
+        "capacity_hold_tasks": {"rows": []},
+        "capacity_failures": {"rows": []},
+        "capacity_scheduled_runs": {"rows": [
+          {"workflow": "standing_rollup", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:02.300"},
+          {"workflow": "standing_flaky", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:02.900"},
+          {"workflow": "standing_rollup", "scheduled_time": "2026-11-27T11:30:00", "first_task_started": "2026-11-27T11:30:02.100"}
+        ]},
+        "capacity_in_flight": {"rows": []},
         "last_runs": {"rows": [
           {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.090"},
           {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.400"},
@@ -247,6 +279,16 @@
           {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"}
         ]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:07.440", "runs": 401}]},
+        "capacity_hold_tasks": {"rows": []},
+        "capacity_failures": {"rows": []},
+        "capacity_scheduled_runs": {"rows": [
+          {"workflow": "standing_extract", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:03.000"}
+        ]},
+        "capacity_in_flight": {"rows": [
+          {"task": "4e1d0000-0000-4000-8000-0000000c0002", "task_name": "team_c::capacity_sized::sized", "status": "Running", "pool": "sized", "cpu_request_millis": 250, "memory_request_bytes": 419430400, "fleet_agent_id": "agent-c2"},
+          {"task": "4e1d0000-0000-4000-8000-0000000c0003", "task_name": "team_c::capacity_sized::sized", "status": "Running", "pool": "sized", "cpu_request_millis": 250, "memory_request_bytes": 419430400, "fleet_agent_id": "agent-c2"},
+          {"task": "4e1d0000-0000-4000-8000-0000000c0004", "task_name": "team_c::standing_extract::load", "status": "Ready", "pool": null, "cpu_request_millis": null, "memory_request_bytes": null, "fleet_agent_id": "agent-c1"}
+        ]},
         "last_runs": {"rows": [
           {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.150"},
           {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.480"},
