@@ -10,8 +10,9 @@ disturbance is on record, in the form the checker reads.
 
 What each kind does:
 
-- `kill_agent`: find an agent of one tenant with work in flight, find its pod
-  by the agent id in the pod's log, and delete that pod. Even cycles delete it
+- `kill_agent`: find an agent of one tenant with work in flight in the roster,
+  and delete its pod: the agent id is the pod's name (the actuator sets
+  `CLOACINA_AGENT_ID` to it, CLOACINA-T-1145). Even cycles delete it
   the plain way (SIGTERM: the agent drains, CLOACINA-T-1029); odd cycles with
   `--grace-period=0 --force` (the agent dies with its work).
 - `restart_server`: delete one pod of the server Deployment (the same two
@@ -517,15 +518,6 @@ def hold_path(tenant):
     return f"/v1/tenants/{tenant}/workflows/{workload.HOLD_WORKFLOW}/execute"
 
 
-AGENT_ID = re.compile(r'agent_id["\']?\s*[=:]\s*"?([A-Za-z0-9][A-Za-z0-9_.:-]*)')
-
-
-def agent_id_in_log(text):
-    """The last agent id an agent's log names (text or JSON lines)."""
-    found = AGENT_ID.findall(text or "")
-    return found[-1] if found else None
-
-
 def commands_of(item):
     """The steps of a planned disturbance, as text, for the dry run."""
     guard = ["kubectl config view -o json  (one context `default`, cluster https://localhost:6443)",
@@ -535,8 +527,7 @@ def commands_of(item):
         steps = [
             f"GET /v1/agents with the read key of {item.tenant}: an agent with in_flight > 0 "
             f"(wait up to {AGENT_WAIT_SECONDS} s)",
-            f"kubectl get pods -n {ns} -l {AGENT_PODS} -o json",
-            f"kubectl logs <each pod> -n {ns}: the agent id of each pod",
+            f"kubectl get pods -n {ns} -l {AGENT_PODS} -o json: a running pod named as that agent",
             "kubectl " + " ".join(delete_pod_args("<the pod of that agent>", ns, item.mode)),
             "kubectl " + " ".join(rollout_args(AGENT_DEPLOYMENT, ns)),
         ]
@@ -672,7 +663,8 @@ class Runner:
 
     def agent_pod_with_work(self, tenant):
         """(pod, agent id, in flight, why) of an agent of the tenant that holds
-        a task. pod is None when none can be named."""
+        a task. The agent id is its pod's name (CLOACINA-T-1145). pod is None
+        when none can be named."""
         status, body = self.api.call("GET", "/v1/agents", key=self.read_keys.get(tenant))
         if status != 200 or not isinstance(body, dict):
             return None, None, 0, f"the roster answered {status}"
@@ -686,20 +678,11 @@ class Runner:
         pods = self._running_pods(namespace, AGENT_PODS)
         if not pods:
             return None, None, 0, f"no running agent pod in {namespace}"
-        named = {}
-        for pod in pods:
-            code, out, err = self.kube.call("logs", pod, "-n", namespace, timeout=60)
-            agent = agent_id_in_log(out) if code == 0 else None
-            if agent:
-                named[agent] = pod
-        for agent, in_flight in sorted(busy.items(), key=lambda pair: -pair[1]):
-            if agent in named:
-                return named[agent], agent, in_flight, "found by the agent id in the pod's log"
-        if len(busy) == len(agents) and len(pods) == len(agents):
-            agent, in_flight = sorted(busy.items())[0]
-            return pods[0], agent, in_flight, "every agent of the tenant holds a task"
-        return None, None, 0, (f"{len(busy)} of {len(agents)} agents hold a task, and no pod's log "
-                               "names one of them")
+        for agent, in_flight in sorted(busy.items(), key=lambda pair: (-pair[1], pair[0])):
+            if agent in pods:
+                return agent, agent, in_flight, "the pod named as the agent in the roster"
+        return None, None, 0, (f"{len(busy)} of {len(agents)} agents hold a task, and no running "
+                               f"pod in {namespace} has the name of one of them")
 
     def _delete_and_wait(self, pod, namespace, mode, deployment):
         """Delete a pod and wait for its Deployment. The outcome in words."""

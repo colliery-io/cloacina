@@ -253,7 +253,7 @@ kind runs six times, on each tenant twice.
 
 | Kind | What is done | Promises it tests |
 |---|---|---|
-| `kill_agent` | The roster names an agent of the tenant with a task in flight; the agent id in each agent pod's log names its pod; that pod is deleted. Plain (SIGTERM: the agent drains its work) or with `--grace-period=0 --force` (the agent dies with it). | An agent dies mid-task and the task finishes on another agent. A long task runs one time. |
+| `kill_agent` | The roster names an agent of the tenant with a task in flight; its agent id is its pod's name; that pod is deleted. Plain (SIGTERM: the agent drains its work) or with `--grace-period=0 --force` (the agent dies with it). | An agent dies mid-task and the task finishes on another agent. A long task runs one time. |
 | `restart_server` | One pod of the server Deployment is deleted, in the same two modes, and the Deployment is waited for. The standing deployment runs two server replicas (`--server-replicas 1` runs one). | The server restarts and runs survive. A task whose result lands on another replica runs one time. A schedule fires on time. |
 | `postgres_away` | The Postgres Deployment is scaled to zero for four minutes, then back to one; the runner waits for it and for the server's `/ready`. | Postgres goes away and nothing is lost or doubled. A backlog drains in order. |
 | `fill_capacity` | Sixteen held runs of `standing_hold` are started through the API with the tenant's write key: twice what its agents take at once. | Work waits when a tenant is full and runs when capacity arrives. A task with no free agent runs one time. A schedule fires on time. |

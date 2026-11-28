@@ -320,28 +320,43 @@ class DisturbanceTest(unittest.TestCase):
             self.assertEqual(log[0], "checked")
             self.assertIn("command", log)
 
-    def test_an_agent_pod_that_holds_a_task_is_found_by_its_log(self):
+    def test_an_agent_pod_that_holds_a_task_is_found_by_its_name(self):
+        # The agent id is the pod's name (CLOACINA-T-1145).
         ns = disturb.tenant_namespace("team_b")
-        kubectl = FakeKubectl(
-            agent_pods={ns: ["cloacina-agent-1", "cloacina-agent-2"]},
-            logs={"cloacina-agent-1": "INFO substrate WS connected agent_id=agent-idle\n",
-                  "cloacina-agent-2": '{"fields":{"message":"registered","agent_id":"agent-busy"}}\n'})
+        kubectl = FakeKubectl(agent_pods={ns: ["cloacina-agent-7f9c-idle", "cloacina-agent-7f9c-busy"]})
         api = FakeApi(roster=[
-            {"agent_id": "agent-idle", "tenant_id": "team_b", "in_flight": 0, "seconds_since_heartbeat": 3},
-            {"agent_id": "agent-busy", "tenant_id": "team_b", "in_flight": 1, "seconds_since_heartbeat": 2},
+            {"agent_id": "cloacina-agent-7f9c-idle", "tenant_id": "team_b", "in_flight": 0,
+             "seconds_since_heartbeat": 3},
+            {"agent_id": "cloacina-agent-7f9c-busy", "tenant_id": "team_b", "in_flight": 1,
+             "seconds_since_heartbeat": 2},
             {"agent_id": "other", "tenant_id": "team_a", "in_flight": 4, "seconds_since_heartbeat": 2},
         ])
         with tempfile.TemporaryDirectory() as folder:
             setup = Setup(folder, kubectl=kubectl, api=api)
             closed = setup.runner.run_now("kill_agent", tenant="team_b", mode="sigterm")
-            self.assertEqual(closed["pod"], "cloacina-agent-2")
-            self.assertEqual(closed["agent_id"], "agent-busy")
+            self.assertEqual(closed["pod"], "cloacina-agent-7f9c-busy")
+            self.assertEqual(closed["agent_id"], "cloacina-agent-7f9c-busy")
             self.assertEqual(closed["mode"], "sigterm")
             delete = setup.kubectl.commands("delete")[0]
-            self.assertEqual(delete[:5], ["delete", "pod", "cloacina-agent-2", "-n", ns])
+            self.assertEqual(delete[:5], ["delete", "pod", "cloacina-agent-7f9c-busy", "-n", ns])
             self.assertNotIn("--force", delete)
+            # No pod's log is read.
+            self.assertEqual(setup.kubectl.commands("logs"), [])
             # The roster is read with the tenant's read key.
             self.assertIn(("GET", "/v1/agents", "read-team_b", None), api.calls)
+
+    def test_a_busy_agent_with_no_pod_of_its_name_is_no_disturbance(self):
+        ns = disturb.tenant_namespace("team_b")
+        kubectl = FakeKubectl(agent_pods={ns: ["cloacina-agent-7f9c-other"]})
+        api = FakeApi(roster=[{"agent_id": "agent-busy", "tenant_id": "team_b", "in_flight": 1,
+                               "seconds_since_heartbeat": 2}])
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder, kubectl=kubectl, api=api)
+            self.assertIsNone(setup.runner.run_now("kill_agent", tenant="team_b"))
+            self.assertEqual(setup.kubectl.commands("delete"), [])
+            skipped = setup.lines(setup.log_path)[-1]
+            self.assertEqual(skipped["event"], "skipped")
+            self.assertIn("has the name of one of them", skipped["reason"])
 
     def test_no_agent_with_work_is_no_disturbance(self):
         ns = disturb.tenant_namespace("team_a")
