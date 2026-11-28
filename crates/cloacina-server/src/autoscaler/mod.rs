@@ -28,9 +28,13 @@
 //!   while pods start adds no more. One step, not one agent at a time.
 //! - **Down.** A pool goes back to its min when it has been idle (no task in
 //!   flight, none waiting) for the idle cooldown, and its last scale-down is
-//!   a cooldown ago. A pool with work is never shrunk, so no agent with work
-//!   in flight is stopped by a scale-down; an agent that is stopped for any
-//!   reason drains first (the agent's SIGTERM handling).
+//!   a cooldown ago. An agent that is stopped for any reason drains first
+//!   (the agent's SIGTERM handling).
+//! - **Step down** (CLOACINA-T-1145). A pool with work in flight that has
+//!   had a spare agent (an idle agent, and nothing waiting that needs one)
+//!   for the idle cooldown loses one agent per cooldown, down to its min.
+//!   The actuator removes an idle agent, the one registered last
+//!   ([`removal`]); a busy agent is never removed while an idle one exists.
 //!
 //! A task counts for what it requests, or one slot's share of an agent with
 //! totals ([`crate::agent_registry::charge`]), as in selection. A task larger
@@ -41,6 +45,7 @@
 //! the counts; the loop is in `lib.rs`, behind [`leader`] (CLOACINA-A-0008).
 
 pub mod leader;
+pub mod removal;
 pub mod step;
 
 use std::time::Duration;
@@ -278,6 +283,10 @@ pub struct PoolView {
     pub idle_since: Option<chrono::NaiveDateTime>,
     /// The last scale-down, as stored.
     pub last_scaled_down_at: Option<chrono::NaiveDateTime>,
+    /// Since when the pool has had a spare agent: work in flight, at least
+    /// one idle agent, and nothing waiting that needs one (CLOACINA-T-1145).
+    /// From the fleet leader's memory ([`SpareTimers`]).
+    pub spare_since: Option<chrono::NaiveDateTime>,
 }
 
 /// The change the autoscaler makes to one pool.
@@ -288,6 +297,9 @@ pub enum PoolDecision {
     /// Lower the count to this (idle for the idle cooldown, or a max below
     /// the count while idle).
     Down(u32),
+    /// Lower the count by one: a partly busy pool with a spare agent for the
+    /// idle cooldown (CLOACINA-T-1145). An idle agent goes.
+    StepDown(u32),
     Hold,
 }
 
@@ -309,6 +321,20 @@ pub fn decide_pool(view: &PoolView, now: chrono::NaiveDateTime, cfg: &ScaleConfi
         return PoolDecision::Hold;
     }
     if view.busy {
+        // CLOACINA-T-1145: a pool with work and a spare agent for the idle
+        // cooldown loses one agent, a cooldown after its last scale-down.
+        // Not while agents start (fewer live than stored): one of those
+        // would be the one to go.
+        let spare_long_enough = view
+            .spare_since
+            .is_some_and(|since| should_act_at(Some(since), now, cfg.idle));
+        if spare_long_enough
+            && view.desired > min
+            && view.live >= view.desired
+            && should_act_at(view.last_scaled_down_at, now, cfg.cooldown)
+        {
+            return PoolDecision::StepDown(view.desired - 1);
+        }
         return PoolDecision::Hold;
     }
     // Idle: back to the min after the idle cooldown, a cooldown after the
@@ -324,6 +350,53 @@ pub fn decide_pool(view: &PoolView, now: chrono::NaiveDateTime, cfg: &ScaleConfi
         return PoolDecision::Down(min);
     }
     PoolDecision::Hold
+}
+
+/// Since when each pool has had a spare agent (CLOACINA-T-1145), in the
+/// memory of this replica. Leadership can move between replicas: a replica
+/// that did not see a pool for more than `max_gap` (it did not lead) starts
+/// the pool's timer again. So a step-down can come later than the idle
+/// cooldown, never sooner.
+#[derive(Default)]
+pub struct SpareTimers {
+    timers: std::sync::Mutex<std::collections::HashMap<(String, String), SpareTimer>>,
+}
+
+#[derive(Clone, Copy)]
+struct SpareTimer {
+    since: chrono::NaiveDateTime,
+    seen: chrono::NaiveDateTime,
+}
+
+impl SpareTimers {
+    /// Record what this tick saw of a pool; give since when it is spare.
+    pub fn observe(
+        &self,
+        tenant: &str,
+        pool: &str,
+        spare: bool,
+        now: chrono::NaiveDateTime,
+        max_gap: Duration,
+    ) -> Option<chrono::NaiveDateTime> {
+        let mut timers = self.timers.lock().unwrap_or_else(|e| e.into_inner());
+        let key = (tenant.to_string(), pool.to_string());
+        if !spare {
+            timers.remove(&key);
+            return None;
+        }
+        let timer = match timers.get(&key) {
+            Some(t) if !should_act_at(Some(t.seen), now, max_gap) => SpareTimer {
+                since: t.since,
+                seen: now,
+            },
+            _ => SpareTimer {
+                since: now,
+                seen: now,
+            },
+        };
+        timers.insert(key, timer);
+        Some(timer.since)
+    }
 }
 
 #[cfg(test)]
@@ -364,7 +437,76 @@ mod tests {
             busy,
             idle_since: None,
             last_scaled_down_at: None,
+            spare_since: None,
         }
+    }
+
+    // ---- step down (CLOACINA-T-1145) ----------------------------------------
+
+    /// A pool with work and a spare agent for the idle cooldown loses one
+    /// agent per cooldown, down to its min.
+    #[test]
+    fn a_busy_pool_with_a_spare_agent_steps_down_one() {
+        let mut v = view(3, 3, 1, 5, 0, true);
+        // Spare, not long enough.
+        v.spare_since = Some(now() - chrono::Duration::seconds(299));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
+        v.spare_since = Some(now() - chrono::Duration::seconds(301));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::StepDown(2));
+        // A cooldown after the last scale-down.
+        v.last_scaled_down_at = Some(now() - chrono::Duration::seconds(30));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
+        v.last_scaled_down_at = Some(now() - chrono::Duration::seconds(61));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::StepDown(2));
+        // At its min: no lower.
+        let mut at_min = view(1, 1, 1, 5, 0, true);
+        at_min.spare_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&at_min, now(), &cfg()), PoolDecision::Hold);
+        // Agents still starting: no step.
+        let mut starting = view(3, 2, 0, 5, 0, true);
+        starting.spare_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&starting, now(), &cfg()), PoolDecision::Hold);
+        // Not spare: no step, whatever the pool's stored idle time.
+        let mut busy = view(3, 3, 0, 5, 0, true);
+        busy.idle_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&busy, now(), &cfg()), PoolDecision::Hold);
+    }
+
+    /// Work that needs a new agent wins over a spare agent.
+    #[test]
+    fn waiting_work_that_needs_an_agent_is_not_a_step_down() {
+        let mut v = view(3, 3, 0, 5, 1, true);
+        v.spare_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Up(4));
+    }
+
+    /// A whole idle pool keeps the T-1029 rule: straight to its min.
+    #[test]
+    fn an_idle_pool_still_goes_straight_to_its_min() {
+        let mut v = view(4, 4, 1, 5, 0, false);
+        v.idle_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Down(1));
+    }
+
+    /// The spare timer runs while the pool stays spare, ends when it is
+    /// not, and starts again after a gap (another replica led).
+    #[test]
+    fn the_spare_timer_runs_ends_and_starts_again_after_a_gap() {
+        let timers = SpareTimers::default();
+        let gap = Duration::from_secs(60);
+        let t0 = now();
+        let at = |s: i64| t0 + chrono::Duration::seconds(s);
+        assert_eq!(timers.observe("t", "p", true, at(0), gap), Some(at(0)));
+        assert_eq!(timers.observe("t", "p", true, at(30), gap), Some(at(0)));
+        assert_eq!(
+            timers.observe("t", "q", true, at(30), gap),
+            Some(at(30)),
+            "per pool"
+        );
+        assert_eq!(timers.observe("t", "p", false, at(60), gap), None);
+        assert_eq!(timers.observe("t", "p", true, at(90), gap), Some(at(90)));
+        // Not seen for longer than the gap: it starts again.
+        assert_eq!(timers.observe("t", "p", true, at(200), gap), Some(at(200)));
     }
 
     fn now() -> chrono::NaiveDateTime {

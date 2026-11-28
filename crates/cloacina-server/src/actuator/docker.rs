@@ -529,6 +529,36 @@ impl DockerActuator {
     }
 }
 
+/// The order in which a pool's containers are stopped (CLOACINA-T-1145).
+/// Each container has a key of its own, so the agent that registered with
+/// it is the container's agent. Idle agents' containers first, in the order
+/// of `agents`; then containers of no known agent; busy agents' last. With
+/// no `agents`, the order is as given.
+pub fn removal_order<'a>(
+    current: &[&'a ContainerRef],
+    agents: Option<&crate::autoscaler::removal::PoolAgents>,
+) -> Vec<&'a ContainerRef> {
+    let Some(agents) = agents else {
+        return current.to_vec();
+    };
+    let key_of = |c: &ContainerRef| c.key_id.as_deref().and_then(|k| Uuid::parse_str(k).ok());
+    let rank = |c: &ContainerRef| -> (u8, usize) {
+        let key = key_of(c);
+        let at = |list: &[crate::autoscaler::removal::AgentRef]| {
+            key.and_then(|k| list.iter().position(|a| a.owner_key_id == Some(k)))
+        };
+        match (at(&agents.idle), at(&agents.busy)) {
+            (Some(i), _) => (0, i),
+            (None, Some(i)) => (2, i),
+            (None, None) => (1, 0),
+        }
+    };
+    let mut ordered = current.to_vec();
+    // A stable sort: containers of one rank keep their order.
+    ordered.sort_by_key(|c| rank(c));
+    ordered
+}
+
 impl DockerActuator {
     /// Stop a container and revoke the key it was started with.
     async fn stop_and_revoke(&self, c: &ContainerRef) -> Result<(), ActuatorError> {
@@ -648,7 +678,10 @@ impl FleetActuator for DockerActuator {
                 spawned += 1;
             }
 
-            // Stop surplus: pick the first `to_stop` current containers of the pool.
+            // Stop surplus (CLOACINA-T-1145): the containers of idle agents
+            // first, the one registered last first; then those of agents
+            // not registered; those with work last.
+            let current = removal_order(&current, self.pools.pool_agents(tenant_id, pool).as_ref());
             for c in current.iter().take(delta.to_stop as usize) {
                 self.stop_and_revoke(c).await?;
                 stopped += 1;
@@ -1001,7 +1034,10 @@ mod tests {
             _tenant_id: &str,
             key_id: &str,
         ) -> Result<bool, ActuatorError> {
-            Ok(key_id.starts_with("k-") || key_id.starts_with("minted-"))
+            // A UUID is a key as the DAL mints them (CLOACINA-T-1145).
+            Ok(key_id.starts_with("k-")
+                || key_id.starts_with("minted-")
+                || Uuid::parse_str(key_id).is_ok())
         }
         async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
             self.revoked.lock().unwrap().push(key_id.to_string());
@@ -1062,6 +1098,80 @@ mod tests {
         assert_eq!(ops.stops.lock().unwrap().len(), 3);
         // No keys minted when only stopping.
         assert_eq!(minter.minted.load(Ordering::SeqCst), 0);
+    }
+
+    // ── which container goes (CLOACINA-T-1145) ─────────────────────────────
+
+    fn keyed(id: &str, key: Uuid) -> ContainerRef {
+        ContainerRef {
+            key_id: Some(key.to_string()),
+            ..container(id, DEFAULT_AGENT_POOL, "")
+        }
+    }
+
+    fn agent_ref(id: &str, key: Uuid) -> crate::autoscaler::removal::AgentRef {
+        crate::autoscaler::removal::AgentRef {
+            agent_id: id.to_string(),
+            owner_key_id: Some(key),
+        }
+    }
+
+    /// Idle agents' containers go first, in the order given; then those of
+    /// no known agent; busy agents' last.
+    #[test]
+    fn idle_containers_go_first_and_busy_ones_last() {
+        let (k_busy, k_idle_a, k_idle_b, k_new) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        let busy = keyed("busy", k_busy);
+        let idle_a = keyed("idle-a", k_idle_a);
+        let idle_b = keyed("idle-b", k_idle_b);
+        let starting = keyed("starting", k_new);
+        let current = vec![&busy, &idle_a, &starting, &idle_b];
+        let agents = crate::autoscaler::removal::PoolAgents {
+            idle: vec![agent_ref("b", k_idle_b), agent_ref("a", k_idle_a)],
+            busy: vec![agent_ref("x", k_busy)],
+        };
+        let order: Vec<&str> = removal_order(&current, Some(&agents))
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(order, vec!["idle-b", "idle-a", "starting", "busy"]);
+        let as_given: Vec<&str> = removal_order(&current, None)
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(as_given, vec!["busy", "idle-a", "starting", "idle-b"]);
+    }
+
+    /// A pool lowered by one stops the idle agent's container by id, not
+    /// the busy one listed first.
+    #[tokio::test]
+    async fn a_step_down_stops_the_idle_agents_container() {
+        let (k_busy, k_idle) = (Uuid::new_v4(), Uuid::new_v4());
+        let ops = Arc::new(MockOps::with_containers(vec![
+            keyed("busy", k_busy),
+            keyed("idle", k_idle),
+        ]));
+        let minter = Arc::new(MockMinter::default());
+        let tenant = "t1145-docker";
+        crate::autoscaler::removal::set_pool_agents(
+            tenant,
+            DEFAULT_AGENT_POOL,
+            crate::autoscaler::removal::PoolAgents {
+                idle: vec![agent_ref("idle-agent", k_idle)],
+                busy: vec![agent_ref("busy-agent", k_busy)],
+            },
+            std::time::Duration::from_secs(60),
+        );
+        let act = actuator(ops.clone(), minter.clone());
+        let out = act.reconcile(tenant, 1).await.unwrap();
+        assert_eq!(out.stopped, 1);
+        assert_eq!(*ops.stops.lock().unwrap(), vec!["idle".to_string()]);
+        assert_eq!(*minter.revoked.lock().unwrap(), vec![k_idle.to_string()]);
     }
 
     #[tokio::test]

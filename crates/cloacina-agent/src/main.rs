@@ -103,8 +103,9 @@ struct Args {
     /// in place of `--api-key` / `CLOACINA_API_KEY`, not with them.
     #[arg(long, env = "CLOACINA_API_KEY_FILE")]
     api_key_file: Option<std::path::PathBuf>,
-    /// Optional caller-chosen agent id; server assigns one if omitted.
-    #[arg(long)]
+    /// Optional caller-chosen agent id; server assigns one if omitted. The
+    /// Kubernetes actuator sets it to the pod's name (CLOACINA-T-1145).
+    #[arg(long, env = "CLOACINA_AGENT_ID")]
     agent_id: Option<String>,
     /// Max concurrent work packets this agent will accept.
     #[arg(long, env = "CLOACINA_AGENT_MAX_CONCURRENCY", default_value_t = 4)]

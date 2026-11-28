@@ -443,6 +443,17 @@ pub trait AgentPoolSource: Send + Sync {
     ) -> Result<std::collections::BTreeMap<String, u32>, ActuatorError> {
         Ok(std::collections::BTreeMap::new())
     }
+
+    /// The idle agents of a pool in the order they go, and its busy agents,
+    /// as the autoscale step of this tick wrote them (CLOACINA-T-1145).
+    /// `None`: not known; the actuator removes as before.
+    fn pool_agents(
+        &self,
+        tenant_id: &str,
+        pool: &str,
+    ) -> Option<crate::autoscaler::removal::PoolAgents> {
+        crate::autoscaler::removal::pool_agents(tenant_id, pool)
+    }
 }
 
 /// Real [`AgentPoolSource`]: the `agent_pools` table.
