@@ -652,6 +652,12 @@ The version that is in service stays active until the build of the
 uploaded one succeeds. A failed build leaves it in service; see
 `package versions`.
 
+The server keeps who uploaded the package. Its runs are held to that
+principal's [priority](../../explanation/priority/#the-limit-of-a-publisher-and-of-a-creator)
+limit at each run start. When the limit is not 0 the answer has a
+`priority_notice`, and `package upload` and `package publish` print it on
+stderr as `warning: …`.
+
 ### `package list [--filter <SUBSTRING>]`
 
 `GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
@@ -793,8 +799,9 @@ what, when, in which tenant.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `key create <NAME> [--role <ROLE> \| --platform-admin] [--expires-at <TIME>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. `--expires-at` is an RFC 3339 time in the future after which the key is refused; not set, the key does not expire. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
-| `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
+| `key create <NAME> [--role <ROLE> \| --platform-admin] [--expires-at <TIME>] [--max-priority <N>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. `--expires-at` is an RFC 3339 time in the future after which the key is refused; not set, the key does not expire. `--max-priority` (0 to 10) is the highest [priority](../../explanation/priority/#a-limit-on-a-key) the key may set; not set, the default of its role; not on a `read` or `agent` key. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
+| `key set-priority <ID> (--max-priority <N> \| --clear)` | `PATCH /v1/tenants/<tenant>/keys/<id>` | Sets (0 to 10) or clears the highest priority a key of the tenant may set. Needs an `admin` key of the tenant or a platform admin key; the limit may not be better than the caller's own (`403`). Without `--tenant` the tenant is `public`. |
+| `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at, max_priority). No hashes, no plaintext. |
 | `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. The last live platform admin key is refused (`409`). |
 
 `key create --tenant <TENANT> <NAME> [--role <ROLE>]` calls
@@ -820,7 +827,7 @@ start to an end, oldest first. See
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. Prints the backfill with its id. |
+| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>] [--priority <N>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. `--priority` (0 to 10) is the workflow [priority](../../explanation/priority/#give-a-schedule-a-priority) of each run, held to your limit when the run starts; a priority above your limit is printed as a warning. Prints the backfill with its id. |
 | `backfill create <WORKFLOW> --interval <TIME> […]` | same | One interval: `--interval` is its fire time. The same as `--start` and `--end` with that value. |
 | `backfill list <WORKFLOW> [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills?limit=…&offset=…` | Newest first, each with its progress. Default limit: 100, max 1000. |
 | `backfill inspect <WORKFLOW> <ID>` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills/<id>` | Status, progress (`total`, `completed`, `failed`, `running`, `remaining`, position) and the failed intervals. |

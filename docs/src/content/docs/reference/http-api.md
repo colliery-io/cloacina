@@ -411,6 +411,38 @@ List the API keys scoped to a tenant. **Tenant-admin** — a caller with the
 | `403` | `{"error": "insufficient permissions"}` | Caller is not a tenant-admin for `{tenant_id}` (and not god-mode) |
 | `500` | `{"error": "failed to list API keys"}` | Database error |
 
+### PATCH /v1/tenants/{tenant_id}/keys/{key_id}
+
+Set or clear the highest [priority](../../explanation/priority/#a-limit-on-a-key)
+a key of the tenant may set (CLOACINA-T-1123). **Tenant-admin.** The key must
+belong to `{tenant_id}` and not be revoked.
+
+**Request body:**
+
+```json
+{ "max_priority": 2 }
+```
+
+`max_priority` is 0 (the highest) to 10, or `null` to clear it: the key then
+has the default of its role. The new limit applies to the key's next request
+on every server, and to the next run of each package and schedule the key set
+a priority for.
+
+**Response:** `200 OK` — the key, in the shape of one row of the key list,
+with its new `max_priority`.
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `invalid_priority` | `max_priority` above 10 |
+| `400` | `invalid_request` | A `read` or `agent` key, or a body that is not a key update |
+| `403` | `priority_above_limit` | A limit better than the caller's own |
+| `404` | `key_not_found` | No such live key in this tenant |
+
+`POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` take the same
+`max_priority` field, with the same checks.
+
 ### DELETE /v1/tenants/{tenant_id}/keys/{key_id}
 
 Revoke a tenant-scoped API key. **Tenant-admin.** The handler additionally

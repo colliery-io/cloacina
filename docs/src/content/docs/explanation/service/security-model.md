@@ -249,6 +249,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | POST | `/v1/tenants/{tenant_id}/keys` | tenant in the path | `keys.manage` | `key.create` |
 | GET | `/v1/tenants/{tenant_id}/keys` | tenant in the path | `keys.manage` | none (read) |
 | DELETE | `/v1/tenants/{tenant_id}/keys/{key_id}` | tenant in the path | `keys.manage` | `key.revoke` |
+| PATCH | `/v1/tenants/{tenant_id}/keys/{key_id}` | tenant in the path | `keys.manage` | `key.update` |
 | POST | `/v1/tenants/{tenant_id}/accounts` | tenant in the path | `accounts.manage` | `account.create` |
 | GET | `/v1/tenants/{tenant_id}/accounts` | tenant in the path | `accounts.manage` | none (read) |
 | DELETE | `/v1/tenants/{tenant_id}/accounts/{account_id}` | tenant in the path | `accounts.manage` | `account.disable` |
