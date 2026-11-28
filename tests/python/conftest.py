@@ -158,6 +158,19 @@ def isolated_db():
                 print(f"WARNING: Failed to remove SQLite file: {e}")
 
 
+@pytest.fixture(scope="function")
+def run_db_url():
+    """The database URL of the backend under test, for a test that builds its
+    own runner and reads the rows of its run. A SQLite file is removed after
+    the test."""
+    db_url = get_test_db_url()
+    yield db_url
+    if db_url.startswith("sqlite://"):
+        db_path = db_url.split("://")[1].split("?")[0]
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
 @contextmanager
 def timeout_protection(seconds=15):
     """Context manager to protect against hanging operations."""
