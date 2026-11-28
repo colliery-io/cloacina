@@ -52,6 +52,20 @@ use serde::{Deserialize, Serialize};
 /// changes. Every frame carries it so peers can negotiate (or refuse).
 pub const AGENT_PROTOCOL_VERSION: u32 = 1;
 
+/// The lowest agent protocol number the server accepts (CLOACINA-T-1086).
+/// The number moves only at a minor release, and this stays at the previous
+/// minor's number for one minor, so an agent of the previous minor keeps
+/// working.
+pub const MIN_AGENT_PROTOCOL_VERSION: u32 = 1;
+
+/// The plugin interface version of the packaged Rust workflows this build
+/// loads: the `version` of `#[fidius::plugin_interface]` on `CloacinaPlugin`
+/// (CLOACINA-T-1086). A compiler records it on each Rust package it builds;
+/// an agent reports it at register; dispatch sends a package only to an agent
+/// with the same number.
+pub const PLUGIN_INTERFACE_VERSION: u32 =
+    cloacina_workflow_plugin::__fidius_CloacinaPlugin::CloacinaPlugin_INTERFACE_VERSION;
+
 /// Substrate envelope `kind` value used when a `ServerMessage::Push` carries
 /// a [`WorkPacket`]. Constants here keep the magic string out of call sites.
 pub const WORK_PACKET_KIND: &str = "agent_work";
@@ -135,6 +149,17 @@ pub struct AgentRegisterRequest {
     /// (`--reserved-memory`, CLOACINA-T-1028). `None` as above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_bytes: Option<u64>,
+
+    /// CLOACINA-T-1086 — the agent's release (`0.14.1`). The server accepts
+    /// its own minor and the one before. `None`: an agent from before the
+    /// field, which counts as 0.12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
+    /// CLOACINA-T-1086 — the plugin interface version of the Rust packages
+    /// the agent loads ([`PLUGIN_INTERFACE_VERSION`]). `None`: the agent gets
+    /// no Rust package that has a recorded interface version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_interface_version: Option<u32>,
 }
 
 /// CLOACI-T-0861 / D-5 — one entry in an agent's one-time ephemeral key pool.
@@ -163,6 +188,11 @@ pub struct AgentRegisterResponse {
     /// least this often; the server marks an agent dead after a small
     /// multiple of missed intervals.
     pub heartbeat_interval_seconds: u32,
+    /// CLOACINA-T-1083 — when the agent's key expires (RFC 3339). `None`: the
+    /// key does not expire, or an older server. The agent logs it at start,
+    /// and warns when the key is close to expiry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_expires_at: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -358,6 +388,67 @@ pub struct WorkPacket {
     /// ⇒ the agent runs the task in a worker process.
     #[serde(default)]
     pub inline: bool,
+    /// CLOACINA-T-1091 — how many bytes of the end of the attempt's output
+    /// the agent keeps and sends with the result (the server's
+    /// `--task-output-max-bytes`). `None` ⇒ a server from before the field:
+    /// the agent keeps [`DEFAULT_TASK_OUTPUT_MAX_BYTES`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_max_bytes: Option<u64>,
+}
+
+/// CLOACINA-T-1091 — the bytes of the end of an attempt's output that the
+/// agent keeps and the server stores, by default: 256 KiB.
+pub const DEFAULT_TASK_OUTPUT_MAX_BYTES: u64 = 256 * 1024;
+
+/// CLOACINA-T-1091 — the end of what one attempt wrote on stdout and stderr,
+/// as one stream. Sent with the result, outside the outcome. It is task data:
+/// no log line holds it.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttemptOutput {
+    /// The last bytes of the stream, as UTF-8 (a byte that is not UTF-8 is
+    /// replaced by U+FFFD). The exact values of the attempt's own secrets are
+    /// replaced by `***` when the agent masks them.
+    pub text: String,
+    /// How many bytes the attempt wrote in all.
+    pub total_bytes: u64,
+    /// `true` when `text` is not the whole stream: its start was cut.
+    pub cut: bool,
+}
+
+impl std::fmt::Debug for AttemptOutput {
+    /// The sizes only: the text is task data.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttemptOutput")
+            .field("text_bytes", &self.text.len())
+            .field("total_bytes", &self.total_bytes)
+            .field("cut", &self.cut)
+            .finish()
+    }
+}
+
+impl AttemptOutput {
+    /// Keep at most the last `max_bytes` bytes of `text`, cut at a character
+    /// boundary, and replace NUL characters, which a Postgres text column does
+    /// not hold. Sets `cut` when bytes were dropped.
+    pub fn capped(mut self, max_bytes: u64) -> Self {
+        if self.text.contains('\0') {
+            self.text = self.text.replace('\0', "\u{FFFD}");
+        }
+        let max = usize::try_from(max_bytes).unwrap_or(usize::MAX);
+        if self.text.len() > max {
+            let mut start = self.text.len() - max;
+            while !self.text.is_char_boundary(start) {
+                start += 1;
+            }
+            self.text = self.text[start..].to_string();
+            self.cut = true;
+        }
+        let kept = self.text.len() as u64;
+        if self.total_bytes < kept {
+            self.total_bytes = kept;
+        }
+        self
+    }
 }
 
 /// CLOACINA-T-1028 — the server gave up on one dispatch (its wait for the
@@ -480,6 +571,12 @@ pub struct AgentResultRequest {
     pub dispatch_id: Option<String>,
     pub duration_ms: u64,
     pub outcome: AgentOutcome,
+    /// CLOACINA-T-1091 — the end of the attempt's output, outside the
+    /// outcome. `None` ⇒ the attempt ran with no worker process (`inline`),
+    /// a graph firing or a poll, or an agent from before the field. A server
+    /// from before the field ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<AttemptOutput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -601,9 +698,11 @@ mod tests {
             cpu_millis: Some(4000),
             memory_bytes: Some(32 << 30),
             inline: true,
+            output_max_bytes: Some(1024),
         };
         let json = serde_json::to_string(&p).unwrap();
         let back: WorkPacket = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.output_max_bytes, Some(1024));
         // CLOACINA-T-1027: the pool, the requests and the inline mark.
         assert_eq!(back.pool.as_deref(), Some("large"));
         assert_eq!(back.cpu_millis, Some(4000));
@@ -612,6 +711,60 @@ mod tests {
         assert_eq!(back.task_execution_id, "t1");
         assert_eq!(back.artifact.build_target_triple, "aarch64-apple-darwin");
         assert_eq!(back.context, serde_json::json!({"k": 42}));
+    }
+
+    /// CLOACINA-T-1091: the cap keeps the end, at a character boundary, and
+    /// a NUL is replaced.
+    #[test]
+    fn attempt_output_capped_keeps_the_end() {
+        let out = AttemptOutput {
+            text: "abcdef".into(),
+            total_bytes: 6,
+            cut: false,
+        }
+        .capped(4);
+        assert_eq!(out.text, "cdef");
+        assert!(out.cut);
+        assert_eq!(out.total_bytes, 6);
+
+        // "é" is two bytes: a cut in its middle moves past it.
+        let out = AttemptOutput {
+            text: "aéb".into(),
+            total_bytes: 4,
+            cut: false,
+        }
+        .capped(2);
+        assert_eq!(out.text, "b");
+        assert!(out.cut);
+
+        let out = AttemptOutput {
+            text: "a\0b".into(),
+            total_bytes: 3,
+            cut: false,
+        }
+        .capped(1024);
+        assert_eq!(out.text, "a\u{FFFD}b");
+        assert!(!out.cut);
+    }
+
+    /// CLOACINA-T-1091: the output is outside the outcome, a report with
+    /// none has no field, and the debug form holds no text.
+    #[test]
+    fn result_output_is_optional_and_its_debug_holds_no_text() {
+        let legacy = r#"{"protocol_version":1,"agent_id":"a","task_execution_id":"t",
+            "attempt":1,"duration_ms":5,"outcome":{"kind":"failure","message":"m",
+            "classification":"task_error"}}"#;
+        let back: AgentResultRequest = serde_json::from_str(legacy).unwrap();
+        assert!(back.output.is_none());
+        let json = serde_json::to_value(&back).unwrap();
+        assert!(json.get("output").is_none(), "{json}");
+
+        let out = AttemptOutput {
+            text: "the secret line".into(),
+            total_bytes: 15,
+            cut: false,
+        };
+        assert!(!format!("{out:?}").contains("secret"));
     }
 
     #[test]
@@ -638,6 +791,8 @@ mod tests {
             ephemeral_key_pool: pool.clone(),
             cpu_millis: Some(4000),
             memory_bytes: Some(32 << 30),
+            agent_version: Some("0.13.0".into()),
+            plugin_interface_version: Some(PLUGIN_INTERFACE_VERSION),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: AgentRegisterRequest = serde_json::from_str(&json).unwrap();
@@ -645,6 +800,12 @@ mod tests {
         // CLOACINA-T-1027: the agent's totals.
         assert_eq!(back.cpu_millis, Some(4000));
         assert_eq!(back.memory_bytes, Some(32 << 30));
+        // CLOACINA-T-1086: the agent's versions.
+        assert_eq!(back.agent_version.as_deref(), Some("0.13.0"));
+        assert_eq!(
+            back.plugin_interface_version,
+            Some(PLUGIN_INTERFACE_VERSION)
+        );
 
         // Pre-pool payload: no `ephemeral_key_pool` field → empty pool.
         let legacy = r#"{"protocol_version":1,"max_concurrency":4,"target_triple":"x"}"#;
@@ -653,6 +814,9 @@ mod tests {
         // CLOACINA-T-1027: an agent from before the totals reports none.
         assert_eq!(back.cpu_millis, None);
         assert_eq!(back.memory_bytes, None);
+        // CLOACINA-T-1086: and no versions: it counts as 0.12.
+        assert_eq!(back.agent_version, None);
+        assert_eq!(back.plugin_interface_version, None);
     }
 
     #[test]
@@ -679,6 +843,7 @@ mod tests {
             cpu_millis: None,
             memory_bytes: None,
             inline: false,
+            output_max_bytes: None,
         };
         // CLOACINA-T-1027: a task that declares nothing adds nothing to the
         // packet but `inline`, and a packet from an older server (none of the

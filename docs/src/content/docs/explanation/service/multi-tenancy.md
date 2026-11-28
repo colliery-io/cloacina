@@ -117,6 +117,19 @@ actuator is enabled, each tenant's agents run in the tenant's **own namespace**
 themselves. See
 [Execution-Agent Fleet](../execution-agent-fleet/#capacity-limits--autoscaling).
 
+The namespace name is the tenant name in lower case, each run of `_` made one
+`-`, a `-` at either end dropped, cut to 47 characters. So `team_a`, `Team_A`,
+`team__a` and `team_a_` have one namespace. Tenant create refuses a name whose
+namespace is another tenant's, with `409 tenant_namespace_taken`; the
+namespace, the agent-key Secret, the Deployments and the tenant compiler
+belong to one tenant only.
+
+A server that already holds two such tenants, made before this check, keeps
+them in the one namespace: their agents share the agent-key Secret and the
+Deployments, and removing either tenant removes the agents of both. Nothing
+moves them. To separate them, remove one tenant and make it again under a
+name whose namespace is free.
+
 ## How It Works
 
 ### PostgreSQL Schema Implementation

@@ -164,6 +164,26 @@ pub struct TaskExecutionDetail {
     /// URL of this attempt's logs in the operator's log stack, when the
     /// server has a log URL template (`--task-log-url-template`).
     pub log_url: Option<String>,
+    /// The error of each failed attempt, oldest first; empty when no attempt
+    /// failed (CLOACINA-T-1100). The last entry of a failed task is the
+    /// error in `last_error` and `error_details`.
+    #[serde(default)]
+    pub attempt_errors: Vec<TaskAttemptErrorDetail>,
+}
+
+/// The error of one failed attempt of a task (CLOACINA-T-1100).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskAttemptErrorDetail {
+    /// The attempt that failed, from 1.
+    pub attempt: i32,
+    /// The error message of the attempt.
+    pub message: String,
+    /// The details of the failure (a Python traceback), at most 16 KiB; a
+    /// cut keeps the end.
+    pub details: Option<String>,
+    /// RFC 3339 timestamp of the failure.
+    pub failed_at: String,
 }
 
 /// `GET /tenants/{tenant_id}/executions/{id}/tasks` response.
@@ -173,4 +193,58 @@ pub struct ExecutionTasksResponse {
     pub tenant_id: String,
     pub execution_id: String,
     pub tasks: Vec<TaskExecutionDetail>,
+}
+
+/// The end of what one attempt of a task wrote on stdout and stderr, as one
+/// stream (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker
+/// process.
+#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskAttemptOutputDetail {
+    /// The attempt, from 1.
+    pub attempt: i32,
+    /// The last bytes of the output, at most the server's
+    /// `--task-output-max-bytes` (256 KiB by default). The exact values of
+    /// the attempt's own secrets are `***` when the agent masks them.
+    pub output: String,
+    /// How many bytes the attempt wrote in all.
+    pub total_bytes: i64,
+    /// `true` when `output` is not the whole stream: its start was cut.
+    pub cut: bool,
+    /// RFC 3339 timestamp of when the output was stored.
+    pub recorded_at: String,
+}
+
+impl std::fmt::Debug for TaskAttemptOutputDetail {
+    /// The sizes only: the output is task data.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskAttemptOutputDetail")
+            .field("attempt", &self.attempt)
+            .field("output_bytes", &self.output.len())
+            .field("total_bytes", &self.total_bytes)
+            .field("cut", &self.cut)
+            .field("recorded_at", &self.recorded_at)
+            .finish()
+    }
+}
+
+/// `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
+/// response (CLOACINA-T-1091): the stored output of each attempt of the
+/// task, in attempt order. Empty for a task whose output was not kept.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskOutputResponse {
+    pub tenant_id: String,
+    pub execution_id: String,
+    pub task_id: String,
+    pub attempts: Vec<TaskAttemptOutputDetail>,
+}
+
+/// Query of the task output route (CLOACINA-T-1091).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
+pub struct TaskOutputQuery {
+    /// Only this attempt.
+    pub attempt: Option<i32>,
 }

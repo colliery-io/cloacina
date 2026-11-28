@@ -233,10 +233,18 @@ pub fn pool_agent_totals(settings: &AgentPoolSettings) -> (Option<String>, Optio
     )
 }
 
-/// How many agents the server keeps for a pool other than `default`: its
-/// `max_agents` (such a pool is not autoscaled, so min equals max).
+/// How many agents the server keeps for a pool other than `default` when the
+/// autoscaler has stored no count for it: its min. With no `min_agents` that
+/// is its `max_agents`, as before pools were autoscaled (CLOACINA-T-1029).
 pub fn fixed_agent_count(settings: &AgentPoolSettings) -> u32 {
-    settings.max_agents.unwrap_or(0)
+    pool_agent_count(settings, None)
+}
+
+/// The count of a pool other than `default`: the count the autoscaler stored
+/// (CLOACINA-T-1029), held to the pool's `[min_agents, max_agents]`; with no
+/// stored count, its min.
+pub fn pool_agent_count(settings: &AgentPoolSettings, stored: Option<u32>) -> u32 {
+    crate::autoscaler::step::other_pool_bounds(settings, stored).2
 }
 
 /// Check the settings of the pool `pool`. `defaults` are the server-wide
@@ -266,12 +274,12 @@ pub fn validate(
         if max > MAX_POOL_AGENTS {
             return Err(format!("max_agents: {max} is more than {MAX_POOL_AGENTS}"));
         }
-        if settings.min_agents.is_some_and(|min| min != max) {
-            return Err(
-                "min_agents: must equal max_agents; a pool other than 'default' is not \
-                 autoscaled yet"
-                    .to_string(),
-            );
+        // CLOACINA-T-1029: a min below the max lets the pool autoscale between
+        // them; no min keeps the pool at its max.
+        if let Some(min) = settings.min_agents
+            && min > max
+        {
+            return Err(format!("min_agents: {min} is more than max_agents ({max})"));
         }
     }
 
@@ -425,6 +433,16 @@ pub trait AgentPoolSource: Send + Sync {
         &self,
         tenant_id: &str,
     ) -> Result<Vec<(String, AgentPoolSettings)>, ActuatorError>;
+
+    /// The counts the autoscaler stored for the tenant's pools other than
+    /// `default` (CLOACINA-T-1029). A pool with none runs its min. The
+    /// default: none stored.
+    async fn stored_counts(
+        &self,
+        _tenant_id: &str,
+    ) -> Result<std::collections::BTreeMap<String, u32>, ActuatorError> {
+        Ok(std::collections::BTreeMap::new())
+    }
 }
 
 /// Real [`AgentPoolSource`]: the `agent_pools` table.
@@ -447,6 +465,23 @@ impl AgentPoolSource for DalPoolSource {
         load_pools(&self.database, tenant_id)
             .await
             .map_err(ActuatorError::Settings)
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn stored_counts(
+        &self,
+        tenant_id: &str,
+    ) -> Result<std::collections::BTreeMap<String, u32>, ActuatorError> {
+        let rows = cloacina::dal::DAL::new(self.database.clone())
+            .agent_pool_scale()
+            .list_all()
+            .await
+            .map_err(|e| ActuatorError::Settings(format!("pool counts read failed: {e}")))?;
+        Ok(rows
+            .into_iter()
+            .filter(|r| r.tenant_id == tenant_id && r.pool != DEFAULT_AGENT_POOL)
+            .filter_map(|r| r.desired_count.map(|d| (r.pool, d)))
+            .collect())
     }
 }
 
@@ -676,8 +711,10 @@ mod tests {
         }
     }
 
+    /// CLOACINA-T-1029: a min below the max autoscales the pool between them;
+    /// no min keeps it at its max; a min above the max is refused.
     #[test]
-    fn other_pool_needs_a_fixed_agent_count() {
+    fn other_pool_needs_a_max_and_a_min_not_above_it() {
         let check = |min: Option<u32>, max: Option<u32>| {
             validate(
                 "big",
@@ -692,10 +729,12 @@ mod tests {
         assert!(check(None, None).unwrap_err().starts_with("max_agents:"));
         assert!(check(Some(1), None).unwrap_err().starts_with("max_agents:"));
         assert!(
-            check(Some(1), Some(2))
+            check(Some(3), Some(2))
                 .unwrap_err()
                 .starts_with("min_agents:")
         );
+        check(Some(1), Some(2)).unwrap();
+        check(Some(0), Some(5)).unwrap();
         assert!(
             check(None, Some(MAX_POOL_AGENTS + 1))
                 .unwrap_err()
@@ -712,6 +751,15 @@ mod tests {
             2
         );
         assert_eq!(fixed_agent_count(&AgentPoolSettings::default()), 0);
+        let scaled = AgentPoolSettings {
+            min_agents: Some(1),
+            max_agents: Some(4),
+            ..Default::default()
+        };
+        assert_eq!(fixed_agent_count(&scaled), 1);
+        assert_eq!(pool_agent_count(&scaled, Some(3)), 3);
+        assert_eq!(pool_agent_count(&scaled, Some(0)), 1);
+        assert_eq!(pool_agent_count(&scaled, Some(7)), 4);
     }
 
     #[test]

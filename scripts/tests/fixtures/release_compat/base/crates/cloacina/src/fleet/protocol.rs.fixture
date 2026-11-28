@@ -1,0 +1,2 @@
+/// The agent protocol version.
+pub const AGENT_PROTOCOL_VERSION: u32 = 1;

@@ -1170,7 +1170,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         // No document: this path opens the library in the calling process
         // (embedded use and tests). The compiler service uses
         // `mark_build_success_described`.
-        self.finish_build(package_id, compiled, merged_metadata_json, None)
+        self.finish_build(package_id, compiled, merged_metadata_json, None, None)
             .await
     }
 
@@ -1213,11 +1213,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .await?;
         let document_json =
             serde_json::to_string(document).map_err(RegistryError::Serialization)?;
+        // CLOACINA-T-1086: a Rust build passed the describe, which loads the
+        // library with this binary's fidius host, so it has this binary's
+        // plugin interface version. Python packages have none.
+        let plugin_interface = (document.language != "python")
+            .then_some(crate::fleet::PLUGIN_INTERFACE_VERSION as i32);
         self.finish_build(
             package_id,
             compiled,
             merged,
             Some((document_json, document.format_version as i32)),
+            plugin_interface,
         )
         .await
     }
@@ -1294,6 +1300,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         compiled: Vec<u8>,
         merged_metadata_json: Option<String>,
         document: Option<(String, i32)>,
+        plugin_interface: Option<i32>,
     ) -> Result<(), RegistryError> {
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::{
@@ -1360,6 +1367,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             workflow_packages::metadata_document.eq(document_json),
                             workflow_packages::metadata_document_version.eq(document_version),
                             workflow_packages::describe_error.eq::<Option<String>>(None),
+                            workflow_packages::plugin_interface_version.eq(plugin_interface),
                         ))
                         .execute(tx)?,
                     None => diesel::update(target)
@@ -1371,6 +1379,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             workflow_packages::metadata_document.eq(document_json),
                             workflow_packages::metadata_document_version.eq(document_version),
                             workflow_packages::describe_error.eq::<Option<String>>(None),
+                            workflow_packages::plugin_interface_version.eq(plugin_interface),
                         ))
                         .execute(tx)?,
                 };
@@ -3574,6 +3583,21 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(registry.build_queue_stats().await.unwrap().undescribed, 0);
+
+        // CLOACINA-T-1086: a described Rust build records the plugin
+        // interface version of the compiler that built it; dispatch reads it.
+        let dispatch = registry
+            .dal()
+            .workflow_packages()
+            .get_active_dispatch("described-pkg", None)
+            .await
+            .unwrap()
+            .expect("active build");
+        assert_eq!(dispatch.language, "rust");
+        assert_eq!(
+            dispatch.plugin_interface_version,
+            Some(crate::fleet::PLUGIN_INTERFACE_VERSION)
+        );
     }
 
     /// A package in service with no document is listed until it is described,

@@ -25,9 +25,9 @@ use crate::database::schema::unified::{
     execution_events, fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle,
     package_artifacts, package_providers, package_signatures, reactor_owner_addresses,
     reactor_state, recovery_events, schedule_executions, schedules, secrets, signing_keys,
-    state_accumulator_buffers, task_execution_metadata, task_executions, tenant_data_keys,
-    trusted_keys, workflow_execution_package_pins, workflow_executions, workflow_packages,
-    workflow_registry, ws_tickets,
+    state_accumulator_buffers, task_attempt_errors, task_attempt_outputs, task_execution_metadata,
+    task_executions, tenant_data_keys, trusted_keys, workflow_execution_package_pins,
+    workflow_executions, workflow_packages, workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -139,6 +139,12 @@ pub struct UnifiedTaskExecution {
     /// then by `waiting_since`.
     pub workflow_priority: i32,
     pub task_priority: i32,
+    /// CLOACINA-T-1136: the runner whose claim the fleet dispatch was
+    /// recorded under.
+    pub fleet_dispatch_claimed_by: Option<UniversalUuid>,
+    /// CLOACINA-T-1123: the priority the task declares, as asked. `None`:
+    /// it declares none and takes its workflow's.
+    pub task_priority_asked: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -162,6 +168,9 @@ pub struct NewUnifiedTaskExecution {
     /// CLOACINA-T-1045: `None` writes the column default, 5.
     pub workflow_priority: Option<i32>,
     pub task_priority: Option<i32>,
+    /// CLOACINA-T-1123: the priority the task declares; `None` when it
+    /// declares none.
+    pub task_priority_asked: Option<i32>,
 }
 
 // =====================================================================// Task Execution Metadata Models
@@ -218,6 +227,81 @@ pub struct NewUnifiedRecoveryEvent {
     pub details: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+}
+
+// =====================================================================// Task Attempt Error Models
+// =====================================================================
+/// The error of one failed attempt of a task (CLOACINA-T-1100).
+#[derive(Debug, Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = task_attempt_errors)]
+pub struct TaskAttemptError {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
+    /// The attempt that failed, from 1.
+    pub attempt: i32,
+    /// The message: what `last_error` holds for the last attempt.
+    pub message: String,
+    /// The details (a Python traceback), cut to
+    /// [`MAX_ERROR_DETAILS_BYTES`](crate::task_logs::MAX_ERROR_DETAILS_BYTES).
+    pub details: Option<String>,
+    pub failed_at: UniversalTimestamp,
+}
+
+impl TaskAttemptError {
+    /// The row for `attempt` of a task, from the failure text: the message,
+    /// and the details after the marker, cut as `error_details` is.
+    pub fn new(
+        task_execution_id: UniversalUuid,
+        workflow_execution_id: UniversalUuid,
+        attempt: i32,
+        error_text: &str,
+        failed_at: UniversalTimestamp,
+    ) -> Self {
+        let (message, details) = crate::task_logs::split_error_details(error_text);
+        Self {
+            id: UniversalUuid::new_v4(),
+            task_execution_id,
+            workflow_execution_id,
+            attempt,
+            message: message.to_string(),
+            details: details.map(crate::task_logs::bound_error_details),
+            failed_at,
+        }
+    }
+}
+
+// =====================================================================// Task Attempt Output Models
+// =====================================================================
+/// The end of the output of one attempt of a task (CLOACINA-T-1091). It is
+/// task data: no `Debug` that prints it.
+#[derive(Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = task_attempt_outputs)]
+pub struct TaskAttemptOutput {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
+    /// The attempt, from 1.
+    pub attempt: i32,
+    /// The last bytes of the attempt's stdout and stderr, as one stream.
+    pub output: String,
+    /// How many bytes the attempt wrote in all.
+    pub total_bytes: i64,
+    /// `true` when `output` is not the whole stream.
+    pub cut: UniversalBool,
+    pub recorded_at: UniversalTimestamp,
+}
+
+impl std::fmt::Debug for TaskAttemptOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskAttemptOutput")
+            .field("task_execution_id", &self.task_execution_id)
+            .field("attempt", &self.attempt)
+            .field("output_bytes", &self.output.len())
+            .field("total_bytes", &self.total_bytes)
+            .field("cut", &self.cut)
+            .finish()
+    }
 }
 
 // =====================================================================// Execution Event Models
@@ -402,6 +486,11 @@ pub struct UnifiedFleetAgent {
     /// (bytes), as it reported them. `None` = it reported none.
     pub cpu_millis: Option<i64>,
     pub memory_bytes: Option<i64>,
+    /// CLOACINA-T-1086: the agent's release, protocol number and plugin
+    /// interface version, as it reported them. `None` = it reported none.
+    pub agent_version: Option<String>,
+    pub protocol_version: Option<i32>,
+    pub plugin_interface_version: Option<i32>,
 }
 
 #[derive(Debug, Clone, Insertable, AsChangeset)]
@@ -422,6 +511,10 @@ pub struct NewUnifiedFleetAgent {
     /// (bytes), as it reported them. `None` = it reported none.
     pub cpu_millis: Option<i64>,
     pub memory_bytes: Option<i64>,
+    /// CLOACINA-T-1086: as in [`UnifiedFleetAgent`].
+    pub agent_version: Option<String>,
+    pub protocol_version: Option<i32>,
+    pub plugin_interface_version: Option<i32>,
 }
 
 /// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;
@@ -637,6 +730,10 @@ pub struct UnifiedWorkflowPackage {
     pub metadata_document_version: Option<i32>,
     /// Why the last describe failed.
     pub describe_error: Option<String>,
+    /// CLOACINA-T-1086: the plugin interface version of a Rust build, as the
+    /// compiler that built it recorded. `None`: a Python package, or a build
+    /// from before the column.
+    pub plugin_interface_version: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -977,6 +1074,8 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             updated_at: u.updated_at,
             workflow_priority: u.workflow_priority,
             task_priority: u.task_priority,
+            fleet_dispatch_claimed_by: u.fleet_dispatch_claimed_by,
+            task_priority_asked: u.task_priority_asked,
         }
     }
 }

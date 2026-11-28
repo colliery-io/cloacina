@@ -19,10 +19,12 @@ class KeyCreatedResponse:
         Attributes:
             created_at (str): RFC 3339 timestamp.
             id (str): Key UUID.
-            is_admin (bool): God-mode flag — never granted via the create endpoints.
+            is_admin (bool): Platform admin flag. Set only by `POST /auth/keys` with
+                `platform_admin: true`, and by the bootstrap.
             key (str): One-time plaintext API key.
             name (str):
             permissions (str): Role string: `read` | `write` | `admin` | `agent`.
+            expires_at (None | str | Unset): When the key expires (RFC 3339); `null`: it does not expire.
             tenant_id (None | str | Unset): Tenant scope; `null` for global keys.
     """
 
@@ -32,6 +34,7 @@ class KeyCreatedResponse:
     key: str
     name: str
     permissions: str
+    expires_at: None | str | Unset = UNSET
     tenant_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -47,6 +50,12 @@ class KeyCreatedResponse:
         name = self.name
 
         permissions = self.permissions
+
+        expires_at: None | str | Unset
+        if isinstance(self.expires_at, Unset):
+            expires_at = UNSET
+        else:
+            expires_at = self.expires_at
 
         tenant_id: None | str | Unset
         if isinstance(self.tenant_id, Unset):
@@ -66,6 +75,8 @@ class KeyCreatedResponse:
                 "permissions": permissions,
             }
         )
+        if expires_at is not UNSET:
+            field_dict["expires_at"] = expires_at
         if tenant_id is not UNSET:
             field_dict["tenant_id"] = tenant_id
 
@@ -86,6 +97,15 @@ class KeyCreatedResponse:
 
         permissions = d.pop("permissions")
 
+        def _parse_expires_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
+
         def _parse_tenant_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -102,6 +122,7 @@ class KeyCreatedResponse:
             key=key,
             name=name,
             permissions=permissions,
+            expires_at=expires_at,
             tenant_id=tenant_id,
         )
 

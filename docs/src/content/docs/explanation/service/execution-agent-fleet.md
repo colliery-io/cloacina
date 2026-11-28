@@ -84,16 +84,19 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    was deleted, the task fails; it does not move to another version.
    The per-architecture artifact is looked up for that same version.
 
-   Limits of the rule: the pin covers the artifact an agent runs. The server
-   still builds the task's dependency context from the workflow it has loaded,
-   which is the active version, so a new version that removes a task or changes
-   the edges between tasks can still affect an execution that is running. A
-   runner that executes tasks in its own process (no fleet) holds one loaded
-   version of a package and is not pinned. Computation graph fires have no
-   execution and always use the active version.
+   Limits of the rule: the pin covers the artifact an agent runs and the
+   task's dependencies (step 4). The retry policy, the time limit and the
+   placement of the task come from the task the server has loaded, which is
+   the active version. The scheduler decides when a task is ready from the
+   edges of the active version. A runner that executes tasks in its own
+   process (no fleet) holds one loaded version of a package and is not pinned.
+   Computation graph fires have no execution and always use the active
+   version.
 4. **Inline the context.** It builds the merged dependency context with the same
    `TaskContextBuilder` the in-process path uses, so a fleet-run task sees
-   byte-for-byte the input context it would running locally.
+   byte-for-byte the input context it would running locally. The dependencies
+   are those of the task in the pinned version, from the task list stored with
+   that version; a version stored with no task list uses the loaded task.
 5. **Enqueue + register a rendezvous.** It registers a one-shot keyed by the
    `task_execution_id`, then enqueues a **work packet** (task name, context,
    artifact reference, time limit, tenant, and the task's pool, requests and
@@ -189,6 +192,13 @@ While a server sends tasks to the fleet (`--default-executor fleet`), its
 stale-claim sweep leaves rows with a recorded dispatch to the fleet executor.
 A server that does not use the fleet sweeps them as any stale claim.
 
+The executor records the runner of its claim with the dispatch, and a
+takeover moves it with the claim. A replica takes over only a dispatch
+recorded under the claim it finds stale. A row whose claim another runner
+took without recording a dispatch, or a row with no runner recorded, names a
+dispatch that is not the live one of its claim: the stale-claim sweep makes it
+`Ready` as any stale claim.
+
 Each takeover is counted in `cloacina_fleet_dispatches_taken_over_total`, by
 `outcome`.
 
@@ -202,8 +212,12 @@ Limits:
 - During the roll that first brings this, the replicas of the older version
   record no dispatch, and their stale-claim sweep makes a stale fleet task
   `Ready` after 60 s as before. A task dispatched by a new replica can be swept
-  by an old replica before a new one takes it over. From the next roll on,
-  every replica takes over.
+  by an old replica before a new one takes it over. An old replica that then
+  sends the task again leaves the new replica's record on the row; the record
+  is not under its claim, so no new replica waits for that older dispatch
+  when the old replica stops: the sweep makes the task `Ready` and it is sent
+  again. In that roll a fleet task can run twice, as before. From the next
+  roll on, every replica takes over.
 - A graph firing has no task row and no claim: a replica that stops ends its
   firings, as before.
 
@@ -500,8 +514,11 @@ This is **defense-in-depth** — a tenant namespace that is network-isolated by
 default — and it deliberately does **not** replace any server-side check: the
 server-side ABAC (NFR-004) remains the real tenant-isolation boundary, and a
 tenant is still isolated primarily by *being its own tenant*, not by the policy.
-If the chart cannot supply the server's coordinates the actuator skips the policy
-(fail-open) rather than strand a fleet that can no longer reach the server.
+With the policy on, a server that cannot write it does not start
+(CLOACINA-T-1069): the server's coordinates (`CLOACINA_SERVER_NAMESPACE`,
+`CLOACINA_SERVER_POD_SELECTOR`) are unset, or its RBAC lacks `create`, `patch`
+or `delete` on `networkpolicies`. The log names what is missing. It runs no
+agents without their policy.
 
 ## Agent pools
 
@@ -618,9 +635,11 @@ line for each task. A secret is never in the worker's arguments or
 environment. The worker has the agent's environment (the agent takes its own
 key out of its environment at start), a temporary directory of its own
 (`TMPDIR`), which the agent empties after each task and removes when the
-worker ends, and the agent's stdout and stderr, so a task's log lines land in
-the agent's log. The worker has no API key and makes no request to the
-server.
+worker ends. Its stdout and stderr are one pipe that the agent reads: each
+line goes to the agent's log with the task's ids, and the last bytes of each
+attempt go to the server with its result (see
+[The end of a task's output](../../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output)).
+The worker has no API key and makes no request to the server.
 
 **The memory limit of a task** is its memory request. A task with no request
 gets a share of the agent: what the agent offers to tasks, divided by
@@ -697,7 +716,8 @@ imports it. That load is most of what a task in a worker costs. So after a
 task the worker waits, with the package still loaded, and the agent gives it
 the next task of the same **key**:
 
-- the same kind of job (a task, or a graph firing),
+- the same kind of job (a task, a graph firing, or a
+  [poll](#poll-triggers-on-agents)),
 - the same package version (the package's digest),
 - the same tenant,
 - the same memory limit.
@@ -843,9 +863,10 @@ refused: create it with `max_agents` 0, so the server starts no agents for it.
 
 ### What pools do not do
 
-- **Only `default` is autoscaled.** Another pool runs a fixed number of agents,
-  its `max_agents`. The tenant's agent limit and the provision API are for
-  `default`; they do not count or bound the other pools.
+- **The tenant's agent limit is for `default`.** The tenant's agent limit and
+  the provision API do not count or bound the other pools; each has its own
+  `min_agents` and `max_agents`, set by a platform admin. See
+  [How a pool scales](#how-a-pool-scales).
 - **No cap on the CPU of a task.** A task's memory is limited and its CPU is
   not. See [worker processes and limits](#worker-processes-and-limits).
 
@@ -856,9 +877,9 @@ them on every tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30s) and the
 Kubernetes actuator applies each pool's Deployment with server-side apply. A
 changed image, resource, concurrency or service account changes the pod
 template, so Kubernetes rolls the Deployment: new pods start with the new
-settings and the old ones are stopped. A task that was running on a stopped
-agent is reclaimed and run again, as for any agent that goes away. A changed
-egress rule changes the pool's NetworkPolicy only; no pod restarts.
+settings and the old ones are stopped. An old agent drains first (see
+[Stopping an agent](#stopping-an-agent)). A changed egress rule changes the
+pool's NetworkPolicy only; no pod restarts.
 
 If the settings cannot be read, the actuator changes nothing for that tenant on
 that tick. It does not fall back to the defaults, which would resize the agents.
@@ -912,7 +933,7 @@ nothing else.
 
 These numbers are for the pool `default` (see [Agent pools](#agent-pools)).
 
-Two numbers bound a tenant's fleet:
+Two numbers bound a tenant's pool `default`:
 
 - **Effective limit** — the hard ceiling. It is the platform default
   (`CLOACINA_DEFAULT_MAX_AGENTS`, default 4) unless a platform admin sets a
@@ -926,29 +947,101 @@ Two numbers bound a tenant's fleet:
   autoscaler moves it within `[CLOACINA_AUTOSCALE_FLOOR, effective_limit]` — the
   floor bounds the autoscaler, not the manual deprovision API.
 
-A **back-pressure autoscaler** can move `desired_count` on its own. It runs as a
-single control loop that, each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default
-30s), computes each tenant's **utilization** — Σ `in_flight` / Σ
-`max_concurrency` over that tenant's live agents of the pool `default` — and
-decides (capacity is what each agent registered, so a pool with another
-`max_concurrency` is measured against its own capacity):
+The autoscaler moves `desired_count` on its own, and the count of every other
+pool: see [How a pool scales](#how-a-pool-scales). After it, the same loop
+**reconciles** actual → desired through the actuator. `CLOACINA_AUTOSCALE=false`
+freezes automatic scaling while leaving reconciliation running: operators then
+drive `desired_count` by hand, and another pool runs its `min_agents`.
 
-- **up** (+1) when utilization exceeds the up-threshold (default 0.8) and there
-  is room under the effective limit;
-- **down** (−1) when it drops below the down-threshold (default 0.2) and there is
-  room above the floor;
-- **hold** otherwise (the band between the thresholds is hysteresis that prevents
-  thrash, and a per-tenant cooldown — default 60s — rate-limits changes).
+The autoscaler decision lives in Cloacina's control plane rather than a
+Kubernetes HPA because the signal is *per tenant and per pool* (the tasks that
+wait and what they request) and a tenant is the isolation boundary: an HPA
+cannot see it.
 
-After adjusting `desired_count`, the same loop **reconciles** actual → desired
-through the actuator. The autoscale step is a separate decision from the signal
-plumbing, so `CLOACINA_AUTOSCALE=false` freezes automatic scaling while leaving
-reconciliation running — operators can then drive `desired_count` by hand.
+### How a pool scales
 
-Utilization is the v1 signal deliberately: it is reactive (it only rises once the
-fleet is already saturated). The autoscaler decision lives in Cloacina's control
-plane rather than a Kubernetes HPA precisely because the relevant signal is
-*per-tenant* and a tenant is the isolation boundary — an HPA cannot see it.
+Each tick (`CLOACINA_AUTOSCALE_INTERVAL_S`, default 30 s), for each pool of
+each tenant:
+
+1. **The waiting work.** The pool's tasks that are Ready and on no agent:
+   tasks put off because no agent had room, and tasks not yet tried.
+2. **What does not fit.** They are packed, largest first, onto the free room
+   of the pool's live agents: free slots, and CPU and memory less what the
+   tasks in flight request. A task with no request counts as one slot's share
+   of an agent, as in [placement](#how-a-task-is-placed). What is left does
+   not fit.
+3. **Up.** What is left is packed, largest first, into empty agents of the
+   pool's size (what a live agent of the pool reports, else the pool's
+   settings). The pool's count becomes its live agents plus those new agents,
+   at most its max, in one step. Agents that are still starting count: a
+   tick while they start adds no more. A scale-up does not wait for a
+   cooldown.
+4. **Down.** A pool with no task in flight and none waiting is idle. When it
+   has been idle for `CLOACINA_AUTOSCALE_IDLE_S` (default 300 s), and its last
+   scale-down is `CLOACINA_AUTOSCALE_COOLDOWN_S` (default 60 s) ago, it goes
+   back to its min. The work is read again just before the write; a task
+   placed in between keeps the pool. A pool with work is never shrunk, so a
+   scale-down stops no agent with work in flight.
+
+So ten tasks that request 2 Gi on a pool of 8 Gi agents with a max of 3 take
+the pool from 0 to 3 agents in one tick: each agent offers 8 Gi less its own
+128 Mi, so three tasks fit on one, and the tenth waits for a free slot.
+
+| Pool | min | max |
+|---|---|---|
+| `default` | `CLOACINA_AUTOSCALE_FLOOR` (0), at least 1 for a tenant with an active poll trigger | the tenant's effective limit |
+| another pool | its `min_agents`; with none, its `max_agents` (a fixed count, as before pools scaled) | its `max_agents` |
+
+**Scale to zero.** A pool with min 0 has no agent until work comes. With the
+autoscaler on, the dispatch of a task for it goes through to the agent
+selection, finds no agent and puts the task off for capacity: the task waits
+with its attempt kept, and its wait is counted from then. The next tick starts
+an agent. The time to the first run is one tick plus the agent's start.
+
+**A task larger than one agent of its pool** (the pool was made smaller after
+the package was published) cannot be placed by more agents. It does not scale
+the pool and does not keep it busy; it is counted in
+`cloacina_fleet_pool_waiting_unplaceable_tasks`.
+
+**What an operator sees.** The pool routes (`GET /v1/tenants/{t}/pools`) give
+each pool's `desired_agents` and `live_agents`. The gauges, labelled `tenant`
+and `pool`: `cloacina_fleet_pool_agents_desired`,
+`cloacina_fleet_pool_agents_ready`, `cloacina_fleet_pool_cpu_requested_millis`,
+`cloacina_fleet_pool_cpu_offered_millis`,
+`cloacina_fleet_pool_memory_requested_bytes`,
+`cloacina_fleet_pool_memory_offered_bytes`, `cloacina_fleet_pool_waiting_tasks`
+and `cloacina_fleet_pool_waiting_unplaceable_tasks`; the age of the oldest
+waiting task is `cloacina_oldest_waiting_task_age_seconds{tenant,pool}`. Each change of a
+count is a log line (tenant, pool, from, to) and
+`cloacina_fleet_pool_scaled_total{direction}`.
+
+The state of each pool (its count, since when it is idle, its last
+scale-down) is in the database, with the database clock, so the rules hold
+whichever server replica leads a tick.
+
+### Stopping an agent
+
+Kubernetes stops an agent pod with SIGTERM: a scale-down, a roll (new
+settings, a new agent key, a new image), a node drain. The agent then:
+
+1. takes no new work: a packet that arrives is refused as "stopping", which
+   the server reads as "not run" (the task waits for another agent, with no
+   use of a retry attempt), and its heartbeat offers no free slot;
+2. lets the work it runs finish and report, for up to its drain time
+   (`CLOACINA_AGENT_DRAIN_SECONDS`, default 25 s);
+3. stops the workers that still run and hands their work back: the task is
+   Ready again with the same attempt, and runs again on another agent from
+   the start. Then the agent exits.
+
+The pod's grace period must be longer than the drain time. The Kubernetes
+default is 30 s. With `CLOACINA_AGENT_DRAIN_S` set on the server, the actuator
+gives each agent that drain time and sets the pods'
+`terminationGracePeriodSeconds` to it plus 15 s; set it to the longest task
+time limit of the tenant's pools so a roll lets every task finish. A task
+marked `inline` and a poll run in the agent process and cannot be handed back:
+they end with the process, and the server takes the task back by its stale
+claim sweep. The Docker actuator stops a container with Docker's own timeout
+(10 s), after which Docker kills it.
 
 Because every replica runs the same loop, the fleet is driven through
 **Postgres-advisory-lock leader election**: each tick, only the replica holding
@@ -975,10 +1068,11 @@ no tenant code, so a poll trigger's code runs on an agent of its tenant
    `default`, with a free slot, a runnable arch and the capability
    `job:poll`, and sends a poll packet (kind `agent_poll`) on the delivery
    outbox. A poll takes one slot of the agent while it runs.
-4. **On the agent.** The agent loads the package as for a task (a Python
-   package is imported into the same runtime its tasks use; a Rust build's
-   library is opened once and kept), calls the trigger under the poll time
-   limit and reports fire, with the trigger's context, or skip.
+4. **On the agent.** The agent fetches the package as for a task and runs
+   the poll in a [worker process](#worker-processes-and-limits): the worker
+   loads the package (a Python package is imported, a Rust build's library is
+   opened), calls the trigger and hands back fire, with the trigger's
+   context, or skip. The agent reports the answer.
 5. **Fire.** On a fire the server starts the workflow with the context, as
    for a poll in the server: the dedup by context hash and the execution row
    are the same.
@@ -986,6 +1080,26 @@ no tenant code, so a poll trigger's code runs on an agent of its tenant
 **Settings.** `--fleet-poll-timeout-s` / `CLOACINA_FLEET_POLL_TIMEOUT_S`
 (default 30) is the time an agent lets one poll run. The server waits that
 plus 10 s for the answer.
+
+**Limits of a poll.** A poll is held as a task with no memory request:
+
+- its memory limit is the agent's share for a task with no request; a poll
+  over it is killed and fails with `poll exceeded its memory limit of
+  <limit>`, and the other work on the agent goes on;
+- at `--fleet-poll-timeout-s` the agent kills the poll's worker, with every
+  process the poll started, and the poll fails with `poll exceeded timeout of
+  <n>s`;
+- a crash in a poll ends its worker only.
+
+**Warm workers for polls.** After a poll the worker waits for the next poll
+of the same build, tenant and memory limit, with the package loaded, under
+the [rules of warm workers](#warm-workers). A poll never takes the warm
+worker of a task or a graph firing, and a task never takes a poll's. A
+trigger's state in memory (a Rust static, a Python module global) lasts as
+long as its warm worker: up to `--warm-worker-max-jobs` polls, and no longer
+than `--warm-worker-idle-seconds` between two polls. A trigger whose interval
+is longer than the idle time gets a new worker, and a fresh state, at each
+poll. Keep state that must last in a store outside the process.
 
 **A poll that gets no answer** fires nothing, and the reason is in
 `last_poll_error` of the trigger in the triggers routes and the UI:
@@ -1010,8 +1124,17 @@ The loop runs only with an actuator; with agents that register themselves,
 keep one agent of each such tenant running.
 
 **Cost.** Each poll is one dispatch: a trigger with a 10 s interval sends 360
-packets an hour, each with a package load on an agent that has not loaded the
-build yet.
+packets an hour. A poll in a warm worker adds under a millisecond; a poll in a
+new worker loads the package. Measured on a development machine (Apple
+silicon, a debug build, the test binary as the worker), 20 runs each, median:
+
+| Poll | New worker | Warm worker | In the agent process | Memory of an idle warm worker |
+|---|---|---|---|---|
+| Python, one module | 90 ms | 0.46 ms | 0.03 ms | 27Mi |
+| Rust, a small library | 17 ms | 0.65 ms | 0.03 ms | 18Mi |
+
+There is no setting to run a poll in the agent process: unlike a graph
+firing, no other work waits for a poll to end.
 
 **Metrics.** `cloacina_trigger_polls_total{outcome}` (`fire`, `skip`,
 `error`, `in_flight`), `cloacina_fleet_polls_total{answer}` (`fire`, `skip`,

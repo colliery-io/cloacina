@@ -16,7 +16,7 @@
 
 //! Retention of run history (CLOACINA-T-1023).
 //!
-//! A finished workflow execution leaves rows in nine tables. Nothing removed
+//! A finished workflow execution leaves rows in ten tables. Nothing removed
 //! them, so every table grew with each run. [`RetentionDAL`] deletes finished
 //! executions older than a cutoff, with every row that hangs off them, in
 //! bounded batches.
@@ -38,10 +38,13 @@
 //! 5. `workflow_execution_package_pins` of those executions (CLOACINA-T-1130;
 //!    no foreign key)
 //! 6. `task_execution_metadata`
-//! 7. `task_executions`
-//! 8. `workflow_executions`
-//! 9. `contexts` that the removed rows pointed at and that no remaining
-//!    execution or metadata row references
+//! 7. `task_attempt_errors`, the error of each failed attempt (CLOACINA-T-1100)
+//! 8. `task_attempt_outputs`, the end of the output of each attempt
+//!    (CLOACINA-T-1091; output retention also deletes them by their own age)
+//! 9. `task_executions`
+//! 10. `workflow_executions`
+//! 11. `contexts` that the removed rows pointed at and that no remaining
+//!     execution or metadata row references
 //!
 //! Children go first because only `execution_events` and
 //! `schedule_executions` cascade on delete; the other foreign keys are plain
@@ -62,7 +65,8 @@
 use super::DAL;
 use crate::database::schema::unified::{
     contexts, delivery_outbox, execution_events, recovery_events, schedule_executions,
-    task_execution_metadata, task_executions, workflow_execution_package_pins, workflow_executions,
+    task_attempt_errors, task_attempt_outputs, task_execution_metadata, task_executions,
+    workflow_execution_package_pins, workflow_executions,
 };
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -94,6 +98,11 @@ pub struct RunHistoryDeleted {
     pub delivery_outbox: usize,
     /// The package version pins of the removed executions (CLOACINA-T-1130).
     pub workflow_execution_package_pins: usize,
+    /// The errors of the failed attempts of the removed tasks
+    /// (CLOACINA-T-1100).
+    pub task_attempt_errors: usize,
+    /// The outputs of the attempts of the removed tasks (CLOACINA-T-1091).
+    pub task_attempt_outputs: usize,
 }
 
 impl RunHistoryDeleted {
@@ -108,10 +117,12 @@ impl RunHistoryDeleted {
         self.schedule_executions += other.schedule_executions;
         self.delivery_outbox += other.delivery_outbox;
         self.workflow_execution_package_pins += other.workflow_execution_package_pins;
+        self.task_attempt_errors += other.task_attempt_errors;
+        self.task_attempt_outputs += other.task_attempt_outputs;
     }
 
     /// `(table name, rows removed)` for every table, for metrics and logs.
-    pub fn per_table(&self) -> [(&'static str, usize); 9] {
+    pub fn per_table(&self) -> [(&'static str, usize); 11] {
         [
             ("workflow_executions", self.workflow_executions),
             ("task_executions", self.task_executions),
@@ -125,6 +136,8 @@ impl RunHistoryDeleted {
                 "workflow_execution_package_pins",
                 self.workflow_execution_package_pins,
             ),
+            ("task_attempt_errors", self.task_attempt_errors),
+            ("task_attempt_outputs", self.task_attempt_outputs),
         ]
     }
 
@@ -266,6 +279,18 @@ impl<'a> RetentionDAL<'a> {
                 out.task_execution_metadata = diesel::delete(
                     task_execution_metadata::table
                         .filter(task_execution_metadata::workflow_execution_id.eq_any(ids.clone())),
+                )
+                .execute(conn)?;
+
+                out.task_attempt_errors = diesel::delete(
+                    task_attempt_errors::table
+                        .filter(task_attempt_errors::workflow_execution_id.eq_any(ids.clone())),
+                )
+                .execute(conn)?;
+
+                out.task_attempt_outputs = diesel::delete(
+                    task_attempt_outputs::table
+                        .filter(task_attempt_outputs::workflow_execution_id.eq_any(ids.clone())),
                 )
                 .execute(conn)?;
 
@@ -526,10 +551,107 @@ mod tests {
                 schedule_executions: 1,
                 delivery_outbox: 1,
                 workflow_execution_package_pins: 0,
+                task_attempt_errors: 0,
+                task_attempt_outputs: 0,
             }
         );
         assert_eq!(deleted.total(), 11);
         assert_eq!(counts(&dal).await, [0; 8]);
+    }
+
+    /// Gives the task of `wf` the error of a failed attempt (CLOACINA-T-1100).
+    async fn attempt_error(dal: &DAL, wf: UniversalUuid) {
+        crate::interact_on_backend!(dal, |conn| {
+            let task: UniversalUuid = task_executions::table
+                .filter(task_executions::workflow_execution_id.eq(wf))
+                .select(task_executions::id)
+                .first(conn)?;
+            diesel::insert_into(task_attempt_errors::table)
+                .values(&crate::dal::unified::models::TaskAttemptError::new(
+                    task,
+                    wf,
+                    1,
+                    "boom",
+                    UniversalTimestamp::now(),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+    }
+
+    async fn attempt_errors_left(dal: &DAL) -> i64 {
+        crate::interact_on_backend!(dal, |conn| {
+            task_attempt_errors::table.count().get_result(conn)
+        })
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn removes_the_attempt_errors_of_a_removed_run() {
+        let dal = unique_dal().await;
+        let old = make_run(&dal, "Completed").await;
+        let live = make_run(&dal, "Running").await;
+        attempt_error(&dal, old).await;
+        attempt_error(&dal, live).await;
+        set_state(&dal, old, "Completed", Some(Duration::seconds(10))).await;
+
+        let deleted = dal
+            .retention()
+            .delete_finished_executions_batch(cutoff(Duration::seconds(2)), 100)
+            .await
+            .unwrap();
+        assert_eq!(deleted.workflow_executions, 1);
+        assert_eq!(deleted.task_attempt_errors, 1);
+        assert_eq!(
+            attempt_errors_left(&dal).await,
+            1,
+            "the live run keeps its error"
+        );
+    }
+
+    /// CLOACINA-T-1091: the output rows of a removed run go before its task
+    /// rows; a live run keeps its own.
+    #[tokio::test]
+    async fn removes_the_attempt_outputs_of_a_removed_run() {
+        let dal = unique_dal().await;
+        let old = make_run(&dal, "Completed").await;
+        let live = make_run(&dal, "Running").await;
+        for wf in [old, live] {
+            let task: UniversalUuid = crate::interact_on_backend!(dal, |conn| {
+                task_executions::table
+                    .filter(task_executions::workflow_execution_id.eq(wf))
+                    .select(task_executions::id)
+                    .first(conn)
+            })
+            .unwrap();
+            dal.task_execution()
+                .record_attempt_output(
+                    task,
+                    wf,
+                    1,
+                    crate::fleet::AttemptOutput {
+                        text: "line".into(),
+                        total_bytes: 4,
+                        cut: false,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        set_state(&dal, old, "Completed", Some(Duration::seconds(10))).await;
+
+        let deleted = dal
+            .retention()
+            .delete_finished_executions_batch(cutoff(Duration::seconds(2)), 100)
+            .await
+            .unwrap();
+        assert_eq!(deleted.workflow_executions, 1);
+        assert_eq!(deleted.task_attempt_outputs, 1);
+        let left: i64 = crate::interact_on_backend!(dal, |conn| {
+            task_attempt_outputs::table.count().get_result(conn)
+        })
+        .unwrap();
+        assert_eq!(left, 1, "the live run keeps its output");
     }
 
     async fn pin(dal: &DAL, wf: UniversalUuid) {

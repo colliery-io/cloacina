@@ -53,6 +53,107 @@ fn local_id(name: &str) -> String {
     name.rsplit("::").next().unwrap_or(name).to_string()
 }
 
+/// The errors of the attempts before the task's current one, each with its
+/// attempt number (CLOACINA-T-1100). The current attempt's error is
+/// `last_error`. Nothing when no earlier attempt failed.
+fn earlier_attempt_errors(t: &cloacina_api_types::TaskExecutionDetail) -> impl IntoView + use<> {
+    let earlier: Vec<cloacina_api_types::TaskAttemptErrorDetail> = t
+        .attempt_errors
+        .iter()
+        .filter(|e| e.attempt < t.attempt)
+        .cloned()
+        .collect();
+    (!earlier.is_empty()).then(|| {
+        let count = earlier.len();
+        view! {
+            <details class="app-errdetails">
+                <summary>{format!("Earlier attempts ({count})")}</summary>
+                {earlier
+                    .into_iter()
+                    .map(|e| view! {
+                        <div>
+                            <div>{format!("Attempt {}: {}", e.attempt, e.message)}</div>
+                            {e.details.map(|details| view! {
+                                <pre class="app-errdetails__text">{details}</pre>
+                            })}
+                        </div>
+                    })
+                    .collect_view()}
+            </details>
+        }
+    })
+}
+
+/// The end of what each attempt of a task wrote on stdout and stderr
+/// (CLOACINA-T-1091), loaded the first time it is opened. Kept for tasks that
+/// ran in an agent's worker process; an attempt's output shows when the
+/// attempt has ended.
+#[component]
+fn TaskOutput(exec_id: String, task_id: String) -> impl IntoView {
+    let auth = use_auth();
+    let loaded =
+        RwSignal::new(None::<Result<Vec<cloacina_api_types::TaskAttemptOutputDetail>, String>>);
+    let asked = StoredValue::new(false);
+    let load = move |_| {
+        if asked.get_value() {
+            return;
+        }
+        asked.set_value(true);
+        let Some(conn) = auth.connection() else {
+            loaded.set(Some(Err("not connected".to_string())));
+            return;
+        };
+        let (exec_id, task_id) = (exec_id.clone(), task_id.clone());
+        leptos::task::spawn_local(async move {
+            let result = async {
+                let client = client_for(&conn)?;
+                client
+                    .get_task_output(&exec_id, &task_id, None, None)
+                    .await
+                    .map(|r| r.attempts)
+                    .map_err(|e| e.to_string())
+            }
+            .await;
+            loaded.set(Some(result));
+        });
+    };
+    view! {
+        <details class="app-errdetails" on:toggle=load>
+            <summary>"Output"</summary>
+            {move || match loaded.get() {
+                None => view! { <span class="app-meta--md">"Loading…"</span> }.into_any(),
+                Some(Err(e)) => view! { <span class="app-bad">{e}</span> }.into_any(),
+                Some(Ok(attempts)) if attempts.is_empty() => view! {
+                    <span class="app-meta--md">"No output is stored for this task."</span>
+                }
+                .into_any(),
+                Some(Ok(attempts)) => attempts
+                    .into_iter()
+                    .map(|o| {
+                        let header = if o.cut {
+                            format!(
+                                "Attempt {} (the last {} of {} bytes)",
+                                o.attempt,
+                                o.output.len(),
+                                o.total_bytes
+                            )
+                        } else {
+                            format!("Attempt {} ({} bytes)", o.attempt, o.total_bytes)
+                        };
+                        view! {
+                            <div>
+                                <div>{header}</div>
+                                <pre class="app-errdetails__text">{o.output}</pre>
+                            </div>
+                        }
+                    })
+                    .collect_view()
+                    .into_any(),
+            }}
+        </details>
+    }
+}
+
 /// A section title; while the run is live it carries a live marker.
 #[component]
 fn SectionHeader(#[prop(into)] title: String, live: Signal<bool>) -> impl IntoView {
@@ -450,6 +551,7 @@ pub fn ExecutionView(
                                     <th>"Attempt"</th>
                                     <th>"Duration"</th>
                                     <th>"Error"</th>
+                                    <th>"Output"</th>
                                     // The log link column is there only when
                                     // the server has a log URL template.
                                     <Show when=move || task_list.get().iter().any(|t| t.log_url.is_some())>
@@ -461,7 +563,7 @@ pub fn ExecutionView(
                                 <For
                                     each=move || task_list.get()
                                     key=|t| (t.id.clone(), t.status.clone(), t.attempt)
-                                    children=|t| {
+                                    children=move |t| {
                                         let start = t.started_at.clone().unwrap_or_else(|| t.created_at.clone());
                                         let end = t.completed_at.clone();
                                         view! {
@@ -482,6 +584,15 @@ pub fn ExecutionView(
                                                             <pre class="app-errdetails__text">{details}</pre>
                                                         </details>
                                                     })}
+                                                    // The errors of the attempts before
+                                                    // this one (CLOACINA-T-1100).
+                                                    {earlier_attempt_errors(&t)}
+                                                </td>
+                                                <td class="app-meta--md">
+                                                    <TaskOutput
+                                                        exec_id=id.get_untracked()
+                                                        task_id=t.id.clone()
+                                                    />
                                                 </td>
                                                 {t.log_url.clone().map(|url| view! {
                                                     <td>

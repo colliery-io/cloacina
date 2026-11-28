@@ -139,12 +139,12 @@ impl From<cloacina_client::ClientError> for CliError {
         use cloacina_client::ClientError as CE;
         match e {
             CE::Transport(msg) => CliError::Network(msg),
-            CE::Auth(msg) => CliError::Auth(msg),
+            CE::Auth(detail) => CliError::Auth(detail.message),
             CE::NotFound(key) => CliError::NotFound {
                 resource: "resource".to_string(),
                 key,
             },
-            CE::InvalidRequest(msg) => CliError::UserError(msg),
+            CE::InvalidRequest(detail) => CliError::UserError(detail.message),
             CE::Server { status, body } => CliError::ServerReject { status, body },
             CE::Config(msg) => CliError::UserError(msg),
             CE::Ws(msg) => CliError::Network(msg),

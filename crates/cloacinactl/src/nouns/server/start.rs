@@ -55,6 +55,18 @@ pub struct ServerSettingArgs {
     #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S")]
     pub retention_interval_s: Option<u64>,
 
+    /// Bytes of the end of each fleet task attempt's output that are kept;
+    /// `0` keeps none. Overrides `[server].task_output_max_bytes`.
+    /// CLOACINA-T-1091.
+    #[arg(long, env = "CLOACINA_TASK_OUTPUT_MAX_BYTES")]
+    pub task_output_max_bytes: Option<u64>,
+
+    /// Days to keep the stored output of a task attempt; `0` keeps it for
+    /// ever. Overrides `[server].task_output_retention_days`.
+    /// CLOACINA-T-1091.
+    #[arg(long, env = "CLOACINA_TASK_OUTPUT_RETENTION_DAYS")]
+    pub task_output_retention_days: Option<u64>,
+
     /// Time limit (seconds) of a fleet task that sets none of its own, and of
     /// a graph firing on the fleet. Overrides `[server].fleet_task_timeout_s`.
     #[arg(long, env = "CLOACINA_FLEET_TASK_TIMEOUT_S")]
@@ -158,6 +170,11 @@ pub struct ServerSettingArgs {
     #[arg(long, env = "CLOACINA_FLEET_POLL_TIMEOUT_S")]
     pub fleet_poll_timeout_s: Option<u64>,
 
+    /// The ageing interval of waiting work, in seconds; `0` = no ageing.
+    /// Overrides `[server].priority_aging_interval_s`. CLOACINA-T-1123.
+    #[arg(long, env = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS")]
+    pub priority_aging_interval_s: Option<u64>,
+
     /// Size in bytes above which a task context is logged as a warning;
     /// `0` = off. Overrides `[server].context_warn_bytes`.
     #[arg(long, env = "CLOACINA_CONTEXT_WARN_BYTES")]
@@ -192,6 +209,16 @@ pub struct ServerSettingArgs {
     /// Overrides `[server].max_unpacked_bytes`.
     #[arg(long, env = "CLOACINA_MAX_UNPACKED_BYTES")]
     pub max_unpacked_bytes: Option<u64>,
+
+    /// Days an agent key that the Kubernetes actuator mints stays valid.
+    /// Overrides `[server].agent_key_lifetime_days`. CLOACINA-T-1083.
+    #[arg(long, env = "CLOACINA_AGENT_KEY_LIFETIME_DAYS")]
+    pub agent_key_lifetime_days: Option<u32>,
+
+    /// Days left on an agent key at which the Kubernetes actuator replaces
+    /// it. Overrides `[server].agent_key_rotate_days`. CLOACINA-T-1083.
+    #[arg(long, env = "CLOACINA_AGENT_KEY_ROTATE_DAYS")]
+    pub agent_key_rotate_days: Option<u32>,
 }
 
 /// What `server start` adds to the `cloacina-server` command for the settings
@@ -241,6 +268,18 @@ pub(crate) fn forwarded_settings(
     arg(
         "--retention-interval-s",
         number(cli.retention_interval_s, config.retention_interval_s),
+    );
+    // CLOACINA-T-1091: the output of task attempts.
+    arg(
+        "--task-output-max-bytes",
+        number(cli.task_output_max_bytes, config.task_output_max_bytes),
+    );
+    arg(
+        "--task-output-retention-days",
+        number(
+            cli.task_output_retention_days,
+            config.task_output_retention_days,
+        ),
     );
     arg(
         "--fleet-task-timeout-s",
@@ -352,6 +391,13 @@ pub(crate) fn forwarded_settings(
         number(cli.fleet_poll_timeout_s, config.fleet_poll_timeout_s),
     );
     arg(
+        "--priority-aging-interval-s",
+        number(
+            cli.priority_aging_interval_s,
+            config.priority_aging_interval_s,
+        ),
+    );
+    arg(
         "--context-warn-bytes",
         number(cli.context_warn_bytes, config.context_warn_bytes),
     );
@@ -378,6 +424,18 @@ pub(crate) fn forwarded_settings(
     arg(
         "--max-unpacked-bytes",
         number(cli.max_unpacked_bytes, config.max_unpacked_bytes),
+    );
+    arg(
+        "--agent-key-lifetime-days",
+        cli.agent_key_lifetime_days
+            .or(config.agent_key_lifetime_days)
+            .map(|n| n.to_string()),
+    );
+    arg(
+        "--agent-key-rotate-days",
+        cli.agent_key_rotate_days
+            .or(config.agent_key_rotate_days)
+            .map(|n| n.to_string()),
     );
 
     // The URL can hold a token: an env var of the server process, so it is
@@ -517,6 +575,8 @@ database_wait_timeout_s = 120
 run_history_retention_days = 30
 outbox_acked_retention_s = 600
 retention_interval_s = 60
+task_output_max_bytes = 131072
+task_output_retention_days = 7
 fleet_task_timeout_s = 900
 fleet_task_timeout_max_s = 7200
 alert_webhook_url = "https://alerts.example.com/hook"
@@ -535,6 +595,7 @@ agent_liveness_misses = 4
 fleet_artifact_fetch_wait_s = 120
 fleet_graph_firings = "worker"
 fleet_poll_timeout_s = 20
+priority_aging_interval_s = 300
 context_warn_bytes = 2097152
 context_max_bytes = 33554432
 cors_allowed_origins = ["https://ops.example.com", "https://ui.example.com"]
@@ -542,11 +603,13 @@ cors_allowed_methods = ["GET", "POST"]
 cors_allowed_headers = ["authorization"]
 max_package_bytes = 209715200
 max_unpacked_bytes = 1073741824
+agent_key_lifetime_days = 60
+agent_key_rotate_days = 20
 "#;
 
     /// The arguments forwarded for [`FULL_CONFIG`] after the settings of
     /// CLOACINA-T-1039, in order.
-    const FULL_CONFIG_LATER_ARGS: [&str; 36] = [
+    const FULL_CONFIG_LATER_ARGS: [&str; 42] = [
         "--verification-org-id",
         "6f1c2a7e-3b9d-4c55-9e0a-2d4b8f1e7a60",
         "--reconcile-interval-s",
@@ -569,6 +632,8 @@ max_unpacked_bytes = 1073741824
         "worker",
         "--fleet-poll-timeout-s",
         "20",
+        "--priority-aging-interval-s",
+        "300",
         "--context-warn-bytes",
         "2097152",
         "--context-max-bytes",
@@ -583,6 +648,10 @@ max_unpacked_bytes = 1073741824
         "209715200",
         "--max-unpacked-bytes",
         "1073741824",
+        "--agent-key-lifetime-days",
+        "60",
+        "--agent-key-rotate-days",
+        "20",
     ];
 
     #[test]
@@ -610,6 +679,10 @@ max_unpacked_bytes = 1073741824
                 "600",
                 "--retention-interval-s",
                 "60",
+                "--task-output-max-bytes",
+                "131072",
+                "--task-output-retention-days",
+                "7",
                 "--fleet-task-timeout-s",
                 "900",
                 "--fleet-task-timeout-max-s",
@@ -803,12 +876,14 @@ max_unpacked_bytes = 1073741824
         let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
         let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
         assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
-        assert_eq!(flags.len(), 35);
+        assert_eq!(flags.len(), 40);
         assert_eq!(flags[0], "--home");
         assert_eq!(flags[6], "--require-signatures");
         assert_eq!(flags[7], "--database-wait-timeout-s");
-        assert_eq!(flags[17], "--verification-org-id");
-        assert_eq!(flags[34], "--max-unpacked-bytes");
+        assert_eq!(flags[11], "--task-output-max-bytes");
+        assert_eq!(flags[19], "--verification-org-id");
+        assert_eq!(flags[37], "--max-unpacked-bytes");
+        assert_eq!(flags[39], "--agent-key-rotate-days");
     }
 
     /// CLOACINA-T-1106: each flag of [`ServerSettingArgs`] is forwarded under
@@ -889,9 +964,15 @@ max_unpacked_bytes = 1073741824
             "5",
             "--fleet-graph-firings",
             "worker",
+            "--agent-key-lifetime-days",
+            "45",
+            "--agent-key-rotate-days",
+            "15",
         ])
         .unwrap()
         .settings;
+        assert_eq!(flags.agent_key_lifetime_days, Some(45));
+        assert_eq!(flags.agent_key_rotate_days, Some(15));
         assert_eq!(flags.fleet_graph_firings.as_deref(), Some("worker"));
         assert_eq!(flags.fleet_artifact_fetch_wait_s, Some(60));
         assert_eq!(flags.context_warn_bytes, Some(1));

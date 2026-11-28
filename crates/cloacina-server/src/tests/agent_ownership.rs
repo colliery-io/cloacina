@@ -134,6 +134,7 @@ async fn report(
         outcome: AgentOutcome::Success {
             context: serde_json::json!({"forged": true}),
         },
+        output: None,
     };
     match report_result(State(state.clone()), Extension(key.clone()), Json(body)).await {
         Ok(_) => StatusCode::OK,
@@ -200,6 +201,98 @@ async fn test_register_cannot_take_over_an_agent_id() {
 
     let _ = state.agent_registry.deregister(&agent_b).await;
     let _ = state.agent_registry.deregister(&assigned).await;
+}
+
+/// Register with a release, through the real handler. `Ok(agent id)` or the
+/// status and the body of the refusal.
+async fn register_as(
+    state: &AppState,
+    key: &AuthenticatedKey,
+    agent_version: Option<&str>,
+    plugin_interface_version: Option<u32>,
+) -> Result<String, (StatusCode, serde_json::Value)> {
+    let mut body = register_body(None);
+    body.agent_version = agent_version.map(str::to_string);
+    body.plugin_interface_version = plugin_interface_version;
+    match register_agent(State(state.clone()), Extension(key.clone()), Json(body)).await {
+        Ok(Json(resp)) => Ok(resp.agent_id),
+        Err(e) => {
+            let response = e.into_response();
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            Err((status, serde_json::from_slice(&bytes).expect("json")))
+        }
+    }
+}
+
+/// This server's release with its minor moved by `delta`.
+fn release_moved(delta: i64) -> String {
+    use cloacina::fleet::version::{RELEASE, Release};
+    let own = Release::parse(RELEASE).expect("release");
+    format!("{}.{}.0", own.major, (own.minor as i64 + delta).max(0))
+}
+
+/// CLOACINA-T-1086: the server accepts an agent of its own minor and of the
+/// one before, records the versions it reports, and refuses an older or a
+/// newer one with 400 `agent_version_unsupported` and both releases. A
+/// refused agent gets no roster row.
+#[tokio::test]
+#[serial]
+async fn test_t1086_the_register_checks_the_agents_release() {
+    use cloacina::fleet::version::RELEASE;
+    let state = test_state().await;
+    let key = tenant_key(&unique("skew"));
+
+    let current = register_as(&state, &key, Some(RELEASE), Some(8))
+        .await
+        .expect("own release");
+    let previous = register_as(&state, &key, Some(&release_moved(-1)), None)
+        .await
+        .expect("the minor before");
+    let live = state.agent_registry.live_agents().await.expect("roster");
+    let row = live
+        .iter()
+        .find(|a| a.agent_id == current)
+        .expect("the agent is registered");
+    assert_eq!(row.agent_version.as_deref(), Some(RELEASE));
+    assert_eq!(row.plugin_interface_version, Some(8));
+    assert_eq!(row.protocol_version, Some(AGENT_PROTOCOL_VERSION));
+
+    let older = release_moved(-2);
+    let (status, body) = register_as(&state, &key, Some(&older), None)
+        .await
+        .expect_err("two minors back");
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "agent_version_unsupported");
+    let message = body["error"].as_str().unwrap();
+    assert!(
+        message.contains(&older) && message.contains(RELEASE),
+        "{message}"
+    );
+
+    let newer = release_moved(1);
+    let (status, body) = register_as(&state, &key, Some(&newer), None)
+        .await
+        .expect_err("a newer agent");
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("upgrade the server"),
+        "{body}"
+    );
+    let after = state.agent_registry.live_agents().await.expect("roster");
+    assert_eq!(
+        after.len(),
+        live.len(),
+        "a refused agent writes no roster row"
+    );
+
+    let _ = state.agent_registry.deregister(&current).await;
+    let _ = state.agent_registry.deregister(&previous).await;
 }
 
 /// CLOACINA-T-1050: heartbeat, result and key top-up are refused for an

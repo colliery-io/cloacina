@@ -83,10 +83,13 @@ fn parse_scopes(raw: Option<&str>) -> Vec<String> {
 }
 
 /// A validated set of identity claims extracted from an OIDC ID token by the
-/// relying party (T-0790). Provider-neutral within OIDC.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// relying party (T-0790). Provider-neutral within OIDC. Stored as JSON on
+/// the login session (CLOACINA-T-1082), so each refresh can run the current
+/// map on them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IdentityClaims {
     /// The stable subject identifier (`sub`).
+    #[serde(rename = "sub")]
     pub subject: String,
     /// The email, if the IdP released one. It is proven only when
     /// `email_verified` is `Some(true)`.
@@ -95,7 +98,38 @@ pub struct IdentityClaims {
     /// rule needs `Some(true)` (CLOACINA-T-1066).
     pub email_verified: Option<bool>,
     /// Group/role memberships from the IdP (e.g. Keycloak `groups`, GitHub orgs).
+    #[serde(default)]
     pub groups: Vec<String>,
+}
+
+/// The answer of the IdP at a group check (CLOACINA-T-1082).
+#[derive(Debug)]
+pub enum ClaimsCheck {
+    /// The IdP answered with the identity's current claims, and a new refresh
+    /// token when it rotated the old one.
+    Current {
+        claims: IdentityClaims,
+        refresh_token: Option<String>,
+    },
+    /// The IdP refused the refresh token (`invalid_grant`): the login is over.
+    Refused(String),
+    /// The IdP could not be reached, or its answer could not be read.
+    Unreachable(String),
+}
+
+/// Spend a stored refresh token at the IdP and read the identity's claims
+/// again (CLOACINA-T-1082). [`OidcProvider`] is the real one; tests use a
+/// mock.
+#[async_trait::async_trait]
+pub trait IdpClaimsCheck: Send + Sync {
+    async fn check(&self, refresh_token: &str) -> ClaimsCheck;
+}
+
+/// The output of [`OidcProvider::complete_login`]: the claims, and the IdP
+/// refresh token when the token response had one. Never logged.
+pub struct CompletedLogin {
+    pub claims: IdentityClaims,
+    pub refresh_token: Option<String>,
 }
 
 /// What an allowlist rule matches an identity on.
@@ -269,8 +303,9 @@ use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetada
 // openidconnect 4 / oauth2 5 are on reqwest 0.12.
 use openidconnect::reqwest;
 use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, OAuth2TokenResponse,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
+    TokenResponse,
 };
 
 /// A discovered OIDC relying party. Holds the cached provider metadata (which
@@ -336,7 +371,7 @@ impl OidcProvider {
         code: String,
         nonce: String,
         pkce_verifier: String,
-    ) -> Result<IdentityClaims, String> {
+    ) -> Result<CompletedLogin, String> {
         let client = self.client()?;
         let token_response = client
             .exchange_code(AuthorizationCode::new(code))
@@ -345,6 +380,7 @@ impl OidcProvider {
             .request_async(&self.http)
             .await
             .map_err(|e| format!("token exchange failed: {e}"))?;
+        let refresh_token = token_response.refresh_token().map(|t| t.secret().clone());
 
         let id_token = token_response
             .id_token()
@@ -363,14 +399,102 @@ impl OidcProvider {
         // checked above) rather than fighting the typed additional-claims path.
         let groups = extract_groups(&id_token.to_string());
 
-        Ok(IdentityClaims {
-            subject,
-            email,
-            email_verified,
-            groups,
+        Ok(CompletedLogin {
+            claims: IdentityClaims {
+                subject,
+                email,
+                email_verified,
+                groups,
+            },
+            refresh_token,
         })
     }
 
+    /// Read the claims from the userinfo endpoint with an access token: the
+    /// answer of a refresh grant that has no ID token (CLOACINA-T-1082).
+    async fn userinfo_claims(&self, access_token: &str) -> Result<IdentityClaims, String> {
+        let url = self
+            .metadata
+            .userinfo_endpoint()
+            .ok_or_else(|| {
+                "no ID token in the refresh answer and no userinfo endpoint".to_string()
+            })?
+            .url()
+            .clone();
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|e| format!("userinfo request: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("userinfo answered {}", response.status()));
+        }
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| format!("userinfo body: {e}"))?;
+        serde_json::from_slice::<IdentityClaims>(&body)
+            .map_err(|e| format!("userinfo is not a JSON claims object: {e}"))
+    }
+}
+
+#[async_trait::async_trait]
+impl IdpClaimsCheck for OidcProvider {
+    /// Spend the refresh token at the token endpoint. The groups come from
+    /// the new ID token (signature, `iss`, `aud` and `exp` checked; a
+    /// refreshed ID token carries no login nonce), else from userinfo.
+    async fn check(&self, refresh_token: &str) -> ClaimsCheck {
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(e) => return ClaimsCheck::Unreachable(e),
+        };
+        let token = RefreshToken::new(refresh_token.to_string());
+        let request = match client.exchange_refresh_token(&token) {
+            Ok(r) => r,
+            Err(e) => return ClaimsCheck::Unreachable(format!("no token endpoint: {e}")),
+        };
+        let response = match request.request_async(&self.http).await {
+            Ok(r) => r,
+            Err(RequestTokenError::ServerResponse(err))
+                if *err.error() == openidconnect::core::CoreErrorResponseType::InvalidGrant =>
+            {
+                return ClaimsCheck::Refused(format!("{err}"));
+            }
+            Err(e) => return ClaimsCheck::Unreachable(format!("refresh grant: {e}")),
+        };
+        let new_refresh = response.refresh_token().map(|t| t.secret().clone());
+        let claims = match response.id_token() {
+            Some(id_token) => {
+                let verifier = client.id_token_verifier();
+                match id_token.claims(&verifier, |_: Option<&Nonce>| Ok(())) {
+                    Ok(c) => IdentityClaims {
+                        subject: c.subject().as_str().to_string(),
+                        email: c.email().map(|e| e.as_str().to_string()),
+                        email_verified: c.email_verified(),
+                        groups: extract_groups(&id_token.to_string()),
+                    },
+                    Err(e) => {
+                        return ClaimsCheck::Unreachable(format!(
+                            "refreshed id_token validation failed: {e}"
+                        ));
+                    }
+                }
+            }
+            None => match self.userinfo_claims(response.access_token().secret()).await {
+                Ok(c) => c,
+                Err(e) => return ClaimsCheck::Unreachable(e),
+            },
+        };
+        ClaimsCheck::Current {
+            claims,
+            refresh_token: new_refresh,
+        }
+    }
+}
+
+impl OidcProvider {
     /// Build the `openidconnect` client from cached metadata. Inlined here
     /// because the v4 `CoreClient` is type-state generic and can't be named in
     /// a stored field or returned without leaking the full type — both callers

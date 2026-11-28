@@ -487,6 +487,164 @@ async fn t1093_other_schemas_and_newer_tenants_are_not_changed() {
     assert_eq!(newer_level_after, newer_level);
 }
 
+/// This binary's release with its minor moved by `minors`.
+fn release_ahead(minors: u64) -> String {
+    use cloacina::database::schema_release::{RELEASE, Release};
+    let own = Release::parse(RELEASE).expect("release");
+    format!("{}.{}.0", own.major, own.minor + minors)
+}
+
+/// Marks `tenant` as last migrated by `release`, as a newer server would.
+fn mark_written_by(tenant: &str, release: &str) {
+    connect()
+        .batch_execute(&format!(
+            "CREATE TABLE IF NOT EXISTS {tenant}.cloacina_schema_release \
+             (id INTEGER PRIMARY KEY, written_by TEXT NOT NULL, \
+              written_at TIMESTAMP NOT NULL DEFAULT now()); \
+             INSERT INTO {tenant}.cloacina_schema_release (id, written_by) VALUES (1, '{release}') \
+             ON CONFLICT (id) DO UPDATE SET written_by = EXCLUDED.written_by;"
+        ))
+        .expect("release row");
+}
+
+#[derive(QueryableByName)]
+struct WrittenBy {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    written_by: String,
+}
+
+fn written_by(schema: &str) -> Option<String> {
+    diesel::sql_query(format!(
+        "SELECT written_by FROM {schema}.cloacina_schema_release WHERE id = 1"
+    ))
+    .get_result::<WrittenBy>(&mut connect())
+    .optional()
+    .expect("release row")
+    .map(|row| row.written_by)
+}
+
+/// CLOACINA-T-1087: a schema with no release row (from before the table) is
+/// migrated, and the start records this release in it.
+#[tokio::test]
+#[serial]
+async fn t1087_the_start_records_its_release_in_each_schema_it_migrates() {
+    let database = admin_database();
+    let (tenant, _) = make_old_tenant("norow");
+    let result = migrate_at_start(
+        &database,
+        TenantSchemas::Named(std::slice::from_ref(&tenant)),
+    )
+    .await;
+    let tenant_release = written_by(&tenant);
+    let public_release = written_by("public");
+    database.close();
+    drop_tenants(&[&tenant]);
+
+    result.expect("start migrations");
+    let own = cloacina::database::schema_release::RELEASE;
+    assert_eq!(tenant_release.as_deref(), Some(own));
+    assert!(public_release.is_some(), "public has its release row");
+}
+
+/// CLOACINA-T-1087: a tenant schema two minors ahead of this server stops the
+/// start. The error names the tenant and both releases; the schema is not
+/// changed.
+#[tokio::test]
+#[serial]
+async fn t1087_a_schema_two_minors_ahead_stops_the_start() {
+    let database = admin_database();
+    database.run_migrations().await.expect("public migrations");
+    let (tenant, old_level) = make_old_tenant("ahead2");
+    let ahead = release_ahead(2);
+    mark_written_by(&tenant, &ahead);
+
+    let result = migrate_at_start(
+        &database,
+        TenantSchemas::Named(std::slice::from_ref(&tenant)),
+    )
+    .await;
+    let level_after = applied(&tenant);
+    let release_after = written_by(&tenant);
+    database.close();
+    drop_tenants(&[&tenant]);
+
+    let message = result.expect_err("the start stops").to_string();
+    assert!(message.contains(&tenant), "{message}");
+    assert!(message.contains(&ahead), "{message}");
+    assert!(
+        message.contains(cloacina::database::schema_release::RELEASE),
+        "{message}"
+    );
+    assert_eq!(level_after, old_level, "no migration ran");
+    assert_eq!(release_after.as_deref(), Some(ahead.as_str()));
+}
+
+/// CLOACINA-T-1087: a tenant schema exactly one minor ahead (this server is
+/// the previous minor during a roll) starts with no migration and keeps the
+/// newer release in its row.
+#[tokio::test]
+#[serial]
+async fn t1087_a_schema_one_minor_ahead_starts_without_migrating() {
+    let database = admin_database();
+    database.run_migrations().await.expect("public migrations");
+    let (tenant, old_level) = make_old_tenant("ahead1");
+    let ahead = release_ahead(1);
+    mark_written_by(&tenant, &ahead);
+
+    let result = migrate_at_start(
+        &database,
+        TenantSchemas::Named(std::slice::from_ref(&tenant)),
+    )
+    .await;
+    let first_open =
+        crate::startup_migrations::migrate_tenant_on_first_open(&database, &tenant).await;
+    let level_after = applied(&tenant);
+    let release_after = written_by(&tenant);
+    database.close();
+    drop_tenants(&[&tenant]);
+
+    let migrated = result.expect("the start goes on");
+    assert!(migrated.tenants_changed.is_empty());
+    assert_eq!(first_open, Ok(0));
+    assert_eq!(level_after, old_level, "no migration ran");
+    assert_eq!(release_after.as_deref(), Some(ahead.as_str()));
+}
+
+/// CLOACINA-T-1087: the compiler's read of a schema: behind before the
+/// server's migration, current after it, with no write of its own.
+#[tokio::test]
+#[serial]
+async fn t1087_the_compiler_status_of_a_tenant_schema() {
+    use cloacina::database::schema_release::{RELEASE, schema_status};
+    let admin = admin_database();
+    let (tenant, _) = make_old_tenant("status");
+    let tenant_db =
+        cloacina::Database::try_new_with_schema(TEST_DB_URL, "cloacina", 1, Some(&tenant))
+            .expect("tenant database");
+    let level_before = applied(&tenant);
+    let before = schema_status(&tenant_db).await;
+    let level_after_read = applied(&tenant);
+    DatabaseAdmin::new(admin.clone())
+        .migrate_tenant_schema(&tenant)
+        .await
+        .expect("migrate");
+    let after = schema_status(&tenant_db).await;
+    tenant_db.close();
+    admin.close();
+    drop_tenants(&[&tenant]);
+
+    let before = before.expect("status before");
+    assert_eq!(before.written_by, None);
+    assert_eq!(
+        before.pending as i64,
+        all_migrations().len() as i64 - level_before
+    );
+    assert_eq!(level_after_read, level_before, "the read changes nothing");
+    let after = after.expect("status after");
+    assert_eq!(after.pending, 0);
+    assert_eq!(after.written_by.as_deref(), Some(RELEASE));
+}
+
 /// The list that the server migrates at start has each schema that holds
 /// migrations, and no schema without a migrations table.
 #[tokio::test]

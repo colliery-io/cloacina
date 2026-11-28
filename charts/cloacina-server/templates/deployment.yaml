@@ -103,8 +103,15 @@ spec:
               value: "http://$(CLOACINA_POD_IP):{{ .Values.service.port }}"
             {{- end }}
             {{- if .Values.postgresql.enabled }}
+            # The password of bundled Postgres, from the Secret of the
+            # subchart (CLOACINA-T-1069); Kubernetes puts it in the URLs below.
+            - name: CLOACINA_BUNDLED_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: POSTGRES_PASSWORD
             - name: DATABASE_URL
-              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"
+              value: "postgres://{{ .Values.postgresql.auth.username }}:$(CLOACINA_BUNDLED_DB_PASSWORD)@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}"
             {{- else if .Values.databaseUrlSecretRef.name }}
             - name: DATABASE_URL
               valueFrom:
@@ -181,7 +188,7 @@ spec:
             # run in the tenant namespaces, where the short name the server
             # uses does not resolve.
             - name: CLOACINA_TENANT_COMPILER_DATABASE_URL
-              value: "postgres://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ .Release.Name }}-postgresql.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ .Values.postgresql.auth.database }}"
+              value: "postgres://{{ .Values.postgresql.auth.username }}:$(CLOACINA_BUNDLED_DB_PASSWORD)@{{ .Release.Name }}-postgresql.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ .Values.postgresql.auth.database }}"
             {{- end }}
             - name: CLOACINA_TENANT_COMPILER_CARGO_FLAGS
               value: {{ join " " .Values.fleet.compiler.cargoFlags | quote }}
@@ -281,8 +288,13 @@ spec:
               value: {{ .Values.retention.runHistoryDays | int64 | quote }}
             - name: CLOACINA_OUTBOX_ACKED_RETENTION_S
               value: {{ .Values.retention.outboxAckedSeconds | int64 | quote }}
+            - name: CLOACINA_TASK_OUTPUT_RETENTION_DAYS
+              value: {{ .Values.retention.taskOutputDays | int64 | quote }}
             - name: CLOACINA_RETENTION_INTERVAL_S
               value: {{ .Values.retention.intervalSeconds | int64 | quote }}
+            # The end of each task attempt's output (CLOACINA-T-1091).
+            - name: CLOACINA_TASK_OUTPUT_MAX_BYTES
+              value: {{ .Values.taskOutput.maxBytes | int64 | quote }}
             # Time limits of fleet tasks and graph firings (CLOACINA-T-1014).
             - name: CLOACINA_FLEET_TASK_TIMEOUT_S
               value: {{ .Values.fleetTaskTimeLimits.defaultSeconds | int64 | quote }}
@@ -291,6 +303,11 @@ spec:
             # Where agents run graph firings (CLOACINA-T-1125).
             - name: CLOACINA_FLEET_GRAPH_FIRINGS
               value: {{ .Values.fleet.graphFirings | default "inline" | quote }}
+            {{- if .Values.fleet.agentDrainSeconds }}
+            # Drain time of managed agents on SIGTERM (CLOACINA-T-1029).
+            - name: CLOACINA_AGENT_DRAIN_S
+              value: {{ .Values.fleet.agentDrainSeconds | quote }}
+            {{- end }}
             {{- if or .Values.alertWebhook.url .Values.alertWebhook.urlSecretRef.name }}
             # Alert webhook (CLOACINA-T-1024). Rendered only when a URL is set.
             - name: CLOACINA_ALERT_WEBHOOK_URL

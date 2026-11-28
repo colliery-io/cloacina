@@ -133,6 +133,29 @@ struct Cli {
     #[arg(long, env = "CLOACINA_OUTBOX_ACKED_RETENTION_S", default_value_t = 0)]
     outbox_acked_retention_s: u64,
 
+    /// Bytes of the end of each fleet task attempt's output (stdout and
+    /// stderr, as one stream) that the agent keeps and the server stores
+    /// with the result. Longer output is cut at its start and stored with a
+    /// "cut" flag and its total size. `0` keeps no output. Default 262144
+    /// (256 KiB). CLOACINA-T-1091.
+    #[arg(
+        long,
+        env = "CLOACINA_TASK_OUTPUT_MAX_BYTES",
+        default_value_t = cloacina::fleet::DEFAULT_TASK_OUTPUT_MAX_BYTES
+    )]
+    task_output_max_bytes: u64,
+
+    /// Days to keep the stored output of a task attempt, counted from when
+    /// it was stored. A background job then deletes it, whether
+    /// `--run-history-retention-days` is set or not. `0` keeps it for ever.
+    /// Default 30. CLOACINA-T-1091.
+    #[arg(
+        long,
+        env = "CLOACINA_TASK_OUTPUT_RETENTION_DAYS",
+        default_value_t = cloacina_server::retention::DEFAULT_TASK_OUTPUT_RETENTION_DAYS
+    )]
+    task_output_retention_days: u64,
+
     /// Seconds between passes of the retention job. Default 300.
     /// CLOACINA-T-1023.
     #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S", default_value_t = 300)]
@@ -234,6 +257,17 @@ struct Cli {
         default_value_t = cloacina_server::fleet_poll_dispatcher::DEFAULT_POLL_TIMEOUT_SECONDS
     )]
     fleet_poll_timeout_s: u64,
+
+    /// The ageing interval of waiting work, in whole seconds. For each
+    /// interval a task has waited, its priority in the order of waiting work
+    /// improves by one, never past 0. `0` switches ageing off. Default 120.
+    /// CLOACINA-T-1045, CLOACINA-T-1123.
+    #[arg(
+        long,
+        env = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS",
+        default_value_t = cloacina_api_types::DEFAULT_PRIORITY_AGING_INTERVAL.as_secs()
+    )]
+    priority_aging_interval_s: u64,
 
     /// Size in bytes above which the context a task returns, or the context
     /// built for a task, is logged as a warning and counted in
@@ -354,6 +388,27 @@ struct Cli {
     )]
     max_unpacked_bytes: u64,
 
+    /// Days an agent key that the Kubernetes actuator mints stays valid.
+    /// After it the key is refused with 401 `key_expired`. Default 30.
+    /// Docker actuator keys do not expire. CLOACINA-T-1083.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_KEY_LIFETIME_DAYS",
+        default_value_t = cloacina_server::actuator::AgentKeyExpiry::DEFAULT_LIFETIME_DAYS
+    )]
+    agent_key_lifetime_days: u32,
+
+    /// Days left on an agent key at which the Kubernetes actuator replaces
+    /// it: a new key in the Secret, and the pods roll onto it. The old key is
+    /// revoked when every pool's rollout is complete. Must be at least 1 and
+    /// less than `--agent-key-lifetime-days`. Default 10. CLOACINA-T-1083.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_KEY_ROTATE_DAYS",
+        default_value_t = cloacina_server::actuator::AgentKeyExpiry::DEFAULT_ROTATE_DAYS
+    )]
+    agent_key_rotate_days: u32,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -430,6 +485,15 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| anyhow::anyhow!(e))?;
 
+    // CLOACINA-T-1083: the expiry and rotation of the agent keys.
+    cloacina_server::actuator::set_agent_key_expiry(
+        cloacina_server::actuator::AgentKeyExpiry::from_days(
+            cli.agent_key_lifetime_days,
+            cli.agent_key_rotate_days,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?,
+    );
+
     // CLOACINA-T-1024: the console log format and the task log link.
     cloacina_server::task_logs::set_log_format(cli.log_format);
     if let Some(template) = cli
@@ -452,6 +516,11 @@ async fn main() -> Result<()> {
     // CLOACINA-T-1077: the time limit of one poll on an agent.
     cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(cli.fleet_poll_timeout_s)
         .map_err(|e| anyhow::anyhow!(e))?;
+    // CLOACINA-T-1123: the ageing interval of waiting work.
+    cloacina_server::set_priority_aging_interval_seconds(cli.priority_aging_interval_s)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    // CLOACINA-T-1091: the end of each attempt's output that is kept.
+    cloacina_server::task_output::set_max_bytes(cli.task_output_max_bytes);
 
     // CLOACINA-T-1075: where tenant code runs. A mode that would run tenant
     // tasks in this process without single trust stops the start.
@@ -492,6 +561,7 @@ async fn main() -> Result<()> {
         cloacina_server::retention::RetentionConfig::from_flags(
             cli.run_history_retention_days,
             cli.outbox_acked_retention_s,
+            cli.task_output_retention_days,
             cli.retention_interval_s,
         ),
         std::time::Duration::from_secs(cli.database_wait_timeout_s),
@@ -510,21 +580,30 @@ mod tests {
         RetentionConfig::from_flags(
             cli.run_history_retention_days,
             cli.outbox_acked_retention_s,
+            cli.task_output_retention_days,
             cli.retention_interval_s,
         )
     }
 
-    // CLOACINA-T-1092: with no retention flag nothing is deleted, and the
-    // retention job does not start.
+    // CLOACINA-T-1092: with no retention flag no run history and no acked
+    // outbox row is deleted. CLOACINA-T-1091: task output goes after 30
+    // days, so the retention job starts; with that set to 0 it does not.
     #[test]
-    fn retention_flags_are_off_by_default() {
+    fn retention_flags_are_off_by_default_but_for_task_output() {
         let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
         assert_eq!(cli.outbox_acked_retention_s, 0);
         assert_eq!(cli.run_history_retention_days, 0);
+        assert_eq!(cli.task_output_retention_days, 30);
+        assert_eq!(cli.task_output_max_bytes, 256 * 1024);
 
         let cfg = retention_of(&["cloacina-server"]);
         assert_eq!(cfg, RetentionConfig::default());
         assert_eq!(cfg.outbox_acked, None);
+        assert_eq!(cfg.run_history, None);
+        assert!(cfg.enabled());
+
+        let cfg = retention_of(&["cloacina-server", "--task-output-retention-days", "0"]);
+        assert_eq!(cfg.task_output, None);
         assert!(!cfg.enabled());
     }
 
@@ -593,6 +672,29 @@ mod tests {
         assert_eq!(cli.fleet_graph_firings, GraphFiringExecution::Inline);
     }
 
+    // CLOACINA-T-1083: agent keys live 30 days and are rotated with 10 left.
+    #[test]
+    fn agent_key_expiry_flags_default_to_30_and_10_days() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.agent_key_lifetime_days, 30);
+        assert_eq!(cli.agent_key_rotate_days, 10);
+        let cli = Cli::try_parse_from([
+            "cloacina-server",
+            "--agent-key-lifetime-days",
+            "90",
+            "--agent-key-rotate-days",
+            "30",
+        ])
+        .unwrap();
+        let rule = cloacina_server::actuator::AgentKeyExpiry::from_days(
+            cli.agent_key_lifetime_days,
+            cli.agent_key_rotate_days,
+        )
+        .unwrap();
+        assert_eq!(rule.lifetime, chrono::Duration::days(90));
+        assert_eq!(rule.rotate_before, chrono::Duration::days(30));
+    }
+
     #[test]
     fn a_bad_fleet_graph_firings_value_is_refused_at_start() {
         let err = Cli::try_parse_from(["cloacina-server", "--fleet-graph-firings", "workers"])
@@ -611,5 +713,22 @@ mod tests {
         let cli = Cli::try_parse_from(["cloacina-server", "--fleet-poll-timeout-s", "5"]).unwrap();
         assert_eq!(cli.fleet_poll_timeout_s, 5);
         assert!(cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(0).is_err());
+    }
+
+    /// CLOACINA-T-1123: the ageing interval is a flag, 120 s by default; 0
+    /// switches ageing off.
+    #[test]
+    fn the_priority_aging_interval_defaults_to_120_seconds_and_takes_0() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.priority_aging_interval_s, 120);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--priority-aging-interval-s", "0"]).unwrap();
+        assert_eq!(cli.priority_aging_interval_s, 0);
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--priority-aging-interval-s", "300"]).unwrap();
+        assert_eq!(cli.priority_aging_interval_s, 300);
+        assert!(
+            Cli::try_parse_from(["cloacina-server", "--priority-aging-interval-s", "2m"]).is_err()
+        );
     }
 }

@@ -30,8 +30,8 @@ use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
-    TenantListResponse,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskAttemptOutputDetail,
+    TaskExecutionDetail, TaskOutputQuery, TaskOutputResponse, TenantListResponse,
 };
 
 use crate::AppState;
@@ -199,6 +199,15 @@ pub async fn execute_workflow(
                 }
                 Ok(_) => {}
                 Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
+            }
+
+            // CLOACINA-T-1134: a binding of a secret the package does not
+            // declare is refused here, before a run is made.
+            if let Some(refused) =
+                refuse_undeclared_bindings(&tenant_db, &registry, &name, provided_ctx.as_ref())
+                    .await
+            {
+                return refused;
             }
         }
     }
@@ -651,12 +660,40 @@ pub async fn get_execution_tasks(
                     Default::default()
                 }
             };
+            // CLOACINA-T-1100: the error of each failed attempt. The task
+            // rows are served without them if this read fails.
+            let mut attempt_errors = match dal
+                .task_execution()
+                .attempt_errors_for_workflow(universal_id)
+                .await
+            {
+                Ok(errors) => errors,
+                Err(e) => {
+                    tracing::warn!(
+                        execution_id = %exec_id,
+                        error = %e,
+                        "could not read the errors of failed task attempts"
+                    );
+                    Default::default()
+                }
+            };
             // CLOACINA-T-1024: the link to the task's logs, when the server
             // has a log URL template.
             let log_urls = crate::task_logs::url_template();
             let items: Vec<TaskExecutionDetail> = tasks
                 .into_iter()
                 .map(|t| TaskExecutionDetail {
+                    attempt_errors: attempt_errors
+                        .remove(&t.id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|e| cloacina_api_types::TaskAttemptErrorDetail {
+                            attempt: e.attempt,
+                            message: e.message,
+                            details: e.details,
+                            failed_at: e.failed_at.0.to_rfc3339(),
+                        })
+                        .collect(),
                     context_size_bytes: context_sizes.get(&t.id).copied(),
                     id: t.id.0.to_string(),
                     log_url: log_urls.map(|template| {
@@ -683,6 +720,83 @@ pub async fn get_execution_tasks(
             .into_response()
         }
         Err(e) => ApiError::internal_logged("get execution tasks failed", &e).into_response(),
+    }
+}
+
+/// GET /tenants/:tenant_id/executions/:id/tasks/:task_id/output — the end of
+/// the output of each attempt of a task (CLOACINA-T-1091).
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("exec_id" = String, Path, description = "Execution UUID"),
+        ("task_id" = String, Path, description = "Task execution UUID"),
+        TaskOutputQuery,
+    ),
+    responses(
+        (status = 200, description = "The stored output of each attempt, in attempt order; empty when none was kept", body = TaskOutputResponse),
+        (status = 400, description = "Invalid execution or task ID", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_task_output(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, exec_id, task_id)): Path<(String, String, String)>,
+    Query(query): Query<TaskOutputQuery>,
+) -> impl IntoResponse {
+    let (Ok(execution), Ok(task)) = (
+        uuid::Uuid::parse_str(&exec_id),
+        uuid::Uuid::parse_str(&task_id),
+    ) else {
+        return ApiError::bad_request("invalid_request", "invalid execution or task ID")
+            .into_response();
+    };
+
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal_logged("tenant database error", &e).into_response();
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
+    let execution = cloacina::database::universal_types::UniversalUuid(execution);
+    match dal
+        .task_execution()
+        .attempt_outputs(
+            cloacina::database::universal_types::UniversalUuid(task),
+            query.attempt,
+        )
+        .await
+    {
+        Ok(rows) => Json(TaskOutputResponse {
+            tenant_id,
+            execution_id: exec_id,
+            task_id,
+            attempts: rows
+                .into_iter()
+                // A task of another execution has no output here.
+                .filter(|row| row.workflow_execution_id == execution)
+                .map(|row| TaskAttemptOutputDetail {
+                    attempt: row.attempt,
+                    output: row.output,
+                    total_bytes: row.total_bytes,
+                    cut: row.cut.into(),
+                    recorded_at: row.recorded_at.0.to_rfc3339(),
+                })
+                .collect(),
+        })
+        .into_response(),
+        Err(e) => ApiError::internal_logged("get task output failed", &e).into_response(),
     }
 }
 
@@ -743,6 +857,66 @@ pub(crate) fn validate_declared_params(
         }
     }
     errors
+}
+
+/// The secret bindings (`binding name -> stored secret`) of a request's
+/// params: each top-level `{"$secret": "<stored>"}` value. Names only.
+pub(crate) fn request_secret_bindings(
+    params: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> std::collections::BTreeMap<String, String> {
+    params
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, v)| {
+            cloacina::workflow_instance::secret_ref_target(v)
+                .ok()
+                .flatten()
+                .map(|stored| (k.clone(), stored))
+        })
+        .collect()
+}
+
+/// CLOACINA-T-1134: refuse, with 400 `secret_not_declared`, a request that
+/// binds a secret name the workflow's package does not declare. The
+/// declaration is the one dispatch reads: the stored metadata document of the
+/// package's active version. Without this check the run starts and each of
+/// its tasks is refused the secret at dispatch.
+///
+/// A registry or database error lets the request through, with a warning, as
+/// the other checks of these routes do.
+pub(crate) async fn refuse_undeclared_bindings(
+    tenant_db: &cloacina::Database,
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    name: &str,
+    params: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Option<axum::response::Response> {
+    let bindings = request_secret_bindings(params);
+    if bindings.is_empty() {
+        return None;
+    }
+    let package = match registry.package_of_workflow(name).await {
+        Ok(Some(package)) => package,
+        // Not in this tenant's registry: no package declares anything.
+        Ok(None) => name.to_string(),
+        Err(e) => {
+            warn!("package lookup failed for workflow '{}': {}", name, e);
+            return None;
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db.clone());
+    match cloacina::security::undeclared_run_binding(&dal, &package, &bindings).await {
+        Ok(Some(refused)) => {
+            Some(ApiError::bad_request("secret_not_declared", refused.message).into_response())
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!(
+                "declared-secrets lookup failed for package '{}': {}",
+                package, e
+            );
+            None
+        }
+    }
 }
 
 /// Validate a single JSON value against one slot's schema (CLOACI-I-0128 T-0759).

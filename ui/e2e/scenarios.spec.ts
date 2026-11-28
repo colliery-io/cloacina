@@ -77,13 +77,13 @@ test("workflow upload — success and rejected-package paths", async ({ page }) 
 
   // Success: a real .cloacina registers and surfaces a confirmation.
   await page.goto("/workflows/upload");
-  await page.setInputFiles('input[type="file"]', VALID_PACKAGE);
+  await page.setInputFiles('input[type="file"][accept=".cloacina"]', VALID_PACKAGE);
   await page.getByRole("button", { name: "Upload" }).click();
   await expect(page.getByText(/package registered/i)).toBeVisible({ timeout: 30_000 });
 
   // Rejected: a garbage package surfaces the server's typed error inline.
   await page.goto("/workflows/upload");
-  await page.setInputFiles('input[type="file"]', BAD_PACKAGE);
+  await page.setInputFiles('input[type="file"][accept=".cloacina"]', BAD_PACKAGE);
   await page.getByRole("button", { name: "Upload" }).click();
   await expect(page.getByRole("alert")).toBeVisible({ timeout: 30_000 });
 });

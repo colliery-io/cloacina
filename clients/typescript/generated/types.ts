@@ -110,8 +110,9 @@ export interface paths {
         put?: never;
         /**
          * POST /auth/keys — create a new API key.
-         * @description Requires admin role. Non-admin keys cannot create keys with higher
-         *     permissions than their own (prevents privilege escalation).
+         * @description Platform admin only (the route table). Without `platform_admin` the key
+         *     belongs to the tenant `public`. With `platform_admin: true` it is a
+         *     platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
          *     Returns the plaintext key exactly once. It cannot be retrieved again.
          */
         post: operations["create_key"];
@@ -691,6 +692,26 @@ export interface paths {
         };
         /** GET /tenants/:tenant_id/executions/:id/tasks — per-task rows for an execution. */
         get: operations["get_execution_tasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/executions/:id/tasks/:task_id/output — the end of
+         *     the output of each attempt of a task (CLOACINA-T-1091).
+         */
+        get: operations["get_task_output"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1544,8 +1565,8 @@ export interface components {
             /**
              * Format: int32
              * @description Most agents of the pool. Not for the pool `default` (its max is the
-             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other
-             *     than `default` runs exactly this many agents.
+             *     tenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for
+             *     another pool.
              */
             max_agents?: number | null;
             /**
@@ -1560,9 +1581,11 @@ export interface components {
             memory_request?: string | null;
             /**
              * Format: int32
-             * @description Fewest agents of the pool. Not for the pool `default` (its floor is
-             *     the server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than
-             *     `default` is not autoscaled yet: set it equal to `max_agents`.
+             * @description Fewest agents of the pool, at most `max_agents`. The pool scales
+             *     between the two on the work that waits for it, and goes back to this
+             *     count when it is idle; `0` lets it scale to zero. Absent: the pool
+             *     keeps `max_agents` agents. Not for the pool `default` (its floor is the
+             *     server-wide `CLOACINA_AUTOSCALE_FLOOR`).
              */
             min_agents?: number | null;
             /**
@@ -1842,7 +1865,19 @@ export interface components {
         };
         /** @description Request body for `POST /auth/keys` and `POST /tenants/{tenant_id}/keys`. */
         CreateKeyRequest: {
+            /**
+             * @description Optional. When the key expires, as an RFC 3339 timestamp in the
+             *     future (for example `2027-01-31T00:00:00Z`). After it the key is
+             *     refused with 401 `key_expired`. Not set: the key does not expire.
+             */
+            expires_at?: string | null;
             name: string;
+            /**
+             * @description `POST /auth/keys` only: make a platform admin key (no tenant, role
+             *     `admin`, the platform admin flag). Needs `role: admin`. The tenant
+             *     route refuses `true` with 400 (CLOACINA-T-1065).
+             */
+            platform_admin?: boolean;
             /**
              * @description Required. A request with no role is refused with 400: the server does
              *     not choose a role for the caller.
@@ -2185,9 +2220,14 @@ export interface components {
         KeyCreatedResponse: {
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /** @description When the key expires (RFC 3339); `null`: it does not expire. */
+            expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
-            /** @description God-mode flag — never granted via the create endpoints. */
+            /**
+             * @description Platform admin flag. Set only by `POST /auth/keys` with
+             *     `platform_admin: true`, and by the bootstrap.
+             */
             is_admin: boolean;
             /** @description One-time plaintext API key. */
             key: string;
@@ -2201,6 +2241,11 @@ export interface components {
         KeyInfo: {
             /** @description RFC 3339 timestamp. */
             created_at: string;
+            /**
+             * @description When the key expires (RFC 3339); `null`: it does not expire. The
+             *     keys the Kubernetes actuator mints for agents expire.
+             */
+            expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
             is_admin: boolean;
@@ -2422,6 +2467,11 @@ export interface components {
             items: {
                 /** @description RFC 3339 timestamp. */
                 created_at: string;
+                /**
+                 * @description When the key expires (RFC 3339); `null`: it does not expire. The
+                 *     keys the Kubernetes actuator mints for agents expire.
+                 */
+                expires_at?: string | null;
                 /** @description Key UUID. */
                 id: string;
                 is_admin: boolean;
@@ -2748,10 +2798,60 @@ export interface components {
             /** @description RFC 3339 timestamp. */
             updated_at: string;
         };
+        /** @description The error of one failed attempt of a task (CLOACINA-T-1100). */
+        TaskAttemptErrorDetail: {
+            /**
+             * Format: int32
+             * @description The attempt that failed, from 1.
+             */
+            attempt: number;
+            /**
+             * @description The details of the failure (a Python traceback), at most 16 KiB; a
+             *     cut keeps the end.
+             */
+            details?: string | null;
+            /** @description RFC 3339 timestamp of the failure. */
+            failed_at: string;
+            /** @description The error message of the attempt. */
+            message: string;
+        };
+        /**
+         * @description The end of what one attempt of a task wrote on stdout and stderr, as one
+         *     stream (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker
+         *     process.
+         */
+        TaskAttemptOutputDetail: {
+            /**
+             * Format: int32
+             * @description The attempt, from 1.
+             */
+            attempt: number;
+            /** @description `true` when `output` is not the whole stream: its start was cut. */
+            cut: boolean;
+            /**
+             * @description The last bytes of the output, at most the server's
+             *     `--task-output-max-bytes` (256 KiB by default). The exact values of
+             *     the attempt's own secrets are `***` when the agent masks them.
+             */
+            output: string;
+            /** @description RFC 3339 timestamp of when the output was stored. */
+            recorded_at: string;
+            /**
+             * Format: int64
+             * @description How many bytes the attempt wrote in all.
+             */
+            total_bytes: number;
+        };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
             /** Format: int32 */
             attempt: number;
+            /**
+             * @description The error of each failed attempt, oldest first; empty when no attempt
+             *     failed (CLOACINA-T-1100). The last entry of a failed task is the
+             *     error in `last_error` and `error_details`.
+             */
+            attempt_errors?: components["schemas"]["TaskAttemptErrorDetail"][];
             /** @description RFC 3339 timestamp; `null` while still running. */
             completed_at?: string | null;
             /**
@@ -2790,6 +2890,17 @@ export interface components {
             task_name: string;
             /** @description Row-updated timestamp (RFC 3339) — always present; a fallback "end". */
             updated_at: string;
+        };
+        /**
+         * @description `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
+         *     response (CLOACINA-T-1091): the stored output of each attempt of the
+         *     task, in attempt order. Empty for a task whose output was not kept.
+         */
+        TaskOutputResponse: {
+            attempts: components["schemas"]["TaskAttemptOutputDetail"][];
+            execution_id: string;
+            task_id: string;
+            tenant_id: string;
         };
         /**
          * @description `201 Created` body for a new tenant. Password and connection string are
@@ -3468,7 +3579,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Server process is alive — `{"status": "ok"}` */
+            /** @description Server process is alive — `{"status": "ok", "version": "<release>"}` */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3683,7 +3794,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin` with a role other than admin, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3701,7 +3812,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Admin role required */
+            /** @description Platform admin key required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3771,6 +3882,15 @@ export interface operations {
             };
             /** @description Key not found or already revoked */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The key is the last live platform admin key */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4490,7 +4610,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description A tenant of this name exists (`tenant_exists`) */
+            /** @description A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5114,6 +5234,72 @@ export interface operations {
             };
         };
     };
+    get_task_output: {
+        parameters: {
+            query?: {
+                /** @description Only this attempt. */
+                attempt?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Execution UUID */
+                exec_id: string;
+                /** @description Task execution UUID */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored output of each attempt, in attempt order; empty when none was kept */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskOutputResponse"];
+                };
+            };
+            /** @description Invalid execution or task ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_tenant_keys: {
         parameters: {
             query?: never;
@@ -5189,7 +5375,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin: true`, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;

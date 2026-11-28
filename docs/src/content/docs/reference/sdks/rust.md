@@ -90,7 +90,19 @@ use cloacina_client::ClientError;
 
 match client.get_workflow("missing", None).await {
     Err(ClientError::NotFound(msg)) => eprintln!("not found: {msg}"),
-    Err(ClientError::Auth(msg)) => eprintln!("check the API key: {msg}"),
+    Err(ClientError::Auth(detail)) => eprintln!("check the API key: {detail}"),
+    other => { other?; }
+}
+```
+
+`ClientError::Auth` (401, 403) and `ClientError::InvalidRequest` (400, 422)
+hold an `ApiErrorDetail`: the server's `message` and its `code`.
+`ClientError::code()` gives the code of these and of `ClientError::Server`.
+Tell refusals apart by the code; the message text can change:
+
+```rust
+match client.upload_workflow_signed(package, &signature, None).await {
+    Err(e) if e.code() == Some("untrusted_signer") => { /* add the key */ }
     other => { other?; }
 }
 ```

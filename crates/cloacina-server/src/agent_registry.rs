@@ -347,7 +347,7 @@ pub fn fleet_load(
 /// Free slots of an agent: what its last heartbeat reported, and never more
 /// than its max concurrency less the tasks the server has placed on it. The
 /// slot count is the upper cap whatever the requests say.
-fn free_slots(agent: &FleetAgent, load: &AgentLoad) -> u32 {
+pub(crate) fn free_slots(agent: &FleetAgent, load: &AgentLoad) -> u32 {
     agent
         .available_capacity
         .min(agent.max_concurrency.saturating_sub(load.tasks))
@@ -399,6 +399,63 @@ fn can_run_package(agent: &FleetAgent, runnable_triples: &Option<Vec<String>>) -
     runnable_triples
         .as_ref()
         .is_none_or(|ts| ts.iter().any(|t| t == &agent.target_triple))
+}
+
+/// Can this agent load a package of this plugin interface version
+/// (CLOACINA-T-1086)? A package with none recorded (Python, or a build from
+/// before the record) goes to any agent. A package with one goes only to an
+/// agent that reports the same number; an agent that reports none gets no
+/// such package.
+pub fn loads_plugin_interface(agent: &FleetAgent, package_interface: Option<u32>) -> bool {
+    package_interface.is_none_or(|v| agent.plugin_interface_version == Some(v))
+}
+
+/// The agents of `live` that can load a package of this plugin interface
+/// version ([`loads_plugin_interface`]). Selection runs on these.
+pub fn agents_loading(live: &[FleetAgent], package_interface: Option<u32>) -> Vec<FleetAgent> {
+    live.iter()
+        .filter(|a| loads_plugin_interface(a, package_interface))
+        .cloned()
+        .collect()
+}
+
+/// Why a package waits when the agents of its tenant and pool cannot load its
+/// plugin interface version (CLOACINA-T-1086). `None` when the version is not
+/// the reason: no interface recorded, no agent of the tenant and pool at all,
+/// or one of them loads it.
+pub fn plugin_interface_wait_reason(
+    live: &[FleetAgent],
+    task_tenant: &Option<String>,
+    pool: &str,
+    package_interface: Option<u32>,
+) -> Option<String> {
+    let wanted = package_interface?;
+    let here: Vec<&FleetAgent> = live
+        .iter()
+        .filter(|a| {
+            &a.tenant_id == task_tenant
+                && cloacina_api_types::agent_pool_of(&a.capabilities) == pool
+        })
+        .collect();
+    if here.is_empty() || here.iter().any(|a| loads_plugin_interface(a, Some(wanted))) {
+        return None;
+    }
+    let mut seen: Vec<String> = here
+        .iter()
+        .map(|a| {
+            a.plugin_interface_version
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "none".to_string())
+        })
+        .collect();
+    seen.sort();
+    seen.dedup();
+    Some(format!(
+        "no agent of tenant {}, pool {pool} loads plugin interface {wanted} (agents here: {}); \
+         upgrade the agents, or build the package again with a compiler of their release",
+        task_tenant.as_deref().unwrap_or("public"),
+        seen.join(", ")
+    ))
 }
 
 /// Select a live fleet agent for a task: same tenant as the work, in the pool
@@ -468,12 +525,60 @@ pub(crate) fn test_fleet_agent(id: &str, cap: u32, tenant: Option<&str>) -> Flee
         owner_key_id: None,
         cpu_millis: None,
         memory_bytes: None,
+        agent_version: None,
+        protocol_version: None,
+        plugin_interface_version: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── plugin interface version (CLOACINA-T-1086) ───────────────────────────
+
+    fn with_interface(id: &str, interface: Option<u32>) -> FleetAgent {
+        let mut agent = test_fleet_agent(id, 4, Some("acme"));
+        agent.plugin_interface_version = interface;
+        agent
+    }
+
+    #[test]
+    fn a_package_of_one_interface_goes_only_to_agents_of_that_interface() {
+        let roster = vec![
+            with_interface("old", Some(7)),
+            with_interface("none", None),
+            with_interface("new", Some(8)),
+        ];
+        let fitting = agents_loading(&roster, Some(8));
+        let ids: Vec<&str> = fitting.iter().map(|a| a.agent_id.as_str()).collect();
+        assert_eq!(ids, ["new"]);
+        // No interface recorded: every agent, as before.
+        assert_eq!(agents_loading(&roster, None).len(), 3);
+    }
+
+    #[test]
+    fn with_only_agents_of_another_interface_the_wait_reason_names_both() {
+        let roster = vec![with_interface("old", Some(7)), with_interface("none", None)];
+        let tenant = Some("acme".to_string());
+        assert!(agents_loading(&roster, Some(8)).is_empty());
+        let reason =
+            plugin_interface_wait_reason(&roster, &tenant, "default", Some(8)).expect("reason");
+        assert!(reason.contains("plugin interface 8"), "{reason}");
+        assert!(reason.contains("7, none"), "{reason}");
+        // An agent that fits: the interface is not the reason.
+        let mut mixed = roster.clone();
+        mixed.push(with_interface("new", Some(8)));
+        assert_eq!(
+            plugin_interface_wait_reason(&mixed, &tenant, "default", Some(8)),
+            None
+        );
+        // No agent of the tenant: not the interface either.
+        assert_eq!(
+            plugin_interface_wait_reason(&roster, &Some("other".into()), "default", Some(8)),
+            None
+        );
+    }
 
     // ── replica-local key pools (the deliberate residual) ────────────────────
 

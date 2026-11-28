@@ -93,6 +93,8 @@ mod unified_schema {
             updated_at -> DbTimestamp,
             workflow_priority -> Integer,
             task_priority -> Integer,
+            fleet_dispatch_claimed_by -> Nullable<DbUuid>,
+            task_priority_asked -> Nullable<Integer>,
         }
     }
 
@@ -289,6 +291,10 @@ mod unified_schema {
             owner_key_id -> Nullable<DbUuid>,
             cpu_millis -> Nullable<BigInt>,
             memory_bytes -> Nullable<BigInt>,
+            /// CLOACINA-T-1086: what the agent reported at register.
+            agent_version -> Nullable<Text>,
+            protocol_version -> Nullable<Integer>,
+            plugin_interface_version -> Nullable<Integer>,
         }
     }
 
@@ -366,6 +372,8 @@ mod unified_schema {
             metadata_document -> Nullable<Text>,
             metadata_document_version -> Nullable<Integer>,
             describe_error -> Nullable<Text>,
+            // CLOACINA-T-1086: the plugin interface version of a Rust build.
+            plugin_interface_version -> Nullable<Integer>,
         }
     }
 
@@ -385,6 +393,39 @@ mod unified_schema {
             content_hash -> Text,
             compiled_data -> DbBinary,
             created_at -> DbTimestamp,
+        }
+    }
+
+    // CLOACINA-T-1100: the error of each failed attempt of a task.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp};
+
+        task_attempt_errors (id) {
+            id -> DbUuid,
+            task_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
+            attempt -> Integer,
+            message -> Text,
+            details -> Nullable<Text>,
+            failed_at -> DbTimestamp,
+        }
+    }
+
+    // CLOACINA-T-1091: the end of the output of each attempt of a task.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool};
+
+        task_attempt_outputs (id) {
+            id -> DbUuid,
+            task_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
+            attempt -> Integer,
+            output -> Text,
+            total_bytes -> BigInt,
+            cut -> DbBool,
+            recorded_at -> DbTimestamp,
         }
     }
 
@@ -650,6 +691,8 @@ mod unified_schema {
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
     diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
+    diesel::joinable!(task_attempt_errors -> task_executions (task_execution_id));
+    diesel::joinable!(task_attempt_outputs -> task_executions (task_execution_id));
 
     diesel::table! {
         use diesel::sql_types::*;
@@ -719,6 +762,8 @@ mod unified_schema {
         secrets,
         signing_keys,
         state_accumulator_buffers,
+        task_attempt_errors,
+        task_attempt_outputs,
         task_executions,
         task_execution_metadata,
         tenant_data_keys,
@@ -1079,6 +1124,9 @@ mod postgres_schema {
             refresh_enc -> Nullable<Bytea>,
             created_at -> Timestamptz,
             expires_at -> Nullable<Timestamptz>,
+            login_id -> Nullable<Uuid>,
+            claims -> Nullable<Text>,
+            checked_at -> Nullable<Timestamptz>,
         }
     }
 
@@ -1123,6 +1171,18 @@ mod postgres_schema {
             desired_count -> Int4,
             updated_at -> Timestamptz,
             last_autoscaled_at -> Nullable<Timestamptz>,
+        }
+    }
+
+    // CLOACINA-T-1029: the autoscaler's state per agent pool (server mode only — Postgres).
+    diesel::table! {
+        agent_pool_scale (tenant_id, pool) {
+            tenant_id -> Text,
+            pool -> Text,
+            desired_count -> Nullable<Int4>,
+            idle_since -> Nullable<Timestamptz>,
+            last_scaled_down_at -> Nullable<Timestamptz>,
+            updated_at -> Timestamptz,
         }
     }
 

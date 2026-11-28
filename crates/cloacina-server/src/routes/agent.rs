@@ -35,7 +35,7 @@ use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest,
     AgentRegisterResponse, AgentResultRequest, AgentResultResponse, AgentUndecodableRequest,
-    AgentUndecodableResponse, EphemeralKeyEntry, host_target_triple,
+    AgentUndecodableResponse, EphemeralKeyEntry, MIN_AGENT_PROTOCOL_VERSION, host_target_triple,
 };
 use cloacina::security::ServerKeyPool;
 use cloacina::security::ownership::{AgentOwner, Principal, Refusal};
@@ -57,18 +57,29 @@ pub(crate) const AGENT_KEY_POOL_TARGET: usize = 32;
 // in T-0632 so server + agent compute it from the same code (the OQ-6
 // fail-closed comparison is exact-string and depends on this).
 
+/// The agent protocol numbers this server accepts: a range, so that an agent
+/// of the previous minor keeps working when the number moves (CLOACINA-T-1086).
 fn require_protocol_version(version: u32) -> Result<(), ApiError> {
-    if version == AGENT_PROTOCOL_VERSION {
+    if (MIN_AGENT_PROTOCOL_VERSION..=AGENT_PROTOCOL_VERSION).contains(&version) {
         Ok(())
     } else {
         Err(ApiError::bad_request(
             "protocol_version_mismatch",
             format!(
-                "agent protocol_version {} not supported (server speaks {})",
-                version, AGENT_PROTOCOL_VERSION
+                "agent protocol_version {} not supported (server speaks {} to {})",
+                version, MIN_AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION
             ),
         ))
     }
+}
+
+/// The agent's release (CLOACINA-T-1086): the server accepts its own minor
+/// and the one before. Others get 400 `agent_version_unsupported` with both
+/// releases; nothing is written to the roster.
+fn require_agent_release(agent_version: Option<&str>) -> Result<(), ApiError> {
+    use cloacina_api_types::version::{AGENT_VERSION_UNSUPPORTED, RELEASE, check_agent_release};
+    check_agent_release(RELEASE, agent_version)
+        .map_err(|message| ApiError::bad_request(AGENT_VERSION_UNSUPPORTED, message))
 }
 
 /// The caller key as the ownership rules see it
@@ -131,6 +142,16 @@ pub async fn register_agent(
     Json(req): Json<AgentRegisterRequest>,
 ) -> Result<Json<AgentRegisterResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
+    if let Err(refused) = require_agent_release(req.agent_version.as_deref()) {
+        warn!(
+            api_key = %auth.name,
+            tenant = ?auth.tenant_id,
+            agent_id = ?req.agent_id,
+            agent_version = ?req.agent_version,
+            "agent register refused: its release is not accepted"
+        );
+        return Err(refused);
+    }
 
     let agent_id = req
         .agent_id
@@ -173,6 +194,10 @@ pub async fn register_agent(
                 // CLOACINA-T-1027: the agent's totals, when it reports them.
                 cpu_millis: req.cpu_millis,
                 memory_bytes: req.memory_bytes,
+                // CLOACINA-T-1086: what dispatch matches on.
+                agent_version: req.agent_version.clone(),
+                protocol_version: Some(req.protocol_version),
+                plugin_interface_version: req.plugin_interface_version,
             },
             ServerKeyPool::from_entries(pool_entries),
             &principal_of(&auth),
@@ -217,8 +242,21 @@ pub async fn register_agent(
         target_triple = %req.target_triple,
         max_concurrency = req.max_concurrency,
         key_pool = pool_size,
+        agent_version = ?req.agent_version,
+        plugin_interface_version = ?req.plugin_interface_version,
         "agent registered"
     );
+
+    // CLOACINA-T-1083: the agent learns when its key expires. A failed
+    // lookup leaves it out: the register itself has succeeded.
+    let key_expires_at = cloacina::dal::DAL::new(state.database.clone())
+        .api_keys()
+        .get_key(auth.key_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|k| k.expires_at)
+        .map(|t| t.to_rfc3339());
 
     Ok(Json(AgentRegisterResponse {
         protocol_version: AGENT_PROTOCOL_VERSION,
@@ -227,6 +265,7 @@ pub async fn register_agent(
         // DEFAULT_HEARTBEAT_INTERVAL_SECONDS. The agent heartbeats at this rate
         // and the server's liveness sweeper uses the same basis.
         heartbeat_interval_seconds: state.agent_heartbeat_interval_seconds,
+        key_expires_at,
     }))
 }
 
@@ -374,9 +413,12 @@ pub async fn replenish_keys(
 pub async fn report_result(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
-    Json(req): Json<AgentResultRequest>,
+    Json(mut req): Json<AgentResultRequest>,
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
+    // CLOACINA-T-1091: the output is held to the server's cap here, before
+    // the report can be stored in the result inbox.
+    req.output = crate::task_output::cap(req.output.take(), crate::task_output::max_bytes());
     let agent_row = require_agent_owner(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
@@ -862,6 +904,21 @@ mod tests {
         assert_eq!(retire_reason_label("made-up"), "other");
     }
 
+    /// CLOACINA-T-1086: the release check answers 400
+    /// `agent_version_unsupported`; the protocol check takes the range.
+    #[test]
+    fn an_agent_of_an_unsupported_release_gets_400_with_the_code() {
+        use axum::response::IntoResponse;
+        assert!(require_agent_release(Some(cloacina_api_types::version::RELEASE)).is_ok());
+        let refused = require_agent_release(Some("0.1.0"))
+            .unwrap_err()
+            .into_response();
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+        for version in MIN_AGENT_PROTOCOL_VERSION..=AGENT_PROTOCOL_VERSION {
+            assert!(require_protocol_version(version).is_ok());
+        }
+    }
+
     // -----------------------------------------------------------------------
     // CLOACINA-T-1072: the log of a reported result holds no task data below
     // trace.
@@ -912,6 +969,11 @@ mod tests {
             dispatch_id: None,
             duration_ms: 41,
             outcome,
+            output: Some(cloacina::fleet::AttemptOutput {
+                text: "line-from-the-task-output".into(),
+                total_bytes: 25,
+                cut: false,
+            }),
         }
     }
 
@@ -1038,5 +1100,23 @@ mod tests {
         assert!(logged(tracing::Level::TRACE, &failure()).contains("text-from-the-task-error"));
         assert!(logged(tracing::Level::TRACE, &long_failure()).contains("END-OF-THE-ERROR"));
         assert!(logged(tracing::Level::TRACE, &refusal()).contains("text-from-the-refusal"));
+    }
+
+    /// CLOACINA-T-1091: no level, trace included, holds the task's output.
+    #[test]
+    fn no_log_level_holds_the_output() {
+        for level in [
+            tracing::Level::INFO,
+            tracing::Level::DEBUG,
+            tracing::Level::TRACE,
+        ] {
+            for req in [success(), failure(), refusal()] {
+                let out = logged(level, &req);
+                assert!(
+                    !out.contains("line-from-the-task-output"),
+                    "{level} holds the output: {out}"
+                );
+            }
+        }
     }
 }

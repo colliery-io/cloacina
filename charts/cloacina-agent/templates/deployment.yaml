@@ -58,6 +58,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "cloacina-agent.apiKeySecretName" . }}
                   key: {{ include "cloacina-agent.apiKeySecretKey" . }}
+            {{- if or .Values.server.ca.configMap .Values.server.ca.secret }}
+            # The private CA the agent trusts in addition to the system roots
+            # (CLOACINA-T-1069).
+            - name: CLOACINA_AGENT_CA_FILE
+              value: {{ printf "/etc/cloacina/ca/%s" .Values.server.ca.key | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -72,6 +78,11 @@ spec:
               mountPath: /home/cloacina
             - name: tmp
               mountPath: /tmp
+            {{- if or .Values.server.ca.configMap .Values.server.ca.secret }}
+            - name: ca
+              mountPath: /etc/cloacina/ca
+              readOnly: true
+            {{- end }}
       volumes:
         - name: home
           emptyDir:
@@ -80,6 +91,21 @@ spec:
             {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- if .Values.server.ca.configMap }}
+        - name: ca
+          configMap:
+            name: {{ .Values.server.ca.configMap }}
+            items:
+              - key: {{ .Values.server.ca.key }}
+                path: {{ .Values.server.ca.key }}
+        {{- else if .Values.server.ca.secret }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.server.ca.secret }}
+            items:
+              - key: {{ .Values.server.ca.key }}
+                path: {{ .Values.server.ca.key }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
