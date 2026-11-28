@@ -180,9 +180,10 @@ lines it lets through.
   keeps its level and target, and the process's filter applies to it:
   `RUST_LOG=info` drops a `debug!` of the task.
 - Lines of a packaged Rust poll trigger polled on an agent, with the
-  `tracing` macros or the `log` crate. They carry the ids of the poll, the
-  fields of a span named `poll`: `tenant`, `package`, `trigger` and
-  `poll_id`.
+  `tracing` macros or the `log` crate, in the agent process or in its worker
+  process. They carry the ids of the poll, the fields of a span named `poll`:
+  `tenant`, `package`, `trigger` and `poll_id`. A worker process writes them
+  to the agent's stdout, which it inherits.
 - Lines of a native constructor provider (`runtime = "native"`) that uses the
   `tracing` macros or the `log` crate, from a task, trigger, accumulator or
   reactor member. The process that loaded the provider writes them, in the
