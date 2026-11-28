@@ -232,8 +232,12 @@ impl FleetGraphExecutor {
             .await
             .map_err(|e| format!("artifact digest lookup failed: {e}"))?
             .ok_or_else(|| format!("no active artifact for package '{package_name}'"))?;
-        let (primary_digest, language, package_version) =
-            (active.content_hash, active.language, active.version);
+        let (primary_digest, language, package_version, package_interface) = (
+            active.content_hash,
+            active.language,
+            active.version,
+            active.plugin_interface_version,
+        );
 
         // 3. Select a live agent with capacity + a runnable arch in the
         //    graph's tenant. An interpreted (Python) package runs from source
@@ -260,6 +264,17 @@ impl FleetGraphExecutor {
             .live_agents()
             .await
             .map_err(|e| format!("fleet roster read failed: {e}"))?;
+        // CLOACINA-T-1086: only an agent that loads the package's plugin
+        // interface version.
+        if let Some(reason) = crate::agent_registry::plugin_interface_wait_reason(
+            &snapshot,
+            &fire.tenant_id,
+            cloacina_api_types::DEFAULT_AGENT_POOL,
+            package_interface,
+        ) {
+            return Err(reason);
+        }
+        let snapshot = crate::agent_registry::agents_loading(&snapshot, package_interface);
         let agent = select_fleet_agent(
             &snapshot,
             &fire.tenant_id,

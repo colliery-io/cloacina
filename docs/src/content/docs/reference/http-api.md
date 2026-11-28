@@ -56,6 +56,15 @@ only identifier that ties a client-observed failure to the server's
 logs. If the client supplies an inbound `x-request-id` header the
 middleware honours it (enables end-to-end trace propagation).
 
+### Server release: `x-cloacina-version`
+
+Every response carries the header `x-cloacina-version` with the server's
+release (`0.14.1`). `cloacinactl` reads it from its first answer and prints one
+warning on stderr when its own minor differs; the call goes on. The server
+refuses no client by version. The Rust client exposes the value as
+`Client::server_version()` and sends `user-agent: cloacina-client/<version>`
+(`cloacinactl/<version>` from `cloacinactl`).
+
 ### Live event streaming (WebSocket)
 
 Live execution-event streaming is delivered over the WebSocket delivery
@@ -101,12 +110,12 @@ These endpoints require no authentication.
 
 ### GET /health
 
-Liveness check. Always returns 200.
+Liveness check. Always returns 200. `version` is the server's release.
 
 **Response:** `200 OK`
 
 ```json
-{"status": "ok"}
+{"status": "ok", "version": "0.14.1"}
 ```
 
 ### GET /ready

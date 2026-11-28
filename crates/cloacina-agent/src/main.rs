@@ -392,6 +392,67 @@ mod log_format_tests {
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
+/// How long the agent waits before it registers again after the server
+/// refused its release (CLOACINA-T-1086). The agent does not exit: the
+/// server may be upgraded under it.
+const VERSION_REFUSED_RETRY: Duration = Duration::from_secs(60);
+
+/// A register that the server answered with an error, with the server's
+/// code and message (CLOACINA-T-1086). Before, the body was dropped and the
+/// log had only the status.
+#[derive(Debug)]
+struct RegisterRefused {
+    status: reqwest::StatusCode,
+    code: Option<String>,
+    message: String,
+}
+
+impl std::fmt::Display for RegisterRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the server refused the register ({}, {}): {}",
+            self.status.as_u16(),
+            self.code.as_deref().unwrap_or("no code"),
+            self.message
+        )
+    }
+}
+
+impl std::error::Error for RegisterRefused {}
+
+impl RegisterRefused {
+    /// Reads the error body of the server (`{"error": …, "code": …}`); a body
+    /// of another shape is kept as text.
+    fn from_body(status: reqwest::StatusCode, body: &str) -> Self {
+        let json: Option<serde_json::Value> = serde_json::from_str(body).ok();
+        let field = |name: &str| {
+            json.as_ref()
+                .and_then(|v| v.get(name))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        };
+        Self {
+            status,
+            code: field("code"),
+            message: field("error").unwrap_or_else(|| body.trim().to_string()),
+        }
+    }
+
+    fn is_version_refusal(&self) -> bool {
+        self.code.as_deref() == Some(cloacina::fleet::version::AGENT_VERSION_UNSUPPORTED)
+    }
+}
+
+/// Whether a session error is the server's refusal of this agent's release.
+fn is_version_refusal(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<RegisterRefused>()
+            .is_some_and(RegisterRefused::is_version_refusal)
+    })
+}
+
 /// The totals the agent reports at registration (CLOACINA-T-1027): CPU in
 /// millicores and memory in bytes, from `--cpu` and `--memory`. A flag that
 /// is not set, or is empty (an env var set to nothing), reports none. A value
@@ -588,9 +649,22 @@ async fn run(args: Args) -> Result<()> {
                 backoff = RECONNECT_BACKOFF_MIN;
                 tokio::time::sleep(RECONNECT_BACKOFF_MIN).await;
             }
+            // CLOACINA-T-1086: the server does not accept this agent's
+            // release. Its message names both releases. Try again slowly.
+            Err(e) if is_version_refusal(&e) => {
+                error!(
+                    error = %format!("{e:#}"),
+                    retry_seconds = VERSION_REFUSED_RETRY.as_secs(),
+                    agent_version = cloacina::fleet::version::RELEASE,
+                    "the server refused this agent's release; registering again later"
+                );
+                tokio::time::sleep(VERSION_REFUSED_RETRY).await;
+            }
             Err(e) => {
+                // `{:#}`: the whole chain, so the server's message is in the
+                // log (CLOACINA-T-1086).
                 warn!(
-                    error = %e,
+                    error = %format!("{e:#}"),
                     backoff_seconds = backoff.as_secs(),
                     "agent session failed to establish — backing off before retry"
                 );
@@ -813,9 +887,8 @@ fn log_key_expiry(raw: Option<&str>) -> Option<tokio::task::JoinHandle<()>> {
 /// Whether a register failed because another key holds the agent id (the
 /// server answers 409, CLOACINA-T-1051).
 fn is_agent_id_taken(err: &anyhow::Error) -> bool {
-    err.downcast_ref::<reqwest::Error>()
-        .and_then(|e| e.status())
-        .is_some_and(|status| status == reqwest::StatusCode::CONFLICT)
+    err.downcast_ref::<RegisterRefused>()
+        .is_some_and(|e| e.status == reqwest::StatusCode::CONFLICT)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -844,14 +917,23 @@ async fn register(
         ephemeral_key_pool,
         cpu_millis,
         memory_bytes,
+        // CLOACINA-T-1086: the server checks the release and matches work on
+        // the plugin interface version.
+        agent_version: Some(cloacina::fleet::version::RELEASE.to_string()),
+        plugin_interface_version: Some(cloacina::fleet::PLUGIN_INTERFACE_VERSION),
     };
     let resp = http
         .post(format!("{}/v1/agent/register", server))
         .bearer_auth(api_key)
         .json(&body)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
+    let status = resp.status();
+    if !status.is_success() {
+        // Keep the server's code and message (CLOACINA-T-1086).
+        let text = resp.text().await.unwrap_or_default();
+        return Err(RegisterRefused::from_body(status, &text).into());
+    }
     Ok(resp.json().await?)
 }
 
@@ -3694,6 +3776,35 @@ mod tests {
         assert!(is_agent_id_taken(&try_register(409).await));
         assert!(!is_agent_id_taken(&try_register(403).await));
         assert!(!is_agent_id_taken(&try_register(500).await));
+    }
+
+    /// CLOACINA-T-1086: a register refused for the agent's release keeps the
+    /// server's code and message, through the context the session adds, and
+    /// the log line of the error shows the message with both releases.
+    #[test]
+    fn a_version_refusal_keeps_the_servers_message() {
+        let body = r#"{"error":"agent 0.12.3 is older than this server accepts (0.13 or 0.14; server 0.14.1): upgrade the agent","code":"agent_version_unsupported"}"#;
+        let refused = RegisterRefused::from_body(reqwest::StatusCode::BAD_REQUEST, body);
+        assert!(refused.is_version_refusal());
+        let err = anyhow::Error::from(refused).context("agent register failed");
+        assert!(is_version_refusal(&err));
+        assert!(!is_agent_id_taken(&err));
+        let logged = format!("{err:#}");
+        assert!(
+            logged.contains("0.12.3") && logged.contains("0.14.1"),
+            "{logged}"
+        );
+        assert!(logged.contains("agent_version_unsupported"), "{logged}");
+
+        // Another 400, and a body that is not JSON, are not a version refusal.
+        let other = RegisterRefused::from_body(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"error":"bad","code":"protocol_version_mismatch"}"#,
+        );
+        assert!(!other.is_version_refusal());
+        let text = RegisterRefused::from_body(reqwest::StatusCode::BAD_GATEWAY, "upstream down");
+        assert_eq!(text.message, "upstream down");
+        assert!(!is_version_refusal(&anyhow::Error::from(text)));
     }
 
     /// The real policy with the waits cut to milliseconds.

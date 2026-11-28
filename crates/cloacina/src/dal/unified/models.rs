@@ -453,6 +453,11 @@ pub struct UnifiedFleetAgent {
     /// (bytes), as it reported them. `None` = it reported none.
     pub cpu_millis: Option<i64>,
     pub memory_bytes: Option<i64>,
+    /// CLOACINA-T-1086: the agent's release, protocol number and plugin
+    /// interface version, as it reported them. `None` = it reported none.
+    pub agent_version: Option<String>,
+    pub protocol_version: Option<i32>,
+    pub plugin_interface_version: Option<i32>,
 }
 
 #[derive(Debug, Clone, Insertable, AsChangeset)]
@@ -473,6 +478,10 @@ pub struct NewUnifiedFleetAgent {
     /// (bytes), as it reported them. `None` = it reported none.
     pub cpu_millis: Option<i64>,
     pub memory_bytes: Option<i64>,
+    /// CLOACINA-T-1086: as in [`UnifiedFleetAgent`].
+    pub agent_version: Option<String>,
+    pub protocol_version: Option<i32>,
+    pub plugin_interface_version: Option<i32>,
 }
 
 /// One agent pool of a tenant (CLOACINA-T-1021). `settings` is a JSON object;
@@ -688,6 +697,10 @@ pub struct UnifiedWorkflowPackage {
     pub metadata_document_version: Option<i32>,
     /// Why the last describe failed.
     pub describe_error: Option<String>,
+    /// CLOACINA-T-1086: the plugin interface version of a Rust build, as the
+    /// compiler that built it recorded. `None`: a Python package, or a build
+    /// from before the column.
+    pub plugin_interface_version: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]

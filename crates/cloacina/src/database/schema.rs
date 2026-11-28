@@ -291,6 +291,10 @@ mod unified_schema {
             owner_key_id -> Nullable<DbUuid>,
             cpu_millis -> Nullable<BigInt>,
             memory_bytes -> Nullable<BigInt>,
+            /// CLOACINA-T-1086: what the agent reported at register.
+            agent_version -> Nullable<Text>,
+            protocol_version -> Nullable<Integer>,
+            plugin_interface_version -> Nullable<Integer>,
         }
     }
 
@@ -368,6 +372,8 @@ mod unified_schema {
             metadata_document -> Nullable<Text>,
             metadata_document_version -> Nullable<Integer>,
             describe_error -> Nullable<Text>,
+            // CLOACINA-T-1086: the plugin interface version of a Rust build.
+            plugin_interface_version -> Nullable<Integer>,
         }
     }
 
