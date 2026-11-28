@@ -3617,17 +3617,17 @@ export interface components {
              *     new executions until resumed.
              */
             paused?: boolean;
+            /**
+             * Format: int32
+             * @description As in [`WorkflowSummary::plugin_interface_version`] (CLOACINA-T-1085).
+             */
+            plugin_interface_version?: number | null;
             priority?: components["schemas"]["PriorityGrant"] | null;
             /**
              * @description Set when `given` is lower than `asked`: what was asked, what is
              *     given, and why.
              */
             priority_notice?: string | null;
-            /**
-             * Format: int32
-             * @description As in [`WorkflowSummary::plugin_interface_version`] (CLOACINA-T-1085).
-             */
-            plugin_interface_version?: number | null;
             /**
              * @description The task dependency graph (nodes + their upstream dependencies) for
              *     rendering the full workflow DAG. Empty for packages predating
