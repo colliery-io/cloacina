@@ -1,0 +1,16 @@
+# Fixture of the behaviour suite chapter "tenant_code" (CLOACINA-T-1079,
+# features/tenant_code/tenant_code_boundary.feature): a Rust package whose
+# load-time code, task and poll trigger each leave a mark. A mark says which
+# process ran the code and which credential names it holds, never a value.
+[package]
+name = "tenant-code-mark-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "tenant_code_mark"
+language = "rust"
+description = "tenant_code chapter fixture: load-time code, a task and a poll trigger leave marks"
+author = "tenant-code"

@@ -60,6 +60,35 @@ PROMISES = {
     ),
     "tenants.key": ("Tenants", "A key of one team does nothing in another."),
     "tenants.task": ("Tenants", "A task of one team cannot read another team's packages or secrets."),
+    # The claims of the ADR CLOACINA-A-0019, in its order. Their scenarios
+    # are in the chapter tenant_code (CLOACINA-T-1079), not in the chapter of
+    # this row's task.
+    "tenants.code_rust_load": (
+        "Tenants", "A Rust package's load-time code never runs in the server process."),
+    "tenants.code_python_import": (
+        "Tenants", "A Python package's import never runs in the server process."),
+    "tenants.code_default_chart": (
+        "Tenants", "A default chart install runs no packaged work in the server process."),
+    "tenants.code_graph_no_agent": (
+        "Tenants", "A graph firing with no agent fails with a reason; the server does not run it."),
+    "tenants.code_poll_trigger": (
+        "Tenants", "A poll trigger's code runs on the tenant's agent, not in the server."),
+    "tenants.code_reactive_layer": (
+        "Tenants",
+        "Native provider and Python accumulator or reactor code do not run in the server; "
+        "a WASM provider runs under its grants.",
+    ),
+    "tenants.code_public": (
+        "Tenants", "A package of public is treated the same as a package of a named tenant."),
+    "tenants.code_build_role": (
+        "Tenants", "A tenant's compiler holds a credential that opens only that tenant's build tables."),
+    "tenants.code_older_package": (
+        "Tenants",
+        "A package built before the change runs after an upgrade with no publish, "
+        "or is shown as not loaded with the reason.",
+    ),
+    "tenants.code_pool_role": (
+        "Tenants", "A query from a tenant's pool on another tenant's schema is refused by Postgres."),
     "capacity.waits": ("Capacity", "Work waits when a tenant is full and runs when capacity arrives."),
     "capacity.fits": ("Capacity", "A task lands on an agent that fits it."),
     "operations.alert": ("Operations", "A failed run raises an alert."),

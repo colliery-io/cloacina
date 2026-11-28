@@ -146,6 +146,16 @@ EVIDENCE = {
     "failure.postgres_away": ["standing_rollup", "standing_extract", "standing_flaky"],
     "tenants.key": [DRIVER_WORKFLOW],
     "tenants.task": [DRIVER_WORKFLOW],
+    "tenants.code_rust_load": [],
+    "tenants.code_python_import": [],
+    "tenants.code_default_chart": [],
+    "tenants.code_graph_no_agent": [],
+    "tenants.code_poll_trigger": [],
+    "tenants.code_reactive_layer": [],
+    "tenants.code_public": [],
+    "tenants.code_build_role": [],
+    "tenants.code_older_package": [],
+    "tenants.code_pool_role": [],
     "capacity.waits": [HOLD_WORKFLOW],
     "capacity.fits": [],
     "operations.alert": ["standing_flaky"],
@@ -159,6 +169,12 @@ WITHOUT_EVIDENCE = {
     "workload.agents": "judged from the agent roster, not from a workflow",
     "capacity.fits": "no workflow of the workload names a pool; the Capacity chapter adds one",
 }
+# The claims of CLOACINA-A-0019 are shown by the scenarios of the chapter
+# tenant_code, on its own tenant, and two of them from Postgres's catalogue.
+for _promise in [p for p in EVIDENCE if p.startswith("tenants.code_")]:
+    WITHOUT_EVIDENCE[_promise] = ("shown by the scenarios of the chapter tenant_code "
+                                  "(CLOACINA-T-1079), not by a workflow of the workload")
+del _promise
 
 
 def scheduled_workflows():
