@@ -106,7 +106,14 @@ test, on the labels other than `tenant`; a running server has no such limit.
 | `cloacina_alert_webhook_sent_total` | `event` | Alert webhook: requests the receiver answered with a 2xx status. `event` ∈ `failed`, `completed`, `cancelled`. Zero while no `--alert-webhook-url` is set. See [Alert on a Failed Run](../../how-to/service/alert-on-a-failed-run/). CLOACINA-T-1024. |
 | `cloacina_alert_webhook_failed_total` | `reason` | Alert webhook: sends that failed and will be tried again. `reason` ∈ `timeout`, `status` (a status outside 2xx), `transport` (no connection, TLS, DNS), `load` (the run could not be read). Sustained growth means the receiver is down or slow. |
 | `cloacina_alert_webhook_dropped_total` | `reason` | Alert webhook: alerts given up without a 2xx answer. `reason` ∈ `attempts` (`--alert-webhook-max-attempts` sends failed), `expired` (not sent 24 hours after the run ended), `invalid` (the stored notice could not be read). Each one is an alert that nobody got. |
+| `cloacina_reactor_firings_total` | `graph`, `reactor` | `reactor_firings` rows written by a reactor, one for each fire. The subscription poller reads these rows. Counts successful writes only; a failed write is in the logs. |
 | `cloacina_reactor_firings_pruned_total` | — | Reactor firing-history rows pruned during retention cleanup. Each increment counts one pruned firing record. |
+| `cloacina_reactor_predicate_errors_total` | `reactor` | Reactor subscription predicates that failed to evaluate. The firing is not dropped: the subscription holds its watermark and tries the firing again on the next tick. |
+| `cloacina_reactor_predicate_dead_letters_total` | `reactor` | Reactor firings given up after their subscription's predicate failed 5 times in a row. The subscription is marked degraded and moves past the firing. Each one is a firing that started no workflow. |
+| `cloacina_scheduler_tasks_abandoned_total` | — | Tasks the stale-claim sweeper marked `Failed` with an `ABANDONED:` error, because their claim went stale after the last recovery the cap allows. Each one also writes a `TaskAbandoned` event. |
+| `cloacina_auth_login_attempts_total` | `outcome` | Local-login attempts. `outcome` ∈ `ok` (password verified, key minted), `denied` (unknown user, wrong password or disabled account; the three are not told apart), `throttled` (refused before the password check, because a throttle key was locked). A sustained `denied` rate is a credential-stuffing signal. |
+| `cloacina_auth_login_lockouts_total` | `scope` | Local-login lockouts, counted once when the lock starts, not once per refused attempt. `scope` ∈ `username`, `ip`. Pairs with the `auth.login.lockout` audit event. |
+| `cloacina_python_import_interrupted_total` | — | Python package imports that hung and were interrupted: the load failed and the interpreter stayed usable. |
 | `cloacina_retention_rows_deleted_total` | `table` | Rows removed by the server's background retention job, summed over the admin schema and all tenant schemas. `table` ∈ `workflow_executions`, `task_executions`, `task_execution_metadata`, `contexts`, `execution_events`, `recovery_events`, `schedule_executions`, `delivery_outbox`, `workflow_execution_package_pins` (CLOACINA-T-1130), `task_attempt_errors` (CLOACINA-T-1100). Only the replica that holds the retention lock for a tick counts. A series appears after its first removed row. CLOACINA-T-1023. |
 | `cloacina_retention_errors_total` | — | Retention passes over one schema that failed (also: the tenant schema list could not be read). The pass is retried on the next tick. Sustained growth means run history is not being removed. CLOACINA-T-1023. |
 
@@ -135,6 +142,7 @@ test, on the labels other than `tenant`; a running server has no such limit.
 | `cloacina_reactor_cache_age_seconds` | `graph`, `reactor`, `source` | Age in seconds of the most-recent emission per source held in the reactor's input cache. Refreshed on every boundary arrival (all known sources re-emitted, so silent sources show increasing staleness). |
 | `cloacina_ws_connections_active` | `endpoint` | Currently open WebSocket connections. `endpoint` ∈ `accumulator`, `reactor`. RAII-guarded so panics inside the handler still decrement on Drop. |
 | `cloacina_tenant_compiler_tenants_pending` | — | Tenants whose build queue has a `pending` or `building` package, read on each tick of the fleet loop. The `public` schema is not counted. Set only by the replica that led the tick, and only when the server runs a compiler per tenant. A value that stays above 0 while `cloacina_tenant_compiler_starts_total` does not move means compilers do not start or do not finish. CLOACINA-T-1034. |
+| `cloacina_python_runtime_wedged` | — | `1` when the embedded Python interpreter of the process is wedged (an import that could not be interrupted holds it), else `0`. Set to `0` when a Python runtime starts. While it is `1`, Python package loads in the process hang or fail and `/ready` answers 503: restart the process. |
 | `cloacina_delivery_outbox_open` | — | Current count of non-`acked` rows in `delivery_outbox` (`pending` + `delivered`) — the durable push queue that carries fleet work packets to agents. Sustained growth means delivery is wedged (no live agent for the recipient, or the relay isn't draining). CLOACI-I-0115. |
 
 ## Example PromQL queries
@@ -273,6 +281,7 @@ on its own `/metrics` endpoint (default `127.0.0.1:9000`, shared with
 |------|--------|-------------|
 | `cloacina_compiler_builds_total` | `status` | Total cargo builds executed. `status` ∈ `ok`, `failed`, `timed_out`. Timed-out rows are left for the stale-build sweeper. |
 | `cloacina_compiler_sweep_resets_total` | — | Stale builds reset to `pending` by the sweeper. Each increment corresponds to one row reclaimed. Sustained non-zero rate indicates worker crashes or hung builds. |
+| `cloacina_compiler_describes_total` | `status` | Describes of packages built before the package metadata document existed, read from their stored build. `status` ∈ `ok`, `failed`. A failed describe is recorded on the package (`describe_error`). |
 | `cloacina_compiler_heartbeat_failures_total` | — | Heartbeat-update failures from the builder. Repeated failures starve `build_claimed_at` and the sweeper will eventually reclaim the row. |
 
 ### Histograms
@@ -336,6 +345,10 @@ When introducing a new metric:
    or dashboard.
 4. Run `angreal test metrics-format` locally before pushing. The same
    check runs in CI (`metrics-format` job in `.github/workflows/cloacina.yml`).
+5. The [release gate](../../contributing/release-gate/) reads this page: a
+   metric name or label in the code that has no row here fails it, and so
+   does a row that no code registers or records. A name or label removed from
+   this page since the last release needs a `CHANGELOG.md` entry.
 
 ## Related
 
