@@ -966,51 +966,58 @@ impl TaskExecutor for FleetExecutor {
             // CLOACINA-T-1018: the lookup goes through the execution's version
             // pin. The first task of an execution pins the active version; each
             // later task gets that version, also after a newer one is active.
-            let (primary_digest, language, package_version, python_platforms, declared_secrets) =
-                match self
-                    .dal
-                    .workflow_packages()
-                    .resolve_dispatch_for_execution(
-                        event.workflow_execution_id,
-                        &namespace.package_name,
-                        None,
-                    )
-                    .await
-                {
-                    Ok(Some(pkg)) => (
-                        pkg.content_hash,
-                        pkg.language,
-                        pkg.version,
-                        pkg.python_platforms,
-                        pkg.declared_secrets,
-                    ),
-                    Ok(None) => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!(
-                                    "no active (success, non-superseded) artifact for package `{}` \
+            let (
+                pinned_package_id,
+                primary_digest,
+                language,
+                package_version,
+                python_platforms,
+                declared_secrets,
+            ) = match self
+                .dal
+                .workflow_packages()
+                .resolve_dispatch_for_execution(
+                    event.workflow_execution_id,
+                    &namespace.package_name,
+                    None,
+                )
+                .await
+            {
+                Ok(Some(pkg)) => (
+                    pkg.package_id,
+                    pkg.content_hash,
+                    pkg.language,
+                    pkg.version,
+                    pkg.python_platforms,
+                    pkg.declared_secrets,
+                ),
+                Ok(None) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!(
+                                "no active (success, non-superseded) artifact for package `{}` \
                                  in tenant {:?}",
-                                    namespace.package_name, task_tenant
-                                ),
-                            )
-                            .await);
-                    }
-                    Err(e) => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!("artifact digest lookup failed: {}", e),
-                            )
-                            .await);
-                    }
-                };
+                                namespace.package_name, task_tenant
+                            ),
+                        )
+                        .await);
+                }
+                Err(e) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!("artifact digest lookup failed: {}", e),
+                        )
+                        .await);
+                }
+            };
 
             // CLOACI-T-0780: an INTERPRETED package (e.g. Python) has no arch-specific
             // cdylib — it runs from its source on ANY agent. A COMPILED package runs
@@ -1179,9 +1186,19 @@ impl TaskExecutor for FleetExecutor {
             //       build the merged dependency context via the SHARED
             //       TaskContextBuilder so the agent receives exactly the input
             //       context a thread run would produce.
-            let dependencies: Vec<cloacina::task::TaskNamespace> = match loaded_task.as_ref() {
-                Some(task) => task.dependencies().to_vec(),
-                None => {
+            //
+            // CLOACINA-T-1137: the dependencies are those of the version the
+            // execution is pinned to, from the task list stored on its row.
+            // The loaded task is the active version, which can differ. A row
+            // with no stored task list falls back to the loaded task.
+            let pinned_dependencies = match self
+                .dal
+                .workflow_packages()
+                .task_dependencies_in_version(pinned_package_id, &namespace)
+                .await
+            {
+                Ok(deps) => deps,
+                Err(e) => {
                     return Ok(self
                         .reconcile_error(
                             &event,
@@ -1189,14 +1206,33 @@ impl TaskExecutor for FleetExecutor {
                             &retry_policy,
                             start.elapsed(),
                             format!(
-                                "task `{}` not loaded in server runtime — cannot resolve \
-                                 dependency context for fleet dispatch",
-                                event.task_name
+                                "dependencies of task `{}` in version {} could not be read: {}",
+                                event.task_name, package_version, e
                             ),
                         )
                         .await);
                 }
             };
+            let dependencies: Vec<cloacina::task::TaskNamespace> =
+                match (pinned_dependencies, loaded_task.as_ref()) {
+                    (Some(deps), _) => deps,
+                    (None, Some(task)) => task.dependencies().to_vec(),
+                    (None, None) => {
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &retry_policy,
+                                start.elapsed(),
+                                format!(
+                                    "task `{}` not loaded in server runtime — cannot resolve \
+                                 dependency context for fleet dispatch",
+                                    event.task_name
+                                ),
+                            )
+                            .await);
+                    }
+                };
             let context = match self
                 .context_builder
                 .build(&claimed_task, &dependencies)
@@ -3185,6 +3221,174 @@ mod tests {
                 after
                     .last_error
                     .is_some_and(|e| e.contains("agent refused (RuntimeLoadFailed)"))
+            );
+        }
+
+        // ── CLOACINA-T-1137: the dependency context of the pinned version ───
+
+        /// The execution's version (1.0.0) has `long_task` depend on
+        /// `extract`. Version 2.0.0 is active and loaded, and its `long_task`
+        /// depends on nothing. The work packet carries the output of
+        /// `extract`, as version 1.0.0 says.
+        #[tokio::test]
+        async fn the_dependency_context_comes_from_the_pinned_version() {
+            use cloacina::database::schema::unified::workflow_packages;
+            use cloacina::models::task_execution_metadata::NewTaskExecutionMetadata;
+            use diesel::prelude::*;
+
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+
+            // Version 1.0.0 (the row of `stack`) lists the edge.
+            let v1_metadata = serde_json::json!({
+                "package_name": "full_pkg",
+                "workflow_name": "full_wf",
+                "version": "1.0.0",
+                "description": null,
+                "author": null,
+                "tasks": [
+                    {"index": 0, "local_id": "extract",
+                     "namespaced_id_template": "{tenant}::full_pkg::full_wf::extract",
+                     "dependencies": [], "description": "", "source_location": ""},
+                    {"index": 1, "local_id": "long_task",
+                     "namespaced_id_template": "{tenant}::full_pkg::full_wf::long_task",
+                     "dependencies": ["extract"], "description": "", "source_location": ""},
+                ],
+                "graph_data": null,
+                "architecture": "any",
+                "symbols": [],
+            })
+            .to_string();
+            let set: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(stack.dal, |conn| {
+                    diesel::update(
+                        workflow_packages::table
+                            .filter(workflow_packages::package_name.eq("full_pkg")),
+                    )
+                    .set(workflow_packages::metadata.eq(v1_metadata))
+                    .execute(conn)
+                });
+            assert_eq!(set.unwrap(), 1);
+
+            // The execution starts on version 1.0.0: its first task pinned it.
+            let v1 = stack
+                .dal
+                .workflow_packages()
+                .resolve_dispatch_for_execution(event.workflow_execution_id, "full_pkg", None)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(v1.version, "1.0.0");
+
+            // `extract` completed with an output.
+            let extract = "public::full_pkg::full_wf::extract";
+            let extract_row = stack
+                .dal
+                .task_execution()
+                .create(NewTaskExecution {
+                    workflow_execution_id: event.workflow_execution_id,
+                    task_name: extract.into(),
+                    status: "Completed".into(),
+                    attempt: 1,
+                    max_attempts: 3,
+                    trigger_rules: r#"{"type":"Always"}"#.into(),
+                    task_configuration: "{}".into(),
+                })
+                .await
+                .unwrap();
+            let mut output = Context::new();
+            output.insert("rows", serde_json::json!(42)).unwrap();
+            let context_id = stack.dal.context().create(&output).await.unwrap();
+            stack
+                .dal
+                .task_execution_metadata()
+                .create(NewTaskExecutionMetadata {
+                    task_execution_id: extract_row.id,
+                    workflow_execution_id: event.workflow_execution_id,
+                    task_name: extract.into(),
+                    context_id,
+                    context_size_bytes: None,
+                })
+                .await
+                .unwrap();
+
+            // Version 2.0.0 becomes active; the loaded `long_task` (of
+            // `stack`) has no dependency.
+            let v2_metadata = serde_json::from_value(serde_json::json!({
+                "package_name": "full_pkg",
+                "workflow_name": "full_wf",
+                "version": "2.0.0",
+                "description": null,
+                "author": null,
+                "tasks": [],
+                "graph_data": null,
+                "architecture": "any",
+                "symbols": [],
+            }))
+            .unwrap();
+            let v1_id = UniversalUuid(v1.package_id);
+            let retired: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(stack.dal, |conn| {
+                    diesel::update(workflow_packages::table.find(v1_id))
+                        .set(
+                            workflow_packages::superseded
+                                .eq(cloacina::database::universal_types::UniversalBool(true)),
+                        )
+                        .execute(conn)
+                });
+            assert_eq!(retired.unwrap(), 1);
+            let v2_id = stack
+                .dal
+                .workflow_packages()
+                .store_package_metadata(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &v2_metadata,
+                    cloacina::models::workflow_packages::StorageType::Database,
+                    None,
+                )
+                .await
+                .unwrap();
+            let built: Result<usize, diesel::result::Error> =
+                cloacina::interact_on_backend!(stack.dal, |conn| {
+                    diesel::update(workflow_packages::table.find(UniversalUuid(v2_id)))
+                        .set((
+                            workflow_packages::build_status.eq("success"),
+                            workflow_packages::content_hash.eq("digest-2"),
+                        ))
+                        .execute(conn)
+                });
+            assert_eq!(built.unwrap(), 1);
+
+            // Dispatch `long_task` and read its packet.
+            let executor = stack.executor.clone();
+            let dispatched = event.clone();
+            let run = tokio::spawn(async move { executor.execute(dispatched).await });
+            let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT);
+            let mut packet = None;
+            for _ in 0..400 {
+                let open = stack
+                    .dal
+                    .delivery_outbox()
+                    .list_open_for_recipient(&recipient, 10)
+                    .await
+                    .unwrap_or_default();
+                if let Some(push) = open.into_iter().next() {
+                    packet = Some(serde_json::from_slice::<WorkPacket>(&push.payload).unwrap());
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let packet = packet.expect("the executor enqueues a work packet");
+            agent_reports(&stack, &event, 0, refused(RefusalReason::Shutdown)).await;
+            run.await.unwrap().expect("the dispatch returns a result");
+
+            assert_eq!(packet.artifact.digest, "digest-1", "the pinned build");
+            assert_eq!(
+                packet.context.get("rows"),
+                Some(&serde_json::json!(42)),
+                "the packet carries the output of `extract`, a dependency in the \
+                 pinned version: {}",
+                packet.context
             );
         }
 
