@@ -441,6 +441,41 @@ class DisturbanceTest(unittest.TestCase):
             finally:
                 other.release()
 
+    def test_a_scenario_names_the_pod_to_kill(self):
+        ns = disturb.tenant_namespace("team_a")
+        kubectl = FakeKubectl(agent_pods={ns: ["cloacina-agent-1", "cloacina-agent-2"]})
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder, kubectl=kubectl)
+            closed = setup.runner.run_now("kill_agent", tenant="team_a", mode="force", pod="cloacina-agent-2")
+            self.assertEqual(closed["pod"], "cloacina-agent-2")
+            self.assertEqual(closed["chosen"], "named by the scenario")
+            self.assertEqual(setup.kubectl.commands("delete")[0][2], "cloacina-agent-2")
+            # The roster is not read: the scenario knows the pod.
+            self.assertEqual(setup.api.calls, [])
+
+    def test_a_named_pod_that_is_not_running_is_no_disturbance(self):
+        ns = disturb.tenant_namespace("team_a")
+        kubectl = FakeKubectl(agent_pods={ns: ["cloacina-agent-1"]})
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder, kubectl=kubectl)
+            self.assertIsNone(setup.runner.run_now("kill_agent", tenant="team_a", pod="cloacina-agent-9"))
+            self.assertIsNone(setup.runner.run_now("restart_server", pod="bdd-standing-cloacina-server-z"))
+            self.assertEqual(setup.kubectl.commands("delete"), [])
+
+    def test_each_server_pod_in_turn(self):
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder)
+            for pod in setup.runner.server_pods():
+                setup.runner.run_now("restart_server", mode="force", pod=pod)
+            self.assertEqual([args[2] for args in setup.kubectl.commands("delete")],
+                             ["bdd-standing-cloacina-server-a", "bdd-standing-cloacina-server-b"])
+
+    def test_postgres_and_capacity_take_no_pod(self):
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder)
+            with self.assertRaises(disturb.Refused):
+                setup.runner.run_now("postgres_away", pod="x")
+
     def test_an_unknown_kind_or_tenant_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:
             setup = Setup(folder)

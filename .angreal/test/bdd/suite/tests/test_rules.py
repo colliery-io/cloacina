@@ -48,9 +48,11 @@ class RegistryTest(unittest.TestCase):
     def test_the_rules_load_and_are_sound(self):
         registry = rules.load()
         self.assertEqual(registry.problems(), [])
-        self.assertEqual(rules.chapter_modules(), ["publishing", "standing"])
+        self.assertEqual(rules.chapter_modules(), ["failure", "publishing", "standing"])
         ids = sorted(rule.id for rule in registry.rules)
-        self.assertEqual(ids, ["publishing.bad_build_keeps_running", "publishing.new_version_built",
+        self.assertEqual(ids, ["failure.agent_death", "failure.postgres_fire_times",
+                               "failure.postgres_runs_end", "failure.server_restart",
+                               "publishing.bad_build_keeps_running", "publishing.new_version_built",
                                "publishing.step_back", "standing.agents", "standing.schedules",
                                "standing.self_driving"])
 
@@ -358,7 +360,7 @@ class ReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             code, text = self.run_check(["--replay", HEALTHY, "--out", folder])
             self.assertEqual(code, 0, text)
-            self.assertIn("holds 6", text)
+            self.assertIn("holds 9", text)
             with open(os.path.join(folder, "report", "report.json"), encoding="utf-8") as handle:
                 made = json.load(handle)
             self.assertFalse(made["red"])
