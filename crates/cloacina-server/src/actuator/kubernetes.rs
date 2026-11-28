@@ -211,6 +211,10 @@ pub struct KubernetesConfig {
     /// (CLOACINA-T-1101). The server checks the value at start and gives it
     /// here: [`KubernetesConfig::from_env`] leaves the default.
     pub agent_log_format: cloacina::task_logs::LogFormat,
+    /// How long a managed agent drains on SIGTERM, in seconds
+    /// (`CLOACINA_AGENT_DRAIN_S`, CLOACINA-T-1029). Unset: the agent's own
+    /// default, and no grace period on the pod (the Kubernetes default).
+    pub agent_drain_seconds: Option<u32>,
 }
 
 /// Parse a `k=v,k2=v2` selector string into a label map (empty entries skipped).
@@ -284,6 +288,8 @@ impl KubernetesConfig {
             server_endpoint,
             dns_namespace,
             agent_log_format: Default::default(),
+            agent_drain_seconds: env_nonempty("CLOACINA_AGENT_DRAIN_S")
+                .and_then(|s| s.parse().ok()),
         }
     }
 }
@@ -367,7 +373,17 @@ pub struct AgentDeployment {
     /// The agent's log format (`CLOACINA_AGENT_LOG_FORMAT`). `text` leaves
     /// the variable out: the agent's own default.
     pub log_format: cloacina::task_logs::LogFormat,
+    /// How long the agent drains on SIGTERM (CLOACINA-T-1029):
+    /// `CLOACINA_AGENT_DRAIN_SECONDS` on the agent, and the pod's
+    /// `terminationGracePeriodSeconds` this plus [`DRAIN_GRACE_MARGIN_S`].
+    /// `None` leaves both out: the agent's default drain (25 s) inside the
+    /// Kubernetes default grace period (30 s).
+    pub drain_seconds: Option<u32>,
 }
+
+/// Seconds the pod's grace period gives past the agent's drain: for the
+/// hand-back reports and the exit (CLOACINA-T-1029).
+pub const DRAIN_GRACE_MARGIN_S: u32 = 15;
 
 /// Everything [`KubeOps::ensure_network_policy`] needs to materialize one
 /// tenant's agent `NetworkPolicy` (CLOACI-T-0819, REQ-007 defense-in-depth).
@@ -622,6 +638,7 @@ impl KubernetesActuator {
             key_id: Some(key_id.to_string()),
             resources: self.config.resources.with_pool(settings),
             log_format: self.config.agent_log_format,
+            drain_seconds: self.config.agent_drain_seconds,
         };
         self.ops.ensure_deployment(&spec).await?;
 
@@ -723,15 +740,20 @@ impl FleetActuator for KubernetesActuator {
         };
 
         // One Deployment per pool. `desired` is the count of `default`; another
-        // pool runs its own fixed count. A pool that fails does not stop the
-        // others; the first error is returned after all were tried.
+        // pool runs the count the autoscaler stored for it, held to its
+        // bounds, else its min (CLOACINA-T-1029). A pool that fails does not
+        // stop the others; the first error is returned after all were tried.
+        let stored_counts = self.pools.stored_counts(tenant_id).await?;
         let mut total = ReconcileOutcome::default();
         let mut first_error = None;
         for (pool, settings) in &pools {
             let want = if pool == DEFAULT_AGENT_POOL {
                 desired
             } else {
-                fixed_agent_count(settings)
+                match stored_counts.get(pool) {
+                    Some(stored) => super::settings::pool_agent_count(settings, Some(*stored)),
+                    None => fixed_agent_count(settings),
+                }
             };
             match self
                 .reconcile_pool(tenant_id, &namespace, pool, settings, want, &key_id)
@@ -1028,6 +1050,18 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
                 "value": format,
             }));
         }
+        // The agent's drain on SIGTERM (CLOACINA-T-1029). Not set by
+        // default, so the manifest is as before and an upgrade rolls nothing.
+        if let Some(seconds) = spec.drain_seconds {
+            env.push(serde_json::json!({
+                "name": "CLOACINA_AGENT_DRAIN_SECONDS",
+                "value": seconds.to_string(),
+            }));
+        }
+    }
+    if let Some(seconds) = spec.drain_seconds {
+        manifest["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] =
+            (u64::from(seconds) + u64::from(DRAIN_GRACE_MARGIN_S)).into();
     }
     manifest
 }
@@ -1676,6 +1710,72 @@ mod tests {
             server_endpoint: Some(server_endpoint()),
             dns_namespace: "kube-system".to_string(),
             agent_log_format: Default::default(),
+            agent_drain_seconds: None,
+        }
+    }
+
+    /// CLOACINA-T-1029: with a drain set, the agent gets it and the pod's
+    /// grace period covers it; with none, the manifest is as before.
+    #[test]
+    fn the_drain_sets_the_agent_env_and_the_grace_period() {
+        let mut spec = default_spec();
+        let m = agent_deployment_manifest(&spec);
+        assert!(m["spec"]["template"]["spec"]["terminationGracePeriodSeconds"].is_null());
+        assert!(env_value(&m, "CLOACINA_AGENT_DRAIN_SECONDS").is_none());
+        spec.drain_seconds = Some(600);
+        let m = agent_deployment_manifest(&spec);
+        assert_eq!(
+            m["spec"]["template"]["spec"]["terminationGracePeriodSeconds"],
+            serde_json::json!(615)
+        );
+        assert_eq!(
+            env_value(&m, "CLOACINA_AGENT_DRAIN_SECONDS"),
+            Some(&serde_json::json!("600"))
+        );
+    }
+
+    /// CLOACINA-T-1029: a pool other than `default` runs the count the
+    /// autoscaler stored, held to its bounds; with none stored, its min.
+    #[tokio::test]
+    async fn another_pool_runs_its_stored_count() {
+        let scaled = AgentPoolSettings {
+            min_agents: Some(0),
+            max_agents: Some(3),
+            ..Default::default()
+        };
+        struct Stored(Vec<(String, AgentPoolSettings)>, BTreeMap<String, u32>);
+        #[async_trait]
+        impl AgentPoolSource for Stored {
+            async fn pools(
+                &self,
+                tenant_id: &str,
+            ) -> Result<Vec<(String, AgentPoolSettings)>, ActuatorError> {
+                FixedPools(self.0.clone()).pools(tenant_id).await
+            }
+            async fn stored_counts(
+                &self,
+                _tenant_id: &str,
+            ) -> Result<BTreeMap<String, u32>, ActuatorError> {
+                Ok(self.1.clone())
+            }
+        }
+        for (stored, want) in [(None, 0), (Some(2), 2), (Some(9), 3)] {
+            let ops = Arc::new(MockOps::with_ready(0));
+            let counts: BTreeMap<String, u32> = stored
+                .map(|n| [("big".to_string(), n)].into_iter().collect())
+                .unwrap_or_default();
+            let act = actuator(ops.clone(), minter()).with_pools(Arc::new(Stored(
+                vec![("big".to_string(), scaled.clone())],
+                counts,
+            )));
+            act.reconcile("acme", 1).await.unwrap();
+            let scaled = ops.scaled.lock().unwrap().clone();
+            assert!(
+                scaled
+                    .iter()
+                    .any(|(name, n)| name == &pool_deployment_name("big") && *n == want),
+                "stored {stored:?}: {scaled:?}"
+            );
         }
     }
 
@@ -1759,6 +1859,7 @@ mod tests {
             key_id: None,
             resources: AgentResources::default(),
             log_format: Default::default(),
+            drain_seconds: None,
         };
         let m = agent_deployment_manifest(&spec);
         let pod = &m["spec"]["template"]["spec"];
@@ -1921,6 +2022,7 @@ mod tests {
             key_id: None,
             resources: AgentResources::default(),
             log_format: Default::default(),
+            drain_seconds: None,
         }
     }
 
@@ -2820,6 +2922,7 @@ mod tests {
             cpu_total: None,
             memory_total: None,
             log_format: Default::default(),
+            drain_seconds: None,
         };
         let m = agent_deployment_manifest(&spec);
         // The actuator's value wins over a pool annotation of the same name.

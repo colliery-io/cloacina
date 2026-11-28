@@ -423,6 +423,21 @@ pub trait FleetSecretResolverFactory: Send + Sync {
     ) -> Option<Arc<dyn SecretResolver>>;
 }
 
+/// Whether this server starts agents for waiting work (CLOACINA-T-1029): an
+/// actuator is active and the autoscaler is on. Set once at start.
+static AUTOSCALED_AGENTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Say that this server starts agents for waiting work. The dispatch gate
+/// ([`FleetExecutor`]'s `has_capacity`) then lets every task through to the
+/// agent selection, so a task for a pool at zero agents waits there.
+pub fn set_autoscaled_agents(on: bool) {
+    AUTOSCALED_AGENTS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn autoscaled_agents() -> bool {
+    AUTOSCALED_AGENTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct FleetExecutor {
     dal: cloacina::dal::DAL,
     /// CLOACI-T-0781: the ADMIN (public-schema) DAL, used ONLY for the
@@ -1606,6 +1621,13 @@ impl TaskExecutor for FleetExecutor {
     }
 
     fn has_capacity(&self) -> bool {
+        // CLOACINA-T-1029: with the autoscaler on, a pool at zero agents
+        // starts one for waiting work. The dispatch goes through to the
+        // agent selection, which puts the task off for capacity: it waits,
+        // keeps its attempt, and its wait is stamped.
+        if autoscaled_agents() {
+            return true;
+        }
         // Sync trait method — served from the replica-local cache of the last
         // DB roster read (refreshed on every roster touch + each sweeper
         // tick). Selection itself always re-reads the DB.

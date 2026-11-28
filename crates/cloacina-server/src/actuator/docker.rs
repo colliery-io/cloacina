@@ -473,11 +473,17 @@ impl FleetActuator for DockerActuator {
             total.stopped += 1;
         }
 
+        // CLOACINA-T-1029: the counts the autoscaler stored for the pools
+        // other than `default`.
+        let stored_counts = self.pools.stored_counts(tenant_id).await?;
         for (pool, settings) in &pools {
             let desired = if pool == DEFAULT_AGENT_POOL {
                 desired
             } else {
-                fixed_agent_count(settings)
+                match stored_counts.get(pool) {
+                    Some(stored) => super::settings::pool_agent_count(settings, Some(*stored)),
+                    None => fixed_agent_count(settings),
+                }
             };
             let applied = DockerPoolSettings::from_pool(settings)?;
             if settings.cpu_request.is_some()

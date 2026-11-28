@@ -813,6 +813,7 @@ pub async fn run(
     crate::alerts::describe_metrics();
     crate::actuator::compiler::describe_metrics();
     crate::fleet_poll_dispatcher::describe_metrics();
+    crate::autoscaler::step::describe_metrics();
     // Execution-agent fleet (CLOACI-I-0114 / T-0634).
     metrics::describe_counter!(
         "cloacina_fleet_agents_evicted_total",
@@ -1868,23 +1869,23 @@ pub async fn run(
             .unwrap_or(true);
         let default_max = default_max_agents;
         let tick = scale_cfg.interval;
+        // CLOACINA-T-1029: a task for a pool at zero agents goes through to
+        // the wait, where the autoscaler sees it.
+        crate::fleet_executor::set_autoscaled_agents(autoscale_enabled);
         info!(
             actuator = %fleet_actuator.kind(),
             interval_s = tick.as_secs(),
             autoscale_enabled,
-            up_threshold = scale_cfg.up_threshold,
-            down_threshold = scale_cfg.down_threshold,
+            idle_s = scale_cfg.idle.as_secs(),
             cooldown_s = scale_cfg.cooldown.as_secs(),
             floor = scale_cfg.floor,
             "fleet control loop started (leader-gated)"
         );
         tokio::spawn(async move {
-            use crate::autoscaler::{ScaleAction, decide, should_act_at, tenant_utilizations};
-            // Cooldown state lives in the DB (`agent_desired_counts.last_autoscaled_at`),
-            // not in a per-replica in-memory map: leadership rotates per tick, so an
-            // in-memory cooldown could be bypassed by a later-leading replica. Reading
-            // the wall-clock timestamp back each tick honors the cooldown regardless of
-            // which replica leads (CLOACI-A-0008 refinement).
+            // The autoscaler's state (idle time, last scale-down) lives in the
+            // DB (`agent_pool_scale`), not in a per-replica in-memory map:
+            // leadership rotates per tick, so the rules hold whichever replica
+            // leads (CLOACI-A-0008 refinement).
             let mut ticker = tokio::time::interval(tick);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
@@ -1913,91 +1914,25 @@ pub async fn run(
                             };
                             metrics::gauge!("cloacina_fleet_poll_floor_tenants").set(poll_tenants.len() as f64);
 
-                            // (a) AUTOSCALE — adjust desired_count from utilization.
+                            // (a) AUTOSCALE (CLOACINA-T-1029) — each pool of each
+                            // tenant scales on its waiting work that does not fit,
+                            // and goes back to its min when idle.
                             if autoscale_enabled {
-                                // CLOACI-T-0916: utilization from the DB-backed live
-                                // roster — the WHOLE fleet, not this replica's slice.
-                                let live = match loop_registry.live_agents().await {
-                                    Ok(live) => live,
-                                    Err(e) => {
-                                        warn!(error = %e, "fleet autoscale: roster read failed; skipping autoscale step");
-                                        Vec::new()
+                                // CLOACI-T-0916: the DB-backed live roster — the
+                                // WHOLE fleet, not this replica's slice.
+                                match loop_registry.live_agents().await {
+                                    Ok(live) => {
+                                        crate::autoscaler::step::run(crate::autoscaler::step::StepInputs {
+                                            admin: &loop_db,
+                                            tenants: &loop_tenant_databases,
+                                            live: &live,
+                                            poll_tenants: &poll_tenants,
+                                            default_max_agents: default_max,
+                                            cfg: &scale_cfg,
+                                        })
+                                        .await;
                                     }
-                                };
-                                let utils = tenant_utilizations(&live);
-                                // Tenant set = everyone with a desired_count row
-                                // PLUS any tenant with live registered agents.
-                                // `list_all_with_last` also carries each tenant's
-                                // last_autoscaled_at (DB wall-clock) for the cooldown gate.
-                                let desired_rows = match loop_dal.agent_desired().list_all_with_last().await {
-                                    Ok(rows) => rows,
-                                    Err(e) => {
-                                        warn!(error = %e, "fleet autoscale: failed to read desired counts; skipping autoscale step");
-                                        Vec::new()
-                                    }
-                                };
-                                let mut tenants: std::collections::HashSet<String> =
-                                    desired_rows.iter().map(|(t, _, _)| t.clone()).collect();
-                                tenants.extend(utils.keys().cloned());
-                                tenants.extend(poll_tenants.iter().cloned());
-                                let desired_map: std::collections::HashMap<String, u32> =
-                                    desired_rows.iter().map(|(t, d, _)| (t.clone(), *d)).collect();
-                                let last_autoscaled_map: std::collections::HashMap<String, chrono::NaiveDateTime> =
-                                    desired_rows
-                                        .into_iter()
-                                        .filter_map(|(t, _, last)| last.map(|l| (t, l)))
-                                        .collect();
-
-                                let now = chrono::Utc::now().naive_utc();
-                                for tenant in tenants {
-                                    let util = utils.get(&tenant).copied().unwrap_or(0.0);
-                                    let desired = desired_map.get(&tenant).copied().unwrap_or(0);
-                                    let effective_limit = match loop_dal
-                                        .agent_limits()
-                                        .effective_limit(&tenant, default_max)
-                                        .await
-                                    {
-                                        Ok(l) => l,
-                                        Err(e) => {
-                                            warn!(tenant = %tenant, error = %e, "fleet autoscale: effective_limit read failed; skipping tenant");
-                                            continue;
-                                        }
-                                    };
-                                    // CLOACINA-T-1077: a tenant with a poll trigger
-                                    // never scales below one agent.
-                                    let floor = crate::fleet_poll_dispatcher::tenant_floor(
-                                        scale_cfg.floor,
-                                        poll_tenants.contains(&tenant),
-                                    );
-                                    let action = decide(util, desired, effective_limit, floor, &scale_cfg);
-                                    if matches!(action, ScaleAction::Hold) {
-                                        continue;
-                                    }
-                                    if !should_act_at(last_autoscaled_map.get(&tenant).copied(), now, scale_cfg.cooldown) {
-                                        continue; // within cooldown (DB wall-clock, cross-replica)
-                                    }
-                                    let new_desired = match action {
-                                        ScaleAction::Up => (desired + 1).min(effective_limit),
-                                        ScaleAction::Down => desired.saturating_sub(1).max(floor),
-                                        ScaleAction::Hold => desired,
-                                    };
-                                    if new_desired == desired {
-                                        continue;
-                                    }
-                                    match loop_dal.agent_desired().set_desired_autoscaled(&tenant, new_desired).await {
-                                        Ok(()) => {
-                                            info!(
-                                                tenant = %tenant,
-                                                util,
-                                                from = desired,
-                                                to = new_desired,
-                                                effective_limit,
-                                                action = ?action,
-                                                "fleet autoscale: adjusted desired_count"
-                                            );
-                                        }
-                                        Err(e) => warn!(tenant = %tenant, error = %e, "fleet autoscale: set_desired failed"),
-                                    }
+                                    Err(e) => warn!(error = %e, "fleet autoscale: roster read failed; skipping autoscale step"),
                                 }
                             }
 

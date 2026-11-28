@@ -33,7 +33,7 @@ mod queries;
 mod recovery;
 mod state;
 
-pub use placement::{FleetPlacement, PoolWaitingTasks};
+pub use placement::{FleetPlacement, PoolWaitingTasks, WaitingDemand};
 
 use super::DAL;
 use crate::database::universal_types::UniversalUuid;

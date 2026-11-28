@@ -347,7 +347,7 @@ pub fn fleet_load(
 /// Free slots of an agent: what its last heartbeat reported, and never more
 /// than its max concurrency less the tasks the server has placed on it. The
 /// slot count is the upper cap whatever the requests say.
-fn free_slots(agent: &FleetAgent, load: &AgentLoad) -> u32 {
+pub(crate) fn free_slots(agent: &FleetAgent, load: &AgentLoad) -> u32 {
     agent
         .available_capacity
         .min(agent.max_concurrency.saturating_sub(load.tasks))
