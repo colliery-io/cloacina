@@ -8,6 +8,7 @@ deployment of server, compilers and agents.
 |---|---|---|
 | `publishing/` | A team publishes its own jobs to a shared orchestrator (CLOACINA-T-1026) | `angreal test bdd publish`, or `angreal test bdd standing --chapter publishing` |
 | `standing/` | The standing workload of several teams (CLOACINA-T-1107) | `angreal test bdd standing` |
+| `run_once/` | A task runs one time: a long task, a task with no free agent, a task whose result reaches the other server replica (CLOACINA-T-1110) | `angreal test bdd standing --chapter run_once` |
 
 ```
 angreal test bdd standing --dry-run     # every feature parsed, every step resolved; no cluster

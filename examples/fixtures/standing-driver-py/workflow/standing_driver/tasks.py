@@ -366,9 +366,11 @@ def _run_by_hand(server, key, tenant, workflow, context):
 def _start_holds(server, key, tenant):
     statuses = []
     for _ in range(HOLD_BURST):
+        # The tag names the run in the marks its task prints (CLOACINA-T-1110).
+        context = {"hold_seconds": HOLD_SECONDS, "run_once_tag": f"hold-{uuid.uuid4()}"}
         status, _body = _call(server, key, "POST",
                               f"/v1/tenants/{tenant}/workflows/{HOLD_WORKFLOW}/execute",
-                              body={"context": {"hold_seconds": HOLD_SECONDS}})
+                              body={"context": context})
         statuses.append(status)
     return {"action": "start_holds", "workflow": HOLD_WORKFLOW, "count": HOLD_BURST,
             "statuses": statuses}
