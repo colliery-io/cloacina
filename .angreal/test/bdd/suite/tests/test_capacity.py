@@ -49,12 +49,11 @@ class FeatureTest(unittest.TestCase):
         problems, _notes = gherkin.check(self.feature, chapter.steps)
         self.assertEqual(problems, [])
 
-    def test_the_gaps_name_their_owners(self):
+    def test_no_scenario_is_a_gap(self):
+        # The wait reason is CLOACINA-T-1148, schedule priority CLOACINA-T-1123:
+        # both are in.
         gaps = {s.name: s.gap_tasks for s in self.feature.scenarios if s.is_gap}
-        self.assertEqual(gaps, {
-            "A task that fits no agent says why it waits": ["unfiled"],
-            "A schedule made with a priority fires its runs at that priority": ["CLOACINA-T-1123"],
-        })
+        self.assertEqual(gaps, {})
 
     def test_each_scenario_ends_in_a_then(self):
         for scenario in self.feature.scenarios:

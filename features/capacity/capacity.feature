@@ -65,9 +65,7 @@ Feature: Work waits when a team is full, and a task lands on an agent that fits 
     And the task runs once an agent of the pool with room for it is added
     And team A's agent of the pool "sized" is removed
 
-  # The server keeps the reason of a wait for capacity in a debug log line
-  # only (`defer_for_capacity` in fleet_executor.rs): the task's view has none.
-  @gap @unfiled
+  # The task's view has `wait_reason` while the task waits (CLOACINA-T-1148).
   Scenario: A task that fits no agent says why it waits
     Given team A has an agent in the pool "sized" with 1 CPU and 1Gi of memory
     And team A has published the packages of sized tasks
@@ -85,9 +83,7 @@ Feature: Work waits when a team is full, and a task lands on an agent that fits 
     And no hold at priority 9 started while a hold at priority 5 still waited
     And every hold of team A completed
 
-  # Schedule and instance priority is the second part of CLOACINA-T-1123
-  # (PR #473), which lands with the fifth integration branch.
-  @gap @CLOACINA-T-1123
+  # Schedule and instance priority is the second part of CLOACINA-T-1123.
   Scenario: A schedule made with a priority fires its runs at that priority
     When team A makes a schedule of the hold job that fires each minute at priority 7
     Then the first run of that schedule is at priority 7

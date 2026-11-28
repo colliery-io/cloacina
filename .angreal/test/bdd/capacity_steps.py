@@ -519,11 +519,13 @@ def t_oversized_reason(world):
                         key=world.keys[TEAM], expect=(200,))
     tasks = (body or {}).get("tasks") or []
     assert tasks, "the task view lists no task"
-    said = " ".join(str(tasks[0].get(field) or "") for field in
-                    ("sub_status", "last_error", "error_details"))
-    world.note(f"the task view says: {said.strip() or 'nothing'}")
+    # CLOACINA-T-1148: `wait_reason` (a code and a message) while it waits.
+    why = tasks[0].get("wait_reason") or {}
+    said = str(why.get("message") or "")
+    world.note(f"the task view says: {why.get('code') or 'no code'}: {said or 'nothing'}")
+    assert why.get("code") == "too_large", f"the wait reason is {why or 'not set'}"
     assert POOL in said and ("2Gi" in said or "2147483648" in said or "memory" in said), (
-        "the task view does not say why the task waits")
+        "the wait reason does not name the pool and the request")
 
 
 @steps.then("the task runs once an agent of the pool with room for it is added")
