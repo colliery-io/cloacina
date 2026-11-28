@@ -80,10 +80,12 @@ docker compose -f deploy/docker-compose/cloacina.yml up -d
 docker compose -f deploy/docker-compose/cloacina-sqlite.yml up -d
 ```
 
-Images are published to `ghcr.io/colliery-io/cloacina-server` and
-`ghcr.io/colliery-io/cloacina-compiler` on every release tag (per
-I-0111). Pin to a concrete tag in real deployments — `:latest` is
-a maintenance hazard, not a contract.
+Images are published to `ghcr.io/colliery-io/cloacina-server`,
+`ghcr.io/colliery-io/cloacina-compiler` and
+`ghcr.io/colliery-io/cloacina-agent` on every release tag, for
+linux/amd64 and linux/arm64, tagged `X.Y.Z`, `X.Y` and `latest`. Pin to
+a concrete tag in real deployments — `:latest` is a maintenance hazard,
+not a contract.
 
 Dockerfiles used by those images:
 
@@ -91,8 +93,15 @@ Dockerfiles used by those images:
   Rust toolchain, the web UI embedded. Includes the `rdkafka` build deps
   (T-0609) so Kafka stream accumulators work in containerized server
   deployments.
-- `deploy/docker/compiler.Dockerfile` — `rust:1.99.0-bookworm` (toolchain
-  included).
+- `deploy/docker/compiler.Dockerfile` — the compiler:
+  `rust:1.99.0-bookworm` with the toolchain, the `wasm32-wasip2` target
+  and the C build chain that package builds link against. It holds no
+  cloacina source.
+- `docker/Dockerfile.agent` — the agent: debian-slim runtime with the
+  shared libraries that compiled packages link.
+
+`docker/Dockerfile.compiler` is a development image: it bakes the
+workspace for `--dev-workspace` and is not published.
 
 ## Kubernetes
 
@@ -102,34 +111,36 @@ which embeds a local Postgres subchart so the chart no longer depends
 on the Bitnami `postgresql` chart). See
 [Deploying to Kubernetes (Helm)](../deploying-to-kubernetes/) for the chart-driven install path.
 
-The Helm chart currently ships the server only — the compiler is not
-yet templated. For a server+compiler topology on K8s, layer your own
-`Deployment` for the compiler on top of the chart install. A minimal
-sketch:
+The agent chart is published next to it, at
+`ghcr.io/colliery-io/charts/cloacina-agent`, with the same version.
 
-```yaml
-# Server lifecycle is owned by the Helm chart; this is just the
-# compiler Deployment to lay on top.
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: cloacina-compiler }
-spec:
-  replicas: 2
-  selector: { matchLabels: { app: cloacina-compiler } }
-  template:
-    metadata: { labels: { app: cloacina-compiler } }
-    spec:
-      containers:
-        - name: compiler
-          image: ghcr.io/colliery-io/cloacina-compiler:latest
-          args: ["--bind", "0.0.0.0:9000", "--database-url", "$(DATABASE_URL)"]
-          envFrom: [{ secretRef: { name: cloacina-db } }]
-          ports: [{ containerPort: 9000 }]
+The server chart also runs the compiler. Set `compiler.enabled=true` and
+the chart adds a compiler `Deployment` that reads the server's database
+URL:
+
+```bash
+helm install cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
+  --version X.Y.Z \
+  --set database.url=postgres://user:pass@db:5432/cloacina \
+  --set compiler.enabled=true
 ```
 
-The compiler pods don't need a Service unless you want to scrape
-`/v1/status` from outside the cluster — use a single ClusterIP
-Service with a round-robin endpoint if so.
+The `compiler.*` values:
+
+| Value | Default | Notes |
+|---|---|---|
+| `compiler.replicaCount` | `1` | Compiler pods. |
+| `compiler.image.repository` | the server repository with `-compiler` | `ghcr.io/colliery-io/cloacina-compiler` with the default server image. |
+| `compiler.image.tag` | the chart's `appVersion` | |
+| `compiler.bind` | `0.0.0.0:9000` | `--bind` of the compiler. |
+| `compiler.pollIntervalMs` | `1000` | `--poll-interval-ms`. |
+| `compiler.extraArgs` | `--cargo-flags-replace=build`, `--cargo-flags-replace=--lib` | Extra compiler flags. The default drops `--frozen --offline`, so in-cluster builds fetch crates. |
+| `compiler.extraEnv` | `[]` | Extra env vars of the compiler container. |
+| `compiler.buildCacheSize` | `8Gi` | Size limit of the emptyDir that holds the shared cargo target folder. |
+| `compiler.securityContext` | no privilege escalation, read-only root, all capabilities dropped | The server container's hardening. |
+
+The compiler pods need no Service unless you want to scrape
+`/v1/status` from outside the cluster; use one ClusterIP Service if so.
 
 ## Config knobs
 

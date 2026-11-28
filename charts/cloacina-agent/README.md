@@ -12,6 +12,18 @@ workers.
 
 ## Quick start
 
+Each release publishes the chart to
+`oci://ghcr.io/colliery-io/charts/cloacina-agent`, with the release version:
+
+```bash
+helm install fleet oci://ghcr.io/colliery-io/charts/cloacina-agent \
+  --version X.Y.Z \
+  --set server.url=http://my-release-cloacina-server:8080 \
+  --set apiKeySecretRef.name=cloacina-agent-key
+```
+
+From a checkout of the repository:
+
 ```bash
 helm install fleet charts/cloacina-agent \
   --set server.url=http://my-release-cloacina-server:8080 \
@@ -41,7 +53,7 @@ helm install fleet charts/cloacina-agent \
 | `server.maxConcurrency` | `4` | Concurrent work packets per agent. |
 | `logFormat` | `text` | Format of the agent's log lines on stdout: `text` or `json` (`--log-format`). |
 | `server.capabilities` | `[]` | Capability tags advertised at registration. |
-| `image.repository` / `image.tag` | ghcr image / appVersion | Agent image. |
+| `image.repository` / `image.tag` | `ghcr.io/colliery-io/cloacina-agent` / appVersion | Agent image, published at each release. |
 | `automountServiceAccountToken` | `false` | Mount a service account token in the pod. The agent does not use one. |
 | `server.ca.configMap` / `server.ca.secret` | `""` | A ConfigMap or a Secret (one of the two) holding a PEM CA file under `server.ca.key` (`ca.crt`). The chart mounts it and sets `CLOACINA_AGENT_CA_FILE`; the agent trusts the CA in addition to the system roots. |
 

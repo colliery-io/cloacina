@@ -395,6 +395,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **The compatibility promise** (CLOACINA-T-1046): a reference page on what a patch, a minor and a major may change, the schema rule, version skew, the upgrade order, and the full stop of the upgrade to 0.13.0.
+- **Agent and compiler images at each release** (CLOACINA-T-1088). A release
+  publishes `ghcr.io/colliery-io/cloacina-agent` (from
+  `docker/Dockerfile.agent`) and `ghcr.io/colliery-io/cloacina-compiler`
+  (from `deploy/docker/compiler.Dockerfile`) next to the server image, for
+  linux/amd64 and linux/arm64, tagged `X.Y.Z`, `X.Y` and `latest`.
+  `docker/Dockerfile.compiler` stays the dev and CI image and is not
+  published.
+- **Agent chart at each release** (CLOACINA-T-1088). A release publishes
+  `charts/cloacina-agent` to `oci://ghcr.io/colliery-io/charts/cloacina-agent`
+  next to the server chart, with the release version as its version and
+  `appVersion`.
+
+### Changed
+
+- **`cloacina-compiler --home` reads `CLOACINA_HOME`** (CLOACINA-T-1088). The
+  flag wins over the variable. The images set the variable, so a compiler in
+  the published image keeps its logs and build scratch in
+  `/var/lib/cloacina`, and one in the dev image in `/workspace/.cloacina`,
+  not in `$HOME/.cloacina`. A compiler started where `CLOACINA_HOME` is set
+  now uses that folder.
 
 ### Fixed
 

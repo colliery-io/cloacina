@@ -132,7 +132,7 @@ The published Rust client SDK — REST client plus the WebSocket follow path use
 
 #### `cloacina-server`
 
-The HTTP API binary. Backed by PostgreSQL. Multi-tenant by default with schema isolation. Exposes the REST API documented in [HTTP API Reference](../http-api/) under `/v1/*` plus public `/health`, `/ready`, `/metrics`, `/openapi.json`. The server image (`ghcr.io/colliery-software/cloacina-server`) ships per I-0111 / T-0610.
+The HTTP API binary. Backed by PostgreSQL. Multi-tenant by default with schema isolation. Exposes the REST API documented in [HTTP API Reference](../http-api/) under `/v1/*` plus public `/health`, `/ready`, `/metrics`, `/openapi.json`. The server image (`ghcr.io/colliery-io/cloacina-server`) ships per I-0111 / T-0610.
 
 #### `cloacina-agent`
 

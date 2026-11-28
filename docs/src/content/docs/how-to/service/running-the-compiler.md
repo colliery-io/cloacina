@@ -782,7 +782,7 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 | `--tenant-schema` | `CLOACINA_TENANT_SCHEMA` | unset (public schema) |
 | `--build-target` | `CLOACINA_BUILD_TARGET` | unset (native host build) |
 | `--build-target-package` | `CLOACINA_BUILD_TARGET_PACKAGE` | unset (all packages) |
-| `--home` | — | `$HOME/.cloacina` |
+| `--home` | `CLOACINA_HOME` | `$HOME/.cloacina` |
 | `--database-url` | `DATABASE_URL` | required |
 
 **Tenant / target flags:**
