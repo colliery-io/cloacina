@@ -243,6 +243,27 @@ pub fn build_declaration_without_code(
     declaration_with_graph_fn(graph_meta, graph_fn, provider_root)
 }
 
+/// The input strategy a package names: `"sequential"`, else `latest`.
+pub fn input_strategy_named(name: &str) -> InputStrategy {
+    match name {
+        "sequential" => InputStrategy::Sequential,
+        _ => InputStrategy::Latest,
+    }
+}
+
+/// Give a graph declaration the manifest's `input_strategy`, when the
+/// manifest names one (CLOACINA-T-1135). A Python graph declaration is built
+/// with `latest`; the in-process load and the compiler's describe child both
+/// call this, so the graph runs with the strategy the stored document has.
+pub fn apply_manifest_input_strategy(
+    declaration: &mut ComputationGraphDeclaration,
+    manifest_strategy: Option<&str>,
+) {
+    if let Some(name) = manifest_strategy {
+        declaration.reactor.strategy = input_strategy_named(name);
+    }
+}
+
 fn declaration_with_graph_fn(
     graph_meta: &GraphPackageMetadata,
     graph_fn: CompiledGraphFn,
@@ -253,10 +274,7 @@ fn declaration_with_graph_fn(
         _ => ReactionCriteria::WhenAny,
     };
 
-    let strategy = match graph_meta.input_strategy.as_str() {
-        "sequential" => InputStrategy::Sequential,
-        _ => InputStrategy::Latest,
-    };
+    let strategy = input_strategy_named(&graph_meta.input_strategy);
 
     // Create accumulator factories from FFI metadata
     let accumulators = graph_meta
@@ -1148,18 +1166,25 @@ pub async fn dispatch_package_reactors_into_scheduler(
         accumulator_overrides,
         tenant_id,
         None,
+        None,
     )
     .await
 }
 
 /// [`dispatch_package_reactors_into_scheduler`] binding an EXPLICIT provider tree
 /// (CLOACI-T-0925) — see [`dispatch_runtime_reactors_into_scheduler_in`].
+///
+/// `graph_reactor` names the reactor that the package's graph binds to, with
+/// the graph's input strategy (CLOACINA-T-1135): that reactor loads with it,
+/// so the graph's declaration finds the same contract. Each other reactor
+/// loads with `latest`.
 pub async fn dispatch_package_reactors_into_scheduler_in(
     reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
     scheduler: &super::scheduler::ComputationGraphScheduler,
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
     tenant_id: Option<String>,
     provider_root: Option<&std::path::Path>,
+    graph_reactor: Option<(&str, InputStrategy)>,
 ) -> Result<Vec<String>, String> {
     use cloacina_computation_graph::ReactionMode;
 
@@ -1193,7 +1218,10 @@ pub async fn dispatch_package_reactors_into_scheduler_in(
             "when_all" => ReactionMode::WhenAll.into(),
             _ => ReactionMode::WhenAny.into(),
         };
-        let strategy = InputStrategy::Latest;
+        let strategy = match &graph_reactor {
+            Some((name, strategy)) if *name == meta.name => strategy.clone(),
+            _ => InputStrategy::Latest,
+        };
 
         scheduler
             .load_reactor(
