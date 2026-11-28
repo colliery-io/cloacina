@@ -1358,8 +1358,12 @@ async fn authenticate(
                     .or_else(|| v.strip_prefix("bearer "))
             });
             if let Some(token) = bearer {
-                return validate_token(state, token).await.map(Some).map_err(|_| {
+                return validate_token(state, token).await.map(Some).map_err(|e| {
                     record_ws_auth_failure("invalid_signature");
+                    // CLOACINA-T-1083: an expired key keeps its own code.
+                    if e.code == crate::routes::auth::KEY_EXPIRED_CODE {
+                        return Box::new(e.into_response());
+                    }
                     Box::new(ApiError::unauthorized("invalid bearer token").into_response())
                 });
             }

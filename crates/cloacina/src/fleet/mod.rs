@@ -26,10 +26,14 @@ pub mod poll;
 pub mod protocol;
 
 pub use poll::{
-    POLL_JOB_CAPABILITY, POLL_PACKET_KIND, PollFailure, PollWorkPacket, poll_outcome,
+    ACCUMULATOR_POLL_CAPABILITY, POLL_JOB_CAPABILITY, POLL_PACKET_KIND, PollFailure,
+    PollWorkPacket, accumulator_poll_from_outcome, accumulator_poll_outcome, poll_outcome,
     poll_result_from_outcome,
 };
 pub use protocol::*;
+
+// CLOACINA-T-1086: the release rules between a server and its agents.
+pub use cloacina_api_types::version;
 
 // CLOACINA-T-1027: the quantity parsers an agent reads its `--cpu` and
 // `--memory` totals with, and a task's placement.

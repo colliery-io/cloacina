@@ -7,9 +7,12 @@ whatever it returns (return `None` to skip a tick). No inject/socket is needed;
 the reactor fires on its own each interval, and the entry node receives the
 polled value.
 
-On the packaged path this works because the reconciler imports this module in
-the server process, so the poll function is invoked in-process on the interval
-(spawn_blocking + GIL, exactly like a Python poll trigger) — no FFI (T-0896).
+In the daemon, embedded use and a server with single trust, the reconciler
+imports this module in its own process and calls the poll function on the
+interval (spawn_blocking + GIL, like a Python poll trigger) — no FFI (T-0896).
+On a server without single trust the server keeps the timer and sends each
+poll to an agent of the tenant, which imports the module and calls the poll
+function (CLOACINA-T-1156); `_ticks` then counts per agent worker.
 """
 import cloaca
 

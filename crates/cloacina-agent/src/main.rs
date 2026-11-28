@@ -38,7 +38,9 @@
 //! [`worker`]). The agent holds each worker to its memory limit and its time
 //! limit (see [`memory`]). A task marked `inline` runs in the agent process.
 
+mod drain;
 mod memory;
+mod tls;
 mod worker;
 
 mod poll;
@@ -86,6 +88,12 @@ struct Args {
     /// Server base URL (e.g. `http://localhost:8080` or `https://api.example.com`).
     #[arg(long, env = "CLOACINA_SERVER")]
     server: String,
+    /// A PEM file of CA certificates to trust for an `https://` server, in
+    /// addition to the system roots: for a mesh or gateway whose certificate
+    /// a private CA signs (CLOACINA-T-1069). A file that cannot be read or
+    /// holds no certificate stops the agent at start.
+    #[arg(long, env = "CLOACINA_AGENT_CA_FILE")]
+    ca_file: Option<std::path::PathBuf>,
     /// API key used for both REST and the WS ticket mint. Give it here, in
     /// `CLOACINA_API_KEY`, or in a file with `--api-key-file`. The agent takes
     /// the variable out of its environment at start (CLOACINA-T-1033).
@@ -101,6 +109,12 @@ struct Args {
     /// Max concurrent work packets this agent will accept.
     #[arg(long, env = "CLOACINA_AGENT_MAX_CONCURRENCY", default_value_t = 4)]
     max_concurrency: u32,
+    /// On SIGTERM, how long the agent lets the work it runs finish before
+    /// it hands the rest back to the server and exits (CLOACINA-T-1029). It
+    /// takes no new work from the signal on. Keep it under the pod's
+    /// termination grace period.
+    #[arg(long, env = "CLOACINA_AGENT_DRAIN_SECONDS", default_value_t = drain::DEFAULT_DRAIN_SECONDS)]
+    drain_seconds: u64,
     /// Free-form capability tags advertised at registration.
     #[arg(long, value_delimiter = ',')]
     capabilities: Vec<String>,
@@ -360,11 +374,84 @@ mod log_format_tests {
             (2, Duration::from_secs(5), 10, 75)
         );
     }
+
+    /// CLOACINA-T-1069: `--ca-file` is optional and names a path.
+    #[test]
+    fn the_ca_file_is_optional() {
+        assert_eq!(parse(&[]).unwrap().ca_file, None);
+        assert_eq!(
+            parse(&["--ca-file", "/etc/cloacina/ca/ca.crt"])
+                .unwrap()
+                .ca_file,
+            Some(std::path::PathBuf::from("/etc/cloacina/ca/ca.crt"))
+        );
+    }
 }
 
 /// Backoff bounds for the reconnect loop.
 const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
+
+/// How long the agent waits before it registers again after the server
+/// refused its release (CLOACINA-T-1086). The agent does not exit: the
+/// server may be upgraded under it.
+const VERSION_REFUSED_RETRY: Duration = Duration::from_secs(60);
+
+/// A register that the server answered with an error, with the server's
+/// code and message (CLOACINA-T-1086). Before, the body was dropped and the
+/// log had only the status.
+#[derive(Debug)]
+struct RegisterRefused {
+    status: reqwest::StatusCode,
+    code: Option<String>,
+    message: String,
+}
+
+impl std::fmt::Display for RegisterRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the server refused the register ({}, {}): {}",
+            self.status.as_u16(),
+            self.code.as_deref().unwrap_or("no code"),
+            self.message
+        )
+    }
+}
+
+impl std::error::Error for RegisterRefused {}
+
+impl RegisterRefused {
+    /// Reads the error body of the server (`{"error": …, "code": …}`); a body
+    /// of another shape is kept as text.
+    fn from_body(status: reqwest::StatusCode, body: &str) -> Self {
+        let json: Option<serde_json::Value> = serde_json::from_str(body).ok();
+        let field = |name: &str| {
+            json.as_ref()
+                .and_then(|v| v.get(name))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        };
+        Self {
+            status,
+            code: field("code"),
+            message: field("error").unwrap_or_else(|| body.trim().to_string()),
+        }
+    }
+
+    fn is_version_refusal(&self) -> bool {
+        self.code.as_deref() == Some(cloacina::fleet::version::AGENT_VERSION_UNSUPPORTED)
+    }
+}
+
+/// Whether a session error is the server's refusal of this agent's release.
+fn is_version_refusal(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<RegisterRefused>()
+            .is_some_and(RegisterRefused::is_version_refusal)
+    })
+}
 
 /// The totals the agent reports at registration (CLOACINA-T-1027): CPU in
 /// millicores and memory in bytes, from `--cpu` and `--memory`. A flag that
@@ -479,10 +566,17 @@ async fn run(args: Args) -> Result<()> {
     // CLOACINA-T-1027: a bad total stops the start, before any connection.
     agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
     let server_base = args.server.trim_end_matches('/').to_string();
-    let http = reqwest::Client::builder()
-        .user_agent(concat!("cloacina-agent/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("build HTTP client")?;
+    // CLOACINA-T-1069: a CA file that cannot be used stops the start.
+    let extra_roots = tls::ExtraRoots::load(args.ca_file.as_deref())?;
+    if !extra_roots.is_empty() {
+        info!(
+            ca_file = ?args.ca_file,
+            certificates = extra_roots.len(),
+            "trusting the CA file in addition to the system roots"
+        );
+    }
+    let http = extra_roots.http_client()?;
+    let ws_connector = extra_roots.ws_connector();
 
     // Install the PyO3 Python runtime so the agent can load Python-packaged
     // workflows (not just Rust cdylibs). Idempotent. (CLOACI-T-0716)
@@ -512,6 +606,10 @@ async fn run(args: Args) -> Result<()> {
     // task still running when the WS drops is still counted on reconnect.
     let in_flight = Arc::new(AtomicU32::new(0));
 
+    // CLOACINA-T-1029: on SIGTERM the agent drains and exits. The reconnect
+    // loop below keeps running meanwhile, so reports and acks still go out.
+    drain::spawn_on_sigterm(in_flight.clone(), Duration::from_secs(args.drain_seconds));
+
     // CLOACI-T-0861 / D-5 — process-wide one-time ephemeral key pool. Shared
     // across reconnect sessions and per-packet workers: a task still unwrapping
     // secrets when the WS drops must keep the private key it needs, and each
@@ -536,6 +634,7 @@ async fn run(args: Args) -> Result<()> {
             &args,
             &mut session_agent_id,
             &http,
+            ws_connector.clone(),
             &server_base,
             &target_triple,
             in_flight.clone(),
@@ -550,9 +649,22 @@ async fn run(args: Args) -> Result<()> {
                 backoff = RECONNECT_BACKOFF_MIN;
                 tokio::time::sleep(RECONNECT_BACKOFF_MIN).await;
             }
+            // CLOACINA-T-1086: the server does not accept this agent's
+            // release. Its message names both releases. Try again slowly.
+            Err(e) if is_version_refusal(&e) => {
+                error!(
+                    error = %format!("{e:#}"),
+                    retry_seconds = VERSION_REFUSED_RETRY.as_secs(),
+                    agent_version = cloacina::fleet::version::RELEASE,
+                    "the server refused this agent's release; registering again later"
+                );
+                tokio::time::sleep(VERSION_REFUSED_RETRY).await;
+            }
             Err(e) => {
+                // `{:#}`: the whole chain, so the server's message is in the
+                // log (CLOACINA-T-1086).
                 warn!(
-                    error = %e,
+                    error = %format!("{e:#}"),
                     backoff_seconds = backoff.as_secs(),
                     "agent session failed to establish — backing off before retry"
                 );
@@ -572,6 +684,7 @@ async fn connect_and_serve(
     args: &Args,
     session_agent_id: &mut Option<String>,
     http: &reqwest::Client,
+    ws_connector: Option<tokio_tungstenite::Connector>,
     server_base: &str,
     target_triple: &str,
     in_flight: Arc<AtomicU32>,
@@ -600,6 +713,13 @@ async fn connect_and_serve(
     // only to an agent that says so.
     if !capabilities.iter().any(|c| c == POLL_JOB_CAPABILITY) {
         capabilities.push(POLL_JOB_CAPABILITY.to_string());
+    }
+    // CLOACINA-T-1156: and polls of Python polling accumulators.
+    if !capabilities
+        .iter()
+        .any(|c| c == cloacina::fleet::ACCUMULATOR_POLL_CAPABILITY)
+    {
+        capabilities.push(cloacina::fleet::ACCUMULATOR_POLL_CAPABILITY.to_string());
     }
     // CLOACINA-T-1027: the agent's total CPU and memory, when it was given
     // them. The server places tasks by their requests against these.
@@ -644,6 +764,8 @@ async fn connect_and_serve(
         heartbeat_interval_seconds = register_resp.heartbeat_interval_seconds,
         "agent registered with server"
     );
+    // CLOACINA-T-1083: when the key expires, and a warning before it.
+    let expiry_warning = log_key_expiry(register_resp.key_expires_at.as_deref());
 
     // ── 2. Spawn the heartbeat task for THIS session. It also carries the D-5
     //       key-pool top-up: each heartbeat response may ask the agent to
@@ -668,9 +790,11 @@ async fn connect_and_serve(
             .context("mint WS ticket")?;
         let ws_url = ws_url_for(server_base, &agent_id, &ticket)?;
         info!(ws_url = %without_query(&ws_url), "connecting to substrate delivery WS");
-        let (stream, _resp) = tokio_tungstenite::connect_async(&ws_url)
-            .await
-            .with_context(|| format!("WS connect to {}", without_query(&ws_url)))?;
+        // With `--ca-file` the connector trusts that CA too (CLOACINA-T-1069).
+        let (stream, _resp) =
+            tokio_tungstenite::connect_async_tls_with_config(&ws_url, None, false, ws_connector)
+                .await
+                .with_context(|| format!("WS connect to {}", without_query(&ws_url)))?;
         info!(agent_id = %agent_id, "substrate WS connected");
         receive_loop(
             stream,
@@ -689,7 +813,78 @@ async fn connect_and_serve(
     .await;
 
     heartbeat.abort();
+    if let Some(task) = expiry_warning {
+        task.abort();
+    }
     session
+}
+
+/// Days before its key expires that an agent warns (CLOACINA-T-1083). The
+/// Kubernetes actuator replaces its agents' keys at the same point by default.
+const KEY_EXPIRY_WARNING_DAYS: i64 = 10;
+
+/// What the agent logs about its key's expiry (CLOACINA-T-1083).
+#[derive(Debug, PartialEq, Eq)]
+enum KeyExpiryLog {
+    /// The key does not expire, or the server did not say.
+    None,
+    /// The key expires at this time; more than the warning window is left.
+    ExpiresAt(chrono::DateTime<chrono::Utc>),
+    /// The key expires within the warning window.
+    ExpiresSoon(chrono::DateTime<chrono::Utc>),
+    /// The value from the server is not an RFC 3339 time.
+    Unreadable(String),
+}
+
+fn key_expiry_log(raw: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> KeyExpiryLog {
+    let Some(raw) = raw else {
+        return KeyExpiryLog::None;
+    };
+    match chrono::DateTime::parse_from_rfc3339(raw) {
+        Ok(at) => {
+            let at = at.with_timezone(&chrono::Utc);
+            if at - now < chrono::Duration::days(KEY_EXPIRY_WARNING_DAYS) {
+                KeyExpiryLog::ExpiresSoon(at)
+            } else {
+                KeyExpiryLog::ExpiresAt(at)
+            }
+        }
+        Err(_) => KeyExpiryLog::Unreadable(raw.to_string()),
+    }
+}
+
+fn warn_key_expires_soon(at: chrono::DateTime<chrono::Utc>) {
+    warn!(
+        key_expires_at = %at.to_rfc3339(),
+        "the agent's API key expires soon; after it the server refuses the agent \
+         (401 key_expired). Give the agent a new key before then"
+    );
+}
+
+/// Log the key's expiry at register. When more than the warning window is
+/// left, a task warns when the window starts; the caller aborts it when the
+/// session ends.
+fn log_key_expiry(raw: Option<&str>) -> Option<tokio::task::JoinHandle<()>> {
+    match key_expiry_log(raw, chrono::Utc::now()) {
+        KeyExpiryLog::None => None,
+        KeyExpiryLog::Unreadable(raw) => {
+            warn!(key_expires_at = %raw, "the server gave a key expiry that is not an RFC 3339 time");
+            None
+        }
+        KeyExpiryLog::ExpiresSoon(at) => {
+            warn_key_expires_soon(at);
+            None
+        }
+        KeyExpiryLog::ExpiresAt(at) => {
+            info!(key_expires_at = %at.to_rfc3339(), "the agent's API key expires");
+            let warn_at = at - chrono::Duration::days(KEY_EXPIRY_WARNING_DAYS);
+            let wait = (warn_at - chrono::Utc::now()).to_std().unwrap_or_default();
+            Some(tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                warn_key_expires_soon(at);
+            }))
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -699,9 +894,8 @@ async fn connect_and_serve(
 /// Whether a register failed because another key holds the agent id (the
 /// server answers 409, CLOACINA-T-1051).
 fn is_agent_id_taken(err: &anyhow::Error) -> bool {
-    err.downcast_ref::<reqwest::Error>()
-        .and_then(|e| e.status())
-        .is_some_and(|status| status == reqwest::StatusCode::CONFLICT)
+    err.downcast_ref::<RegisterRefused>()
+        .is_some_and(|e| e.status == reqwest::StatusCode::CONFLICT)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -730,14 +924,23 @@ async fn register(
         ephemeral_key_pool,
         cpu_millis,
         memory_bytes,
+        // CLOACINA-T-1086: the server checks the release and matches work on
+        // the plugin interface version.
+        agent_version: Some(cloacina::fleet::version::RELEASE.to_string()),
+        plugin_interface_version: Some(cloacina::fleet::PLUGIN_INTERFACE_VERSION),
     };
     let resp = http
         .post(format!("{}/v1/agent/register", server))
         .bearer_auth(api_key)
         .json(&body)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
+    let status = resp.status();
+    if !status.is_success() {
+        // Keep the server's code and message (CLOACINA-T-1086).
+        let text = resp.text().await.unwrap_or_default();
+        return Err(RegisterRefused::from_body(status, &text).into());
+    }
     Ok(resp.json().await?)
 }
 
@@ -856,7 +1059,12 @@ fn spawn_heartbeat_loop(
                 protocol_version: AGENT_PROTOCOL_VERSION,
                 agent_id: agent_id.clone(),
                 in_flight: n,
-                available_capacity: max_concurrency.saturating_sub(n),
+                // CLOACINA-T-1029: a stopping agent offers no slot.
+                available_capacity: if drain::draining() {
+                    0
+                } else {
+                    max_concurrency.saturating_sub(n)
+                },
                 in_flight_push_ids: push_registry().in_work_ids(),
                 worker_counts: warm.take_counts(),
             };
@@ -1073,10 +1281,12 @@ async fn handle_text_frame(
                         return Ok(());
                     }
                 };
-                if cur >= max_concurrency {
+                // CLOACINA-T-1029: a stopping agent refuses new work too.
+                let stopping = drain::draining();
+                if cur >= max_concurrency || stopping {
                     warn!(
                         in_flight = cur,
-                        max_concurrency, "saturated; refusing graph firing"
+                        max_concurrency, stopping, "saturated or stopping; refusing graph firing"
                     );
                     guard.hand_over();
                     spawn_graph_refusal(
@@ -1085,7 +1295,11 @@ async fn handle_text_frame(
                         api_key.to_string(),
                         agent_id.to_string(),
                         packet,
-                        "agent at max_concurrency".to_string(),
+                        if stopping {
+                            drain::STOPPING.to_string()
+                        } else {
+                            "agent at max_concurrency".to_string()
+                        },
                         ack_tx.clone(),
                         push_id,
                     );
@@ -1148,8 +1362,11 @@ async fn handle_text_frame(
                 };
                 guard.hand_over();
                 let cur = in_flight.load(Ordering::SeqCst);
-                if cur >= max_concurrency {
-                    warn!(in_flight = cur, max_concurrency, "saturated; refusing poll");
+                if cur >= max_concurrency || drain::draining() {
+                    warn!(
+                        in_flight = cur,
+                        max_concurrency, "saturated or stopping; refusing poll"
+                    );
                     spawn_poll_report(
                         http.clone(),
                         server.to_string(),
@@ -1173,6 +1390,7 @@ async fn handle_text_frame(
                     ack_tx.clone(),
                     push_id,
                     cache_dir.clone(),
+                    worker::settings(),
                 );
                 return Ok(());
             }
@@ -1205,10 +1423,12 @@ async fn handle_text_frame(
             // re-pushes to a less-loaded peer; here we accept + refuse so
             // the contract is observable.)
             let cur = in_flight.load(Ordering::SeqCst);
-            if cur >= max_concurrency {
+            // CLOACINA-T-1029: a stopping agent refuses new work too.
+            let stopping = drain::draining();
+            if cur >= max_concurrency || stopping {
                 warn!(
                     in_flight = cur,
-                    max_concurrency, "saturated; refusing packet"
+                    max_concurrency, stopping, "saturated or stopping; refusing packet"
                 );
                 guard.hand_over();
                 spawn_refusal(
@@ -1218,7 +1438,11 @@ async fn handle_text_frame(
                     agent_id.to_string(),
                     packet,
                     RefusalReason::Shutdown,
-                    "agent at max_concurrency".to_string(),
+                    if stopping {
+                        drain::STOPPING.to_string()
+                    } else {
+                        "agent at max_concurrency".to_string()
+                    },
                     ack_tx.clone(),
                     push_id,
                 );
@@ -1437,8 +1661,10 @@ fn spawn_packet_worker(
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
-        match end {
-            worker::PacketEnd::Report(outcome) => {
+        // CLOACINA-T-1029: a worker the agent stopped at the end of its drain
+        // is reported as handed back.
+        match drain::report_of(end, packet.dispatch_id.as_deref()) {
+            Some(outcome) => {
                 let req = AgentResultRequest {
                     protocol_version: AGENT_PROTOCOL_VERSION,
                     agent_id: agent_id.clone(),
@@ -1454,7 +1680,7 @@ fn spawn_packet_worker(
                 report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
             }
             // The server gave up on this dispatch and waits for no report.
-            worker::PacketEnd::Cancelled => debug!(
+            None => debug!(
                 task_id = %packet.task_execution_id,
                 dispatch_id = ?packet.dispatch_id,
                 "dispatch cancelled by the server; no report"
@@ -1696,8 +1922,10 @@ fn spawn_graph_worker(
             &settings,
         )
         .await;
-        match end {
-            worker::PacketEnd::Report(outcome) => {
+        // CLOACINA-T-1029: a worker the agent stopped at the end of its drain
+        // is reported as handed back.
+        match drain::report_of(end, Some(packet.firing_id.as_str())) {
+            Some(outcome) => {
                 let req = graph_report(
                     &agent_id,
                     &packet,
@@ -1708,7 +1936,7 @@ fn spawn_graph_worker(
                 report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
             }
             // The server gave up on this firing and waits for no report.
-            worker::PacketEnd::Cancelled => debug!(
+            None => debug!(
                 firing_id = %packet.firing_id,
                 graph = %packet.graph_name,
                 "graph firing cancelled by the server; no report"
@@ -1810,7 +2038,9 @@ fn spawn_poll_report(
 }
 
 /// CLOACINA-T-1077: run one poll of a poll trigger and report fire or skip.
-/// A poll counts as one packet in flight while it runs.
+/// A poll counts as one packet in flight while it runs. CLOACINA-T-1143: the
+/// poll runs in a worker process; the slot is counted free after the worker
+/// has exited or gone back to the warm pool.
 #[allow(clippy::too_many_arguments)]
 fn spawn_poll_worker(
     http: reqwest::Client,
@@ -1823,25 +2053,32 @@ fn spawn_poll_worker(
     ack_tx: mpsc::UnboundedSender<Message>,
     push_id: i64,
     cache_dir: Arc<std::path::PathBuf>,
+    settings: Arc<worker::WorkerSettings>,
 ) {
     in_flight.fetch_add(1, Ordering::SeqCst);
     tokio::spawn(async move {
         let start = Instant::now();
-        let prepared = prepare_poll(
+        let end = process_poll_packet(
             &packet,
             &target_triple,
             &http,
             &server,
             &api_key,
             cache_dir.as_path(),
+            &settings,
         )
         .await;
-        let outcome = match prepared {
-            poll::Prepared::Run(trigger) => {
-                Some(poll::run_poll(trigger, packet.timeout_seconds).await)
+        let outcome = match end {
+            Some(worker::PacketEnd::Report(outcome)) => Some(outcome),
+            // The server sends no cancel for a poll; an id it named anyway
+            // ends the poll with no report, as for a task.
+            Some(worker::PacketEnd::Cancelled) => {
+                debug!(poll_id = %packet.poll_id, "poll cancelled; no report");
+                finish_and_ack(&ack_tx, push_id);
+                in_flight.fetch_sub(1, Ordering::SeqCst);
+                return;
             }
-            poll::Prepared::Answer(outcome) => Some(outcome),
-            poll::Prepared::Late => None,
+            None => None,
         };
         match outcome {
             Some(outcome) => {
@@ -1877,9 +2114,10 @@ fn spawn_poll_worker(
     });
 }
 
-/// Process-wide cache of the Rust poll triggers this agent opened, keyed by
-/// build digest and trigger name (CLOACINA-T-1077). The library is opened
-/// once per build, so a trigger keeps its state between polls on this agent.
+/// Process-wide cache of the Rust poll triggers this process opened, keyed
+/// by build digest and trigger name (CLOACINA-T-1077). The library is opened
+/// once per build in a process. CLOACINA-T-1143: the process is the poll's
+/// worker, so a trigger keeps its state between the polls of one warm worker.
 type PollTriggerCache = tokio::sync::Mutex<
     std::collections::HashMap<(String, String), Arc<dyn cloacina::cloacina_workflow::Trigger>>,
 >;
@@ -1889,79 +2127,163 @@ fn loaded_poll_triggers() -> &'static PollTriggerCache {
     CACHE.get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// CLOACINA-T-1077: check a poll packet and give the trigger to run, in the
-/// agent process. A Python package is imported into the per-build runtime the
-/// task path uses (a poll and a task of one build share the import); a Rust
-/// build's library is opened from the artifact cache.
-async fn prepare_poll(
+/// CLOACINA-T-1077, CLOACINA-T-1143: one poll on the agent. The agent
+/// checks the packet and fetches the package files, one time per digest; a
+/// worker process loads the package and runs the poll ([`run_poll_job`]).
+/// `None`: the packet came after the server stopped waiting, and is not run.
+async fn process_poll_packet(
     packet: &PollWorkPacket,
     agent_triple: &str,
     http: &reqwest::Client,
     server: &str,
     api_key: &str,
     cache_dir: &std::path::Path,
-) -> poll::Prepared {
+    settings: &worker::WorkerSettings,
+) -> Option<worker::PacketEnd> {
+    use worker::PacketEnd::Report;
     if !poll::still_wanted(packet) {
-        return poll::Prepared::Late;
+        return None;
     }
     if let Some(refusal) = poll::wrong_arch(packet, agent_triple) {
-        return poll::Prepared::Answer(refusal);
+        return Some(Report(refusal));
     }
-    let digest = packet.artifact.digest.clone();
+    let package = match prepare_package(
+        &packet.artifact,
+        packet.language.as_deref(),
+        http,
+        server,
+        api_key,
+        cache_dir,
+    )
+    .await
+    {
+        Ok(package) => package,
+        Err(outcome) => return Some(Report(outcome)),
+    };
+    let job = worker::PollJob {
+        packet: packet.clone(),
+        // A worker gets a directory of its own (set at its start).
+        work_dir: cache_dir.join(format!("pysrc-{}", package.digest)),
+        package,
+        log_format: settings.log_format.to_string(),
+        max_unpacked_bytes: settings.max_unpacked_bytes,
+        #[cfg(test)]
+        test_action: None,
+    };
+    Some(worker::run_poll_in_worker(job, settings).await)
+}
 
-    if packet.language.as_deref() == Some("python") {
-        let load = poll::load_packet_for(packet);
-        // CLOACINA-T-1028: the agent fetches the package files one time per
-        // digest; the poll imports them in the agent process, as an inline
-        // task does.
-        let package = match prepare_package(
-            &packet.artifact,
-            packet.language.as_deref(),
-            http,
-            server,
-            api_key,
-            cache_dir,
-        )
-        .await
-        {
-            Ok(package) => package,
-            Err(out) => return poll::Prepared::Answer(out),
-        };
-        let runtime = {
-            let mut cache = loaded_runtimes().lock().await;
-            if let Some(rt) = cache.get(&digest) {
-                rt.clone()
-            } else {
-                let rt = Arc::new(cloacina::Runtime::new());
-                let staging = cache_dir.join(format!("pysrc-{digest}"));
-                if let Err(out) = load_python_package(&load, &package, &staging, &rt).await {
-                    return poll::Prepared::Answer(out);
+/// Load the package of a poll and run the poll (CLOACINA-T-1143), in the
+/// poll's worker process.
+///
+/// `started` is called when the trigger is loaded. `time_limit` is given
+/// when the poll runs in the agent process: its future is dropped at the
+/// limit. A worker is given none: the agent holds the clock and kills it.
+pub(crate) async fn run_poll_job(
+    job: worker::PollJob,
+    time_limit: Option<Duration>,
+    started: impl FnOnce(),
+) -> cloacina::fleet::AgentOutcome {
+    let worker::PollJob {
+        packet,
+        package,
+        work_dir,
+        #[cfg(test)]
+        test_action,
+        ..
+    } = job;
+
+    #[cfg(test)]
+    if let Some(action) = test_action {
+        started();
+        return worker::tests::run_test_action(action, None).await;
+    }
+
+    // CLOACINA-T-1144: the trigger's log lines carry the poll's ids, in the
+    // worker process or in the agent process, wherever the poll runs.
+    let span = tracing::info_span!(
+        "poll",
+        tenant = %packet.tenant_id.as_deref().unwrap_or("public"),
+        package = %packet.package_name,
+        trigger = %packet.target_name(),
+        poll_id = %packet.poll_id,
+    );
+    tracing::Instrument::instrument(
+        async move {
+            // CLOACINA-T-1156: a poll of a polling accumulator.
+            if let Some(accumulator) = packet.accumulator_name.clone() {
+                if let Err(outcome) = load_poll_runtime(&packet, &package, &work_dir).await {
+                    return outcome;
                 }
-                cache.insert(digest.clone(), rt.clone());
-                rt
+                started();
+                return poll::run_accumulator_poll(&packet, accumulator, time_limit).await;
             }
-        };
-        return match runtime.get_trigger(&packet.trigger_name) {
-            Some(trigger) => poll::Prepared::Run(trigger),
-            None => poll::Prepared::Answer(poll::no_such_trigger(packet)),
-        };
+            let trigger = match load_poll_trigger(&packet, &package, &work_dir).await {
+                Ok(trigger) => trigger,
+                Err(outcome) => return outcome,
+            };
+            started();
+            poll::run_poll(trigger, time_limit, packet.timeout_seconds).await
+        },
+        span,
+    )
+    .await
+}
+
+/// The per-build runtime of the Python package of a poll: the import runs
+/// one time per build in this process, and a poll and a task of one build
+/// share it. A polling accumulator's poll function is registered by the
+/// import (CLOACINA-T-1156). A Rust build has none: refused.
+async fn load_poll_runtime(
+    packet: &PollWorkPacket,
+    package: &worker::PreparedPackage,
+    work_dir: &std::path::Path,
+) -> std::result::Result<Arc<cloacina::Runtime>, cloacina::fleet::AgentOutcome> {
+    if packet.language.as_deref() != Some("python") {
+        return Err(poll::not_a_python_package(packet));
+    }
+    let digest = package.digest.clone();
+    let load = poll::load_packet_for(packet);
+    let mut cache = loaded_runtimes().lock().await;
+    if let Some(rt) = cache.get(&digest) {
+        return Ok(rt.clone());
+    }
+    let rt = Arc::new(cloacina::Runtime::new());
+    load_python_package(&load, package, work_dir, &rt).await?;
+    cache.insert(digest, rt.clone());
+    Ok(rt)
+}
+
+/// The trigger of a poll. A Python package is imported into the per-build
+/// runtime of this process (a poll and a task of one build share it when
+/// they run in one process); a Rust build's library is opened once per build
+/// and trigger in this process.
+async fn load_poll_trigger(
+    packet: &PollWorkPacket,
+    package: &worker::PreparedPackage,
+    work_dir: &std::path::Path,
+) -> std::result::Result<Arc<dyn cloacina::cloacina_workflow::Trigger>, cloacina::fleet::AgentOutcome>
+{
+    let digest = package.digest.clone();
+    if packet.language.as_deref() == Some("python") {
+        let runtime = load_poll_runtime(packet, package, work_dir).await?;
+        return runtime
+            .get_trigger(&packet.trigger_name)
+            .ok_or_else(|| poll::no_such_trigger(packet));
     }
 
-    let key = (digest.clone(), packet.trigger_name.clone());
+    let key = (digest, packet.trigger_name.clone());
     let mut cache = loaded_poll_triggers().lock().await;
     if let Some(trigger) = cache.get(&key) {
-        return poll::Prepared::Run(trigger.clone());
+        return Ok(trigger.clone());
     }
-    let path =
-        match fetch_and_cache_artifact(http, server, api_key, &packet.artifact, cache_dir).await {
-            Ok(path) => path,
-            Err(e) => {
-                return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
-                    reason: RefusalReason::ArtifactFetchFailed,
-                    message: format!("artifact fetch failed: {e}"),
-                });
-            }
-        };
+    let path = package
+        .library
+        .clone()
+        .ok_or_else(|| cloacina::fleet::AgentOutcome::Refused {
+            reason: RefusalReason::ArtifactFetchFailed,
+            message: "the poll's package has no fetched library".to_string(),
+        })?;
     let name = packet.trigger_name.clone();
     let opened = tokio::task::spawn_blocking(move || {
         cloacina::registry::loader::ffi_trigger::FfiTriggerImpl::open(
@@ -1975,20 +2297,20 @@ async fn prepare_poll(
     let trigger: Arc<dyn cloacina::cloacina_workflow::Trigger> = match opened {
         Ok(Ok(trigger)) => Arc::new(trigger),
         Ok(Err(e)) => {
-            return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
+            return Err(cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::RuntimeLoadFailed,
                 message: e,
             });
         }
         Err(e) => {
-            return poll::Prepared::Answer(cloacina::fleet::AgentOutcome::Refused {
+            return Err(cloacina::fleet::AgentOutcome::Refused {
                 reason: RefusalReason::RuntimeLoadFailed,
                 message: format!("open the library: {e}"),
             });
         }
     };
     cache.insert(key, trigger.clone());
-    poll::Prepared::Run(trigger)
+    Ok(trigger)
 }
 
 /// One whole-graph firing on the agent (CLOACI-T-0722). The agent fetches
@@ -3376,6 +3698,31 @@ const _: fn() = || {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CLOACINA-T-1083: an agent logs its key's expiry at start, and warns
+    /// when less than 10 days are left.
+    #[test]
+    fn the_agent_logs_its_key_expiry_and_warns_10_days_before() {
+        let now = chrono::Utc::now();
+        assert_eq!(key_expiry_log(None, now), KeyExpiryLog::None);
+        let in_days = |d: i64| (now + chrono::Duration::days(d)).to_rfc3339();
+        assert!(matches!(
+            key_expiry_log(Some(&in_days(30)), now),
+            KeyExpiryLog::ExpiresAt(_)
+        ));
+        assert!(matches!(
+            key_expiry_log(Some(&in_days(9)), now),
+            KeyExpiryLog::ExpiresSoon(_)
+        ));
+        assert!(matches!(
+            key_expiry_log(Some(&in_days(-1)), now),
+            KeyExpiryLog::ExpiresSoon(_)
+        ));
+        assert_eq!(
+            key_expiry_log(Some("next week"), now),
+            KeyExpiryLog::Unreadable("next week".to_string())
+        );
+    }
     use cloacina::fleet::{AgentOutcome, ArtifactRef};
 
     // ── CLOACINA-T-1015: the result POST is retried ──────────────────────
@@ -3472,6 +3819,35 @@ mod tests {
         assert!(is_agent_id_taken(&try_register(409).await));
         assert!(!is_agent_id_taken(&try_register(403).await));
         assert!(!is_agent_id_taken(&try_register(500).await));
+    }
+
+    /// CLOACINA-T-1086: a register refused for the agent's release keeps the
+    /// server's code and message, through the context the session adds, and
+    /// the log line of the error shows the message with both releases.
+    #[test]
+    fn a_version_refusal_keeps_the_servers_message() {
+        let body = r#"{"error":"agent 0.12.3 is older than this server accepts (0.13 or 0.14; server 0.14.1): upgrade the agent","code":"agent_version_unsupported"}"#;
+        let refused = RegisterRefused::from_body(reqwest::StatusCode::BAD_REQUEST, body);
+        assert!(refused.is_version_refusal());
+        let err = anyhow::Error::from(refused).context("agent register failed");
+        assert!(is_version_refusal(&err));
+        assert!(!is_agent_id_taken(&err));
+        let logged = format!("{err:#}");
+        assert!(
+            logged.contains("0.12.3") && logged.contains("0.14.1"),
+            "{logged}"
+        );
+        assert!(logged.contains("agent_version_unsupported"), "{logged}");
+
+        // Another 400, and a body that is not JSON, are not a version refusal.
+        let other = RegisterRefused::from_body(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"error":"bad","code":"protocol_version_mismatch"}"#,
+        );
+        assert!(!other.is_version_refusal());
+        let text = RegisterRefused::from_body(reqwest::StatusCode::BAD_GATEWAY, "upstream down");
+        assert_eq!(text.message, "upstream down");
+        assert!(!is_version_refusal(&anyhow::Error::from(text)));
     }
 
     /// The real policy with the waits cut to milliseconds.

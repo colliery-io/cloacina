@@ -55,7 +55,7 @@ use crate::AppState;
 use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::routes::executions::validate_declared_params;
+use crate::routes::executions::{refuse_undeclared_bindings, validate_declared_params};
 
 const DEFAULT_INSTANCES_LIMIT: i64 = 100;
 const MAX_INSTANCES_LIMIT: i64 = 1000;
@@ -232,6 +232,16 @@ pub async fn create_instance(
                 }
                 Ok(_) => {}
                 Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
+            }
+
+            // CLOACINA-T-1134: a binding of a secret the package does not
+            // declare is refused here, before the schedule row is made. The
+            // check reads the version active now; each fire pins the version
+            // active at that time.
+            if let Some(refused) =
+                refuse_undeclared_bindings(&tenant_db, &registry, &name, provided).await
+            {
+                return refused;
             }
         }
     }

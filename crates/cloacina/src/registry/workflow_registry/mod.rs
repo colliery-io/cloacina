@@ -314,6 +314,17 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             .any(|w| w.workflow_name == name || w.package_name == name))
     }
 
+    /// The package of the workflow addressed by `name` (its `workflow_name`
+    /// or `package_name`), or `None` when this registry does not hold it
+    /// (CLOACINA-T-1134).
+    pub async fn package_of_workflow(&self, name: &str) -> Result<Option<String>, RegistryError> {
+        let workflows = self.list_workflows().await?;
+        Ok(workflows
+            .into_iter()
+            .find(|w| w.workflow_name == name || w.package_name == name)
+            .map(|w| w.package_name))
+    }
+
     /// Workflow names subscribed to `trigger_name` via `#[workflow(triggers = […])]`
     /// (CLOACI-T-0777) — the fan-out set for a manual trigger fire. The schedules
     /// table only carries the trigger's primary `on` workflow, so subscriptions

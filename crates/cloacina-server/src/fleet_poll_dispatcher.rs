@@ -34,6 +34,12 @@
 //! nothing. A late report finds no wait and changes nothing. A packet that
 //! reaches an agent after the server stopped waiting is not run by the agent
 //! (`not_after_unix_ms`). The poll never runs in this process.
+//!
+//! A poll of a Python polling accumulator (CLOACINA-T-1156) takes the same
+//! path: the accumulator on the reactor's owner replica asks at each
+//! interval; the agent needs the capability `job:accumulator_poll` and
+//! answers a JSON value or no change. With no answer the accumulator emits
+//! nothing that interval; the reason is logged and counted.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,11 +49,12 @@ use cloacina::cloacina_workflow::{TriggerError, TriggerResult};
 use cloacina::dal::unified::FleetAgent;
 use cloacina::database::universal_types::UniversalUuid;
 use cloacina::fleet::{
-    AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, ArtifactRef, POLL_JOB_CAPABILITY,
-    POLL_PACKET_KIND, PollFailure, PollWorkPacket, host_target_triple, poll_result_from_outcome,
+    ACCUMULATOR_POLL_CAPABILITY, AGENT_PROTOCOL_VERSION, AGENT_RECIPIENT_PREFIX, ArtifactRef,
+    POLL_JOB_CAPABILITY, POLL_PACKET_KIND, PollFailure, PollWorkPacket,
+    accumulator_poll_from_outcome, host_target_triple, poll_result_from_outcome,
 };
 use cloacina::models::delivery_outbox::NewDeliveryOutbox;
-use cloacina::trigger::{PollDispatcher, PollRequest};
+use cloacina::trigger::{AccumulatorPollRequest, PollDispatcher, PollRequest};
 use tracing::{debug, info, warn};
 
 use crate::agent_registry::{AgentRegistry, FleetLoad, TaskDemand, select_fleet_agent};
@@ -97,47 +104,105 @@ pub struct FleetPollDispatcher {
 }
 
 /// Why a poll got no answer, as the label of
-/// `cloacina_fleet_polls_missed_total`.
-fn missed(reason: &'static str, message: String) -> TriggerError {
+/// `cloacina_fleet_polls_missed_total`. Gives the message back.
+fn missed_reason(reason: &'static str, message: String) -> String {
     metrics::counter!("cloacina_fleet_polls_missed_total", "reason" => reason).increment(1);
     metrics::counter!("cloacina_fleet_polls_total", "answer" => "missed").increment(1);
-    TriggerError::PollError { message }
+    message
 }
 
-/// The agents of a roster that can run poll packets.
-pub(crate) fn poll_capable(live: &[FleetAgent]) -> Vec<FleetAgent> {
+/// The agents of a roster that registered `capability`.
+fn capable_of(live: &[FleetAgent], capability: &str) -> Vec<FleetAgent> {
     live.iter()
-        .filter(|a| a.capabilities.iter().any(|c| c == POLL_JOB_CAPABILITY))
+        .filter(|a| a.capabilities.iter().any(|c| c == capability))
         .cloned()
         .collect()
 }
 
-/// The reason of a poll that found no agent to take it.
+/// The agents of a roster that can run poll packets of poll triggers.
+#[cfg(test)]
+pub(crate) fn poll_capable(live: &[FleetAgent]) -> Vec<FleetAgent> {
+    capable_of(live, POLL_JOB_CAPABILITY)
+}
+
+/// The agents of a roster that can run polls of polling accumulators
+/// (CLOACINA-T-1156).
+#[cfg(test)]
+pub(crate) fn accumulator_poll_capable(live: &[FleetAgent]) -> Vec<FleetAgent> {
+    capable_of(live, ACCUMULATOR_POLL_CAPABILITY)
+}
+
+/// The reason of a poll trigger's poll that found no agent to take it.
+#[cfg(test)]
 pub(crate) fn no_agent_reason(request: &PollRequest, live: &[FleetAgent]) -> String {
+    no_agent_reason_for(&PollTarget::Trigger(request), live)
+}
+
+fn no_agent_reason_for(target: &PollTarget<'_>, live: &[FleetAgent]) -> String {
+    let tenant = target.tenant_id();
     let of_tenant = live
         .iter()
-        .filter(|a| a.tenant_id.as_deref() == Some(request.tenant_id.as_str()))
+        .filter(|a| a.tenant_id.as_deref() == Some(tenant))
         .count();
-    let capable = poll_capable(live)
+    let capable = capable_of(live, target.capability())
         .iter()
-        .filter(|a| a.tenant_id.as_deref() == Some(request.tenant_id.as_str()))
+        .filter(|a| a.tenant_id.as_deref() == Some(tenant))
         .count();
+    let (kind, packets, keeps) = match target {
+        PollTarget::Trigger(_) => (
+            "poll triggers",
+            "poll packets",
+            "A poll trigger runs on the tenant's agents; the fleet keeps one agent for a tenant \
+             with a poll trigger",
+        ),
+        PollTarget::Accumulator(_) => (
+            "polling accumulators",
+            "polls of polling accumulators",
+            "A polling accumulator's poll function runs on the tenant's agents; keep one agent \
+             running for it",
+        ),
+    };
     let why = if of_tenant == 0 {
         "the tenant has no live agent".to_string()
     } else if capable == 0 {
         format!(
-            "none of the tenant's {of_tenant} live agent(s) can run poll triggers: they are of a \
-             release before poll packets; upgrade them"
+            "none of the tenant's {of_tenant} live agent(s) can run {kind}: they are of a \
+             release before {packets}; upgrade them"
         )
     } else {
         "every agent that can run it is full, or none has a build of the package for its arch"
             .to_string()
     };
     format!(
-        "poll of trigger '{}' (package '{}') not run: {why}. A poll trigger runs on the tenant's \
-         agents; the fleet keeps one agent for a tenant with a poll trigger",
-        request.trigger_name, request.package_name
+        "poll of {} (package '{}') not run: {why}. {keeps}",
+        target.what(),
+        target.package_name()
     )
+}
+
+/// The packet of one poll of a polling accumulator (CLOACINA-T-1156).
+pub(crate) fn accumulator_poll_packet(
+    poll_id: UniversalUuid,
+    request: &AccumulatorPollRequest,
+    agent_tenant: Option<String>,
+    artifact: ArtifactRef,
+    language: String,
+    poll_timeout: Duration,
+    not_after_unix_ms: i64,
+) -> PollWorkPacket {
+    PollWorkPacket {
+        protocol_version: AGENT_PROTOCOL_VERSION,
+        poll_id: poll_id.0.to_string(),
+        trigger_name: String::new(),
+        workflow_name: String::new(),
+        package_name: request.package_name.clone(),
+        artifact,
+        timeout_seconds: poll_timeout.as_secs().clamp(1, u32::MAX as u64) as u32,
+        tenant_id: agent_tenant,
+        language: Some(language),
+        not_after_unix_ms: Some(not_after_unix_ms),
+        accumulator_name: Some(request.accumulator_name.clone()),
+    }
 }
 
 /// The packet of one poll.
@@ -161,6 +226,7 @@ pub(crate) fn poll_work_packet(
         tenant_id: agent_tenant,
         language: Some(language),
         not_after_unix_ms: Some(not_after_unix_ms),
+        accumulator_name: None,
     }
 }
 
@@ -189,33 +255,154 @@ impl FleetPollDispatcher {
     }
 }
 
+/// What one poll is of: a trigger (CLOACINA-T-1077) or a polling accumulator
+/// (CLOACINA-T-1156).
+pub(crate) enum PollTarget<'a> {
+    Trigger(&'a PollRequest),
+    Accumulator(&'a AccumulatorPollRequest),
+}
+
+impl PollTarget<'_> {
+    fn tenant_id(&self) -> &str {
+        match self {
+            PollTarget::Trigger(r) => &r.tenant_id,
+            PollTarget::Accumulator(r) => &r.tenant_id,
+        }
+    }
+    fn package_name(&self) -> &str {
+        match self {
+            PollTarget::Trigger(r) => &r.package_name,
+            PollTarget::Accumulator(r) => &r.package_name,
+        }
+    }
+    /// "trigger 'x'" or "polling accumulator 'x'", for the reasons.
+    fn what(&self) -> String {
+        match self {
+            PollTarget::Trigger(r) => format!("trigger '{}'", r.trigger_name),
+            PollTarget::Accumulator(r) => format!("polling accumulator '{}'", r.accumulator_name),
+        }
+    }
+    /// The capability an agent needs to run it.
+    fn capability(&self) -> &'static str {
+        match self {
+            PollTarget::Trigger(_) => POLL_JOB_CAPABILITY,
+            PollTarget::Accumulator(_) => ACCUMULATOR_POLL_CAPABILITY,
+        }
+    }
+}
+
 #[async_trait]
 impl PollDispatcher for FleetPollDispatcher {
     async fn poll(&self, request: &PollRequest) -> Result<TriggerResult, TriggerError> {
+        let report = self
+            .send_poll(&PollTarget::Trigger(request))
+            .await
+            .map_err(|message| TriggerError::PollError { message })?;
+        match poll_result_from_outcome(report.outcome) {
+            Ok(result) => {
+                let answer = if result.should_fire() { "fire" } else { "skip" };
+                metrics::counter!("cloacina_fleet_polls_total", "answer" => answer).increment(1);
+                debug!(
+                    trigger = %request.trigger_name,
+                    agent_id = %report.agent_id,
+                    duration_ms = report.duration_ms,
+                    answer,
+                    "fleet: poll answered"
+                );
+                Ok(result)
+            }
+            Err(failure) => Err(TriggerError::PollError {
+                message: self.failure_reason(
+                    &PollTarget::Trigger(request),
+                    &report.agent_id,
+                    failure,
+                ),
+            }),
+        }
+    }
+
+    async fn poll_accumulator(
+        &self,
+        request: &AccumulatorPollRequest,
+    ) -> Result<Option<serde_json::Value>, String> {
+        let target = PollTarget::Accumulator(request);
+        let report = self.send_poll(&target).await?;
+        match accumulator_poll_from_outcome(report.outcome) {
+            Ok(value) => {
+                let answer = if value.is_some() { "emit" } else { "skip" };
+                metrics::counter!("cloacina_fleet_polls_total", "answer" => answer).increment(1);
+                debug!(
+                    accumulator = %request.accumulator_name,
+                    agent_id = %report.agent_id,
+                    duration_ms = report.duration_ms,
+                    answer,
+                    "fleet: accumulator poll answered"
+                );
+                Ok(value)
+            }
+            Err(failure) => Err(self.failure_reason(&target, &report.agent_id, failure)),
+        }
+    }
+
+    fn wait(&self) -> Duration {
+        // The lookups and the enqueue before the answer wait take a moment.
+        self.answer_wait() + Duration::from_secs(5)
+    }
+}
+
+impl FleetPollDispatcher {
+    /// The reason of an answer the server cannot use, counted.
+    fn failure_reason(
+        &self,
+        target: &PollTarget<'_>,
+        agent_id: &str,
+        failure: PollFailure,
+    ) -> String {
+        let what = target.what();
+        match failure {
+            PollFailure::TriggerFailed(message) => {
+                metrics::counter!("cloacina_fleet_polls_total", "answer" => "failed").increment(1);
+                format!("{what} failed on agent {agent_id}: {message}")
+            }
+            failure @ PollFailure::Refused { .. } => missed_reason(
+                "refused",
+                format!("poll of {what} not run by agent {agent_id}: {failure}"),
+            ),
+            failure @ PollFailure::BadAnswer(_) => missed_reason(
+                "bad_answer",
+                format!("poll of {what} on agent {agent_id}: {failure}"),
+            ),
+        }
+    }
+
+    /// Send one poll to an agent of the tenant and wait for its report. `Err`:
+    /// no report, with the reason, counted as missed.
+    async fn send_poll(
+        &self,
+        target: &PollTarget<'_>,
+    ) -> Result<cloacina::fleet::AgentResultRequest, String> {
+        let what = target.what();
+        let package_name = target.package_name().to_string();
         // 1. The active build of the package, in the tenant's schema.
         let active = match self
             .dal
             .workflow_packages()
-            .get_active_dispatch(&request.package_name, None)
+            .get_active_dispatch(&package_name, None)
             .await
         {
             Ok(Some(active)) => active,
             Ok(None) => {
-                return Err(missed(
+                return Err(missed_reason(
                     "no_build",
-                    format!(
-                        "poll of trigger '{}' not run: package '{}' has no active build",
-                        request.trigger_name, request.package_name
-                    ),
+                    format!("poll of {what} not run: package '{package_name}' has no active build"),
                 ));
             }
             Err(e) => {
-                return Err(missed(
+                return Err(missed_reason(
                     "no_build",
                     format!(
-                        "poll of trigger '{}' not run: the build of package '{}' could not be \
-                         read: {e}",
-                        request.trigger_name, request.package_name
+                        "poll of {what} not run: the build of package '{package_name}' could \
+                         not be read: {e}"
                     ),
                 ));
             }
@@ -227,25 +414,37 @@ impl PollDispatcher for FleetPollDispatcher {
             let mut t = self
                 .dal
                 .workflow_packages()
-                .get_artifact_triples_for_package(&request.package_name, &active.version)
+                .get_artifact_triples_for_package(&package_name, &active.version)
                 .await
                 .unwrap_or_default();
             t.push(host_target_triple());
             Some(t)
         };
 
-        // 2. An agent of the tenant that can run polls.
+        // 2. An agent of the tenant that can run this poll.
         let live = self.agent_registry.live_agents().await.map_err(|e| {
-            missed(
+            missed_reason(
                 "no_agent",
-                format!(
-                    "poll of trigger '{}' not run: the fleet roster could not be read: {e}",
-                    request.trigger_name
-                ),
+                format!("poll of {what} not run: the fleet roster could not be read: {e}"),
             )
         })?;
-        let capable = poll_capable(&live);
-        let tenant = Some(request.tenant_id.clone());
+        let capable = capable_of(&live, target.capability());
+        let tenant = Some(target.tenant_id().to_string());
+        // CLOACINA-T-1086: only an agent that loads the package's plugin
+        // interface version.
+        if let Some(reason) = crate::agent_registry::plugin_interface_wait_reason(
+            &capable,
+            &tenant,
+            cloacina_api_types::DEFAULT_AGENT_POOL,
+            active.plugin_interface_version,
+        ) {
+            return Err(missed_reason(
+                "no_agent",
+                format!("poll of {what} not run: {reason}"),
+            ));
+        }
+        let capable =
+            crate::agent_registry::agents_loading(&capable, active.plugin_interface_version);
         let Some(agent) = select_fleet_agent(
             &capable,
             &tenant,
@@ -255,7 +454,10 @@ impl PollDispatcher for FleetPollDispatcher {
             &TaskDemand::pool(cloacina_api_types::DEFAULT_AGENT_POOL),
             &FleetLoad::new(),
         ) else {
-            return Err(missed("no_agent", no_agent_reason(request, &live)));
+            return Err(missed_reason(
+                "no_agent",
+                no_agent_reason_for(target, &live),
+            ));
         };
         let agent_id = agent.agent_id.clone();
 
@@ -266,7 +468,7 @@ impl PollDispatcher for FleetPollDispatcher {
                 .dal
                 .workflow_packages()
                 .get_artifact_digest_for_target(
-                    &request.package_name,
+                    &package_name,
                     &active.version,
                     &agent.target_triple,
                 )
@@ -295,24 +497,39 @@ impl PollDispatcher for FleetPollDispatcher {
         let wait = self.answer_wait();
         let not_after = chrono::Utc::now()
             + chrono::Duration::from_std(wait).unwrap_or(chrono::Duration::seconds(60));
-        let packet = poll_work_packet(
-            poll_id,
-            request,
-            agent.tenant_id.clone(),
-            ArtifactRef {
-                fetch_url: format!("/v1/agent/artifact/{digest}"),
-                digest,
-                build_target_triple,
-            },
-            active.language.clone(),
-            self.poll_timeout,
-            not_after.timestamp_millis(),
-        );
+        let artifact = ArtifactRef {
+            fetch_url: format!("/v1/agent/artifact/{digest}"),
+            digest,
+            build_target_triple,
+        };
+        let packet = match target {
+            PollTarget::Trigger(request) => poll_work_packet(
+                poll_id,
+                request,
+                agent.tenant_id.clone(),
+                artifact,
+                active.language.clone(),
+                self.poll_timeout,
+                not_after.timestamp_millis(),
+            ),
+            PollTarget::Accumulator(request) => accumulator_poll_packet(
+                poll_id,
+                request,
+                agent.tenant_id.clone(),
+                artifact,
+                active.language.clone(),
+                self.poll_timeout,
+                not_after.timestamp_millis(),
+            ),
+        };
         let payload = match serde_json::to_vec(&packet) {
             Ok(p) => p,
             Err(e) => {
                 self.coordinator.cancel(poll_id);
-                return Err(missed("enqueue", format!("serialize the poll packet: {e}")));
+                return Err(missed_reason(
+                    "enqueue",
+                    format!("serialize the poll packet: {e}"),
+                ));
             }
         };
         let row = NewDeliveryOutbox {
@@ -325,96 +542,46 @@ impl PollDispatcher for FleetPollDispatcher {
             Ok(row) => self.coordinator.packet_enqueued(poll_id, row.id),
             Err(e) => {
                 self.coordinator.cancel(poll_id);
-                return Err(missed(
+                return Err(missed_reason(
                     "enqueue",
-                    format!(
-                        "poll of trigger '{}' not run: the packet could not be queued: {e}",
-                        request.trigger_name
-                    ),
+                    format!("poll of {what} not run: the packet could not be queued: {e}"),
                 ));
             }
         }
         self.delivery_wake.wake();
         debug!(
-            trigger = %request.trigger_name,
+            target = %what,
             agent_id = %agent_id,
             poll_id = %poll_id,
             "fleet: poll enqueued"
         );
 
-        // 4. The answer.
+        // 4. The report.
         match tokio::time::timeout(wait, rx).await {
-            Ok(Ok(report)) => match poll_result_from_outcome(report.outcome) {
-                Ok(result) => {
-                    let answer = if result.should_fire() { "fire" } else { "skip" };
-                    metrics::counter!("cloacina_fleet_polls_total", "answer" => answer)
-                        .increment(1);
-                    debug!(
-                        trigger = %request.trigger_name,
-                        agent_id = %report.agent_id,
-                        duration_ms = report.duration_ms,
-                        answer,
-                        "fleet: poll answered"
-                    );
-                    Ok(result)
-                }
-                Err(PollFailure::TriggerFailed(message)) => {
-                    metrics::counter!("cloacina_fleet_polls_total", "answer" => "failed")
-                        .increment(1);
-                    Err(TriggerError::PollError {
-                        message: format!(
-                            "trigger '{}' failed on agent {}: {message}",
-                            request.trigger_name, report.agent_id
-                        ),
-                    })
-                }
-                Err(failure @ PollFailure::Refused { .. }) => Err(missed(
-                    "refused",
-                    format!(
-                        "poll of trigger '{}' not run by agent {}: {failure}",
-                        request.trigger_name, report.agent_id
-                    ),
-                )),
-                Err(failure @ PollFailure::BadAnswer(_)) => Err(missed(
-                    "bad_answer",
-                    format!(
-                        "poll of trigger '{}' on agent {}: {failure}",
-                        request.trigger_name, report.agent_id
-                    ),
-                )),
-            },
-            Ok(Err(_canceled)) => Err(missed(
+            Ok(Ok(report)) => Ok(report),
+            Ok(Err(_canceled)) => Err(missed_reason(
                 "no_answer",
-                format!(
-                    "poll of trigger '{}': the wait for agent {agent_id} ended before it answered",
-                    request.trigger_name
-                ),
+                format!("poll of {what}: the wait for agent {agent_id} ended before it answered"),
             )),
             Err(_elapsed) => {
                 self.coordinator.cancel(poll_id);
                 info!(
-                    trigger = %request.trigger_name,
+                    target = %what,
                     agent_id = %agent_id,
                     poll_id = %poll_id,
                     wait_s = wait.as_secs(),
                     "fleet: no answer to a poll in time; a later answer changes nothing"
                 );
-                Err(missed(
+                Err(missed_reason(
                     "no_answer",
                     format!(
-                        "poll of trigger '{}': no answer from agent {agent_id} in {} s; nothing \
-                         fired, and a later answer is dropped",
-                        request.trigger_name,
+                        "poll of {what}: no answer from agent {agent_id} in {} s; nothing came \
+                         of it, and a later answer is dropped",
                         wait.as_secs()
                     ),
                 ))
             }
         }
-    }
-
-    fn wait(&self) -> Duration {
-        // The lookups and the enqueue before the answer wait take a moment.
-        self.answer_wait() + Duration::from_secs(5)
     }
 }
 
@@ -508,15 +675,22 @@ pub fn apply_poll_floor(
 pub fn describe_metrics() {
     metrics::describe_counter!(
         "cloacina_fleet_polls_total",
-        "Polls of poll triggers sent to agents (CLOACINA-T-1077), by `answer`: `fire`, \
-         `skip`, `failed` (the trigger returned an error on the agent) or `missed` (no \
-         answer: see cloacina_fleet_polls_missed_total)."
+        "Polls of poll triggers (CLOACINA-T-1077) and of polling accumulators \
+         (CLOACINA-T-1156) sent to agents, by `answer`: `fire` or `skip` (a trigger), `emit` \
+         or `skip` (an accumulator), `failed` (the code returned an error on the agent) or \
+         `missed` (no answer: see cloacina_fleet_polls_missed_total)."
     );
     metrics::describe_counter!(
         "cloacina_fleet_polls_missed_total",
-        "Polls of poll triggers that got no answer (CLOACINA-T-1077), by `reason`: \
+        "Polls of poll triggers and polling accumulators that got no answer, by `reason`: \
          `no_build`, `no_agent`, `enqueue`, `no_answer`, `refused` or `bad_answer`. \
-         Nothing fires; the next interval polls again."
+         Nothing fires and nothing is emitted; the next interval polls again."
+    );
+    metrics::describe_counter!(
+        "cloacina_accumulator_polls_total",
+        "Polls of Python polling accumulators sent to agents, as the accumulator saw them \
+         (CLOACINA-T-1156), by `outcome`: `emit`, `skip` (no change), `missed` (no answer) \
+         or `in_flight` (an interval skipped because the last poll still ran)."
     );
     metrics::describe_gauge!(
         "cloacina_fleet_poll_floor_tenants",
@@ -625,6 +799,70 @@ mod tests {
         let wire: serde_json::Value =
             serde_json::from_slice(&serde_json::to_vec(&packet).unwrap()).unwrap();
         assert_eq!(wire["poll_id"], id.0.to_string());
+    }
+
+    fn accumulator_request() -> AccumulatorPollRequest {
+        AccumulatorPollRequest {
+            tenant_id: "acme".into(),
+            package_name: "prices".into(),
+            package_version: "1.0.0".into(),
+            accumulator_name: "ticker".into(),
+        }
+    }
+
+    /// A poll of a polling accumulator goes only to an agent that registered
+    /// `job:accumulator_poll` (CLOACINA-T-1156): an agent with `job:poll`
+    /// alone (the release of poll triggers) never gets one.
+    #[test]
+    fn an_accumulator_poll_goes_only_to_an_agent_that_can_run_it() {
+        let mut new = agent("new", "acme", true);
+        new.capabilities
+            .push(ACCUMULATOR_POLL_CAPABILITY.to_string());
+        let live = vec![agent("triggers-only", "acme", true), new];
+        let capable = accumulator_poll_capable(&live);
+        let picked = select_fleet_agent(
+            &capable,
+            &Some("acme".to_string()),
+            &None,
+            &TaskDemand::pool(cloacina_api_types::DEFAULT_AGENT_POOL),
+            &FleetLoad::new(),
+        )
+        .expect("an agent");
+        assert_eq!(picked.agent_id, "new");
+
+        let only_old = vec![agent("triggers-only", "acme", true)];
+        assert!(accumulator_poll_capable(&only_old).is_empty());
+        let request = accumulator_request();
+        let r = no_agent_reason_for(&PollTarget::Accumulator(&request), &only_old);
+        assert!(r.contains("polling accumulator 'ticker'"), "{r}");
+        assert!(
+            r.contains("release before polls of polling accumulators"),
+            "{r}"
+        );
+    }
+
+    #[test]
+    fn the_accumulator_packet_names_the_accumulator_and_no_trigger() {
+        let id = UniversalUuid::new_v4();
+        let packet = accumulator_poll_packet(
+            id,
+            &accumulator_request(),
+            Some("acme".into()),
+            ArtifactRef {
+                digest: "abc".into(),
+                fetch_url: "/v1/agent/artifact/abc".into(),
+                build_target_triple: host_target_triple(),
+            },
+            "python".into(),
+            Duration::from_secs(30),
+            1_234,
+        );
+        assert_eq!(packet.accumulator_name.as_deref(), Some("ticker"));
+        assert!(packet.trigger_name.is_empty());
+        assert_eq!(packet.package_name, "prices");
+        assert_eq!(packet.timeout_seconds, 30);
+        assert_eq!(packet.not_after_unix_ms, Some(1_234));
+        assert_eq!(packet.language.as_deref(), Some("python"));
     }
 
     /// The floor keeps one agent for a tenant with a poll trigger, also one

@@ -54,6 +54,16 @@ pub struct CreateKeyRequest {
     /// Required. A request with no role is refused with 400: the server does
     /// not choose a role for the caller.
     pub role: KeyRole,
+    /// `POST /auth/keys` only: make a platform admin key (no tenant, role
+    /// `admin`, the platform admin flag). Needs `role: admin`. The tenant
+    /// route refuses `true` with 400 (CLOACINA-T-1065).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub platform_admin: bool,
+    /// Optional. When the key expires, as an RFC 3339 timestamp in the
+    /// future (for example `2027-01-31T00:00:00Z`). After it the key is
+    /// refused with 401 `key_expired`. Not set: the key does not expire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
 }
 
 /// `201 Created` body for a new API key. The plaintext `key` is returned
@@ -70,10 +80,14 @@ pub struct KeyCreatedResponse {
     pub permissions: String,
     /// Tenant scope; `null` for global keys.
     pub tenant_id: Option<String>,
-    /// God-mode flag — never granted via the create endpoints.
+    /// Platform admin flag. Set only by `POST /auth/keys` with
+    /// `platform_admin: true`, and by the bootstrap.
     pub is_admin: bool,
     /// RFC 3339 timestamp.
     pub created_at: String,
+    /// When the key expires (RFC 3339); `null`: it does not expire.
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// One row in the key list (`GET /auth/keys`). No hashes or plaintext.
@@ -91,6 +105,10 @@ pub struct KeyInfo {
     /// RFC 3339 timestamp.
     pub created_at: String,
     pub revoked: bool,
+    /// When the key expires (RFC 3339); `null`: it does not expire. The
+    /// keys the Kubernetes actuator mints for agents expire.
+    #[serde(default)]
+    pub expires_at: Option<String>,
 }
 
 /// `DELETE /auth/keys/{key_id}` response.

@@ -65,6 +65,12 @@ pub struct FleetAgent {
     pub cpu_millis: Option<u64>,
     /// The agent's total memory in bytes (CLOACINA-T-1027). `None` as above.
     pub memory_bytes: Option<u64>,
+    /// CLOACINA-T-1086: the agent's release, its protocol number and the
+    /// plugin interface version of the Rust packages it loads, as it
+    /// reported them at register. `None`: it reported none.
+    pub agent_version: Option<String>,
+    pub protocol_version: Option<u32>,
+    pub plugin_interface_version: Option<u32>,
 }
 
 impl FleetAgent {
@@ -90,6 +96,11 @@ pub struct FleetAgentRegistration {
     /// (CLOACINA-T-1027). `None` when the agent reports none.
     pub cpu_millis: Option<u64>,
     pub memory_bytes: Option<u64>,
+    /// CLOACINA-T-1086: the agent's release, protocol number and plugin
+    /// interface version. `None` when the agent reports none.
+    pub agent_version: Option<String>,
+    pub protocol_version: Option<u32>,
+    pub plugin_interface_version: Option<u32>,
 }
 
 fn to_domain(r: UnifiedFleetAgent) -> FleetAgent {
@@ -113,6 +124,11 @@ fn to_domain(r: UnifiedFleetAgent) -> FleetAgent {
             .memory_bytes
             .and_then(|v| u64::try_from(v).ok())
             .filter(|v| *v > 0),
+        agent_version: r.agent_version,
+        protocol_version: r.protocol_version.and_then(|v| u32::try_from(v).ok()),
+        plugin_interface_version: r
+            .plugin_interface_version
+            .and_then(|v| u32::try_from(v).ok()),
     }
 }
 
@@ -171,6 +187,11 @@ impl<'a> FleetAgentDAL<'a> {
             owner_key_id: Some(UniversalUuid(by.key_id)),
             cpu_millis: reg.cpu_millis.and_then(|v| i64::try_from(v).ok()),
             memory_bytes: reg.memory_bytes.and_then(|v| i64::try_from(v).ok()),
+            agent_version: reg.agent_version,
+            protocol_version: reg.protocol_version.and_then(|v| i32::try_from(v).ok()),
+            plugin_interface_version: reg
+                .plugin_interface_version
+                .and_then(|v| i32::try_from(v).ok()),
         };
         let outcome = crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<Result<(), Refusal>, diesel::result::Error, _>(|conn| {
@@ -364,7 +385,58 @@ mod tests {
             max_concurrency: cap,
             cpu_millis: None,
             memory_bytes: None,
+            agent_version: None,
+            protocol_version: None,
+            plugin_interface_version: None,
         }
+    }
+
+    /// CLOACINA-T-1086: the versions an agent reports at register are on its
+    /// row; a register with none clears them.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn the_versions_of_an_agent_are_on_its_row() {
+        let url = shared_url();
+        let dal = dal_for(&url).await;
+        let owner = key(Some("acme"));
+        let mut versioned = reg("versioned", 2);
+        versioned.agent_version = Some("0.13.1".to_string());
+        versioned.protocol_version = Some(1);
+        versioned.plugin_interface_version = Some(8);
+        dal.fleet_agents()
+            .register(versioned, &owner)
+            .await
+            .unwrap()
+            .unwrap();
+        let get = |live: &[FleetAgent]| {
+            live.iter()
+                .find(|a| a.agent_id == "versioned")
+                .cloned()
+                .unwrap()
+        };
+        let live = dal
+            .fleet_agents()
+            .list_live(std::time::Duration::from_secs(60))
+            .await
+            .unwrap();
+        let row = get(&live);
+        assert_eq!(row.agent_version.as_deref(), Some("0.13.1"));
+        assert_eq!(row.protocol_version, Some(1));
+        assert_eq!(row.plugin_interface_version, Some(8));
+
+        dal.fleet_agents()
+            .register(reg("versioned", 2), &owner)
+            .await
+            .unwrap()
+            .unwrap();
+        let live = dal
+            .fleet_agents()
+            .list_live(std::time::Duration::from_secs(60))
+            .await
+            .unwrap();
+        let row = get(&live);
+        assert_eq!(row.agent_version, None);
+        assert_eq!(row.plugin_interface_version, None);
     }
 
     /// The multi-replica contract: an agent registering + heartbeating through

@@ -55,7 +55,8 @@ use thiserror::Error;
 pub mod dispatched;
 
 pub use dispatched::{
-    DispatchedTrigger, PollDispatcher, PollDispatcherSlot, PollRequest, empty_poll_dispatcher_slot,
+    AccumulatorPollRequest, DispatchedTrigger, PollDispatcher, PollDispatcherSlot, PollRequest,
+    empty_poll_dispatcher_slot,
 };
 
 /// Errors that can occur during trigger operations.

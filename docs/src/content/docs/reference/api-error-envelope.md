@@ -52,6 +52,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | `upload_failed` | `POST /v1/tenants/{tenant_id}/workflows` | Package registration via the tenant's `WorkflowRegistry` failed (manifest invalid, duplicate version, etc.). |
 | `python_dependencies_not_locked` | `POST /v1/tenants/{tenant_id}/workflows` | A Python package declares dependencies in `pyproject.toml` and ships no `vendor/` folder, and has no `requirements.lock`, or a lock file that fails the compiler's checks: an option line, a URL or a path, a pin with no `--hash`, or a dependency it does not pin. The message names the lock file or the line, and the command that writes the lock (`cloacinactl package build`). Nothing is stored. The same checks as `cloacinactl package validate` and the compiler. (CLOACINA-T-1097) |
 | `workflow_input_invalid` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | A declared workflow param is missing or its top-level type doesn't match the declared schema; the message names the offending field(s). (CLOACI-T-0757) |
+| `secret_not_declared` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute`, `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | The context or params bind a secret (`{"$secret": "<stored>"}`) under a name the workflow's package does not declare. The message names the binding and the package, and shows how to declare it. No run and no instance is made. (CLOACINA-T-1134) |
 | `reactor_input_invalid` | `POST /v1/health/reactors/{name}/fire` | The injected event doesn't match the reactor's declared input interface. (CLOACI-T-0758) |
 | `accumulator_input_invalid` | `POST /v1/health/accumulators/{name}/inject` | The injected event doesn't match the accumulator's declared input interface. (CLOACI-T-0759) |
 | `invalid_callback` | `GET /v1/auth/callback` | The OIDC callback is missing `code` or `state`. |
@@ -96,6 +97,7 @@ Codes are grouped by the surface that emits them. Within a status-code class the
 | Code | Routes | When it fires |
 |---|---|---|
 | `tenant_exists` | `POST /v1/tenants` | A tenant of this name exists. The message names the tenant. |
+| `tenant_namespace_taken` | `POST /v1/tenants` | A tenant of another name has this name's Kubernetes namespace. The message names the other tenant and the namespace. (CLOACINA-T-1070) |
 | `workflow_paused` | `POST /v1/tenants/{tenant_id}/workflows/{name}/execute` | The workflow (or its schedule) is paused; resume it before executing. (CLOACI-T-0749) |
 | `package_building` | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` | The compiler is building the package version. Nothing is removed; delete it when the build ends. |
 | `trusted_key_exists` | `POST /v1/tenants/{tenant_id}/trusted-keys` | The tenant already has this key, live or revoked. |

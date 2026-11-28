@@ -21,13 +21,19 @@
 //! calls the trigger and answers fire (with the trigger's context) or skip,
 //! on `/v1/agent/result` under the packet's poll id.
 //!
-//! Two parts, so the run part can become the body of a job of a worker
-//! process (CLOACINA-T-1028, CLOACINA-T-1126) beside a task and a graph
-//! firing:
-//! - [`prepare_poll`]: in the agent process. Checks the packet, fetches the
-//!   package and gives the trigger.
-//! - [`run_poll`]: calls the trigger under the packet's time limit and gives
-//!   the outcome.
+//! CLOACINA-T-1143: a poll is a job of a worker process, beside a task and a
+//! graph firing (`worker::PollJob`):
+//! - in the agent process (`process_poll_packet` in `main.rs`): the checks of
+//!   this module ([`still_wanted`], [`wrong_arch`]) and the fetch of the
+//!   package;
+//! - in the worker (`run_poll_job`): the load of the trigger and
+//!   [`run_poll`]. The agent holds the worker to the poll's time limit and to
+//!   the agent's default memory share, and kills its process group at either.
+//!
+//! CLOACINA-T-1156: a packet with `accumulator_name` is a poll of a Python
+//! polling accumulator. The worker imports the package into the same
+//! per-build runtime and calls the accumulator's poll function
+//! ([`run_accumulator_poll`]); the answer is its JSON value or no change.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +43,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use cloacina::cloacina_workflow::Trigger;
 use cloacina::fleet::{
-    AgentOutcome, FailureClassification, PollWorkPacket, RefusalReason, WorkPacket, poll_outcome,
+    AgentOutcome, FailureClassification, PollWorkPacket, RefusalReason, WorkPacket,
+    accumulator_poll_outcome, poll_outcome,
 };
 
 /// Read the packet of an `agent_poll` push.
@@ -53,18 +60,6 @@ pub(crate) fn decode_poll_packet(env: &serde_json::Value) -> Result<PollWorkPack
         .with_context(|| "deserialize PollWorkPacket JSON")
 }
 
-/// What the agent does with a poll packet before it runs it.
-pub(crate) enum Prepared {
-    /// Run this trigger.
-    Run(Arc<dyn Trigger>),
-    /// Answer this without running the trigger.
-    Answer(AgentOutcome),
-    /// The server no longer waits for the answer: do not run the poll and
-    /// report nothing. A poll can consume what it reads, and its answer
-    /// would be dropped.
-    Late,
-}
-
 fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -72,7 +67,9 @@ fn now_unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// Whether the server still waits for the answer of `packet` now.
+/// Whether the server still waits for the answer of `packet` now. A packet
+/// it no longer waits for is not run and gets no report: a poll can consume
+/// what it reads, and its answer would be dropped.
 pub(crate) fn still_wanted(packet: &PollWorkPacket) -> bool {
     packet.still_wanted(now_unix_ms())
 }
@@ -140,13 +137,79 @@ pub(crate) fn wrong_arch(packet: &PollWorkPacket, agent_triple: &str) -> Option<
     })
 }
 
-/// Call the trigger under the packet's time limit and give the outcome.
-pub(crate) async fn run_poll(trigger: Arc<dyn Trigger>, timeout_seconds: u32) -> AgentOutcome {
-    let limit = Duration::from_secs(u64::from(timeout_seconds.max(1)));
+/// The refusal of a poll of a polling accumulator in a package that is not
+/// Python (CLOACINA-T-1156): only a Python package has poll code for one.
+pub(crate) fn not_a_python_package(packet: &PollWorkPacket) -> AgentOutcome {
+    AgentOutcome::Failure {
+        message: format!(
+            "polling accumulator '{}' of package '{}': a poll of a polling accumulator runs only \
+             for a Python package, this one is {}",
+            packet.target_name(),
+            packet.package_name,
+            packet.language.as_deref().unwrap_or("rust")
+        ),
+        classification: FailureClassification::Validation,
+    }
+}
+
+/// The tenant the import of a poll's package registers under, as
+/// [`load_packet_for`] gives it to the loaders.
+pub(crate) fn import_tenant(packet: &PollWorkPacket) -> String {
+    packet
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| "public".to_string())
+}
+
+/// Call the poll function of a polling accumulator of the imported package
+/// and give the outcome (CLOACINA-T-1156): the value, or no change. The time
+/// limit is as in [`run_poll`].
+pub(crate) async fn run_accumulator_poll(
+    packet: &PollWorkPacket,
+    accumulator: String,
+    time_limit: Option<Duration>,
+) -> AgentOutcome {
+    let tenant = import_tenant(packet);
+    let package = packet.package_name.clone();
+    let call = tokio::task::spawn_blocking(move || {
+        cloacina_python::computation_graph::poll_accumulator(&tenant, &package, &accumulator)
+    });
+    let joined = match time_limit {
+        None => call.await,
+        Some(limit) => match tokio::time::timeout(limit, call).await {
+            Ok(joined) => joined,
+            Err(_) => {
+                return AgentOutcome::Failure {
+                    message: format!("poll exceeded timeout of {}s", packet.timeout_seconds),
+                    classification: FailureClassification::Timeout,
+                };
+            }
+        },
+    };
+    match joined {
+        Ok(result) => accumulator_poll_outcome(result),
+        Err(e) => AgentOutcome::Failure {
+            message: format!("the poll function's thread ended: {e}"),
+            classification: FailureClassification::TaskError,
+        },
+    }
+}
+
+/// Call the trigger and give the outcome. With `time_limit` (a poll in the
+/// agent process) the poll is dropped at the limit; in a worker the agent
+/// holds the clock and kills the worker, with the same text.
+pub(crate) async fn run_poll(
+    trigger: Arc<dyn Trigger>,
+    time_limit: Option<Duration>,
+    timeout_seconds: u32,
+) -> AgentOutcome {
+    let Some(limit) = time_limit else {
+        return poll_outcome(trigger.poll().await);
+    };
     match tokio::time::timeout(limit, trigger.poll()).await {
         Ok(result) => poll_outcome(result),
         Err(_) => AgentOutcome::Failure {
-            message: format!("the poll ran past its time limit of {timeout_seconds}s"),
+            message: format!("poll exceeded timeout of {timeout_seconds}s"),
             classification: FailureClassification::Timeout,
         },
     }
@@ -174,7 +237,23 @@ mod tests {
             tenant_id: Some("acme".into()),
             language: Some("rust".into()),
             not_after_unix_ms: not_after,
+            accumulator_name: None,
         }
+    }
+
+    /// A poll of a polling accumulator in a Rust build is refused with why
+    /// (CLOACINA-T-1156).
+    #[test]
+    fn an_accumulator_poll_of_a_rust_build_is_refused() {
+        let mut p = packet(None);
+        p.trigger_name = String::new();
+        p.accumulator_name = Some("prices".into());
+        let AgentOutcome::Failure { message, .. } = not_a_python_package(&p) else {
+            panic!("a failure");
+        };
+        assert!(message.contains("'prices'"), "{message}");
+        assert!(message.contains("only for a Python package"), "{message}");
+        assert_eq!(import_tenant(&p), "acme");
     }
 
     #[test]
@@ -249,13 +328,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_poll_past_its_time_limit_is_a_timeout() {
-        let outcome = run_poll(Arc::new(Slow), 1).await;
+        let outcome = run_poll(Arc::new(Slow), Some(Duration::from_secs(1)), 1).await;
         assert!(matches!(
-            outcome,
+            &outcome,
             AgentOutcome::Failure {
                 classification: FailureClassification::Timeout,
-                ..
-            }
+                message,
+            } if message == "poll exceeded timeout of 1s"
         ));
     }
 }

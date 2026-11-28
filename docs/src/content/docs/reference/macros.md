@@ -383,7 +383,7 @@ Applied to an `async fn` to define a trigger that fires a workflow on a schedule
 
 ### Custom Poll Trigger
 
-The function body contains the poll logic. Called at `poll_interval` frequency. In the daemon and in embedded use it runs in the process that loaded the package; on a server it runs on an agent of the package's tenant, which answers fire or skip (see [Poll triggers on agents](../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents), CLOACINA-T-1077). A static of the package then lives on that agent.
+The function body contains the poll logic. Called at `poll_interval` frequency. In the daemon and in embedded use it runs in the process that loaded the package; on a server it runs on an agent of the package's tenant, which answers fire or skip (see [Poll triggers on agents](../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents), CLOACINA-T-1077). There each poll runs in a worker process of the agent (CLOACINA-T-1143): a static of the package lives as long as that worker, which is kept warm between polls of the same build for at most `--warm-worker-idle-seconds` (default 60).
 
 ```rust
 #[trigger(on = "inbox_processor", poll_interval = "5s")]

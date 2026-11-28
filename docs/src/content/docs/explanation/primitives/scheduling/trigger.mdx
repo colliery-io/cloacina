@@ -32,7 +32,8 @@ subscribe to its name. Two kinds of firing rule:
   several schedulers on one database, one takes each poll.
 - **On a server** (CLOACINA-T-1077) a poll trigger's code runs on an agent of
   the tenant, not in the server: the server sends each poll to an agent, which
-  calls the trigger and answers fire or skip. A poll trigger needs a running
+  calls the trigger in a worker process, with a memory limit and a kill at the
+  poll time limit (CLOACINA-T-1143), and answers fire or skip. A poll trigger needs a running
   agent and costs one dispatch per poll; a tenant with a poll trigger keeps one
   agent. A poll that gets no answer fires nothing and its reason is in
   `last_poll_error` of the trigger. See

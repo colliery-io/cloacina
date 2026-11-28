@@ -176,11 +176,21 @@ invalid execution context: secret 'dst_credentials' is declared by the workflow 
 ```
 
 Creating an instance without the reference is refused with the same message.
-A reference for a name the workflow does not declare is accepted here. On
-`cloacina-server` it grants nothing: on the fleet each task of the run fails
-at dispatch with `secret not granted`, and in the server process a read of it
-fails the same way (a Rust package reads every bound secret before its task
-starts).
+
+A reference for a name the package does not declare is refused with `400`
+`secret_not_declared`, by the execute route and by the instance route. No run
+and no instance is made. The message names the binding and the package, and
+shows how to declare it:
+
+```text
+secret binding `lake`: package `orders` v1.2.0 does not declare it; a run binds only the secrets its package declares (`secrets(lake)` in `#[workflow]`, `@cloaca.workflow_secrets("lake")` in Python)
+```
+
+The routes read the declaration of the package's active version, from its
+stored metadata document. A package with no stored document, or with no built
+version, has no declaration: each reference is refused. An instance is checked
+when it is created; each fire runs on the version active at that time.
+
 A task that asks for a name that no stored secret and no reference matches gets
 `secret not found: <name>`, followed by the same reference form. This composes
 with the rest of the instance model — rotating `s3_prod` takes effect on the

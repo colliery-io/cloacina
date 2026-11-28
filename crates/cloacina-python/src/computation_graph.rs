@@ -328,6 +328,53 @@ fn resolve_poll_closure(
     }))
 }
 
+/// One poll of a polling accumulator of an imported package, on an agent
+/// (CLOACINA-T-1156). The server keeps the accumulator's timer and its
+/// checkpoint and sends each poll here; this calls the poll function that the
+/// import of `package` for `tenant` registered under `name`.
+///
+/// `Ok(Some(value))`: the JSON value it returned. `Ok(None)`: it returned
+/// `None`, no change. `Err`: no such polling accumulator, the function
+/// raised, or its value is not JSON. Holds the GIL: call it off the async
+/// executor.
+pub fn poll_accumulator(
+    tenant: &str,
+    package: &str,
+    name: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let function = {
+        let registry = ACCUMULATOR_REGISTRY.lock().unwrap();
+        let key = GraphKey {
+            tenant_id: Some(tenant.to_string()),
+            package: Some(package.to_string()),
+            name: name.to_string(),
+        };
+        let Some((func, reg)) = registry.get(&key) else {
+            return Err(format!(
+                "the package '{package}' has no polling accumulator '{name}' (tenant '{tenant}')"
+            ));
+        };
+        if reg.accumulator_type != "polling" {
+            return Err(format!(
+                "accumulator '{name}' of package '{package}' is a {} accumulator, not a polling one",
+                reg.accumulator_type
+            ));
+        }
+        Python::attach(|py| func.clone_ref(py))
+    };
+    Python::attach(|py| {
+        let result = function
+            .call0(py)
+            .map_err(|e| format!("polling accumulator '{name}' raised: {e}"))?;
+        if result.is_none(py) {
+            return Ok(None);
+        }
+        pythonize::depythonize::<serde_json::Value>(result.bind(py))
+            .map(Some)
+            .map_err(|e| format!("polling accumulator '{name}' returned a non-JSON value: {e}"))
+    })
+}
+
 /// Install the polling-accumulator poll-closure resolver into the packaged CG
 /// bridge (CLOACI-T-0896). Idempotent (the bridge's OnceLock keeps the first);
 /// called once from `register_authoring` so every embedding (pip wheel + the
