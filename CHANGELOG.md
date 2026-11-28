@@ -392,6 +392,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent NetworkPolicy. The agent takes `--ca-file` /
   `CLOACINA_AGENT_CA_FILE`.
 
+### Added
+
+- **The compatibility promise** (CLOACINA-T-1046): a reference page on what a patch, a minor and a major may change, the schema rule, version skew, the upgrade order, and the full stop of the upgrade to 0.13.0.
+
 ### Fixed
 
 - **The `tracing` and `log` lines of a packaged Rust task are written**
