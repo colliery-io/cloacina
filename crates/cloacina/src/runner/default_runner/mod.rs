@@ -319,12 +319,21 @@ impl DefaultRunner {
             .unwrap_or_else(|e| e.into_inner()) = Some(dispatcher);
     }
 
-    /// Gracefully shuts down the executor and its background services.
+    /// Gracefully shuts down the executor and its background services, and
+    /// closes the runner's database connection pool.
     pub async fn shutdown(&self) -> Result<(), WorkflowExecutionError> {
-        self.service_manager.write().await.shutdown_all().await?;
+        self.shutdown_services().await?;
         // Close the database connection pool to release all connections
         self.database.close();
         Ok(())
+    }
+
+    /// Gracefully shuts down the executor and its background services, and
+    /// leaves the database connection pool open (CLOACINA-T-1152). For a
+    /// runner made on a `Database` that other code also uses: the pool is
+    /// freed when its last clone is dropped.
+    pub async fn shutdown_services(&self) -> Result<(), WorkflowExecutionError> {
+        self.service_manager.write().await.shutdown_all().await
     }
 }
 

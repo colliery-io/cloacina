@@ -43,8 +43,43 @@ helm install fleet charts/cloacina-agent \
 | `server.capabilities` | `[]` | Capability tags advertised at registration. |
 | `image.repository` / `image.tag` | ghcr image / appVersion | Agent image. |
 | `automountServiceAccountToken` | `false` | Mount a service account token in the pod. The agent does not use one. |
+| `server.ca.configMap` / `server.ca.secret` | `""` | A ConfigMap or a Secret (one of the two) holding a PEM CA file under `server.ca.key` (`ca.crt`). The chart mounts it and sets `CLOACINA_AGENT_CA_FILE`; the agent trusts the CA in addition to the system roots. |
 
 See `values.yaml` for the full set (resources, security context, scheduling).
+
+## TLS and the server's NetworkPolicy
+
+The server listens on plain HTTP; TLS ends in the cluster, in a mesh or a
+gateway in front of the server (see
+[Transport Security](https://cloacina.dev/platform/how-to-guides/transport-security)).
+With a gateway, set `server.url` to its `https://` address. When a private
+CA signs the gateway's certificate, put the CA in a ConfigMap and name it:
+
+```bash
+kubectl create configmap cluster-ca --from-file=ca.crt=./ca.crt
+helm install fleet charts/cloacina-agent \
+  --set server.url=https://cloacina.internal.example.com \
+  --set apiKeySecretRef.name=cloacina-agent-key \
+  --set server.ca.configMap=cluster-ca
+```
+
+A CA file that cannot be read, or holds no certificate, stops the agent at
+start.
+
+The `cloacina-server` chart closes its API port to pods it does not know
+(`server.networkPolicy`). Agents of this chart must be listed in the
+server release's `server.networkPolicy.from`, for example by their
+namespace:
+
+```yaml
+# values of the cloacina-server release
+server:
+  networkPolicy:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: cloacina-agents
+```
 
 ## Notes
 

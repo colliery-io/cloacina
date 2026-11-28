@@ -14,80 +14,57 @@
  *  limitations under the License.
  */
 
-//! Back-pressure autoscaler (CLOACI-T-0811, CLOACI-I-0127).
+//! Pool autoscaler (CLOACINA-T-1029; first version CLOACI-T-0811).
 //!
-//! A leader-gated control loop adjusts each tenant's `desired_count` (T-0809
-//! `AgentDesiredDAL`) up or down based on the fleet's **utilization**, clamped to
-//! `[floor, effective_limit]` (T-0808 `AgentLimitsDAL::effective_limit`). The
-//! T-0810 actuator then reconciles *actual → desired*. The decision lives in our
-//! control plane, not in K8s HPA: HPA cannot see per-tenant signal, and a tenant
-//! is the isolation boundary (REQ-008).
+//! A leader-gated step of the fleet control loop sets the agent count of each
+//! pool of each tenant from the **waiting work that does not fit**:
 //!
-//! This module holds the **pure** decision pieces (no DB, no clock side-effects)
-//! so they're unit-testable in isolation:
-//! - [`decide`] — Up / Down / Hold from utilization vs thresholds + clamp.
-//! - [`should_act_at`] — cooldown gate (testable without a DB).
-//! - [`tenant_utilizations`] — per-tenant utilization from a roster snapshot.
+//! - **Leftover.** The pool's waiting tasks (Ready, on no agent) are packed,
+//!   largest first, onto the free room of the pool's live agents. What is left
+//!   does not fit.
+//! - **Up.** The leftover is packed, largest first, into empty agents of the
+//!   pool's size. The target is `max(desired, live + needed)`, clamped to the
+//!   pool's `[min, max]`: agents that are starting are counted, so a tick
+//!   while pods start adds no more. One step, not one agent at a time.
+//! - **Down.** A pool goes back to its min when it has been idle (no task in
+//!   flight, none waiting) for the idle cooldown, and its last scale-down is
+//!   a cooldown ago. A pool with work is never shrunk, so no agent with work
+//!   in flight is stopped by a scale-down; an agent that is stopped for any
+//!   reason drains first (the agent's SIGTERM handling).
 //!
-//! Leadership (the Postgres advisory lock that ensures only ONE replica runs the
-//! loop) lives in [`leader`]; the loop wiring lives in `lib.rs`.
+//! A task counts for what it requests, or one slot's share of an agent with
+//! totals ([`crate::agent_registry::charge`]), as in selection. A task larger
+//! than one agent of its pool cannot be placed by more agents: it is counted
+//! as unplaceable and does not scale the pool.
 //!
-//! ## Signal (v1: utilization)
-//! Per-tenant utilization = Σ`in_flight` / Σ`max_concurrency` over that tenant's
-//! live agents (heartbeat-updated). Σ`max_concurrency == 0` → utilization `0.0`
-//! (don't scale up a tenant that has no live capacity to begin with).
-//!
-//! NOTE (future refinement): the per-tenant **Ready-task backlog** would be a
-//! better *leading* indicator (utilization is reactive — it only rises once work
-//! is already running and the fleet is saturated). Backlog lives in per-tenant
-//! schemas, so reading it here means a per-tenant DAL hop per tick; deferred.
-//! Utilization is the v1 signal.
+//! This module holds the pure pieces; [`step`] reads the database and writes
+//! the counts; the loop is in `lib.rs`, behind [`leader`] (CLOACINA-A-0008).
 
 pub mod leader;
+pub mod step;
 
-use cloacina::dal::unified::FleetAgent;
-use std::collections::HashMap;
 use std::time::Duration;
 
-/// The scaling action the autoscaler decides for one tenant on one tick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScaleAction {
-    /// Utilization is over the up-threshold and we're under the effective limit
-    /// → request one more agent.
-    Up,
-    /// Utilization is under the down-threshold and we're above the floor →
-    /// release one agent.
-    Down,
-    /// In the hysteresis band, or already clamped at the limit/floor → no change.
-    Hold,
-}
-
-/// Tunable knobs for the back-pressure autoscaler, sourced from the environment
-/// at boot via [`ScaleConfig::from_env`].
+/// Tunable knobs, from the environment at boot via [`ScaleConfig::from_env`].
 #[derive(Debug, Clone)]
 pub struct ScaleConfig {
-    /// Scale UP when utilization is strictly greater than this (default `0.8`).
-    pub up_threshold: f64,
-    /// Scale DOWN when utilization is strictly less than this (default `0.2`).
-    /// The gap between `down_threshold` and `up_threshold` is the hysteresis
-    /// band that prevents thrash.
-    pub down_threshold: f64,
-    /// Minimum wall-clock between consecutive scale changes for a tenant
-    /// (default 60s). Enforced by [`should_act_at`].
+    /// Least time between two scale-downs of a pool (default 60 s).
     pub cooldown: Duration,
-    /// Lower bound on a tenant's `desired_count` (default `0`). Scale-down never
-    /// goes below this.
+    /// How long a pool must be idle before it goes back to its min
+    /// (default 300 s).
+    pub idle: Duration,
+    /// The min of the pool `default` (default `0`). Another pool has its own
+    /// `min_agents`.
     pub floor: u32,
-    /// How often the control loop ticks (default 30s).
+    /// How often the control loop ticks (default 30 s).
     pub interval: Duration,
 }
 
 impl Default for ScaleConfig {
     fn default() -> Self {
         Self {
-            up_threshold: 0.8,
-            down_threshold: 0.2,
             cooldown: Duration::from_secs(60),
+            idle: Duration::from_secs(300),
             floor: 0,
             interval: Duration::from_secs(30),
         }
@@ -97,30 +74,21 @@ impl Default for ScaleConfig {
 impl ScaleConfig {
     /// Build from `CLOACINA_AUTOSCALE_*` env vars, falling back to the defaults
     /// for any var that is unset or unparsable:
-    /// - `CLOACINA_AUTOSCALE_UP_THRESHOLD`   = 0.8
-    /// - `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` = 0.2
-    /// - `CLOACINA_AUTOSCALE_COOLDOWN_S`     = 60
-    /// - `CLOACINA_AUTOSCALE_FLOOR`          = 0
-    /// - `CLOACINA_AUTOSCALE_INTERVAL_S`     = 30
+    /// - `CLOACINA_AUTOSCALE_COOLDOWN_S` = 60
+    /// - `CLOACINA_AUTOSCALE_IDLE_S`     = 300
+    /// - `CLOACINA_AUTOSCALE_FLOOR`      = 0
+    /// - `CLOACINA_AUTOSCALE_INTERVAL_S` = 30
     pub fn from_env() -> Self {
         let d = Self::default();
-        let up_threshold = env_parse("CLOACINA_AUTOSCALE_UP_THRESHOLD").unwrap_or(d.up_threshold);
-        let down_threshold =
-            env_parse("CLOACINA_AUTOSCALE_DOWN_THRESHOLD").unwrap_or(d.down_threshold);
-        let cooldown = env_parse::<u64>("CLOACINA_AUTOSCALE_COOLDOWN_S")
-            .map(Duration::from_secs)
-            .unwrap_or(d.cooldown);
-        let floor = env_parse("CLOACINA_AUTOSCALE_FLOOR").unwrap_or(d.floor);
-        let interval = env_parse::<u64>("CLOACINA_AUTOSCALE_INTERVAL_S")
-            .filter(|n| *n > 0)
-            .map(Duration::from_secs)
-            .unwrap_or(d.interval);
+        let secs = |key: &str| env_parse::<u64>(key).map(Duration::from_secs);
         Self {
-            up_threshold,
-            down_threshold,
-            cooldown,
-            floor,
-            interval,
+            cooldown: secs("CLOACINA_AUTOSCALE_COOLDOWN_S").unwrap_or(d.cooldown),
+            idle: secs("CLOACINA_AUTOSCALE_IDLE_S").unwrap_or(d.idle),
+            floor: env_parse("CLOACINA_AUTOSCALE_FLOOR").unwrap_or(d.floor),
+            interval: env_parse::<u64>("CLOACINA_AUTOSCALE_INTERVAL_S")
+                .filter(|n| *n > 0)
+                .map(Duration::from_secs)
+                .unwrap_or(d.interval),
         }
     }
 }
@@ -130,50 +98,16 @@ fn env_parse<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::var(key).ok().and_then(|s| s.parse::<T>().ok())
 }
 
-/// Decide whether to scale a tenant Up / Down / Hold.
+/// Cooldown gate: is `cooldown` over since `last`?
 ///
-/// Pure: utilization in, action out. The loop turns `Up`/`Down` into a clamped
-/// `desired ± 1` and a `set_desired` write.
+/// Pure (clock injected as `now`). `last` is a wall-clock time read back from
+/// the database, so the gate holds across replicas: leadership rotates per
+/// tick (CLOACI-A-0008 refinement). Both times are UTC.
 ///
-/// - `Up`   if `util > cfg.up_threshold` **and** `desired < effective_limit`.
-/// - `Down` if `util < cfg.down_threshold` **and** `desired > floor`.
-/// - `Hold` otherwise — i.e. in the hysteresis band, or already clamped at the
-///   effective limit (can't go up) or the floor (can't go down).
-///
-/// The clamp lives here, not just in the loop: deciding `Up` at the limit (or
-/// `Down` at the floor) would burn a cooldown on a no-op write.
-pub fn decide(
-    util: f64,
-    desired: u32,
-    effective_limit: u32,
-    floor: u32,
-    cfg: &ScaleConfig,
-) -> ScaleAction {
-    if util > cfg.up_threshold && desired < effective_limit {
-        ScaleAction::Up
-    } else if util < cfg.down_threshold && desired > floor {
-        ScaleAction::Down
-    } else {
-        ScaleAction::Hold
-    }
-}
-
-/// Cooldown gate: may we act on this tenant now?
-///
-/// Pure (no DB, clock injected as `now`) so it's testable in isolation. Unlike a
-/// monotonic [`Instant`], the last-action time is a **wall-clock**
-/// `NaiveDateTime` read back from the DB (`agent_desired_counts.last_autoscaled_at`),
-/// so the cooldown is coordinated across replicas: leadership rotates per tick,
-/// and a replica leading a later tick still sees a peer's recent scale action
-/// (CLOACI-A-0008 refinement). Both times are UTC (`chrono::Utc::now().naive_utc()`
-/// and the DB's `now()`).
-///
-/// - `None` (never autoscaled) → `true`.
-/// - Within `cooldown` of the last action → `false`.
-/// - At/after `cooldown` has elapsed → `true`.
-///
-/// A negative elapsed (clock skew between replicas, or `last` slightly ahead of
-/// `now`) is treated as "still cooling down" → `false`, the conservative choice.
+/// - `None` (never) → `true`.
+/// - Within `cooldown` of `last` → `false`.
+/// - At or after → `true`.
+/// - A negative elapsed time (clock skew between replicas) → `false`.
 pub fn should_act_at(
     last: Option<chrono::NaiveDateTime>,
     now: chrono::NaiveDateTime,
@@ -182,231 +116,463 @@ pub fn should_act_at(
     match last {
         None => true,
         Some(t) => match (now - t).to_std() {
-            // Non-negative elapsed: gate on the cooldown as usual.
             Ok(elapsed) => elapsed >= cooldown,
-            // Negative elapsed (now < last, e.g. cross-replica skew): not yet.
             Err(_) => false,
         },
     }
 }
 
-/// Compute per-tenant utilization from the live (DB-read, heartbeat-recent)
-/// roster (CLOACI-T-0916 — the roster spans every replica).
-///
-/// Utilization = Σ`in_flight` / Σ`max_concurrency` over the tenant's agents of
-/// the pool `default`. Capacity is what each agent registered, so tenants (and
-/// agents) with different `max_concurrency` are weighed correctly.
-/// Only tenant-scoped agents (`tenant_id = Some(..)`) are counted — a global
-/// (`None`) agent has no `desired_count` to scale, so it's excluded. A tenant
-/// whose summed `max_concurrency` is `0` (e.g. every live agent advertises zero
-/// capacity) maps to `0.0` rather than dividing by zero — we don't scale up a
-/// tenant with no usable capacity on the strength of a degenerate ratio.
-pub fn tenant_utilizations(records: &[FleetAgent]) -> HashMap<String, f64> {
-    // tenant -> (Σ in_flight, Σ max_concurrency)
-    let mut sums: HashMap<String, (u64, u64)> = HashMap::new();
-    for r in records {
-        // CLOACINA-T-1021: only the pool `default` is autoscaled, and only it
-        // receives work. An agent of another pool is left out, so its idle
-        // capacity does not hide a full default pool.
-        if cloacina_api_types::agent_pool_of(&r.capabilities)
-            != cloacina_api_types::DEFAULT_AGENT_POOL
-        {
-            continue;
-        }
-        if let Some(tenant) = &r.tenant_id {
-            let e = sums.entry(tenant.clone()).or_insert((0, 0));
-            e.0 += u64::from(r.in_flight);
-            e.1 += u64::from(r.max_concurrency);
+/// The size of one agent of a pool: its slots, and its CPU and memory totals
+/// (`None`: it reports none, and is packed by slots in that resource).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentSize {
+    pub slots: u32,
+    pub cpu_millis: Option<u64>,
+    pub memory_bytes: Option<u64>,
+}
+
+/// The free room of one agent: what is left of an [`AgentSize`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Room {
+    /// The agent's size (to work out a task's charge).
+    pub size: AgentSize,
+    pub free_slots: u32,
+    /// Free CPU, `None` when the agent has no CPU total.
+    pub free_cpu_millis: Option<u64>,
+    /// Free memory, `None` when the agent has no memory total.
+    pub free_memory_bytes: Option<u64>,
+}
+
+impl Room {
+    /// An empty agent of `size`.
+    pub fn empty(size: AgentSize) -> Self {
+        Self {
+            size,
+            free_slots: size.slots,
+            free_cpu_millis: size.cpu_millis,
+            free_memory_bytes: size.memory_bytes,
         }
     }
-    sums.into_iter()
-        .map(|(tenant, (in_flight, max))| {
-            let util = if max == 0 {
-                0.0
+
+    fn charges(&self, task: &TaskSize) -> (u64, u64) {
+        use crate::agent_registry::charge;
+        (
+            charge(task.cpu_millis, self.size.cpu_millis, self.size.slots),
+            charge(task.memory_bytes, self.size.memory_bytes, self.size.slots),
+        )
+    }
+
+    /// Does the task fit in what is left?
+    fn fits(&self, task: &TaskSize) -> bool {
+        if self.free_slots == 0 {
+            return false;
+        }
+        let (cpu, memory) = self.charges(task);
+        self.free_cpu_millis.is_none_or(|free| cpu <= free)
+            && self.free_memory_bytes.is_none_or(|free| memory <= free)
+    }
+
+    fn take(&mut self, task: &TaskSize) {
+        let (cpu, memory) = self.charges(task);
+        self.free_slots -= 1;
+        self.free_cpu_millis = self.free_cpu_millis.map(|f| f.saturating_sub(cpu));
+        self.free_memory_bytes = self.free_memory_bytes.map(|f| f.saturating_sub(memory));
+    }
+}
+
+/// The requests of one task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskSize {
+    pub cpu_millis: Option<u64>,
+    pub memory_bytes: Option<u64>,
+}
+
+/// Tasks of one size that wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DemandGroup {
+    pub size: TaskSize,
+    pub count: u64,
+}
+
+/// What packing the waiting work gave.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Packing {
+    /// New agents of the pool's size the leftover needs (at most the room
+    /// below the pool's max).
+    pub agents_needed: u32,
+    /// Tasks that fit on no agent of the pool's size: they cannot be placed
+    /// by more agents.
+    pub unplaceable: u64,
+    /// Tasks that fit nowhere, also with `agents_needed` more agents: the
+    /// pool's max holds them back.
+    pub over_max: u64,
+    /// Tasks that fit on the free room of the live agents (they wait for a
+    /// dispatch try, not for an agent).
+    pub fit_now: u64,
+}
+
+/// Pack the waiting work (CLOACINA-T-1029): first onto the free room of the
+/// pool's live agents, then into empty agents of `size`, at most `max_new`
+/// of them. Largest first by memory, then CPU (first-fit decreasing).
+pub fn pack_waiting(
+    live: &[Room],
+    size: AgentSize,
+    demand: &[DemandGroup],
+    max_new: u32,
+) -> Packing {
+    let mut groups: Vec<DemandGroup> = demand.iter().copied().filter(|g| g.count > 0).collect();
+    // Largest first: the charge on an agent of the pool's size.
+    let empty = Room::empty(size);
+    groups.sort_by(|a, b| {
+        let (ac, am) = empty.charges(&a.size);
+        let (bc, bm) = empty.charges(&b.size);
+        (bm, bc).cmp(&(am, ac))
+    });
+
+    let mut live: Vec<Room> = live.to_vec();
+    let mut new_agents: Vec<Room> = Vec::new();
+    let mut out = Packing::default();
+    for group in groups {
+        if size.slots == 0 || !empty.fits(&group.size) {
+            out.unplaceable += group.count;
+            continue;
+        }
+        let mut left = group.count;
+        while left > 0 {
+            if let Some(room) = live.iter_mut().find(|r| r.fits(&group.size)) {
+                room.take(&group.size);
+                out.fit_now += 1;
+            } else if let Some(room) = new_agents.iter_mut().find(|r| r.fits(&group.size)) {
+                room.take(&group.size);
+            } else if (new_agents.len() as u32) < max_new {
+                let mut room = Room::empty(size);
+                room.take(&group.size);
+                new_agents.push(room);
             } else {
-                in_flight as f64 / max as f64
-            };
-            (tenant, util)
-        })
-        .collect()
+                // Nothing of this size fits any more; smaller groups may.
+                out.over_max += left;
+                break;
+            }
+            left -= 1;
+        }
+    }
+    out.agents_needed = new_agents.len() as u32;
+    out
+}
+
+/// What the autoscaler knows about one pool on one tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolView {
+    /// The stored count.
+    pub desired: u32,
+    /// Live (registered, heartbeating) agents of the pool.
+    pub live: u32,
+    pub min: u32,
+    pub max: u32,
+    /// New agents the leftover needs ([`Packing::agents_needed`]).
+    pub needed: u32,
+    /// A task in flight on the pool's agents, or a task waiting that more
+    /// agents or a dispatch try can place.
+    pub busy: bool,
+    /// Since when the pool is idle, as stored.
+    pub idle_since: Option<chrono::NaiveDateTime>,
+    /// The last scale-down, as stored.
+    pub last_scaled_down_at: Option<chrono::NaiveDateTime>,
+}
+
+/// The change the autoscaler makes to one pool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoolDecision {
+    /// Raise the count to this (waiting work, or a min above the count).
+    Up(u32),
+    /// Lower the count to this (idle for the idle cooldown, or a max below
+    /// the count while idle).
+    Down(u32),
+    Hold,
+}
+
+/// Decide the count of one pool (CLOACINA-T-1029). Pure.
+pub fn decide_pool(view: &PoolView, now: chrono::NaiveDateTime, cfg: &ScaleConfig) -> PoolDecision {
+    let min = view.min.min(view.max);
+    if view.desired < min {
+        return PoolDecision::Up(min);
+    }
+    if view.needed > 0 {
+        let target = view
+            .desired
+            .max(view.live.saturating_add(view.needed))
+            .min(view.max)
+            .max(min);
+        if target > view.desired {
+            return PoolDecision::Up(target);
+        }
+        return PoolDecision::Hold;
+    }
+    if view.busy {
+        return PoolDecision::Hold;
+    }
+    // Idle: back to the min after the idle cooldown, a cooldown after the
+    // last scale-down. A max lowered under the count waits for this too: a
+    // pool with work is never shrunk.
+    let idle_long_enough = view
+        .idle_since
+        .is_some_and(|since| should_act_at(Some(since), now, cfg.idle));
+    if view.desired > min
+        && idle_long_enough
+        && should_act_at(view.last_scaled_down_at, now, cfg.cooldown)
+    {
+        return PoolDecision::Down(min);
+    }
+    PoolDecision::Hold
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const GI: u64 = 1 << 30;
+
     fn cfg() -> ScaleConfig {
         ScaleConfig::default()
     }
 
-    fn rec(tenant: Option<&str>, max: u32, in_flight: u32) -> FleetAgent {
-        let mut a = crate::agent_registry::test_fleet_agent(
-            &format!("agent-{}-{}", tenant.unwrap_or("global"), in_flight),
+    fn mem_size(slots: u32, memory: u64) -> AgentSize {
+        AgentSize {
+            slots,
+            cpu_millis: None,
+            memory_bytes: Some(memory),
+        }
+    }
+
+    fn tasks(memory: Option<u64>, count: u64) -> DemandGroup {
+        DemandGroup {
+            size: TaskSize {
+                cpu_millis: None,
+                memory_bytes: memory,
+            },
+            count,
+        }
+    }
+
+    fn view(desired: u32, live: u32, min: u32, max: u32, needed: u32, busy: bool) -> PoolView {
+        PoolView {
+            desired,
+            live,
+            min,
             max,
-            tenant,
+            needed,
+            busy,
+            idle_since: None,
+            last_scaled_down_at: None,
+        }
+    }
+
+    fn now() -> chrono::NaiveDateTime {
+        chrono::Utc::now().naive_utc()
+    }
+
+    // ---- pack_waiting -------------------------------------------------------
+
+    /// The acceptance case: ten 2 Gi tasks, agents of 8 Gi, max 3. Four fit
+    /// on an agent, so three agents hold twelve; the pool needs all three.
+    #[test]
+    fn ten_2gi_tasks_on_8gi_agents_need_three() {
+        let p = pack_waiting(&[], mem_size(8, 8 * GI), &[tasks(Some(2 * GI), 10)], 3);
+        assert_eq!(p.agents_needed, 3);
+        assert_eq!(p.over_max, 0);
+        // With a max of 2, two agents and two tasks over the max.
+        let p = pack_waiting(&[], mem_size(8, 8 * GI), &[tasks(Some(2 * GI), 10)], 2);
+        assert_eq!((p.agents_needed, p.over_max), (2, 2));
+    }
+
+    /// One waiting task on a pool at zero needs one agent.
+    #[test]
+    fn a_first_task_on_an_empty_pool_needs_one_agent() {
+        let p = pack_waiting(&[], mem_size(4, 8 * GI), &[tasks(None, 1)], 5);
+        assert_eq!(p.agents_needed, 1);
+    }
+
+    /// Work that fits on the free room of the live agents needs no agent.
+    #[test]
+    fn work_that_fits_on_live_agents_needs_none() {
+        let size = mem_size(4, 8 * GI);
+        let mut half = Room::empty(size);
+        half.free_slots = 2;
+        half.free_memory_bytes = Some(4 * GI);
+        let p = pack_waiting(&[half], size, &[tasks(Some(2 * GI), 2)], 5);
+        assert_eq!((p.agents_needed, p.fit_now), (0, 2));
+        let p = pack_waiting(&[half], size, &[tasks(Some(2 * GI), 3)], 5);
+        assert_eq!((p.agents_needed, p.fit_now), (1, 2));
+    }
+
+    /// By requests, not by count: one 24 Gi task and four 2 Gi tasks fit on
+    /// one 32 Gi agent; three 24 Gi tasks need three.
+    #[test]
+    fn the_count_is_by_requests_not_by_tasks() {
+        let size = mem_size(8, 32 * GI);
+        let p = pack_waiting(
+            &[],
+            size,
+            &[tasks(Some(2 * GI), 4), tasks(Some(24 * GI), 1)],
+            10,
         );
-        a.in_flight = in_flight;
-        a.available_capacity = max.saturating_sub(in_flight);
-        a
+        assert_eq!(p.agents_needed, 1);
+        let p = pack_waiting(&[], size, &[tasks(Some(24 * GI), 3)], 10);
+        assert_eq!(p.agents_needed, 3);
     }
 
-    // ---- decide() — every branch -------------------------------------------
-
+    /// The slot count caps an agent whatever the requests.
     #[test]
-    fn decide_up_when_over_threshold_and_under_limit() {
-        // util 0.9 > 0.8, desired 2 < limit 4 → Up
-        assert_eq!(decide(0.9, 2, 4, 0, &cfg()), ScaleAction::Up);
+    fn slots_cap_an_agent() {
+        let p = pack_waiting(&[], mem_size(2, 64 * GI), &[tasks(Some(GI), 5)], 10);
+        assert_eq!(p.agents_needed, 3);
+        // An agent with no totals is packed by slots only.
+        let slots_only = AgentSize {
+            slots: 4,
+            cpu_millis: None,
+            memory_bytes: None,
+        };
+        let p = pack_waiting(&[], slots_only, &[tasks(Some(100 * GI), 9)], 10);
+        assert_eq!(p.agents_needed, 3);
     }
 
+    /// A task with no request counts as one slot's share.
     #[test]
-    fn decide_hold_when_over_threshold_but_at_limit() {
-        // util 0.9 > 0.8 but desired 4 == limit 4 → Hold (clamped at the ceiling)
-        assert_eq!(decide(0.9, 4, 4, 0, &cfg()), ScaleAction::Hold);
+    fn a_task_with_no_request_counts_one_slots_share() {
+        // 4 slots of 8 Gi: a share is 2 Gi. Two 3 Gi tasks and two with none
+        // take 10 Gi: two agents.
+        let p = pack_waiting(
+            &[],
+            mem_size(4, 8 * GI),
+            &[tasks(Some(3 * GI), 2), tasks(None, 2)],
+            10,
+        );
+        assert_eq!(p.agents_needed, 2);
     }
 
+    /// A task larger than one agent of the pool is not placed by more agents.
     #[test]
-    fn decide_down_when_under_threshold_and_above_floor() {
-        // util 0.1 < 0.2, desired 3 > floor 1 → Down
-        assert_eq!(decide(0.1, 3, 4, 1, &cfg()), ScaleAction::Down);
+    fn a_task_larger_than_an_agent_is_unplaceable() {
+        let p = pack_waiting(
+            &[],
+            mem_size(4, 8 * GI),
+            &[tasks(Some(16 * GI), 2), tasks(Some(GI), 1)],
+            10,
+        );
+        assert_eq!((p.agents_needed, p.unplaceable), (1, 2));
     }
 
+    // ---- decide_pool --------------------------------------------------------
+
     #[test]
-    fn decide_hold_when_under_threshold_but_at_floor() {
-        // util 0.1 < 0.2 but desired 1 == floor 1 → Hold (clamped at the floor)
-        assert_eq!(decide(0.1, 1, 4, 1, &cfg()), ScaleAction::Hold);
+    fn a_pool_at_zero_starts_what_the_work_needs() {
+        assert_eq!(
+            decide_pool(&view(0, 0, 0, 3, 1, true), now(), &cfg()),
+            PoolDecision::Up(1)
+        );
+        assert_eq!(
+            decide_pool(&view(0, 0, 0, 3, 3, true), now(), &cfg()),
+            PoolDecision::Up(3)
+        );
     }
 
+    /// Agents that are starting are counted: no more while they start.
     #[test]
-    fn decide_hold_in_hysteresis_band() {
-        // util 0.5 is between down (0.2) and up (0.8) → Hold regardless of room
-        assert_eq!(decide(0.5, 2, 4, 0, &cfg()), ScaleAction::Hold);
-    }
-
-    #[test]
-    fn decide_hold_at_exact_thresholds() {
-        // Strict comparisons: exactly at up- or down-threshold holds.
-        assert_eq!(decide(0.8, 1, 4, 0, &cfg()), ScaleAction::Hold);
-        assert_eq!(decide(0.2, 3, 4, 0, &cfg()), ScaleAction::Hold);
-    }
-
-    // ---- tenant_utilizations() ---------------------------------------------
-
-    #[test]
-    fn utilization_is_per_tenant() {
-        // t1: two agents, Σin_flight=3+1=4, Σmax=4+4=8 → 0.5
-        // t2: one agent,  Σin_flight=8,    Σmax=8     → 1.0
-        let records = vec![
-            rec(Some("t1"), 4, 3),
-            rec(Some("t1"), 4, 1),
-            rec(Some("t2"), 8, 8),
-        ];
-        let utils = tenant_utilizations(&records);
-        assert_eq!(utils.len(), 2);
-        assert!((utils["t1"] - 0.5).abs() < f64::EPSILON);
-        assert!((utils["t2"] - 1.0).abs() < f64::EPSILON);
-    }
-
-    /// CLOACINA-T-1021: capacity is what each agent registered, so tenants
-    /// whose agents run a different max concurrency are each measured against
-    /// their own capacity (nothing assumes 4).
-    #[test]
-    fn utilization_uses_each_agents_registered_capacity() {
-        // t1 agents run 1 task each: 2 of 2 slots busy → 1.0
-        // t2 agents run 16 each: 8 of 32 busy → 0.25
-        let records = vec![
-            rec(Some("t1"), 1, 1),
-            rec(Some("t1"), 1, 1),
-            rec(Some("t2"), 16, 8),
-            rec(Some("t2"), 16, 0),
-        ];
-        let utils = tenant_utilizations(&records);
-        assert!((utils["t1"] - 1.0).abs() < f64::EPSILON);
-        assert!((utils["t2"] - 0.25).abs() < f64::EPSILON);
-    }
-
-    /// CLOACINA-T-1021: only the pool `default` is autoscaled. An idle agent
-    /// of another pool does not lower the tenant's utilization.
-    #[test]
-    fn utilization_counts_the_default_pool_only() {
-        let mut big = rec(Some("t1"), 32, 0);
-        big.capabilities = vec!["pool:big".to_string()];
-        let mut named_default = rec(Some("t1"), 4, 4);
-        named_default.capabilities = vec!["pool:default".to_string()];
-        let records = vec![big, named_default, rec(Some("t1"), 4, 4)];
-        let utils = tenant_utilizations(&records);
-        assert!((utils["t1"] - 1.0).abs() < f64::EPSILON);
-
-        // A tenant with agents in another pool only has no utilization entry.
-        let mut only_big = rec(Some("t2"), 32, 32);
-        only_big.capabilities = vec!["pool:big".to_string()];
-        assert!(tenant_utilizations(&[only_big]).is_empty());
+    fn starting_agents_are_counted() {
+        // Desired 3, one live, two more needed: three is enough.
+        assert_eq!(
+            decide_pool(&view(3, 1, 0, 5, 2, true), now(), &cfg()),
+            PoolDecision::Hold
+        );
+        // Three more needed: four.
+        assert_eq!(
+            decide_pool(&view(3, 1, 0, 5, 3, true), now(), &cfg()),
+            PoolDecision::Up(4)
+        );
     }
 
     #[test]
-    fn utilization_guards_zero_capacity() {
-        // A tenant whose live agents advertise zero max_concurrency → 0.0,
-        // not a divide-by-zero / NaN.
-        let records = vec![rec(Some("t1"), 0, 0)];
-        let utils = tenant_utilizations(&records);
-        assert_eq!(utils["t1"], 0.0);
+    fn the_max_holds() {
+        assert_eq!(
+            decide_pool(&view(1, 1, 0, 3, 9, true), now(), &cfg()),
+            PoolDecision::Up(3)
+        );
+        assert_eq!(
+            decide_pool(&view(3, 3, 0, 3, 2, true), now(), &cfg()),
+            PoolDecision::Hold
+        );
+    }
+
+    /// The min holds (a pool's `min_agents`, the floor of `default`, the
+    /// poll floor of CLOACINA-T-1077).
+    #[test]
+    fn the_min_holds() {
+        assert_eq!(
+            decide_pool(&view(0, 0, 1, 3, 0, false), now(), &cfg()),
+            PoolDecision::Up(1)
+        );
+        let mut v = view(3, 3, 1, 3, 0, false);
+        v.idle_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Down(1));
     }
 
     #[test]
-    fn utilization_excludes_global_agents() {
-        // A None-tenant (global) agent has no desired_count to scale → excluded.
-        let records = vec![rec(None, 4, 4), rec(Some("t1"), 4, 2)];
-        let utils = tenant_utilizations(&records);
-        assert_eq!(utils.len(), 1);
-        assert!((utils["t1"] - 0.5).abs() < f64::EPSILON);
+    fn an_idle_pool_goes_to_its_min_after_the_idle_cooldown() {
+        let mut v = view(3, 3, 0, 3, 0, false);
+        // Idle, not marked yet.
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
+        v.idle_since = Some(now() - chrono::Duration::seconds(299));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
+        v.idle_since = Some(now() - chrono::Duration::seconds(301));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Down(0));
+        // A scale-down a moment ago: the cooldown holds the next.
+        v.last_scaled_down_at = Some(now() - chrono::Duration::seconds(10));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
     }
 
-    // ---- should_act_at() — cross-replica (wall-clock) cooldown -------------
+    /// A pool with work is never shrunk, whatever its stored idle time.
+    #[test]
+    fn a_busy_pool_is_not_shrunk() {
+        let mut v = view(3, 3, 0, 3, 0, true);
+        v.idle_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
+        // A max lowered under the count waits for the pool to be idle too.
+        let mut v = view(5, 5, 0, 3, 0, true);
+        v.idle_since = Some(now() - chrono::Duration::hours(1));
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Hold);
+        v.busy = false;
+        assert_eq!(decide_pool(&v, now(), &cfg()), PoolDecision::Down(0));
+    }
+
+    // ---- should_act_at --------------------------------------------------------
 
     #[test]
-    fn should_act_at_when_never_scaled() {
-        // None (no last_autoscaled_at row / never autoscaled) → always allowed.
-        let now = chrono::Utc::now().naive_utc();
-        assert!(should_act_at(None, now, Duration::from_secs(60)));
+    fn should_act_at_rules() {
+        let now = now();
+        let cd = Duration::from_secs(60);
+        assert!(should_act_at(None, now, cd));
+        assert!(!should_act_at(
+            Some(now - chrono::Duration::seconds(10)),
+            now,
+            cd
+        ));
+        assert!(should_act_at(
+            Some(now - chrono::Duration::seconds(60)),
+            now,
+            cd
+        ));
+        assert!(!should_act_at(
+            Some(now + chrono::Duration::seconds(5)),
+            now,
+            cd
+        ));
     }
 
     #[test]
-    fn should_not_act_at_within_cooldown() {
-        let now = chrono::Utc::now().naive_utc();
-        let last = now - chrono::Duration::seconds(10);
-        assert!(!should_act_at(Some(last), now, Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn should_act_at_after_cooldown() {
-        let now = chrono::Utc::now().naive_utc();
-        let last = now - chrono::Duration::seconds(90);
-        assert!(should_act_at(Some(last), now, Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn should_act_at_exactly_at_cooldown() {
-        // Boundary: elapsed == cooldown is allowed (>=).
-        let now = chrono::Utc::now().naive_utc();
-        let last = now - chrono::Duration::seconds(60);
-        assert!(should_act_at(Some(last), now, Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn should_not_act_at_with_future_last() {
-        // Cross-replica clock skew: last is ahead of now → conservatively wait.
-        let now = chrono::Utc::now().naive_utc();
-        let last = now + chrono::Duration::seconds(5);
-        assert!(!should_act_at(Some(last), now, Duration::from_secs(60)));
-    }
-
-    // ---- ScaleConfig::from_env ---------------------------------------------
-
-    #[test]
-    fn config_defaults_are_sane() {
+    fn config_defaults() {
         let c = ScaleConfig::default();
-        assert_eq!(c.up_threshold, 0.8);
-        assert_eq!(c.down_threshold, 0.2);
         assert_eq!(c.cooldown, Duration::from_secs(60));
+        assert_eq!(c.idle, Duration::from_secs(300));
         assert_eq!(c.floor, 0);
         assert_eq!(c.interval, Duration::from_secs(30));
     }

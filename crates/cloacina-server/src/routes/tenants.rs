@@ -76,6 +76,22 @@ pub(crate) fn admin_error_response(
     }
 }
 
+/// The 409 for a tenant name whose Kubernetes namespace is the namespace of
+/// an existing tenant of another name (CLOACINA-T-1070); `None` when the
+/// namespace is free.
+pub(crate) fn namespace_conflict(tenant: &str, existing: &[String]) -> Option<ApiError> {
+    use crate::actuator::kubernetes::{namespace_holder, tenant_namespace};
+    let other = namespace_holder(tenant, existing.iter().map(String::as_str))?;
+    Some(ApiError::conflict(
+        "tenant_namespace_taken",
+        format!(
+            "tenant '{tenant}' would share the Kubernetes namespace '{}' with tenant '{other}'; \
+             choose a name that differs in letters or digits",
+            tenant_namespace(tenant)
+        ),
+    ))
+}
+
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
 /// Admin-only: only is_admin keys can create tenants.
 #[utoipa::path(
@@ -88,7 +104,7 @@ pub(crate) fn admin_error_response(
         (status = 400, description = "Invalid tenant name", body = cloacina_api_types::ErrorBody),
         (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
         (status = 403, description = "Admin (god-mode) key required", body = cloacina_api_types::ErrorBody),
-        (status = 409, description = "A tenant of this name exists (`tenant_exists`)", body = cloacina_api_types::ErrorBody),
+        (status = 409, description = "A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`)", body = cloacina_api_types::ErrorBody),
         (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
     ),
     security(("api_key" = []))
@@ -99,6 +115,23 @@ pub async fn create_tenant(
     Json(body): Json<CreateTenantRequest>,
 ) -> impl IntoResponse {
     let admin = DatabaseAdmin::new(state.database.clone());
+
+    // CLOACINA-T-1070: a name whose Kubernetes namespace is another tenant's
+    // is refused, so two tenants never share a namespace, its agent-key
+    // Secret or its Deployments.
+    match admin.list_tenant_schemas().await {
+        Ok(existing) => {
+            if let Some(refusal) = namespace_conflict(&body.name, &existing) {
+                warn!(tenant = %body.name, "tenant create refused: {}", refusal.message);
+                return refusal.into_response();
+            }
+        }
+        Err(e) => {
+            warn!("Failed to create tenant '{}': {}", body.name, e);
+            return ApiError::internal_logged("failed to create tenant", &e).into_response();
+        }
+    }
+
     let config = TenantConfig {
         // Per CLOACI-T-0594: schema_name == username == public name.
         // Keeps the public API ergonomic. If we ever need divergence,

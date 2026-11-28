@@ -163,10 +163,10 @@ echo "Acme key captured: ${ACME_KEY:0:8}..."
 > (`id`, `name`, role) but never the plaintext — the `id` UUID is
 > *not* the key.
 >
-> Note: `cloacinactl key create` hits the global `POST /v1/auth/keys`
-> endpoint, which always mints keys for the built-in `public` tenant.
-> For a named tenant like `acme`, use the tenant-scoped endpoint as
-> above.
+> Note: `cloacinactl key create acme-tutorial --role write --tenant acme`
+> makes the same key through the same endpoint. Without `--tenant`,
+> `key create` hits the global `POST /v1/auth/keys` endpoint, which
+> mints keys for the built-in `public` tenant.
 
 ## Step 6: Configure a profile
 

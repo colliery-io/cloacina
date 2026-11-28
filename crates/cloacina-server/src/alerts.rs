@@ -1019,6 +1019,8 @@ mod tests {
             updated_at: at(90),
             workflow_priority: 5,
             task_priority: 5,
+            fleet_dispatch_claimed_by: None,
+            task_priority_asked: None,
         }
     }
 

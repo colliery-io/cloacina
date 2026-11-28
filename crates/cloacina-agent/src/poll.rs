@@ -21,13 +21,14 @@
 //! calls the trigger and answers fire (with the trigger's context) or skip,
 //! on `/v1/agent/result` under the packet's poll id.
 //!
-//! Two parts, so the run part can become the body of a job of a worker
-//! process (CLOACINA-T-1028, CLOACINA-T-1126) beside a task and a graph
-//! firing:
-//! - [`prepare_poll`]: in the agent process. Checks the packet, fetches the
-//!   package and gives the trigger.
-//! - [`run_poll`]: calls the trigger under the packet's time limit and gives
-//!   the outcome.
+//! CLOACINA-T-1143: a poll is a job of a worker process, beside a task and a
+//! graph firing (`worker::PollJob`):
+//! - in the agent process (`process_poll_packet` in `main.rs`): the checks of
+//!   this module ([`still_wanted`], [`wrong_arch`]) and the fetch of the
+//!   package;
+//! - in the worker (`run_poll_job`): the load of the trigger and
+//!   [`run_poll`]. The agent holds the worker to the poll's time limit and to
+//!   the agent's default memory share, and kills its process group at either.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,18 +54,6 @@ pub(crate) fn decode_poll_packet(env: &serde_json::Value) -> Result<PollWorkPack
         .with_context(|| "deserialize PollWorkPacket JSON")
 }
 
-/// What the agent does with a poll packet before it runs it.
-pub(crate) enum Prepared {
-    /// Run this trigger.
-    Run(Arc<dyn Trigger>),
-    /// Answer this without running the trigger.
-    Answer(AgentOutcome),
-    /// The server no longer waits for the answer: do not run the poll and
-    /// report nothing. A poll can consume what it reads, and its answer
-    /// would be dropped.
-    Late,
-}
-
 fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -72,7 +61,9 @@ fn now_unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// Whether the server still waits for the answer of `packet` now.
+/// Whether the server still waits for the answer of `packet` now. A packet
+/// it no longer waits for is not run and gets no report: a poll can consume
+/// what it reads, and its answer would be dropped.
 pub(crate) fn still_wanted(packet: &PollWorkPacket) -> bool {
     packet.still_wanted(now_unix_ms())
 }
@@ -140,13 +131,21 @@ pub(crate) fn wrong_arch(packet: &PollWorkPacket, agent_triple: &str) -> Option<
     })
 }
 
-/// Call the trigger under the packet's time limit and give the outcome.
-pub(crate) async fn run_poll(trigger: Arc<dyn Trigger>, timeout_seconds: u32) -> AgentOutcome {
-    let limit = Duration::from_secs(u64::from(timeout_seconds.max(1)));
+/// Call the trigger and give the outcome. With `time_limit` (a poll in the
+/// agent process) the poll is dropped at the limit; in a worker the agent
+/// holds the clock and kills the worker, with the same text.
+pub(crate) async fn run_poll(
+    trigger: Arc<dyn Trigger>,
+    time_limit: Option<Duration>,
+    timeout_seconds: u32,
+) -> AgentOutcome {
+    let Some(limit) = time_limit else {
+        return poll_outcome(trigger.poll().await);
+    };
     match tokio::time::timeout(limit, trigger.poll()).await {
         Ok(result) => poll_outcome(result),
         Err(_) => AgentOutcome::Failure {
-            message: format!("the poll ran past its time limit of {timeout_seconds}s"),
+            message: format!("poll exceeded timeout of {timeout_seconds}s"),
             classification: FailureClassification::Timeout,
         },
     }
@@ -249,13 +248,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_poll_past_its_time_limit_is_a_timeout() {
-        let outcome = run_poll(Arc::new(Slow), 1).await;
+        let outcome = run_poll(Arc::new(Slow), Some(Duration::from_secs(1)), 1).await;
         assert!(matches!(
-            outcome,
+            &outcome,
             AgentOutcome::Failure {
                 classification: FailureClassification::Timeout,
-                ..
-            }
+                message,
+            } if message == "poll exceeded timeout of 1s"
         ));
     }
 }

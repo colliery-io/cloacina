@@ -28,11 +28,14 @@ cloacinactl package new data-pipeline --lang python
 |----------|--------|------|-----------|
 | `workflow` (default) | ✅ | ✅ | tasks (`@cloaca.task` / `#[task]`) |
 | `graph` | ✅ | ✅ | a computation graph (reactor + nodes) |
-| `cron` | — | ✅ | a workflow fired by a cron `#[trigger(on, cron)]` |
+| `cron` | ✅ | ✅ | a workflow fired by a cron trigger (`@cloaca.trigger(on, cron)` / `#[trigger(on, cron)]`) |
 
-> Cron triggers are Rust-only. Python packages use **poll** triggers
-> (`@cloaca.trigger(name=…, poll_interval=…)`) inside a `workflow` package, not
-> cron.
+> A Python cron package has one task (`beat`) and a
+> `@cloaca.trigger(on="<module>", cron="* * * * *")` declaration in
+> `workflow/<module>/tasks.py`. The cron scheduler fires the `on` workflow on
+> the schedule; the trigger function's body is not run. Python packages can
+> also use **poll** triggers (`@cloaca.trigger(name=…, poll_interval=…)`) inside
+> a `workflow` package.
 
 By default the package is created in `./<name>/`; pass `--path <dir>` to choose
 another location. The package name's hyphens become underscores for the

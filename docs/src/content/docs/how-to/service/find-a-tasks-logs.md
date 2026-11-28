@@ -16,11 +16,14 @@ the web UI to your log stack.
 |-------|------|
 | `last_error` | The message of the failure of the last attempt. For a Python task: the exception type and text. |
 | `error_details` | For a failed Python task: the traceback. For a skipped or abandoned task: the reason. |
+| `attempt_errors` | The error of each failed attempt, with its attempt number: the message and the traceback. A task that was retried keeps the errors of the attempts before. |
 
-Both are fields of each task in
+All three are fields of each task in
 `GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks`. The web UI shows
-`last_error` in the task table of a run, and the details under **Details** in
-the same cell.
+`last_error` in the task table of a run, the details under **Details** in
+the same cell, and the errors of the attempts before the current one under
+**Earlier attempts**. They are deleted with the run by run-history
+retention.
 
 The traceback is what Python's `traceback.format_exception` gives: the frames,
 the exception, and the exceptions it was raised from. At most 16 KiB are
@@ -102,6 +105,10 @@ lines it lets through.
   agent or its worker process, the server, or the embedded runner. Each line
   keeps its level and target, and the process's filter applies to it:
   `RUST_LOG=info` drops a `debug!` of the task.
+- Lines of a packaged Rust poll trigger polled on an agent, with the
+  `tracing` macros or the `log` crate. They carry the ids of the poll, the
+  fields of a span named `poll`: `tenant`, `package`, `trigger` and
+  `poll_id`.
 
 These lines do not carry the ids:
 
