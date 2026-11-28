@@ -43,12 +43,20 @@ The API needs the role in the request: `POST /v1/auth/keys` and
 The full list of permissions by role is in the
 [Security Model](../../../explanation/service/security-model/#authorization-permissions-roles-and-the-route-table).
 
-**Tenant scope:** `key create` calls the global `POST /v1/auth/keys`
-endpoint, which is restricted to platform-admin (god-mode) keys and
-always mints keys scoped to the built-in **`public`** tenant. To mint a
-key for a **named** tenant, use the tenant-scoped endpoint (available
-to that tenant's admins as well as the platform admin) — the plaintext
-is in the `key` field of the response:
+**Tenant scope:** without `--tenant`, `key create` calls the global
+`POST /v1/auth/keys` endpoint, which is restricted to platform-admin
+(god-mode) keys and mints keys scoped to the built-in **`public`**
+tenant. With `--tenant acme`, it calls the tenant-scoped endpoint
+`POST /v1/tenants/acme/keys` (available to that tenant's admins as well
+as the platform admin) and the key belongs to `acme`:
+
+```bash
+cloacinactl key create acme-bot --role write --tenant acme \
+  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+```
+
+The same call over HTTP — the plaintext is in the `key` field of the
+response:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \

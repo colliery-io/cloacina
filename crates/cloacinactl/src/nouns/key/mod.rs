@@ -23,6 +23,8 @@ use crate::shared::error::CliError;
 use crate::shared::render;
 use crate::{GlobalOpts, OutputFormat};
 
+mod tenant_key;
+
 #[derive(Args)]
 pub struct KeyCmd {
     #[command(subcommand)]
@@ -40,8 +42,9 @@ pub enum Role {
 
 #[derive(Subcommand)]
 enum KeyVerb {
-    /// Create an API key. Tenant scope inferred from the calling key unless
-    /// admin + `--role admin`.
+    /// Create an API key. With `--tenant <name>`, a key of that tenant
+    /// (`POST /v1/tenants/{name}/keys`); without it, a key of `public`
+    /// (`POST /v1/auth/keys`).
     Create {
         /// Human-readable name/label for the key.
         name: String,
@@ -90,7 +93,15 @@ impl KeyCmd {
         let config = CloacinaConfig::load(&globals.home.join("config.toml"));
         let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
         let output = ctx.output;
+        let tenant = ctx.tenant.clone();
         let client = CliClient::new(ctx)?;
+        // CLOACINA-T-1140: `--tenant <name>` makes a key of that tenant.
+        if let (KeyVerb::Create { name, role, .. }, Some(tenant)) = (&self.verb, tenant.as_deref())
+        {
+            return tenant_key::create(&client, tenant, name, KeyVerb::role_str(*role), output)
+                .await;
+        }
+
         match self.verb {
             KeyVerb::Create {
                 name,

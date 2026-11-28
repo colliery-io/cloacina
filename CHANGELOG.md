@@ -219,6 +219,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs, and its lines are still lost. The plugin interface stays at version
   8: the lines go through a new host interface, `CloacinaLog`, that the host
   binds by name, and a package that does not import it is not refused.
+- **`cloacinactl key create --tenant <name>` makes a key of that tenant**
+  (CLOACINA-T-1140). Before, `--tenant` was ignored and the key was made in
+  `public`. Now the command calls `POST /v1/tenants/{name}/keys`.
 
 ### Upgrade notes
 

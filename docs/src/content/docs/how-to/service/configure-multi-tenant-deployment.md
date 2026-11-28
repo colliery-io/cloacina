@@ -81,7 +81,10 @@ provisioning time, not via this endpoint.
 ## Step 3: Create Tenant-Scoped API Keys
 
 Tenant-scoped keys (recommended for application clients) can only
-access their assigned tenant. Only `is_admin` keys can create them.
+access their assigned tenant. A platform admin key or an `admin` key
+of the tenant can create them. With `--tenant <name>`, `key create`
+calls `POST /v1/tenants/{name}/keys` and the key belongs to that
+tenant.
 
 ```bash
 # Create a write-role key for acme's CI/CD
@@ -90,7 +93,8 @@ cloacinactl key create acme-ci \
     --tenant acme \
     --server http://127.0.0.1:8080 \
     --api-key "$ADMIN_KEY"
-# clk_xxx... (shown exactly once — capture it now)
+# created key: clk_xxx... (shown exactly once — capture it now)
+# tenant:      acme
 
 # Create a read-role key for acme's monitoring dashboards
 cloacinactl key create acme-monitor \
