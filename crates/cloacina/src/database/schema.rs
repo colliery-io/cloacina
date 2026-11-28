@@ -416,6 +416,23 @@ mod unified_schema {
         }
     }
 
+    // CLOACINA-T-1091: the end of the output of each attempt of a task.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool};
+
+        task_attempt_outputs (id) {
+            id -> DbUuid,
+            task_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
+            attempt -> Integer,
+            output -> Text,
+            total_bytes -> BigInt,
+            cut -> DbBool,
+            recorded_at -> DbTimestamp,
+        }
+    }
+
     // CLOACINA-T-1018: the package version an execution runs on. Written at the
     // first dispatch of a task of the execution, read at each later one.
     diesel::table! {
@@ -695,6 +712,7 @@ mod unified_schema {
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
     diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_attempt_errors -> task_executions (task_execution_id));
+    diesel::joinable!(task_attempt_outputs -> task_executions (task_execution_id));
 
     diesel::table! {
         use diesel::sql_types::*;
@@ -765,6 +783,7 @@ mod unified_schema {
         signing_keys,
         state_accumulator_buffers,
         task_attempt_errors,
+        task_attempt_outputs,
         task_executions,
         task_execution_metadata,
         tenant_data_keys,

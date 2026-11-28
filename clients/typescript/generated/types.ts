@@ -725,6 +725,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/executions/:id/tasks/:task_id/output — the end of
+         *     the output of each attempt of a task (CLOACINA-T-1091).
+         */
+        get: operations["get_task_output"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/keys": {
         parameters: {
             query?: never;
@@ -3039,6 +3059,33 @@ export interface components {
             /** @description The error message of the attempt. */
             message: string;
         };
+        /**
+         * @description The end of what one attempt of a task wrote on stdout and stderr, as one
+         *     stream (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker
+         *     process.
+         */
+        TaskAttemptOutputDetail: {
+            /**
+             * Format: int32
+             * @description The attempt, from 1.
+             */
+            attempt: number;
+            /** @description `true` when `output` is not the whole stream: its start was cut. */
+            cut: boolean;
+            /**
+             * @description The last bytes of the output, at most the server's
+             *     `--task-output-max-bytes` (256 KiB by default). The exact values of
+             *     the attempt's own secrets are `***` when the agent masks them.
+             */
+            output: string;
+            /** @description RFC 3339 timestamp of when the output was stored. */
+            recorded_at: string;
+            /**
+             * Format: int64
+             * @description How many bytes the attempt wrote in all.
+             */
+            total_bytes: number;
+        };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
             /** Format: int32 */
@@ -3087,6 +3134,17 @@ export interface components {
             task_name: string;
             /** @description Row-updated timestamp (RFC 3339) — always present; a fallback "end". */
             updated_at: string;
+        };
+        /**
+         * @description `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
+         *     response (CLOACINA-T-1091): the stored output of each attempt of the
+         *     task, in attempt order. Empty for a task whose output was not kept.
+         */
+        TaskOutputResponse: {
+            attempts: components["schemas"]["TaskAttemptOutputDetail"][];
+            execution_id: string;
+            task_id: string;
+            tenant_id: string;
         };
         /**
          * @description `201 Created` body for a new tenant. Password and connection string are
@@ -5502,6 +5560,72 @@ export interface operations {
                 };
             };
             /** @description Invalid execution ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_task_output: {
+        parameters: {
+            query?: {
+                /** @description Only this attempt. */
+                attempt?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Execution UUID */
+                exec_id: string;
+                /** @description Task execution UUID */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored output of each attempt, in attempt order; empty when none was kept */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskOutputResponse"];
+                };
+            };
+            /** @description Invalid execution or task ID */
             400: {
                 headers: {
                     [name: string]: unknown;

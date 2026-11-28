@@ -45,6 +45,7 @@ from ._generated.api.executions import (
     get_execution,
     get_execution_events,
     get_execution_tasks,
+    get_task_output,
     list_executions,
 )
 from ._generated.api.fleet import (
@@ -844,6 +845,26 @@ class Client(_Base):
             get_execution_tasks.sync_detailed(tenant_id, exec_id, client=self._gen)
         )
 
+    def get_task_output(
+        self,
+        exec_id: str,
+        task_id: str,
+        attempt: int | None = None,
+        tenant: str | None = None,
+    ):
+        """The end of what each attempt of a task wrote on stdout and stderr
+        (CLOACINA-T-1091), in attempt order; with ``attempt``, of that
+        attempt only. Empty for a task whose output was not kept."""
+        return _unwrap(
+            get_task_output.sync_detailed(
+                self.tenant_segment(tenant),
+                exec_id,
+                task_id,
+                client=self._gen,
+                attempt=UNSET if attempt is None else attempt,
+            )
+        )
+
     # ---- computation-graph health ----
 
     def list_accumulators(self):
@@ -1138,6 +1159,26 @@ class AsyncClient(_Base):
         return _unwrap(
             await get_execution_tasks.asyncio_detailed(
                 tenant_id, exec_id, client=self._gen
+            )
+        )
+
+    async def get_task_output(
+        self,
+        exec_id: str,
+        task_id: str,
+        attempt: int | None = None,
+        tenant: str | None = None,
+    ):
+        """The end of what each attempt of a task wrote on stdout and stderr
+        (CLOACINA-T-1091), in attempt order; with ``attempt``, of that
+        attempt only. Empty for a task whose output was not kept."""
+        return _unwrap(
+            await get_task_output.asyncio_detailed(
+                self.tenant_segment(tenant),
+                exec_id,
+                task_id,
+                client=self._gen,
+                attempt=UNSET if attempt is None else attempt,
             )
         )
 

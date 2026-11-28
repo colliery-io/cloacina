@@ -53,6 +53,7 @@ pub mod routes;
 pub mod secrets;
 pub mod startup_migrations;
 pub mod task_logs;
+pub mod task_output;
 pub mod tenant_runner_cache;
 pub mod upload_limit;
 
@@ -2782,6 +2783,11 @@ fn registered_routes(
             "/tenants/{tenant_id}/executions/{exec_id}/tasks",
             crate::routes::executions::get_execution_tasks,
         )
+        // CLOACINA-T-1091: the end of each attempt's output.
+        .get(
+            "/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
+            crate::routes::executions::get_task_output,
+        )
         // Computation graph health routes. Paths are relative to the `/v1`
         // nest (CLOACI-T-0595 / API-08).
         .get(
@@ -3401,6 +3407,7 @@ mod tests {
     /// A signed upload end to end, and the signature check at load
     /// (CLOACINA-T-1062).
     mod package_signing;
+    mod task_output;
     mod tenant_runner_start;
     /// Router tests of the trusted keys of package signing (CLOACINA-T-1061).
     mod trusted_key_routes;
@@ -4119,6 +4126,7 @@ mod tests {
             outcome: AgentOutcome::Success {
                 context: serde_json::json!({"k": "v"}),
             },
+            output: None,
         };
 
         let posted = crate::routes::agent::report_result(

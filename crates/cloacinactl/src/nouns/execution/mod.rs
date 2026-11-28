@@ -60,6 +60,20 @@ enum ExecutionVerb {
         #[arg(long)]
         since: Option<String>,
     },
+    /// The end of what each attempt of a task wrote on stdout and stderr
+    /// (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker
+    /// process. In the table format the text is printed as it is, under one
+    /// header line per attempt.
+    Output {
+        /// The execution.
+        id: String,
+        /// The task execution id: the `id` of the task in the execution's
+        /// task list.
+        task: String,
+        /// Only this attempt.
+        #[arg(long)]
+        attempt: Option<i32>,
+    },
 }
 
 impl ExecutionCmd {
@@ -126,8 +140,61 @@ impl ExecutionCmd {
                 let rows = body.get("events").cloned().unwrap_or(body);
                 render::list(&rows, output)
             }
+            ExecutionVerb::Output { id, task, attempt } => {
+                let mut path = format!("/v1/tenants/{tenant}/executions/{id}/tasks/{task}/output");
+                if let Some(attempt) = attempt {
+                    path.push_str(&format!("?attempt={attempt}"));
+                }
+                let body: serde_json::Value = client.get(&path).await?;
+                match output {
+                    OutputFormat::Table => {
+                        print!("{}", output_text(&body));
+                        Ok(())
+                    }
+                    _ => render::object(&body, output),
+                }
+            }
         }
     }
+}
+
+/// The table form of a task output answer (CLOACINA-T-1091): a header line
+/// per attempt, then its text as it is.
+fn output_text(body: &serde_json::Value) -> String {
+    let attempts = body
+        .get("attempts")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if attempts.is_empty() {
+        return "no output is stored for this task\n".to_string();
+    }
+    let mut out = String::new();
+    for attempt in attempts {
+        let number = attempt.get("attempt").and_then(|v| v.as_i64()).unwrap_or(0);
+        let total = attempt
+            .get("total_bytes")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let text = attempt.get("output").and_then(|v| v.as_str()).unwrap_or("");
+        let cut = attempt
+            .get("cut")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if cut {
+            out.push_str(&format!(
+                "--- attempt {number} (the last {} of {total} bytes) ---\n",
+                text.len()
+            ));
+        } else {
+            out.push_str(&format!("--- attempt {number} ({total} bytes) ---\n"));
+        }
+        out.push_str(text);
+        if !text.is_empty() && !text.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    out
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -159,4 +226,28 @@ async fn follow_execution_events(
         render::object(&event, output)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::output_text;
+
+    #[test]
+    fn the_table_form_has_a_header_per_attempt_and_the_text_as_it_is() {
+        let body = serde_json::json!({
+            "attempts": [
+                {"attempt": 1, "output": "a\nb", "total_bytes": 900, "cut": true},
+                {"attempt": 2, "output": "done\n", "total_bytes": 5, "cut": false},
+            ]
+        });
+        assert_eq!(
+            output_text(&body),
+            "--- attempt 1 (the last 3 of 900 bytes) ---\na\nb\n\
+             --- attempt 2 (5 bytes) ---\ndone\n"
+        );
+        assert_eq!(
+            output_text(&serde_json::json!({"attempts": []})),
+            "no output is stored for this task\n"
+        );
+    }
 }

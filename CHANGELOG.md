@@ -70,6 +70,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (asked and given now).
   - A held package or schedule run writes the audit event `priority.held`
     once for each change of its given priority.
+- **The end of each task attempt's output is kept with its result**
+  (CLOACINA-T-1091). An agent reads the stdout and stderr of a task's worker
+  process as one stream. It writes each line to its own log at info, target
+  `task_output`, with the task's ids, in place of the raw line it passed on
+  before: a log rule that read a task's raw lines from the pod log reads them
+  from the message of these lines now. The agent keeps the last 256 KiB of
+  each attempt, success or failure, and sends it with the result; the server
+  stores one row per attempt in the tenant's schema (migration 078).
+  - Read it in the UI (**Output** on the task table), with `cloacinactl
+    execution output`, `GET .../executions/{exec_id}/tasks/{task_id}/output`,
+    and `get_task_output` / `getTaskOutput` in the Rust, Python and
+    TypeScript clients. The role that reads the run reads it.
+  - `--task-output-max-bytes` (default 256 KiB, `0` keeps none) and
+    `--task-output-retention-days` (default 30, `0` keeps it for ever) on the
+    server, `cloacinactl server start` and the chart
+    (`taskOutput.maxBytes`, `retention.taskOutputDays`). The retention job
+    now runs by default, for task output only, even with run-history
+    retention off.
+  - The agent replaces the exact values of the task's own secrets by `***`
+    (`--task-output-masking`, on by default). Exact values only.
+  - An `inline` task, the server's in-process executor, the embedded runner
+    and `cloacinactl daemon` keep no output.
 
 - **Agent keys of the Kubernetes actuator expire and are rotated**
   (CLOACINA-T-1083). A key the actuator mints for a tenant's agents expires
@@ -412,11 +434,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-- **Database migrations 051 to 075.** The server applies them at start:
+- **Database migrations 051 to 078.** The server applies them at start:
   `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
   `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,
-  `073`, `074`, `075` (Postgres and SQLite) and `071`, `072` (Postgres
-  only). Back up the database before the upgrade; there is no downgrade,
+  `073`, `074`, `075`, `076`, `077`, `078` (Postgres and SQLite) and `071`, `072`
+  (Postgres only). Back up the database before the upgrade; there is no downgrade,
   restore the backup to go back.
 - **Database migration `077`** (CLOACINA-T-1085, Postgres and SQLite): two
   nullable columns on `workflow_packages`, `interface_checked_for` and

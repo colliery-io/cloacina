@@ -637,9 +637,11 @@ line for each task. A secret is never in the worker's arguments or
 environment. The worker has the agent's environment (the agent takes its own
 key out of its environment at start), a temporary directory of its own
 (`TMPDIR`), which the agent empties after each task and removes when the
-worker ends, and the agent's stdout and stderr, so a task's log lines land in
-the agent's log. The worker has no API key and makes no request to the
-server.
+worker ends. Its stdout and stderr are one pipe that the agent reads: each
+line goes to the agent's log with the task's ids, and the last bytes of each
+attempt go to the server with its result (see
+[The end of a task's output](../../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output)).
+The worker has no API key and makes no request to the server.
 
 **The memory limit of a task** is its memory request. A task with no request
 gets a share of the agent: what the agent offers to tasks, divided by

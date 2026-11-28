@@ -288,8 +288,13 @@ spec:
               value: {{ .Values.retention.runHistoryDays | int64 | quote }}
             - name: CLOACINA_OUTBOX_ACKED_RETENTION_S
               value: {{ .Values.retention.outboxAckedSeconds | int64 | quote }}
+            - name: CLOACINA_TASK_OUTPUT_RETENTION_DAYS
+              value: {{ .Values.retention.taskOutputDays | int64 | quote }}
             - name: CLOACINA_RETENTION_INTERVAL_S
               value: {{ .Values.retention.intervalSeconds | int64 | quote }}
+            # The end of each task attempt's output (CLOACINA-T-1091).
+            - name: CLOACINA_TASK_OUTPUT_MAX_BYTES
+              value: {{ .Values.taskOutput.maxBytes | int64 | quote }}
             # Time limits of fleet tasks and graph firings (CLOACINA-T-1014).
             - name: CLOACINA_FLEET_TASK_TIMEOUT_S
               value: {{ .Values.fleetTaskTimeLimits.defaultSeconds | int64 | quote }}

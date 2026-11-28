@@ -701,6 +701,7 @@ mod tests {
             cpu_millis: None,
             memory_bytes: None,
             inline: false,
+            output_max_bytes: None,
         };
 
         // Wire assertion: the plaintext value must not appear anywhere in the

@@ -109,6 +109,7 @@ pub(crate) fn load_packet_for(packet: &PollWorkPacket) -> WorkPacket {
         cpu_millis: None,
         memory_bytes: None,
         inline: false,
+        output_max_bytes: None,
     }
 }
 

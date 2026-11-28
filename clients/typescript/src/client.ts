@@ -918,6 +918,36 @@ export class CloacinaClient {
     );
   }
 
+  /**
+   * The end of what each attempt of a task wrote on stdout and stderr
+   * (CLOACINA-T-1091), in attempt order. Pass `attempt` for one attempt.
+   * Empty for a task whose output was not kept.
+   */
+  async getTaskOutput(
+    execId: string,
+    taskId: string,
+    options: { attempt?: number; tenant?: string } = {},
+  ): Promise<schemas["TaskOutputResponse"]> {
+    return unwrap(
+      await this.api.GET(
+        "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
+        {
+          params: {
+            path: {
+              tenant_id: this.#tenant(options.tenant),
+              exec_id: execId,
+              task_id: taskId,
+            },
+            query:
+              options.attempt === undefined
+                ? {}
+                : { attempt: options.attempt },
+          },
+        },
+      ),
+    );
+  }
+
   // ---- fleet & compiler ----
 
   async listAgents(): Promise<schemas["ListResponse_AgentInfo"]> {

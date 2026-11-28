@@ -994,6 +994,8 @@ pub fn build_authz_table() -> AuthzTable {
         "/v1/tenants/{tenant_id}/executions/{exec_id}",
         "/v1/tenants/{tenant_id}/executions/{exec_id}/events",
         "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks",
+        // CLOACINA-T-1091: the output of each attempt, read as the run is.
+        "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
     ] {
         t.add(get.clone(), path, Row::tenant(P::ExecutionsRead));
     }
@@ -2297,8 +2299,9 @@ mod tests {
         // `POST /v1/agent/undecodable` of CLOACINA-T-1058;
         // `GET /v1/agent/python-vendor/{digest}` of CLOACINA-T-1073;
         // `GET /v1/packages/needs-new-build` of CLOACINA-T-1085;
-        // `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` of CLOACINA-T-1123.
-        assert_eq!(table.len(), 99);
+        // `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` of CLOACINA-T-1123;
+        // the task output route of CLOACINA-T-1091.
+        assert_eq!(table.len(), 100);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()

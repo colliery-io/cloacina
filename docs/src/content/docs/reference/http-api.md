@@ -1513,6 +1513,62 @@ failed task the last entry is the error in `last_error` and `error_details`.
 | `400` | `{"error": "invalid execution ID"}` |
 | `404` | `{"error": "<detail>"}` |
 
+### GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output
+
+The end of what each attempt of a task wrote on stdout and stderr, as one
+stream (CLOACINA-T-1091). It is kept for tasks that ran in an agent's worker
+process, for attempts that succeeded and failed alike, and shows when the
+attempt has ended. **Tenant-scoped read:** the same role that reads the run.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier |
+| `exec_id` | UUID | Execution identifier |
+| `task_id` | UUID | Task execution identifier: the `id` of the task in `GET .../executions/{exec_id}/tasks` |
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `attempt` | integer | all | Only this attempt. |
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "acme",
+  "execution_id": "6f1c2b1e-58a0-4d0e-9a53-0c8a2f1f4a10",
+  "task_id": "0d9c7a52-4f43-41f0-8a39-5b0a3f6f7f11",
+  "attempts": [
+    {
+      "attempt": 1,
+      "output": "loading rows\nTraceback (most recent call last):\n...",
+      "total_bytes": 812345,
+      "cut": true,
+      "recorded_at": "2026-11-27T10:15:02.118+00:00"
+    }
+  ]
+}
+```
+
+`attempts` is in attempt order. `output` holds at most the server's
+`--task-output-max-bytes` (256 KiB by default); when `cut` is `true` its start
+was dropped, and `total_bytes` says how much the attempt wrote. The exact
+values of the attempt's own secrets are `***` when the agent masks them. The
+list is empty for a task whose output was not kept (an `inline` task, the
+in-process executor, a task of another execution). Stored output is deleted
+after `--task-output-retention-days` (30 by default), and with its run by
+run-history retention. See
+[The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output).
+
+**Errors:**
+
+| Status | Body |
+|---|---|
+| `400` | `{"error": "invalid execution or task ID"}` |
+
 ## Triggers
 
 Read-only listing of cron and trigger schedules.

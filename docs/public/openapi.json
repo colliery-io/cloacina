@@ -2355,6 +2355,111 @@
         ]
       }
     },
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output": {
+      "get": {
+        "tags": [
+          "executions"
+        ],
+        "summary": "GET /tenants/:tenant_id/executions/:id/tasks/:task_id/output — the end of\nthe output of each attempt of a task (CLOACINA-T-1091).",
+        "operationId": "get_task_output",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exec_id",
+            "in": "path",
+            "description": "Execution UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task execution UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attempt",
+            "in": "query",
+            "description": "Only this attempt.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored output of each attempt, in attempt order; empty when none was kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOutputResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid execution or task ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants/{tenant_id}/keys": {
       "get": {
         "tags": [
@@ -8972,6 +9077,41 @@
           }
         }
       },
+      "TaskAttemptOutputDetail": {
+        "type": "object",
+        "description": "The end of what one attempt of a task wrote on stdout and stderr, as one\nstream (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker\nprocess.",
+        "required": [
+          "attempt",
+          "output",
+          "total_bytes",
+          "cut",
+          "recorded_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The attempt, from 1."
+          },
+          "cut": {
+            "type": "boolean",
+            "description": "`true` when `output` is not the whole stream: its start was cut."
+          },
+          "output": {
+            "type": "string",
+            "description": "The last bytes of the output, at most the server's\n`--task-output-max-bytes` (256 KiB by default). The exact values of\nthe attempt's own secrets are `***` when the agent masks them."
+          },
+          "recorded_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp of when the output was stored."
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many bytes the attempt wrote in all."
+          }
+        }
+      },
       "TaskExecutionDetail": {
         "type": "object",
         "description": "One per-task row of an execution (CLOACI-I-0124 / WS-1).",
@@ -9068,6 +9208,33 @@
           "updated_at": {
             "type": "string",
             "description": "Row-updated timestamp (RFC 3339) — always present; a fallback \"end\"."
+          }
+        }
+      },
+      "TaskOutputResponse": {
+        "type": "object",
+        "description": "`GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`\nresponse (CLOACINA-T-1091): the stored output of each attempt of the\ntask, in attempt order. Empty for a task whose output was not kept.",
+        "required": [
+          "tenant_id",
+          "execution_id",
+          "task_id",
+          "attempts"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskAttemptOutputDetail"
+            }
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
           }
         }
       },

@@ -136,6 +136,7 @@ async fn report(
         outcome: AgentOutcome::Success {
             context: serde_json::json!({"forged": true}),
         },
+        output: None,
     };
     match report_result(State(state.clone()), Extension(key.clone()), Json(body)).await {
         Ok(_) => StatusCode::OK,

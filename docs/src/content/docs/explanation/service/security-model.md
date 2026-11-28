@@ -285,6 +285,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | GET | `/v1/tenants/{tenant_id}/executions/{exec_id}` | tenant in the path | `executions.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/events` | tenant in the path | `executions.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/tasks` | tenant in the path | `executions.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output` | tenant in the path | `executions.read` | none (read) |
 | POST | `/v1/tenants/{tenant_id}/workflows` | tenant in the path | `packages.publish` | `package.upload` |
 | POST | `/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate` | tenant in the path | `packages.publish` | `package.activate` |
 | DELETE | `/v1/tenants/{tenant_id}/workflows/{name}/{version}` | tenant in the path | `packages.publish` | `package.delete` |
