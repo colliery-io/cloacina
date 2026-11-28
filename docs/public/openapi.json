@@ -23,7 +23,7 @@
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "Server process is alive — `{\"status\": \"ok\"}`"
+            "description": "Server process is alive — `{\"status\": \"ok\", \"version\": \"<release>\"}`"
           }
         }
       }

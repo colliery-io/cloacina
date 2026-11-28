@@ -3468,7 +3468,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Server process is alive — `{"status": "ok"}` */
+            /** @description Server process is alive — `{"status": "ok", "version": "<release>"}` */
             200: {
                 headers: {
                     [name: string]: unknown;

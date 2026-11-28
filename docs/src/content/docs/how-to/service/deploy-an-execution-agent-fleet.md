@@ -201,6 +201,31 @@ more heartbeat traffic), e.g. ~10s detection:
 CLOACINA_AGENT_HEARTBEAT_INTERVAL_S=5 CLOACINA_AGENT_LIVENESS_MISSES=2 cloacina-server ...
 ```
 
+## Agent and server versions
+
+An agent registers with its release and the plugin interface version of the
+Rust packages it loads.
+
+- **Releases.** The server accepts an agent of its own minor (up to its own
+  patch) and of the minor before. Upgrade the server first, then the agents.
+  An older agent, or a newer one, is refused with `400
+  agent_version_unsupported`, and the message names both releases, for
+  example `agent 0.12.3 is older than this server accepts (0.13 or 0.14;
+  server 0.14.1): upgrade the agent`. An agent that sends no release (one from
+  before 0.13) counts as 0.12. A refused agent writes the server's message to
+  its log at error level and registers again every 60 seconds; it does not
+  exit. While only refused agents exist, the tenant's tasks wait; they do not
+  fail for that reason.
+- **Plugin interface.** The compiler records on each Rust package the plugin
+  interface version it built it for. The server sends such a package only to
+  an agent that reports the same number; an agent that reports none gets no
+  such package. Python packages, and Rust packages built before the record,
+  go to any agent. When no agent of the tenant and pool loads the package's
+  interface, the task waits, and the server log says
+  `the task waits: no agent of tenant <t>, pool <p> loads plugin interface 8
+  (agents here: 7)`. Upgrade the agents, or build the package again with a
+  compiler of their release.
+
 ## 5. Operate
 
 - **Losing an agent is safe.** When an agent dies, the sweeper reclaims its

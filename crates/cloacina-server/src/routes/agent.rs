@@ -35,7 +35,7 @@ use cloacina::fleet::{
     AGENT_PROTOCOL_VERSION, AgentHeartbeatRequest, AgentHeartbeatResponse,
     AgentKeyReplenishRequest, AgentKeyReplenishResponse, AgentOutcome, AgentRegisterRequest,
     AgentRegisterResponse, AgentResultRequest, AgentResultResponse, AgentUndecodableRequest,
-    AgentUndecodableResponse, EphemeralKeyEntry, host_target_triple,
+    AgentUndecodableResponse, EphemeralKeyEntry, MIN_AGENT_PROTOCOL_VERSION, host_target_triple,
 };
 use cloacina::security::ServerKeyPool;
 use cloacina::security::ownership::{AgentOwner, Principal, Refusal};
@@ -57,18 +57,29 @@ pub(crate) const AGENT_KEY_POOL_TARGET: usize = 32;
 // in T-0632 so server + agent compute it from the same code (the OQ-6
 // fail-closed comparison is exact-string and depends on this).
 
+/// The agent protocol numbers this server accepts: a range, so that an agent
+/// of the previous minor keeps working when the number moves (CLOACINA-T-1086).
 fn require_protocol_version(version: u32) -> Result<(), ApiError> {
-    if version == AGENT_PROTOCOL_VERSION {
+    if (MIN_AGENT_PROTOCOL_VERSION..=AGENT_PROTOCOL_VERSION).contains(&version) {
         Ok(())
     } else {
         Err(ApiError::bad_request(
             "protocol_version_mismatch",
             format!(
-                "agent protocol_version {} not supported (server speaks {})",
-                version, AGENT_PROTOCOL_VERSION
+                "agent protocol_version {} not supported (server speaks {} to {})",
+                version, MIN_AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION
             ),
         ))
     }
+}
+
+/// The agent's release (CLOACINA-T-1086): the server accepts its own minor
+/// and the one before. Others get 400 `agent_version_unsupported` with both
+/// releases; nothing is written to the roster.
+fn require_agent_release(agent_version: Option<&str>) -> Result<(), ApiError> {
+    use cloacina_api_types::version::{AGENT_VERSION_UNSUPPORTED, RELEASE, check_agent_release};
+    check_agent_release(RELEASE, agent_version)
+        .map_err(|message| ApiError::bad_request(AGENT_VERSION_UNSUPPORTED, message))
 }
 
 /// The caller key as the ownership rules see it
@@ -131,6 +142,16 @@ pub async fn register_agent(
     Json(req): Json<AgentRegisterRequest>,
 ) -> Result<Json<AgentRegisterResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
+    if let Err(refused) = require_agent_release(req.agent_version.as_deref()) {
+        warn!(
+            api_key = %auth.name,
+            tenant = ?auth.tenant_id,
+            agent_id = ?req.agent_id,
+            agent_version = ?req.agent_version,
+            "agent register refused: its release is not accepted"
+        );
+        return Err(refused);
+    }
 
     let agent_id = req
         .agent_id
@@ -173,6 +194,10 @@ pub async fn register_agent(
                 // CLOACINA-T-1027: the agent's totals, when it reports them.
                 cpu_millis: req.cpu_millis,
                 memory_bytes: req.memory_bytes,
+                // CLOACINA-T-1086: what dispatch matches on.
+                agent_version: req.agent_version.clone(),
+                protocol_version: Some(req.protocol_version),
+                plugin_interface_version: req.plugin_interface_version,
             },
             ServerKeyPool::from_entries(pool_entries),
             &principal_of(&auth),
@@ -217,6 +242,8 @@ pub async fn register_agent(
         target_triple = %req.target_triple,
         max_concurrency = req.max_concurrency,
         key_pool = pool_size,
+        agent_version = ?req.agent_version,
+        plugin_interface_version = ?req.plugin_interface_version,
         "agent registered"
     );
 
@@ -860,6 +887,21 @@ mod tests {
         assert_eq!(retire_reason_label("idle"), "idle");
         assert_eq!(retire_reason_label("max_jobs"), "max_jobs");
         assert_eq!(retire_reason_label("made-up"), "other");
+    }
+
+    /// CLOACINA-T-1086: the release check answers 400
+    /// `agent_version_unsupported`; the protocol check takes the range.
+    #[test]
+    fn an_agent_of_an_unsupported_release_gets_400_with_the_code() {
+        use axum::response::IntoResponse;
+        assert!(require_agent_release(Some(cloacina_api_types::version::RELEASE)).is_ok());
+        let refused = require_agent_release(Some("0.1.0"))
+            .unwrap_err()
+            .into_response();
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+        for version in MIN_AGENT_PROTOCOL_VERSION..=AGENT_PROTOCOL_VERSION {
+            assert!(require_protocol_version(version).is_ok());
+        }
     }
 
     // -----------------------------------------------------------------------

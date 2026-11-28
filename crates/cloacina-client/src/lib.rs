@@ -76,14 +76,36 @@ use cloacina_api_types::{
     WorkflowVersionSummary, WsTicketResponse,
 };
 
+/// The release rules between a server and its clients (CLOACINA-T-1086).
+pub use cloacina_api_types::version;
+
+/// Called once, with the server's release, on the first answer that has the
+/// header `x-cloacina-version` (CLOACINA-T-1086).
+pub type ServerVersionHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Builder for [`Client`].
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ClientBuilder {
     server: String,
     api_key: Option<String>,
     tenant: Option<String>,
     connect_timeout: Option<Duration>,
     timeout: Option<Duration>,
+    user_agent: Option<String>,
+    on_server_version: Option<ServerVersionHook>,
+}
+
+impl std::fmt::Debug for ClientBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientBuilder")
+            .field("server", &self.server)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("tenant", &self.tenant)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("timeout", &self.timeout)
+            .field("user_agent", &self.user_agent)
+            .finish()
+    }
 }
 
 impl ClientBuilder {
@@ -131,21 +153,42 @@ impl ClientBuilder {
         self
     }
 
+    /// The `user-agent` of each request (default
+    /// `cloacina-client/<version>`). CLOACINA-T-1086.
+    pub fn user_agent(mut self, agent: impl Into<String>) -> Self {
+        self.user_agent = Some(agent.into());
+        self
+    }
+
+    /// Called once with the server's release, read from the header
+    /// `x-cloacina-version` of the first answer that has it
+    /// (CLOACINA-T-1086). `cloacinactl` warns there when the minor differs.
+    pub fn on_server_version(mut self, hook: ServerVersionHook) -> Self {
+        self.on_server_version = Some(hook);
+        self
+    }
+
     pub fn build(self) -> Result<Client, ClientError> {
         let api_key = self
             .api_key
             .ok_or_else(|| ClientError::Config("no API key configured".into()))?;
         // reqwest's wasm builder exposes neither timeout knob — the browser
         // owns connection/request timeouts there (CLOACI-T-0932).
+        let user_agent = self
+            .user_agent
+            .clone()
+            .unwrap_or_else(|| format!("cloacina-client/{}", env!("CARGO_PKG_VERSION")));
         #[cfg(not(target_arch = "wasm32"))]
         let http = reqwest::Client::builder()
             .connect_timeout(self.connect_timeout.unwrap_or(Duration::from_secs(5)))
             .timeout(self.timeout.unwrap_or(Duration::from_secs(30)))
+            .user_agent(user_agent)
             .build()
             .map_err(ClientError::from_reqwest)?;
         #[cfg(target_arch = "wasm32")]
         let http = {
-            let _ = (&self.connect_timeout, &self.timeout);
+            // The browser sets the user agent.
+            let _ = (&self.connect_timeout, &self.timeout, &user_agent);
             reqwest::Client::builder()
                 .build()
                 .map_err(ClientError::from_reqwest)?
@@ -156,6 +199,8 @@ impl ClientBuilder {
                 api_key,
                 tenant: self.tenant,
                 http,
+                server_version: std::sync::OnceLock::new(),
+                on_server_version: self.on_server_version,
             }),
         })
     }
@@ -166,6 +211,10 @@ struct ClientInner {
     api_key: String,
     tenant: Option<String>,
     http: reqwest::Client,
+    /// CLOACINA-T-1086: the server's release, from the first answer with the
+    /// header `x-cloacina-version`.
+    server_version: std::sync::OnceLock<String>,
+    on_server_version: Option<ServerVersionHook>,
 }
 
 /// Typed client for the cloacina-server REST API + delivery WebSocket.
@@ -185,6 +234,30 @@ impl Client {
     /// or `public`.
     pub fn tenant_segment(&self) -> &str {
         self.inner.tenant.as_deref().unwrap_or("public")
+    }
+
+    /// The server's release, once an answer has told it (CLOACINA-T-1086).
+    pub fn server_version(&self) -> Option<&str> {
+        self.inner.server_version.get().map(String::as_str)
+    }
+
+    /// Reads the header `x-cloacina-version` of an answer; the first one
+    /// that has it is kept and given to the hook.
+    fn observe(&self, response: Response) -> Response {
+        if self.inner.server_version.get().is_none() {
+            if let Some(version) = response
+                .headers()
+                .get(cloacina_api_types::version::VERSION_HEADER)
+                .and_then(|v| v.to_str().ok())
+            {
+                if self.inner.server_version.set(version.to_string()).is_ok() {
+                    if let Some(hook) = &self.inner.on_server_version {
+                        hook(version);
+                    }
+                }
+            }
+        }
+        response
     }
 
     fn url(&self, path: &str) -> String {
@@ -222,6 +295,7 @@ impl Client {
             .request(Method::GET, path)
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -237,6 +311,7 @@ impl Client {
             .json(body)
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -252,6 +327,7 @@ impl Client {
             .json(body)
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -262,6 +338,7 @@ impl Client {
             .request(Method::DELETE, path)
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         let status = response.status().as_u16();
         if response.status().is_success() {
@@ -287,6 +364,7 @@ impl Client {
             .request(Method::GET, "/ready")
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         let status = response.status().as_u16();
         let body = response.json::<Value>().await.unwrap_or(Value::Null);
@@ -319,6 +397,7 @@ impl Client {
             .request(Method::DELETE, &format!("/v1/auth/keys/{key_id}"))
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -363,6 +442,7 @@ impl Client {
             .request(Method::DELETE, &format!("/v1/tenants/{t}/keys/{key_id}"))
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -450,6 +530,7 @@ impl Client {
             )
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -491,6 +572,7 @@ impl Client {
             .request(Method::DELETE, &format!("/v1/tenants/{schema_name}"))
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -609,6 +691,7 @@ impl Client {
             .request(Method::DELETE, &format!("/v1/tenants/{t}/secrets/{name}"))
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -654,6 +737,7 @@ impl Client {
             )
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -706,6 +790,7 @@ impl Client {
             .multipart(form)
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }
@@ -742,6 +827,7 @@ impl Client {
             )
             .send()
             .await
+            .map(|r| self.observe(r))
             .map_err(ClientError::from_reqwest)?;
         Self::parse(response).await
     }

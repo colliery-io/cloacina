@@ -51,6 +51,7 @@ pub mod secrets;
 pub mod tenants;
 pub mod triggers;
 pub mod trusted_keys;
+pub mod version;
 pub mod workflows;
 
 pub use audit::{AuditEventInfo, AuditListResponse, ListAuditQuery};

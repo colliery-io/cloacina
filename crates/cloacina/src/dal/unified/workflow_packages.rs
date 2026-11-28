@@ -1206,6 +1206,11 @@ pub struct DispatchPackage {
     /// its stored metadata document. `None` when the row has no document (not
     /// described yet, or the describe failed), or the document does not read.
     pub declared_secrets: Option<Vec<String>>,
+    /// CLOACINA-T-1086: the plugin interface version of a Rust build, as its
+    /// compiler recorded. Dispatch sends the package only to an agent with
+    /// the same number. `None`: a Python package, or a build from before the
+    /// column; it goes to any agent, as before.
+    pub plugin_interface_version: Option<u32>,
 }
 
 impl DispatchPackage {
@@ -1230,6 +1235,12 @@ impl DispatchPackage {
             language: if has_cdylib { "rust" } else { "python" }.to_string(),
             python_platforms,
             declared_secrets,
+            plugin_interface_version: if has_cdylib {
+                row.plugin_interface_version
+                    .and_then(|v| u32::try_from(v).ok())
+            } else {
+                None
+            },
         }
     }
 }

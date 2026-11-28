@@ -76,6 +76,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `cloacina_fleet_worker_starts_total{start}` and
     `cloacina_fleet_warm_workers_retired_total{reason}`. An older server
     ignores the counts; an older agent sends none.
+- **Version skew: agents of the server's minor and the one before, and
+  dispatch by plugin interface version** (CLOACINA-T-1086). Migration 073
+  adds nullable columns to `fleet_agents` and `workflow_packages`.
+  - An agent sends its release and its plugin interface version at register.
+    The server accepts its own minor (up to its own patch) and the minor
+    before, and refuses others with `400 agent_version_unsupported` naming
+    both releases. An agent that sends no release counts as 0.12, so a 0.14
+    server refuses an agent from before this change. Upgrade the server
+    first, then the agents.
+  - A refused agent logs the server's message and registers again every 60
+    seconds. Every failed register now logs the server's code and message.
+  - The compiler records the plugin interface version of each Rust build; the
+    server sends such a package only to an agent of the same number, and the
+    task waits otherwise. Rust packages built before this change, and Python
+    packages, go to any agent.
+  - The protocol number is checked as a range.
+  - `/health` answers `{"status": "ok", "version": "<release>"}`, and every
+    answer has the header `x-cloacina-version`. `cloacinactl` warns once on
+    stderr when the server is of another minor; the server refuses no client
+    by version.
 
 ### Fixed
 

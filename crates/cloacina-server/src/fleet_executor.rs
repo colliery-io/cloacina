@@ -966,51 +966,58 @@ impl TaskExecutor for FleetExecutor {
             // CLOACINA-T-1018: the lookup goes through the execution's version
             // pin. The first task of an execution pins the active version; each
             // later task gets that version, also after a newer one is active.
-            let (primary_digest, language, package_version, python_platforms, declared_secrets) =
-                match self
-                    .dal
-                    .workflow_packages()
-                    .resolve_dispatch_for_execution(
-                        event.workflow_execution_id,
-                        &namespace.package_name,
-                        None,
-                    )
-                    .await
-                {
-                    Ok(Some(pkg)) => (
-                        pkg.content_hash,
-                        pkg.language,
-                        pkg.version,
-                        pkg.python_platforms,
-                        pkg.declared_secrets,
-                    ),
-                    Ok(None) => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!(
-                                    "no active (success, non-superseded) artifact for package `{}` \
+            let (
+                primary_digest,
+                language,
+                package_version,
+                python_platforms,
+                declared_secrets,
+                package_interface,
+            ) = match self
+                .dal
+                .workflow_packages()
+                .resolve_dispatch_for_execution(
+                    event.workflow_execution_id,
+                    &namespace.package_name,
+                    None,
+                )
+                .await
+            {
+                Ok(Some(pkg)) => (
+                    pkg.content_hash,
+                    pkg.language,
+                    pkg.version,
+                    pkg.python_platforms,
+                    pkg.declared_secrets,
+                    pkg.plugin_interface_version,
+                ),
+                Ok(None) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!(
+                                "no active (success, non-superseded) artifact for package `{}` \
                                  in tenant {:?}",
-                                    namespace.package_name, task_tenant
-                                ),
-                            )
-                            .await);
-                    }
-                    Err(e) => {
-                        return Ok(self
-                            .reconcile_error(
-                                &event,
-                                &claimed_task,
-                                &retry_policy,
-                                start.elapsed(),
-                                format!("artifact digest lookup failed: {}", e),
-                            )
-                            .await);
-                    }
-                };
+                                namespace.package_name, task_tenant
+                            ),
+                        )
+                        .await);
+                }
+                Err(e) => {
+                    return Ok(self
+                        .reconcile_error(
+                            &event,
+                            &claimed_task,
+                            &retry_policy,
+                            start.elapsed(),
+                            format!("artifact digest lookup failed: {}", e),
+                        )
+                        .await);
+                }
+            };
 
             // CLOACI-T-0780: an INTERPRETED package (e.g. Python) has no arch-specific
             // cdylib — it runs from its source on ANY agent. A COMPILED package runs
@@ -1078,9 +1085,24 @@ impl TaskExecutor for FleetExecutor {
                 .filter(|p| p.task_id != event.task_execution_id)
                 .collect();
             let load = fleet_load(&snapshot, &others);
+            // CLOACINA-T-1086: a Rust package goes only to an agent that loads
+            // its plugin interface version.
+            let loading = crate::agent_registry::agents_loading(&snapshot, package_interface);
             let Some(agent) =
-                select_fleet_agent(&snapshot, &task_tenant, &runnable_triples, &demand, &load)
+                select_fleet_agent(&loading, &task_tenant, &runnable_triples, &demand, &load)
             else {
+                if let Some(reason) = crate::agent_registry::plugin_interface_wait_reason(
+                    &snapshot,
+                    &task_tenant,
+                    demand.pool,
+                    package_interface,
+                ) {
+                    info!(
+                        task_id = %event.task_execution_id,
+                        "fleet: the task waits: {reason}"
+                    );
+                    return Ok(self.defer_for_capacity(&event, &reason).await);
+                }
                 // CLOACINA-T-1012: a wait for capacity, not a failure. The task
                 // stays Ready and keeps its attempt count.
                 debug!(
@@ -2629,6 +2651,9 @@ mod tests {
                         max_concurrency: 1,
                         cpu_millis: None,
                         memory_bytes: None,
+                        agent_version: None,
+                        protocol_version: None,
+                        plugin_interface_version: None,
                     },
                     cloacina::security::ServerKeyPool::new(),
                     // CLOACINA-T-1050: the agent's tenant is its key's.

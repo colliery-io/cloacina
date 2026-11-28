@@ -2841,6 +2841,8 @@ fn build_router_with(state: AppState, serve_metrics: bool) -> Router {
         ))
         // API request metrics (counts by method and status)
         .layer(middleware::from_fn(api_request_metrics))
+        // CLOACINA-T-1086: the server's release on every answer.
+        .layer(middleware::from_fn(version_header))
         // Request ID + tracing span (outermost — wraps everything)
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
@@ -2872,15 +2874,34 @@ async fn api_request_metrics(
     response
 }
 
+/// Adds the header `x-cloacina-version` with the server's release to every
+/// answer (CLOACINA-T-1086). A client reads it to warn when its minor
+/// differs; the server refuses no client by version.
+async fn version_header(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        cloacina_api_types::version::VERSION_HEADER,
+        axum::http::HeaderValue::from_static(cloacina_api_types::version::RELEASE),
+    );
+    response
+}
+
 /// GET /health — liveness check (no auth, no DB)
 #[utoipa::path(
     get,
     path = "/health",
     tag = "operational",
-    responses((status = 200, description = "Server process is alive — `{\"status\": \"ok\"}`"))
+    responses((status = 200, description = "Server process is alive — `{\"status\": \"ok\", \"version\": \"<release>\"}`"))
 )]
 async fn health() -> impl IntoResponse {
-    Json(serde_json::json!({"status": "ok"}))
+    // CLOACINA-T-1086: the server's release, on a route with no key.
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": cloacina_api_types::version::RELEASE,
+    }))
 }
 
 /// GET /ready — readiness check, scoped to PLATFORM health only (DB
@@ -3601,6 +3622,48 @@ mod tests {
         assert_eq!(body["status"], "ok");
     }
 
+    /// CLOACINA-T-1086: the server tells its release in `/health` (no key)
+    /// and in the header `x-cloacina-version` of every answer, an error
+    /// answer too.
+    #[tokio::test]
+    #[serial]
+    async fn test_t1086_the_server_tells_its_release() {
+        use tower::ServiceExt;
+        let release = cloacina_api_types::version::RELEASE;
+        let state = test_state().await;
+        let app = build_router(state);
+
+        for uri in ["/health", "/v1/tenants", "/no-such-route"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response
+                    .headers()
+                    .get("x-cloacina-version")
+                    .and_then(|v| v.to_str().ok()),
+                Some(release),
+                "{uri}"
+            );
+        }
+        let (_, body) = send_request(
+            app,
+            axum::http::Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(body["version"], release);
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_ready_returns_200_with_db() {
@@ -3866,6 +3929,9 @@ mod tests {
                     max_concurrency: 1,
                     cpu_millis: None,
                     memory_bytes: None,
+                    agent_version: None,
+                    protocol_version: None,
+                    plugin_interface_version: None,
                 },
                 cloacina::security::ServerKeyPool::new(),
                 &crate::routes::agent::principal_of(&auth),
@@ -4081,6 +4147,9 @@ mod tests {
                     // row, so every replica packs against the same size.
                     cpu_millis: Some(4000),
                     memory_bytes: Some(32 << 30),
+                    agent_version: None,
+                    protocol_version: None,
+                    plugin_interface_version: None,
                 },
                 cloacina::security::ServerKeyPool::new(),
                 &owner_key,

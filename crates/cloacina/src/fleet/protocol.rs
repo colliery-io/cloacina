@@ -52,6 +52,20 @@ use serde::{Deserialize, Serialize};
 /// changes. Every frame carries it so peers can negotiate (or refuse).
 pub const AGENT_PROTOCOL_VERSION: u32 = 1;
 
+/// The lowest agent protocol number the server accepts (CLOACINA-T-1086).
+/// The number moves only at a minor release, and this stays at the previous
+/// minor's number for one minor, so an agent of the previous minor keeps
+/// working.
+pub const MIN_AGENT_PROTOCOL_VERSION: u32 = 1;
+
+/// The plugin interface version of the packaged Rust workflows this build
+/// loads: the `version` of `#[fidius::plugin_interface]` on `CloacinaPlugin`
+/// (CLOACINA-T-1086). A compiler records it on each Rust package it builds;
+/// an agent reports it at register; dispatch sends a package only to an agent
+/// with the same number.
+pub const PLUGIN_INTERFACE_VERSION: u32 =
+    cloacina_workflow_plugin::__fidius_CloacinaPlugin::CloacinaPlugin_INTERFACE_VERSION;
+
 /// Substrate envelope `kind` value used when a `ServerMessage::Push` carries
 /// a [`WorkPacket`]. Constants here keep the magic string out of call sites.
 pub const WORK_PACKET_KIND: &str = "agent_work";
@@ -135,6 +149,17 @@ pub struct AgentRegisterRequest {
     /// (`--reserved-memory`, CLOACINA-T-1028). `None` as above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_bytes: Option<u64>,
+
+    /// CLOACINA-T-1086 — the agent's release (`0.14.1`). The server accepts
+    /// its own minor and the one before. `None`: an agent from before the
+    /// field, which counts as 0.12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
+    /// CLOACINA-T-1086 — the plugin interface version of the Rust packages
+    /// the agent loads ([`PLUGIN_INTERFACE_VERSION`]). `None`: the agent gets
+    /// no Rust package that has a recorded interface version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_interface_version: Option<u32>,
 }
 
 /// CLOACI-T-0861 / D-5 — one entry in an agent's one-time ephemeral key pool.
@@ -638,6 +663,8 @@ mod tests {
             ephemeral_key_pool: pool.clone(),
             cpu_millis: Some(4000),
             memory_bytes: Some(32 << 30),
+            agent_version: Some("0.13.0".into()),
+            plugin_interface_version: Some(PLUGIN_INTERFACE_VERSION),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: AgentRegisterRequest = serde_json::from_str(&json).unwrap();
@@ -645,6 +672,12 @@ mod tests {
         // CLOACINA-T-1027: the agent's totals.
         assert_eq!(back.cpu_millis, Some(4000));
         assert_eq!(back.memory_bytes, Some(32 << 30));
+        // CLOACINA-T-1086: the agent's versions.
+        assert_eq!(back.agent_version.as_deref(), Some("0.13.0"));
+        assert_eq!(
+            back.plugin_interface_version,
+            Some(PLUGIN_INTERFACE_VERSION)
+        );
 
         // Pre-pool payload: no `ephemeral_key_pool` field → empty pool.
         let legacy = r#"{"protocol_version":1,"max_concurrency":4,"target_triple":"x"}"#;
@@ -653,6 +686,9 @@ mod tests {
         // CLOACINA-T-1027: an agent from before the totals reports none.
         assert_eq!(back.cpu_millis, None);
         assert_eq!(back.memory_bytes, None);
+        // CLOACINA-T-1086: and no versions: it counts as 0.12.
+        assert_eq!(back.agent_version, None);
+        assert_eq!(back.plugin_interface_version, None);
     }
 
     #[test]
