@@ -15,6 +15,9 @@ What it does, by flag:
   deployment (`all` for every chapter).
 - `--check`: forward the server and the database to localhost and run the
   checker until stopped. The report is served on localhost.
+- `--disturb`: run the disturbance schedule (CLOACINA-T-1109) on the
+  standing cluster until stopped; with `--dry-run`, print the schedule and
+  its commands and touch nothing. `--disturb-stop` stops it.
 - `--down`: remove the cluster and everything in it.
 
 The real run needs Docker, `kubectl` and `helm`, and builds three images. It
@@ -29,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import angreal  # type: ignore
@@ -40,7 +44,7 @@ from ..e2e import k8s_fleet as k8s
 from . import chapters, gherkin
 from . import publish as publish_chapter
 from .standing_world import StandingWorld
-from .suite import workload
+from .suite import disturb, workload
 
 test = angreal.command_group(
     name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
@@ -62,6 +66,9 @@ DATABASE_PORT = 15432
 REPORT_DIR = PROJECT_ROOT / "bdd-standing-report"
 # Days of finished runs the standing deployment keeps.
 RUN_HISTORY_DAYS = 2
+# Server replicas of the standing deployment (Dylan, 2026-11-27, on
+# COLLIERY-I-0685): a restarted replica is the common case with two.
+SERVER_REPLICAS = 2
 
 
 def _hostdir():
@@ -70,6 +77,10 @@ def _hostdir():
 
 def _settings_path():
     return _hostdir() / "checker-settings.json"
+
+
+def _disturb_settings_path():
+    return _hostdir() / "disturb-settings.json"
 
 
 def _dry_run():
@@ -95,15 +106,18 @@ def _self_test():
     return run.main()
 
 
-def _server_values(tag, agent_ref, chart_actuator, compiler_ref):
+def _server_values(tag, agent_ref, chart_actuator, compiler_ref, replicas=SERVER_REPLICAS):
     """The values of the publishing chapter's deployment, changed for a
     deployment that stands: the database keeps its data across a restart of
-    its pod, and finished runs are removed after a few days."""
+    its pod, the server runs `replicas` replicas, and finished runs are
+    removed after a few days."""
     base = publish_chapter._server_values_with_fleet(tag, agent_ref, chart_actuator, compiler_ref)
     kept = "  persistence:\n    enabled: false\n"
     assert kept in base, "the e2e server values changed: postgres persistence not found"
+    assert "replicaCount" not in base, "the e2e server values set replicaCount themselves"
     base = base.replace(kept, "  persistence:\n    enabled: true\n")
     return base + (
+        f"replicaCount: {int(replicas)}\n"
         "retention:\n"
         f"  runHistoryDays: {RUN_HISTORY_DAYS}\n"
         "  outboxAckedSeconds: 3600\n"
@@ -188,6 +202,50 @@ def _check(interval, port):
             forward.close()
 
 
+def _disturb_dry_run():
+    print_section_header("bdd standing — the disturbance schedule, dry run (touches nothing)")
+    print(disturb.plan_text(time.time()))
+    return 1 if disturb.schedule_problems() else 0
+
+
+def _disturb_stop():
+    path = disturb.request_stop(str(_hostdir() / "disturb.stop"))
+    print(f"asked the disturbance schedule to stop ({path}). It ends the disturbance in hand, "
+          "brings Postgres back if it is away, closes the record, and exits.")
+    return 0
+
+
+def _disturb():
+    """Forward the server API, and run the disturbance schedule until stopped."""
+    kubeconfig = _hostdir() / "kubeconfig.host.yaml"
+    settings_path = _disturb_settings_path()
+    if not kubeconfig.exists() or not settings_path.exists():
+        print(f"no standing deployment found ({kubeconfig} or {settings_path} is missing).\n"
+              "Bring it up first: angreal test bdd standing", file=sys.stderr)
+        return 1
+    k8s._check_tool("kubectl", "sudo port install kubectl")
+    settings = disturb.read_settings(str(settings_path))
+    print_section_header("bdd standing — the disturbance schedule (stop: --disturb-stop or Ctrl-C)")
+    forward = _Forward(kubeconfig, f"svc/{RELEASE}-cloacina-server", f"{SERVER_PORT}:8080", NS)
+    try:
+        k8s._wait_http(f"http://127.0.0.1:{SERVER_PORT}/ready", timeout_s=60)
+        runner = disturb.Runner(
+            # The Kube refuses any kubeconfig but the suite's own path.
+            disturb.Kube(str(kubeconfig)),
+            disturb.Api(f"http://127.0.0.1:{SERVER_PORT}"),
+            settings["keys"],
+            disturb.Record(str(REPORT_DIR / "disturbances.jsonl"),
+                           str(REPORT_DIR / "disturbance-log.jsonl")),
+            read_keys=settings.get("read_keys"),
+            stop_path=str(_hostdir() / "disturb.stop"),
+            lock_path=str(_hostdir() / "disturb.lock"),
+        )
+        print(f"record: {REPORT_DIR / 'disturbances.jsonl'}\nlog:    {REPORT_DIR / 'disturbance-log.jsonl'}")
+        return runner.run()
+    finally:
+        forward.close()
+
+
 @test()
 @bdd()
 @angreal.command(
@@ -199,6 +257,8 @@ def _check(interval, port):
         "running the unit tests of the suite's checker with --self-test (no server)",
         "bringing the standing deployment of the behaviour suite up on k3s",
         "running the checker against the standing deployment with --check",
+        "running the disturbance schedule on the standing cluster with --disturb "
+        "(--disturb --dry-run prints it and touches nothing)",
     ],
     when_not_to_use=[
         "unit testing the product",
@@ -211,6 +271,13 @@ def _check(interval, port):
                   help="Run the unit tests of the suite's shared code and checker; no server")
 @angreal.argument(name="check", long="check", takes_value=False, is_flag=True,
                   help="Run the checker against the standing deployment until stopped")
+@angreal.argument(name="disturb_run", long="disturb", takes_value=False, is_flag=True,
+                  help="Run the disturbance schedule on the standing cluster until stopped; "
+                       "with --dry-run print it and touch nothing")
+@angreal.argument(name="disturb_stop", long="disturb-stop", takes_value=False, is_flag=True,
+                  help="Stop the disturbance schedule; it ends the disturbance in hand first")
+@angreal.argument(name="server_replicas", long="server-replicas", default_value="2",
+                  help="Server replicas of the standing deployment (default 2)")
 @angreal.argument(name="down", long="down", takes_value=False, is_flag=True,
                   help="Remove the standing cluster and everything in it")
 @angreal.argument(name="chapter", long="chapter", default_value="standing",
@@ -227,8 +294,15 @@ def _check(interval, port):
                   help="With --check: seconds between passes of the checker")
 @angreal.argument(name="port", long="port", default_value="8377",
                   help="With --check: the port on 127.0.0.1 that serves the report")
-def standing(dry_run=False, self_test=False, check=False, down=False, chapter="standing", only="",
-             skip_build=False, tag="bdd-standing", chart_actuator=False, interval="60", port="8377"):
+def standing(dry_run=False, self_test=False, check=False, disturb_run=False, disturb_stop=False,
+             server_replicas="2", down=False, chapter="standing", only="", skip_build=False,
+             tag="bdd-standing", chart_actuator=False, interval="60", port="8377"):
+    if disturb_stop:
+        sys.exit(_disturb_stop())
+    if disturb_run:
+        code = _disturb_dry_run() if dry_run else _disturb()
+        sys.stdout.flush()
+        sys.exit(code)
     if dry_run:
         code = _dry_run()
         sys.stdout.flush()
@@ -293,14 +367,18 @@ def standing(dry_run=False, self_test=False, check=False, down=False, chapter="s
             kubeconfig, hostdir, tag, agent_ref,
             release=RELEASE, ns=NS,
             bootstrap_secret=BOOTSTRAP_SECRET, bootstrap_key=BOOTSTRAP_KEY,
-            values_text=_server_values(tag, agent_ref, chart_actuator, compiler_ref),
+            values_text=_server_values(tag, agent_ref, chart_actuator, compiler_ref,
+                                       replicas=int(server_replicas)),
             reuse=True,
         )
 
         print("\n--- port-forward the server API ---\n")
-        fwd, base = k8s.start_port_forward(kubeconfig, release=RELEASE, ns=NS, port=SERVER_PORT)
+        # A forward that starts again when its pod is replaced: the Failure
+        # chapter restarts server pods (CLOACINA-T-1112).
+        fwd = _Forward(kubeconfig, f"svc/{RELEASE}-cloacina-server", f"{SERVER_PORT}:8080", NS)
+        base = f"http://127.0.0.1:{SERVER_PORT}"
         world.base_url = base
-        if not k8s._wait_http(f"{base}/ready", timeout_s=90, proc=fwd):
+        if not k8s._wait_http(f"{base}/ready", timeout_s=90):
             print(k8s._server_logs(kubeconfig))
             raise AssertionError("server /ready never became healthy via port-forward")
 
@@ -322,17 +400,20 @@ def standing(dry_run=False, self_test=False, check=False, down=False, chapter="s
                 print(f"(written to {report_file})")
                 failed = failed or gherkin.run_failed(results)
 
-        # The checker needs its settings whatever chapter ran.
+        # The checker and the disturbance schedule need their settings
+        # whatever chapter ran.
         world.write_checker_settings()
+        world.write_disturb_settings(_disturb_settings_path())
     finally:
         # angreal's Python does not flush on sys.exit.
         sys.stdout.flush()
         sys.stderr.flush()
-        if fwd is not None and fwd.poll() is None:
-            fwd.terminate()
+        if fwd is not None:
+            fwd.close()
         print(f"\nThe deployment is left standing.\n"
               f"  KUBECONFIG={kubeconfig}\n"
               f"  checker:  angreal test bdd standing --check   (report: http://127.0.0.1:8377/)\n"
+              f"  disturb:  angreal test bdd standing --disturb (stop: --disturb-stop)\n"
               f"  remove:   angreal test bdd standing --down")
         sys.stdout.flush()
     if failed:

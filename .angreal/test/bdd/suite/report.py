@@ -89,6 +89,20 @@ def _rule_view(rule, entry, ledger, at):
     }
 
 
+def _disturbance_view(window, at, states):
+    """One disturbance, with the promises it tests and their state now."""
+    view = dict(window.as_dict(), active=window.active_at(at))
+    view["tests"] = [
+        {"id": promise_id, "sentence": promises.sentence_of(promise_id),
+         "label": states.get(promise_id, LABEL[NO_RULE])}
+        for promise_id in promises.DISTURBANCE_TESTS.get(window.kind, ())
+    ]
+    for field in ("mode", "outcome"):
+        if window.extra.get(field):
+            view[field] = str(window.extra[field])
+    return view
+
+
 def build(registry, ledger, results, snapshot, interval_s=60):
     """The report of one pass, as a dictionary."""
     at = snapshot.now
@@ -129,6 +143,7 @@ def build(registry, ledger, results, snapshot, interval_s=60):
 
     windows = snapshot.windows()
     recent = [w for w in windows if w.overlaps(at - 86400, at)]
+    states = {item["id"]: item["label"] for row in rows for item in row["promises"]}
     return {
         "title": "Cloacina behaviour suite",
         "generated_at": engine.format_time(at),
@@ -137,7 +152,7 @@ def build(registry, ledger, results, snapshot, interval_s=60):
         "tenants": snapshot.tenants,
         "red": engine.is_red(results),
         "summary": counts,
-        "disturbances": [dict(w.as_dict(), active=w.active_at(at)) for w in recent],
+        "disturbances": [_disturbance_view(w, at, states) for w in recent],
         "rows": rows,
     }
 
@@ -282,11 +297,16 @@ def render(report):
     body.append('<div id="stale" role="alert"></div>')
     if report["disturbances"]:
         lines = "".join(
-            f'<tr><td>{_esc(w["kind"])}</td><td>{_esc(w["target"])}</td><td>{_esc(w["start"])}</td>'
-            f'<td>{_esc(w["end"] or "open")}</td><td>{"active" if w["active"] else "over"}</td></tr>'
+            f'<tr><td>{_esc(w["kind"])}{_esc(" (" + w["mode"] + ")") if w.get("mode") else ""}</td>'
+            f'<td>{_esc(w["target"])}</td><td>{_esc(w["start"])}</td>'
+            f'<td>{_esc(w["end"] or "open")}</td><td>{"active" if w["active"] else "over"}'
+            f'{_esc(", " + w["outcome"]) if w.get("outcome") else ""}</td>'
+            "<td>" + "<br>".join(f'{_esc(t["sentence"])} <span class="muted">{_esc(t["label"])}</span>'
+                                 for t in w.get("tests", [])) + "</td></tr>"
             for w in reversed(report["disturbances"]))
         body.append("<h2>Disturbances <small>the last 24 hours</small></h2>"
-                    "<table><tr><th>kind</th><th>target</th><th>start</th><th>end</th><th></th></tr>"
+                    "<table><tr><th>kind</th><th>target</th><th>start</th><th>end</th><th></th>"
+                    "<th>promises it tests</th></tr>"
                     f"{lines}</table>")
     for row in report["rows"]:
         if not row["promises"]:
