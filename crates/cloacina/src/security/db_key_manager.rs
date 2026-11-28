@@ -554,6 +554,29 @@ impl DbKeyManager {
         Ok(keys.into_iter().map(Self::to_trusted_key_info).collect())
     }
 
+    /// The revoked trusted keys of `org_ids`: how many there are and the
+    /// latest `revoked_at` (CLOACINA-T-1119). A revoke in one of the orgs
+    /// changes the answer, whichever process made it, so each reconciler
+    /// reads it on each pass to learn of a revoke. Keys inherited through a
+    /// trust ACL are not counted.
+    pub async fn revoked_key_marker(
+        &self,
+        org_ids: &[UniversalUuid],
+    ) -> Result<(usize, Option<UniversalTimestamp>), KeyError> {
+        let ids = org_ids.to_vec();
+        let revoked: Vec<Option<UniversalTimestamp>> =
+            crate::interact_on_backend!(self.dal, |conn| {
+                trusted_keys::table
+                    .filter(trusted_keys::org_id.eq_any(ids))
+                    .filter(trusted_keys::revoked_at.is_not_null())
+                    .select(trusted_keys::revoked_at)
+                    .load(conn)
+            })
+            .map_err(|e| KeyError::Database(e.to_string()))?;
+        let latest = revoked.iter().flatten().max_by_key(|t| t.0).copied();
+        Ok((revoked.len(), latest))
+    }
+
     async fn list_direct_trusted_keys(
         &self,
         org_id: UniversalUuid,

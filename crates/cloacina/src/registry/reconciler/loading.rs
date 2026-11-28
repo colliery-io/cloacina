@@ -134,6 +134,9 @@ impl RegistryReconciler {
             self.rollback_schedule_rows(&metadata, &created_schedule_ids, &existing_schedule_ids)
                 .await;
         }
+        if result.is_err() {
+            self.loaded_signatures.write().await.remove(&metadata.id);
+        }
         result
     }
 
@@ -258,6 +261,12 @@ impl RegistryReconciler {
                         Some(&verified.signer_fingerprint),
                         /* signature_verified */ true,
                     );
+                    // CLOACINA-T-1119: kept for the check after a revoke.
+                    // `load_package` drops it when the load fails later.
+                    self.loaded_signatures
+                        .write()
+                        .await
+                        .insert(metadata.id, verified);
                 }
                 Err(refusal) => {
                     let msg = format!(
@@ -1046,6 +1055,7 @@ impl RegistryReconciler {
                     version: "unknown".to_string(),
                 })?;
         drop(loaded_packages);
+        self.loaded_signatures.write().await.remove(&package_id);
 
         // --- Step 1 (reverse): workflows ---
         // Drop the workflow registration so future executions can't kick
