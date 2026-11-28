@@ -3,8 +3,7 @@
 -- transaction, under the migration lock, and only raises it. At start a
 -- server reads it before it migrates: a schema more than one minor ahead of
 -- the binary is refused, one exactly one minor ahead is used without a
--- migration. A new table only. Migration 072: 069 to 071 are taken by other
--- open work.
+-- migration. A new table only. Migration 074.
 CREATE TABLE IF NOT EXISTS cloacina_schema_release (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     written_by TEXT NOT NULL,

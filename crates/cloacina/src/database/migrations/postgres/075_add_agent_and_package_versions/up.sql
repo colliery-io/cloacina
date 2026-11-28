@@ -5,8 +5,7 @@
 -- workflow_packages: the plugin interface version of a Rust build, written
 -- by the compiler that built it. NULL for Python packages and for builds from
 -- before the column; dispatch sends those as before.
--- Nullable columns only. Migration 073: 069 to 072 are taken by other open
--- work.
+-- Nullable columns only. Migration 075.
 ALTER TABLE fleet_agents ADD COLUMN agent_version TEXT;
 ALTER TABLE fleet_agents ADD COLUMN protocol_version INTEGER;
 ALTER TABLE fleet_agents ADD COLUMN plugin_interface_version INTEGER;

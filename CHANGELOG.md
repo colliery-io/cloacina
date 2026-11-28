@@ -161,7 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `terminationGracePeriodSeconds` to it plus 15 s; setting it rolls the agent
   pods once.
 - **Schema guards: each schema records the release that migrated it, and
-  only the server migrates** (CLOACINA-T-1087). Migration 072 adds the table
+  only the server migrates** (CLOACINA-T-1087). Migration 074 adds the table
   `cloacina_schema_release`, written in the migration transaction.
   - A server, an embedded runner or `cloacinactl daemon` on a schema more
     than one minor ahead of it refuses to start (a tenant schema: is not
@@ -179,7 +179,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     without a default, a unique index or a constraint, unless the file has a
     `-- compat:` line.
 - **Version skew: agents of the server's minor and the one before, and
-  dispatch by plugin interface version** (CLOACINA-T-1086). Migration 073
+  dispatch by plugin interface version** (CLOACINA-T-1086). Migration 075
   adds nullable columns to `fleet_agents` and `workflow_packages`.
   - An agent sends its release and its plugin interface version at register.
     The server accepts its own minor (up to its own patch) and the minor

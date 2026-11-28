@@ -1,4 +1,4 @@
--- CLOACINA-T-1086: versions of agents and packages, as Postgres 073.
+-- CLOACINA-T-1086: versions of agents and packages, as Postgres 075.
 ALTER TABLE fleet_agents ADD COLUMN agent_version TEXT;
 ALTER TABLE fleet_agents ADD COLUMN protocol_version INTEGER;
 ALTER TABLE fleet_agents ADD COLUMN plugin_interface_version INTEGER;
