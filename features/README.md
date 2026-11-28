@@ -8,6 +8,13 @@ deployment of server, compilers and agents.
 |---|---|---|
 | `publishing/` | A team publishes its own jobs to a shared orchestrator (CLOACINA-T-1026) | `angreal test bdd publish`, or `angreal test bdd standing --chapter publishing` |
 | `standing/` | The standing workload of several teams (CLOACINA-T-1107) | `angreal test bdd standing` |
+| `schedules/` | A schedule fires on time, a run knows its interval, a backlog drains in order (CLOACINA-T-1111) | `angreal test bdd standing --chapter schedules` |
+
+The `schedules` chapter makes two schedules of its own on team B and removes
+them at the end of their scenarios. Its last two scenarios restart both
+server replicas, write each restart to the disturbance record
+(`bdd-standing-report/disturbances.jsonl`), and open a port forward of their
+own on port 18110.
 
 ```
 angreal test bdd standing --dry-run     # every feature parsed, every step resolved; no cluster

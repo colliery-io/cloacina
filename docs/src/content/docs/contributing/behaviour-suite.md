@@ -69,6 +69,11 @@ Every task of the workload prints one line that starts with `STANDING_MARK`
 when its body starts: a count of real starts that does not depend on the
 server's own records.
 
+The checker computes each schedule's fire times from its cron expression in
+the workload description (`.angreal/test/bdd/suite/cron.py`), not from the
+server's next fire time, and compares them with the fires the server
+recorded (the chapter `schedules`).
+
 The workload is described once, in `.angreal/test/bdd/suite/workload.py`:
 the tenants, the packages, the schedules, and which workflow gives evidence
 for which promise. The driver deploys from it and the checker judges from
