@@ -83,33 +83,11 @@ const REFUSALS: [(&str, &str); 6] = [
 
 /// The refusal code of a failed upload, when it is one of [`REFUSALS`].
 ///
-/// The client keeps the code only for statuses it does not map
-/// ([`ClientError::code`]); a 400 or 403 arrives as the server's message, so
-/// the code is read from that message's wording.
+/// The client keeps the server's code for every status
+/// ([`ClientError::code`], CLOACINA-T-1141), 400 and 403 included.
 fn refusal_code(e: &ClientError) -> Option<&'static str> {
-    if let Some(code) = e.code() {
-        return REFUSALS.iter().map(|(c, _)| *c).find(|c| *c == code);
-    }
-    let message = match e {
-        ClientError::Auth(m) | ClientError::InvalidRequest(m) => m.as_str(),
-        _ => return None,
-    };
-    let code = if message.contains("requires signed packages") {
-        "signature_required"
-    } else if message.contains("'signature' field") {
-        "malformed_signature"
-    } else if message.contains("do not match the signed hash") {
-        "package_tampered"
-    } else if message.contains("signed by untrusted key") {
-        "untrusted_signer"
-    } else if message.contains("signed by a revoked key") {
-        "signer_revoked"
-    } else if message.contains("signature verification failed") {
-        "invalid_signature"
-    } else {
-        return None;
-    };
-    Some(code)
+    let code = e.code()?;
+    REFUSALS.iter().map(|(c, _)| *c).find(|c| *c == code)
 }
 
 /// What the form shows for a failed upload: a title (the refusal code, when
@@ -125,7 +103,7 @@ fn upload_error(e: &ClientError) -> (Option<&'static str>, String) {
             // The server's own words, without the client's "authentication:"
             // prefix: a 403 here is the signature check, not the key.
             let detail = match e {
-                ClientError::Auth(m) | ClientError::InvalidRequest(m) => m.clone(),
+                ClientError::Auth(m) | ClientError::InvalidRequest(m) => m.to_string(),
                 other => other.to_string(),
             };
             (Some(code), format!("{advice} Server: {detail}"))
