@@ -181,6 +181,51 @@ helm upgrade --install cloacina \
 cert-manager users can wire issuance via the standard
 `cert-manager.io/cluster-issuer` annotation under `ingress.annotations`.
 
+`ingress.tls` covers clients outside the cluster. Inside the cluster the
+server listens on plain HTTP: agents and server replicas need a service
+mesh or a gateway for TLS. See [Transport Security](../transport-security/).
+
+## Network policies
+
+The chart closes its ports by default (CLOACINA-T-1069). The policies need a
+CNI that enforces NetworkPolicy.
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `server.networkPolicy.enabled` | `true` | The API port (8080) is open only to the server pods, the agents of the tenant namespaces (with `fleet.actuator=kubernetes`) and `server.networkPolicy.from`. `false`: open to every source |
+| `server.networkPolicy.from` | `[]` | NetworkPolicy peers allowed to the API port: the ingress controller or gateway, agents you run yourself, tools |
+| `compiler.networkPolicy.from` | `[]` | Peers allowed to the chart compiler's port (9000, `/health` and `/v1/status`). Empty: nobody. Used with `server.networkPolicy.enabled` |
+| `postgresql.networkPolicy.enabled` | `true` | Bundled Postgres (5432) is open only to the server pods, the chart's compiler, the tenant compilers and `postgresql.networkPolicy.from` |
+| `postgresql.networkPolicy.from` | `[]` | More peers allowed to bundled Postgres |
+| `postgresql.auth.password` | `""` | Empty: a generated password, kept in the Secret `<release>-postgresql` across upgrades |
+
+Name the ingress controller, or the ingress traffic from outside the
+cluster stops at the policy:
+
+```yaml
+server:
+  networkPolicy:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+```
+
+### Upgrading to closed network policies
+
+On a CNI that enforces NetworkPolicy, an install that reached the API port
+from other pods must set before the upgrade:
+
+- `server.networkPolicy.from`: the ingress controller or gateway, agents
+  from the `cloacina-agent` chart or run by hand, in-cluster tools;
+- `compiler.networkPolicy.from`: a reader of the compiler's `/v1/status`;
+- `postgresql.networkPolicy.from`: other clients of bundled Postgres;
+- or `server.networkPolicy.enabled=false` and
+  `postgresql.networkPolicy.enabled=false` to keep the ports open.
+
+Bundled Postgres keeps the password it has: the chart reads it from its
+Secret. `kubectl port-forward` is not affected by the policies.
+
 ## Probes + signatures + tenants
 
 | Knob | Default | Effect |
@@ -207,10 +252,10 @@ off the API port by default:
   served on port 9090 only, and `:8080/metrics` answers 404.
 - The ClusterIP Service `<fullname>-metrics` exposes port 9090. The API
   Service and the Ingress do not.
-- A NetworkPolicy for the server pods keeps the API port open to every
-  source and opens port 9090 only to the peers in
-  `metrics.networkPolicy.from`. The list is empty by default, so no pod
-  can reach the metrics port until you name your Prometheus.
+- The NetworkPolicy of the server pods opens port 9090 only to the peers
+  in `metrics.networkPolicy.from`. The list is empty by default, so no pod
+  can reach the metrics port until you name your Prometheus. The API port
+  follows `server.networkPolicy` (see [Network policies](#network-policies)).
 
 ### Let Prometheus scrape
 
@@ -240,14 +285,14 @@ With `compiler.enabled=true` the compiler pods get the same treatment:
 `--metrics-bind` on `metrics.port`, the Service
 `<fullname>-compiler-metrics` (port `cmp-metrics`), a second
 `ServiceMonitor` named `<fullname>-compiler`, and a NetworkPolicy that
-keeps the compiler's bind port open and opens the metrics port only to
-the peers in `from`.
+opens the compiler's bind port only to `compiler.networkPolicy.from` and
+the metrics port only to the peers in `metrics.networkPolicy.from`.
 
 | Knob | Default | Effect |
 |------|---------|--------|
 | `metrics.enabled` | `true` | Starts the server (and the compiler, when enabled) with `--metrics-bind 0.0.0.0:<port>`. Adds the container port and the ClusterIP metrics Service. `:8080/metrics` answers 404 |
 | `metrics.port` | `9090` | Port of the metrics listener |
-| `metrics.networkPolicy.enabled` | `true` | Adds the NetworkPolicy for the server pods (and the compiler pods). Rendered only with `metrics.enabled=true`. Takes effect on a CNI that enforces NetworkPolicy |
+| `metrics.networkPolicy.enabled` | `true` | The metrics port of the server pods (and the compiler pods) is open only to `from`. Used with `metrics.enabled=true`. `false`: open to every source. Takes effect on a CNI that enforces NetworkPolicy |
 | `metrics.networkPolicy.from` | `[]` | NetworkPolicy peers that may reach the metrics port. Empty admits nobody |
 | `serviceMonitor.enabled` | `false` | Emits a `ServiceMonitor` for the metrics Service |
 
@@ -270,9 +315,9 @@ the peers in `from`.
 
 `metrics.enabled=false` puts `/metrics` back on port 8080, where every
 client that can reach the API can read it, each tenant's agents
-included. The chart then renders no metrics Service and no
-NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on port
-`http`.
+included. The chart then renders no metrics Service and no metrics rule
+in the NetworkPolicy, and the `ServiceMonitor` scrapes the API Service on
+port `http`: list Prometheus in `server.networkPolicy.from`.
 
 ### Upgrading from a chart where `metrics.enabled` was `false`
 

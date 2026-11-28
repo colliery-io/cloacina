@@ -1485,6 +1485,15 @@ pub async fn run(
              the substrate. The server will not start with a misconfigured actuator."
         )
     })?;
+    // CLOACINA-T-1069: the actuator's start checks. With the Kubernetes
+    // actuator and its agent NetworkPolicy on, a server that cannot write the
+    // policy does not start.
+    fleet_actuator.preflight().await.map_err(|e| {
+        anyhow::anyhow!(
+            "FATAL: fleet actuator (CLOACINA_FLEET_ACTUATOR={actuator_kind}) start check \
+             failed — {e}"
+        )
+    })?;
     info!(
         actuator = %fleet_actuator.kind(),
         "fleet actuator initialized"

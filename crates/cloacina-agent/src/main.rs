@@ -39,6 +39,7 @@
 //! limit (see [`memory`]). A task marked `inline` runs in the agent process.
 
 mod memory;
+mod tls;
 mod worker;
 
 mod poll;
@@ -86,6 +87,12 @@ struct Args {
     /// Server base URL (e.g. `http://localhost:8080` or `https://api.example.com`).
     #[arg(long, env = "CLOACINA_SERVER")]
     server: String,
+    /// A PEM file of CA certificates to trust for an `https://` server, in
+    /// addition to the system roots: for a mesh or gateway whose certificate
+    /// a private CA signs (CLOACINA-T-1069). A file that cannot be read or
+    /// holds no certificate stops the agent at start.
+    #[arg(long, env = "CLOACINA_AGENT_CA_FILE")]
+    ca_file: Option<std::path::PathBuf>,
     /// API key used for both REST and the WS ticket mint. Give it here, in
     /// `CLOACINA_API_KEY`, or in a file with `--api-key-file`. The agent takes
     /// the variable out of its environment at start (CLOACINA-T-1033).
@@ -360,6 +367,18 @@ mod log_format_tests {
             (2, Duration::from_secs(5), 10, 75)
         );
     }
+
+    /// CLOACINA-T-1069: `--ca-file` is optional and names a path.
+    #[test]
+    fn the_ca_file_is_optional() {
+        assert_eq!(parse(&[]).unwrap().ca_file, None);
+        assert_eq!(
+            parse(&["--ca-file", "/etc/cloacina/ca/ca.crt"])
+                .unwrap()
+                .ca_file,
+            Some(std::path::PathBuf::from("/etc/cloacina/ca/ca.crt"))
+        );
+    }
 }
 
 /// Backoff bounds for the reconnect loop.
@@ -479,10 +498,17 @@ async fn run(args: Args) -> Result<()> {
     // CLOACINA-T-1027: a bad total stops the start, before any connection.
     agent_totals(args.cpu.as_deref(), args.memory.as_deref())?;
     let server_base = args.server.trim_end_matches('/').to_string();
-    let http = reqwest::Client::builder()
-        .user_agent(concat!("cloacina-agent/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("build HTTP client")?;
+    // CLOACINA-T-1069: a CA file that cannot be used stops the start.
+    let extra_roots = tls::ExtraRoots::load(args.ca_file.as_deref())?;
+    if !extra_roots.is_empty() {
+        info!(
+            ca_file = ?args.ca_file,
+            certificates = extra_roots.len(),
+            "trusting the CA file in addition to the system roots"
+        );
+    }
+    let http = extra_roots.http_client()?;
+    let ws_connector = extra_roots.ws_connector();
 
     // Install the PyO3 Python runtime so the agent can load Python-packaged
     // workflows (not just Rust cdylibs). Idempotent. (CLOACI-T-0716)
@@ -536,6 +562,7 @@ async fn run(args: Args) -> Result<()> {
             &args,
             &mut session_agent_id,
             &http,
+            ws_connector.clone(),
             &server_base,
             &target_triple,
             in_flight.clone(),
@@ -572,6 +599,7 @@ async fn connect_and_serve(
     args: &Args,
     session_agent_id: &mut Option<String>,
     http: &reqwest::Client,
+    ws_connector: Option<tokio_tungstenite::Connector>,
     server_base: &str,
     target_triple: &str,
     in_flight: Arc<AtomicU32>,
@@ -670,9 +698,11 @@ async fn connect_and_serve(
             .context("mint WS ticket")?;
         let ws_url = ws_url_for(server_base, &agent_id, &ticket)?;
         info!(ws_url = %without_query(&ws_url), "connecting to substrate delivery WS");
-        let (stream, _resp) = tokio_tungstenite::connect_async(&ws_url)
-            .await
-            .with_context(|| format!("WS connect to {}", without_query(&ws_url)))?;
+        // With `--ca-file` the connector trusts that CA too (CLOACINA-T-1069).
+        let (stream, _resp) =
+            tokio_tungstenite::connect_async_tls_with_config(&ws_url, None, false, ws_connector)
+                .await
+                .with_context(|| format!("WS connect to {}", without_query(&ws_url)))?;
         info!(agent_id = %agent_id, "substrate WS connected");
         receive_loop(
             stream,

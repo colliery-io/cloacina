@@ -644,6 +644,23 @@ One key-encryption key (`CLOACINA_SECRET_KEK`) wraps each tenant's data key, and
 
 For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation](../multi-tenancy/) and the multi-tenant how-tos under `/service/how-to/`.
 
+## Traffic in transit and the network
+
+**The server ends no TLS.** `cloacina-server` listens on plain HTTP. TLS ends in the cluster, in a service mesh with mTLS or in a gateway in front of the server; the operator provides it (CLOACINA-T-1069). Without one, every bearer key, task context and package crosses the cluster network in clear text:
+
+- **Encrypted with an ingress or gateway:** clients outside the cluster to the ingress; agents that reach the server by an `https://` URL.
+- **Encrypted only with a mesh:** the reactor inject that one server replica forwards to another, sent to a pod IP.
+- **Encrypted as the URL sets:** the server and compiler connections to Postgres. The chart's bundled Postgres is not set up for TLS.
+- **Encrypted by the server's TLS client:** its calls to the identity provider, the Kubernetes API and an `https://` alert webhook.
+
+The agent trusts the system roots of its image, and a private CA given with `--ca-file` (`CLOACINA_AGENT_CA_FILE`). See [Transport Security](../../../how-to/service/transport-security/) for what a mesh or a gateway must do.
+
+**Who can reach which port.** The Helm chart closes its ports with NetworkPolicies by default: the API port is open to the server pods, the agents the server makes and `server.networkPolicy.from`; the metrics port to `metrics.networkPolicy.from`; the chart compiler's port to `compiler.networkPolicy.from` (nobody by default); bundled Postgres to the server and the compilers. A tenant's agents reach only DNS and the server's API port; its compiler, DNS, the database, the server and its build egress. The policies are a second line behind authentication: every API route still checks its key. They take effect only on a CNI that enforces NetworkPolicy, and they do not limit the server's own egress.
+
+**The agent policy is checked at start.** With the Kubernetes actuator and `fleet.networkPolicy.enabled`, a server that cannot write the tenant NetworkPolicy (the server endpoint variables unset, or no RBAC for `create`, `patch` and `delete` on `networkpolicies`) does not start. It does not run agents without their policy.
+
+**Bundled Postgres has a generated password.** An empty `postgresql.auth.password` makes the chart generate one and keep it in a Secret; the server and compiler manifests read it from the Secret and do not hold it.
+
 ## `/metrics` and `/health` posture
 
 The Prometheus `/metrics` endpoint and the `/health` + `/ready` probes are **unauthenticated**, per ADR-0005. This is a deliberate trade-off:
@@ -653,7 +670,7 @@ The Prometheus `/metrics` endpoint and the `/health` + `/ready` probes are **una
 
 When the server binary is started with no `--metrics-bind`, `/metrics` is on the API port. Every client that can reach the API can read it, and that includes each tenant's execution agents. Metric labels hold tenant names, workflow names and other names that tenants choose (graphs, reactors, accumulators, sources), so one tenant's code can read another tenant's names.
 
-Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer. The Helm chart does both by default: `metrics.enabled` and `metrics.networkPolicy.enabled` are `true`, so a chart install has the metrics port, a ClusterIP Service for it, and a NetworkPolicy that admits only the peers listed in `metrics.networkPolicy.from` (nobody until you list your Prometheus). The NetworkPolicy takes effect only on a CNI that enforces NetworkPolicy. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
+Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer. The Helm chart does both by default: `metrics.enabled` and `metrics.networkPolicy.enabled` are `true`, so a chart install has the metrics port, a ClusterIP Service for it, and a NetworkPolicy that admits to it only the peers listed in `metrics.networkPolicy.from` (nobody until you list your Prometheus). The NetworkPolicy takes effect only on a CNI that enforces NetworkPolicy. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
 
 `/ready` gives a fixed `reason` (`database unreachable`, or `python runtime unavailable; restart required`). The package that wedged the Python runtime is named in the server log only.
 
