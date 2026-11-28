@@ -89,6 +89,11 @@ What to expect, once:
   starts empty. In 0.12 those rows were in `public` with no tenant, so the
   start cannot give them to their tenant. Each reactor and accumulator
   starts as at its first start. The graphs of `public` keep their state.
+- `public`'s pending run-finished notices stay in `public.delivery_outbox`
+  and are sent after the 0.13.0 start, when an alert webhook is set, as
+  before.
+- `public` now has its own connection pool beside the admin pool, so each
+  replica opens more connections; named tenants stay at 2 each.
 
 Agents of 0.12 are of the previous minor, so 0.13.0 accepts them: upgrade
 them after the servers, as in the order above.
