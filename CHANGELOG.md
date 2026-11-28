@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **Signing: a revoke unloads the packages it signed, with no restart**
+  (CLOACINA-T-1119). With `--require-signatures`, each replica checks its
+  loaded packages again within one reconciler pass of a trusted key revoke of
+  the tenant's org or the server-wide org. A package with no valid signature
+  left starts no new run on any replica (about 10 seconds with the default
+  interval), its runs that had not ended are cancelled, its schedules go, and
+  that version's build status becomes `failed` with the key's fingerprint; one
+  `package.signer_revoked` audit row records it. Before, the package ran until
+  the next start of the server. Before you revoke a key, upload each package
+  it signed again signed by a live trusted key, or plan the outage. At the
+  first start after the upgrade, a loaded package whose signer was revoked
+  before is refused at load, as before.
+
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task

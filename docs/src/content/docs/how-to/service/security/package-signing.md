@@ -122,12 +122,33 @@ upload signed by the key is refused with `403 signer_revoked`. A revoked key
 cannot be added again; trust a new key instead. A key that the tenant revoked
 still passes if the server-wide org also trusts it.
 
-A revoke does not stop a package that is already loaded: its workflows keep
-running. With `--require-signatures`, the package is checked again the next
-time the server loads it, which is at the next start of the server, and that
-load refuses a package whose signer is revoked. To stop a loaded package at
-once, delete it (`cloacinactl package delete`). To keep it past the next
-start, publish it again signed by a key the tenant trusts.
+With `--require-signatures`, a revoke also stops the packages it signed that
+are loaded. **A revoke is an outage of each package that has no other valid
+signature: plan it before you revoke.** On each pass of its reconciler (every
+5 seconds by default), each replica reads when a trusted key of the tenant's
+org or of the server-wide org was last revoked. When that changed, it checks
+each loaded package again. A package whose only valid signature was by the
+revoked key:
+
+- starts no new run on any replica: every replica unloads it within about two
+  passes (10 seconds by default), with no restart;
+- has its runs that had not ended cancelled: they end `Cancelled`, and the
+  error names the fingerprint of the revoked key;
+- loses its schedules with the unload;
+- is refused for good: that version's build status becomes `failed`, and the
+  build error names the key's fingerprint (`cloacinactl package inspect`). It is
+  not loaded again.
+
+One `package.signer_revoked` row in the [audit record](../audit-record/) and
+one warning in the server log name the package, the version and the
+fingerprint. A package that also has a valid signature by a live trusted key
+keeps running. To bring a refused package back, publish a new version signed
+by a key the tenant trusts.
+
+A revoke of a key of the server-wide org reaches every tenant whose packages
+it signed. A revoke of a key of a child org that the tenant trusts through a
+trust ACL is not read: its packages are refused at their next load only.
+Without `--require-signatures` a revoke changes no loaded package.
 
 The same operations over HTTP are `POST`, `GET` and `DELETE` on
 `/v1/tenants/{tenant_id}/trusted-keys`: see the

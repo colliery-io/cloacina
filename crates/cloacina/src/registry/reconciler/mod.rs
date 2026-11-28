@@ -382,7 +382,25 @@ pub struct RegistryReconciler {
     /// metadata document sends its polls. Shared with the runner, which sets
     /// the dispatcher after it is made.
     pub(super) poll_dispatcher: crate::trigger::PollDispatcherSlot,
+
+    /// CLOACINA-T-1119: the signature each loaded package passed the load
+    /// check with, by package. Its hash is what the check after a revoke
+    /// reads. Empty with signatures not required.
+    pub(super) loaded_signatures:
+        tokio::sync::RwLock<HashMap<WorkflowPackageId, crate::registry::traits::LoadSignature>>,
+
+    /// CLOACINA-T-1119: the revoke marker of the last pass whose check of
+    /// the loaded packages ran to its end. `None` before the first one.
+    revoke_marker: tokio::sync::Mutex<Option<crate::registry::traits::SignerRevokeMarker>>,
 }
+
+/// The codes of a check after a revoke that refuse a loaded package
+/// (CLOACINA-T-1119): the signer's key is revoked, or no org of the list
+/// trusts it any more. Any other answer leaves the package loaded.
+const REVOKE_REFUSAL_CODES: [&str; 2] = ["revoked_signer", "untrusted_signer"];
+
+/// The audit action of a package refused after a revoke (CLOACINA-T-1119).
+pub const ACTION_PACKAGE_SIGNER_REVOKED: &str = "package.signer_revoked";
 
 impl RegistryReconciler {
     /// Create a new Registry Reconciler
@@ -413,6 +431,8 @@ impl RegistryReconciler {
             recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
             placement_check: crate::registry::task_placement_check(),
             poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
+            loaded_signatures: tokio::sync::RwLock::new(HashMap::new()),
+            revoke_marker: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -571,6 +591,10 @@ impl RegistryReconciler {
     pub async fn reconcile(&self) -> Result<ReconcileResult, RegistryError> {
         let start_time = std::time::Instant::now();
 
+        // CLOACINA-T-1119: a key revoked since the last pass. Before the
+        // list, so a package refused here is not in it.
+        let refused_after_revoke = self.recheck_after_revoke().await;
+
         // Get all packages from the database
         let db_packages = self.registry.list_workflows().await?;
         let db_package_ids: HashSet<WorkflowPackageId> = db_packages.iter().map(|p| p.id).collect();
@@ -628,7 +652,7 @@ impl RegistryReconciler {
 
         let mut result = ReconcileResult {
             packages_loaded: Vec::new(),
-            packages_unloaded: Vec::new(),
+            packages_unloaded: refused_after_revoke,
             packages_failed: Vec::new(),
             total_packages_tracked: 0,
             reconciliation_duration: Duration::ZERO,
@@ -740,6 +764,231 @@ impl RegistryReconciler {
         result.reconciliation_duration = start_time.elapsed();
 
         Ok(result)
+    }
+
+    /// Check the loaded packages again when a trusted key was revoked
+    /// (CLOACINA-T-1119). Returns the packages refused and unloaded.
+    ///
+    /// With signatures required, each pass reads the revoke marker of the
+    /// tenant's org and the server org. When it is not the one of the last
+    /// full check (and on the first pass), each loaded package is checked
+    /// again by the hash its load check computed. A package refused with
+    /// [`REVOKE_REFUSAL_CODES`] is refused for good by
+    /// [`Self::refuse_after_revoke`]. A check that cannot run refuses nothing,
+    /// and the marker is kept unread, so the next pass checks again.
+    async fn recheck_after_revoke(&self) -> Vec<WorkflowPackageId> {
+        if !self.config.require_signatures {
+            return Vec::new();
+        }
+        let org_ids = self.config.signature_org_ids();
+        let trust = self.config.signature_trust_database.as_ref();
+        let marker = match self.registry.signer_revoke_marker(&org_ids, trust).await {
+            Ok(Some(marker)) => marker,
+            Ok(None) => return Vec::new(),
+            Err(e) => {
+                warn!(
+                    tenant_id = %self.config.default_tenant_id,
+                    "could not read the revoke marker of the trusted keys; the loaded \
+                     packages are checked at the next pass: {e}"
+                );
+                return Vec::new();
+            }
+        };
+        let mut last = self.revoke_marker.lock().await;
+        if last.as_ref() == Some(&marker) {
+            return Vec::new();
+        }
+
+        let to_check: Vec<(
+            WorkflowPackageId,
+            WorkflowMetadata,
+            Option<String>,
+            crate::registry::traits::LoadSignature,
+        )> = {
+            let signatures = self.loaded_signatures.read().await;
+            let loaded = self.loaded_packages.read().await;
+            loaded
+                .iter()
+                .filter_map(|(id, state)| {
+                    signatures.get(id).map(|sig| {
+                        (
+                            *id,
+                            state.metadata.clone(),
+                            state.workflow_name.clone(),
+                            sig.clone(),
+                        )
+                    })
+                })
+                .collect()
+        };
+
+        let mut refused = Vec::new();
+        let mut complete = true;
+        for (id, metadata, workflow_name, signature) in to_check {
+            match self
+                .registry
+                .recheck_package_signature(&signature.package_hash, &org_ids, trust)
+                .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(refusal)) if REVOKE_REFUSAL_CODES.contains(&refusal.code) => {
+                    self.refuse_after_revoke(
+                        id,
+                        &metadata,
+                        workflow_name.as_deref(),
+                        &signature,
+                        &refusal,
+                    )
+                    .await;
+                    refused.push(id);
+                }
+                Ok(Err(refusal)) => warn!(
+                    package_name = %metadata.package_name,
+                    package_version = %metadata.version,
+                    code = refusal.code,
+                    "the check after a revoke did not pass, with a code that does not \
+                     refuse a loaded package; it stays loaded: {}",
+                    refusal.reason
+                ),
+                Err(e) => {
+                    complete = false;
+                    warn!(
+                        package_name = %metadata.package_name,
+                        package_version = %metadata.version,
+                        "the check after a revoke could not run; it runs again at the \
+                         next pass: {e}"
+                    );
+                }
+            }
+        }
+        if complete {
+            *last = Some(marker);
+        }
+        refused
+    }
+
+    /// Refuse a loaded package whose signer is no longer trusted
+    /// (CLOACINA-T-1119). In order: the row goes from `success` to `failed`
+    /// with the reason (so no replica lists it, and agents no longer fetch
+    /// its code); the runs of the version that have not ended are cancelled;
+    /// the package is unloaded here, with its schedules. The replica whose
+    /// update changed the row writes the warn line and the audit row, so there
+    /// is one of each; the others unload and cancel only.
+    async fn refuse_after_revoke(
+        &self,
+        id: WorkflowPackageId,
+        metadata: &WorkflowMetadata,
+        workflow_name: Option<&str>,
+        signature: &crate::registry::traits::LoadSignature,
+        refusal: &crate::registry::traits::LoadSignatureRefusal,
+    ) {
+        let fingerprint = signature.signer_fingerprint.as_str();
+        let reason = format!(
+            "package {} v{} is refused: the key {} that signed it is no longer trusted ({}): \
+             {}. Its runs that had not ended are cancelled and its schedules removed; \
+             publish a new version signed by a live trusted key",
+            metadata.package_name, metadata.version, fingerprint, refusal.code, refusal.reason
+        );
+        let changed = match self.registry.refuse_package(id, &reason).await {
+            Ok(changed) => changed,
+            Err(e) => {
+                warn!(
+                    package_name = %metadata.package_name,
+                    package_version = %metadata.version,
+                    "could not record the refusal of the package after a revoke; it is \
+                     unloaded here: {e}"
+                );
+                false
+            }
+        };
+
+        let cancel_reason = format!(
+            "cancelled: the key {} that signed package {} v{} is no longer trusted ({})",
+            fingerprint, metadata.package_name, metadata.version, refusal.code
+        );
+        let cancelled = match self
+            .registry
+            .cancel_package_runs(
+                &metadata.package_name,
+                &metadata.version,
+                workflow_name,
+                &cancel_reason,
+            )
+            .await
+        {
+            Ok(n) => n,
+            Err(e) => {
+                warn!(
+                    package_name = %metadata.package_name,
+                    package_version = %metadata.version,
+                    "could not cancel the runs of the package after a revoke: {e}"
+                );
+                0
+            }
+        };
+
+        if let Err(e) = self.unload_package(id).await {
+            warn!(
+                package_name = %metadata.package_name,
+                package_version = %metadata.version,
+                "the unload after a revoke did not finish; it is tried again at the next \
+                 pass: {e}"
+            );
+        }
+
+        if changed {
+            warn!(
+                package_name = %metadata.package_name,
+                package_version = %metadata.version,
+                tenant_id = %self.config.default_tenant_id,
+                fingerprint = %fingerprint,
+                code = refusal.code,
+                cancelled_runs = cancelled,
+                "{}",
+                reason
+            );
+            crate::security::audit::log_package_load_failure(
+                signature.trusted_by,
+                &format!("{} v{}", metadata.package_name, metadata.version),
+                &reason,
+                refusal.code,
+            );
+            let event = crate::dal::unified::audit_events::NewAuditEvent {
+                tenant_id: Some(self.config.default_tenant_id.clone()),
+                actor_key_id: "server".to_string(),
+                actor_key_name: "server".to_string(),
+                actor_identity: None,
+                action: ACTION_PACKAGE_SIGNER_REVOKED.to_string(),
+                target_kind: "package".to_string(),
+                target: Some(id.to_string()),
+                outcome: crate::dal::unified::audit_events::OUTCOME_DENIED.to_string(),
+                detail: serde_json::json!({
+                    "package": metadata.package_name,
+                    "version": metadata.version,
+                    "fingerprint": fingerprint,
+                    "code": refusal.code,
+                    "cancelled_runs": cancelled,
+                }),
+            };
+            if let Err(e) = self
+                .registry
+                .write_audit_event(event, self.config.signature_trust_database.as_ref())
+                .await
+            {
+                warn!(
+                    package_name = %metadata.package_name,
+                    "could not write the audit row of the refusal after a revoke: {e}"
+                );
+            }
+        } else {
+            info!(
+                package_name = %metadata.package_name,
+                package_version = %metadata.version,
+                fingerprint = %fingerprint,
+                cancelled_runs = cancelled,
+                "package unloaded after a revoke; the refusal was recorded by another replica"
+            );
+        }
     }
 
     /// Perform cleanup operations during shutdown
