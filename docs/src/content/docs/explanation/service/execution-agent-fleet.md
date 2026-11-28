@@ -728,7 +728,7 @@ workers, and the workers of the old version end at their idle time.
 
 | Shared | Not shared |
 |---|---|
-| The loaded package: a Rust package's statics, a Python package's modules and their module-level state (a cache, a client, a global), as in one process. | Files in `TMPDIR`: the agent empties the directory after each task. |
+| The loaded package: a Rust package's statics, a Python package's modules and their module-level state (a cache, a client, a global), as in one process. | Files in `TMPDIR`: after each task the agent checks the directory, before the worker can take another task. An empty directory is left as it is; anything else (a file in it, a link or a file in its place, a directory its owner cannot write) is removed and the directory made again. |
 | Threads a task left running. | The environment: a task that changes an environment variable ends its worker after it; the next task gets a new one. |
 | Files written outside `TMPDIR`, such as in the unpacked package. | Processes: a task that leaves a process running ends its worker after it, and the process is killed with the worker. |
 | Memory a task left allocated: it counts for the next task's memory limit. | Secrets: each task gets only its own; see the [security model](../security-model/). |
@@ -736,7 +736,15 @@ workers, and the workers of the old version end at their idle time.
 **When a warm worker ends.**
 
 - It was idle for `--warm-worker-idle-seconds` (default 60).
-- It ran `--warm-worker-max-jobs` tasks (default 100).
+- It ran `--warm-worker-max-jobs` tasks (default 100), and its replacement is
+  ready. At the cap the agent starts a new worker of the same key, which loads
+  the package with a load-only job (no secrets, no task data) and runs
+  nothing. Until the new worker has loaded, the old one takes the tasks of its
+  key; then the new one takes its place and the old one ends. So no task waits
+  for a load at the cap. A worker that is loading holds no slot; the watchdog
+  holds it to the key's memory limit, and it has the load allowance (20 s) to
+  load. If its load fails, the old worker ends after its next task. A poll's
+  worker ends at the cap with no replacement: the next poll starts a new one.
 - After a task it holds more than `--warm-worker-max-memory-percent` (default
   50) of the memory limit of its key. A Python process seldom gives memory
   back, so this keeps room for the next task.

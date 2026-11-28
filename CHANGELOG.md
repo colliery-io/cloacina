@@ -267,6 +267,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent NetworkPolicy. The agent takes `--ca-file` /
   `CLOACINA_AGENT_CA_FILE`.
 
+### Changed
+
+- **Warm workers hand over faster and pay no cold start at the job cap**
+  (CLOACINA-T-1159). After a job the agent checks the worker's `TMPDIR` and
+  empties it only when the job left something there; before, it emptied and
+  made it again after every job. A worker at `--warm-worker-max-jobs` is no
+  longer retired at once: a new worker of its key loads the package in the
+  background (a load-only job, with no secrets and no job data), the old one
+  takes the jobs of its key until then, and the new one takes its place. A
+  poll's worker is still retired at the cap.
+
 ### Fixed
 
 - **The `tracing` and `log` lines of a packaged Rust task are written**
