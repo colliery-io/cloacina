@@ -98,12 +98,16 @@ def _self_test():
 def _server_values(tag, agent_ref, chart_actuator, compiler_ref):
     """The values of the publishing chapter's deployment, changed for a
     deployment that stands: the database keeps its data across a restart of
-    its pod, and finished runs are removed after a few days."""
+    its pod, finished runs are removed after a few days, and the server runs
+    two replicas, so a result can reach a replica that did not dispatch its
+    task (the chapter run_once, CLOACINA-T-1110)."""
     base = publish_chapter._server_values_with_fleet(tag, agent_ref, chart_actuator, compiler_ref)
     kept = "  persistence:\n    enabled: false\n"
     assert kept in base, "the e2e server values changed: postgres persistence not found"
     base = base.replace(kept, "  persistence:\n    enabled: true\n")
+    assert "replicaCount:" not in base, "the e2e server values set replicaCount already"
     return base + (
+        f"replicaCount: {workload.SERVER_REPLICAS}\n"
         "retention:\n"
         f"  runHistoryDays: {RUN_HISTORY_DAYS}\n"
         "  outboxAckedSeconds: 3600\n"
@@ -182,7 +186,8 @@ def _check(interval, port):
         from .suite import check
 
         return check.main(["--config", str(settings), "--out", str(REPORT_DIR),
-                           "--interval", str(interval), "--port", str(port), "--record"])
+                           "--interval", str(interval), "--port", str(port), "--record",
+                           "--kubeconfig", str(kubeconfig), "--namespace", NS])
     finally:
         for forward in forwards:
             forward.close()

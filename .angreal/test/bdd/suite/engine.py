@@ -50,6 +50,8 @@ SHOW_UNKNOWN = "cannot judge"
 
 TASK_CODE = re.compile(r"^[A-Z][A-Z0-9]*-[A-Z]-\d+$")
 MAX_TRANSITIONS = 20
+# Where a log source reads: each tenant's agent pods, or the server replicas.
+LOG_PLACES = ("agents", "server")
 
 
 class Missing(Exception):
@@ -221,6 +223,15 @@ class Snapshot:
         source of the whole deployment."""
         return self._entry(tenant, "db", name).get("rows") or []
 
+    def logs(self, tenant, name):
+        """The kept lines of a log source: `{"pod", "at", "text"}` each. A
+        tenant's source reads its agents; `tenant=None` reads the server."""
+        return self._entry(tenant, "logs", name).get("rows") or []
+
+    def log_pods(self, tenant, name):
+        """The pods a log source read in this pass."""
+        return self._entry(tenant, "logs", name).get("pods") or []
+
     def windows(self, kind=None):
         return [w for w in self._windows if kind is None or w.kind == kind]
 
@@ -264,6 +275,7 @@ class Registry:
         self.api_needs = {}  # name -> path template, for each tenant
         self.db_needs = {}  # name -> SQL template, for each tenant
         self.admin_db_needs = {}  # name -> SQL, once for the deployment
+        self.log_needs = {}  # name -> (place, marker): the lines of pods that hold the marker
 
     def rule(self, ident, promise, chapter, gap=None, tolerates=(), about=""):
         def decorate(fn):
@@ -289,6 +301,14 @@ class Registry:
     def need_admin_db(self, name, sql):
         """A query that runs once, outside any tenant's schema."""
         self._need(self.admin_db_needs, name, sql)
+
+    def need_logs(self, name, place, marker):
+        """The lines that hold `marker` in the output of pods, read with
+        `kubectl logs` from outside the cluster. `place` is `agents` (each
+        tenant's agent pods) or `server` (the server replicas, once)."""
+        if place not in LOG_PLACES:
+            raise ValueError(f"a log source reads one of {LOG_PLACES}, not {place!r}")
+        self._need(self.log_needs, name, (place, marker))
 
     def problems(self):
         """What is wrong with the registered rules. Empty when sound."""
