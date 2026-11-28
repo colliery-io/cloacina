@@ -43,6 +43,7 @@ command-line flags (most also accept an environment variable). The
 | `--fleet-graph-firings` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` or `worker`. |
 | `--fleet-artifact-fetch-wait-s` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact; after that the attempt fails. `0`: the first failed fetch fails the attempt. |
 | `--fleet-poll-timeout-s` | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent; the server waits this plus 10 s for the answer. |
+| `--priority-aging-interval-s` | `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | `120` | The ageing interval of waiting work, seconds: for each interval a task has waited, its priority in the order improves by one. `0`: no ageing. |
 | `--context-warn-bytes` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` (1 MiB) | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` = no warning. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
 | `--context-max-bytes` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails and is not retried. One setting for the whole server, not per tenant. `0` = no limit. |
 | `--cors-allowed-origins` | `CLOACINA_CORS_ALLOWED_ORIGINS` | unset | Comma-separated origins (`*` allowed). Unset means **CORS is disabled** — browser clients on other origins are blocked. |
@@ -343,6 +344,7 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.fleet_artifact_fetch_wait_s` | not set | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact. Forwarded as `--fleet-artifact-fetch-wait-s`. |
 | `server.fleet_graph_firings` | not set | Where an agent runs a computation-graph firing: `inline` or `worker`. Forwarded as `--fleet-graph-firings`. |
 | `server.fleet_poll_timeout_s` | not set | Time limit (seconds) of one poll of a poll trigger on an agent. Forwarded as `--fleet-poll-timeout-s`. |
+| `server.priority_aging_interval_s` | not set | The ageing interval of waiting work, seconds; `0`: no ageing. Forwarded as `--priority-aging-interval-s`. |
 | `server.context_warn_bytes` | not set | Size in bytes above which a task context is logged as a warning. Forwarded as `--context-warn-bytes`. |
 | `server.context_max_bytes` | not set | Largest size in bytes of a task context. Forwarded as `--context-max-bytes`. |
 | `server.cors_allowed_origins` | `[]` | Origins allowed by CORS. An empty list is not forwarded. Forwarded as `--cors-allowed-origins`. |

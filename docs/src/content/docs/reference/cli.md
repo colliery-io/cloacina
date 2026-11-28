@@ -309,6 +309,7 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--fleet-graph-firings <inline\|worker>` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` in the agent process, `worker` in a worker process with the limits, time limit and cancel of a task. Any other value stops the server at start. CLOACINA-T-1125. |
 | `--fleet-artifact-fetch-wait-s <N>` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The task is dispatched again after a delay (2 s, growing to 30 s) and uses no retry attempt. After the limit the attempt fails. `0`: the first failed fetch fails the attempt. CLOACINA-T-1064. |
 | `--fleet-poll-timeout-s <N>` | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent. The server waits this plus 10 s for the answer; with no answer it records the poll as missed and fires nothing. `0` stops the start. CLOACINA-T-1077. |
+| `--priority-aging-interval-s <N>` | `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | `120` | The ageing interval of waiting work, in whole seconds. For each interval a task has waited, its [priority](../../explanation/priority/) in the order of waiting work improves by one, never past 0. `0` switches ageing off. A value that is not a whole number stops the start. CLOACINA-T-1123. |
 | `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
 | `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |
 
@@ -971,6 +972,7 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 # fleet_artifact_fetch_wait_s = 300
 # fleet_graph_firings = "inline"
 # fleet_poll_timeout_s = 30
+# priority_aging_interval_s = 120
 # context_warn_bytes = 1048576
 # context_max_bytes = 16777216
 # cors_allowed_origins = ["https://ops.example.com"]
