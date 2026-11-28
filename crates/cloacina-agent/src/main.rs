@@ -1838,7 +1838,21 @@ fn spawn_poll_worker(
         .await;
         let outcome = match prepared {
             poll::Prepared::Run(trigger) => {
-                Some(poll::run_poll(trigger, packet.timeout_seconds).await)
+                // CLOACINA-T-1144: the trigger's log lines carry the poll's ids.
+                let span = tracing::info_span!(
+                    "poll",
+                    tenant = %packet.tenant_id.as_deref().unwrap_or("public"),
+                    package = %packet.package_name,
+                    trigger = %packet.trigger_name,
+                    poll_id = %packet.poll_id,
+                );
+                Some(
+                    tracing::Instrument::instrument(
+                        poll::run_poll(trigger, packet.timeout_seconds),
+                        span,
+                    )
+                    .await,
+                )
             }
             poll::Prepared::Answer(outcome) => Some(outcome),
             poll::Prepared::Late => None,

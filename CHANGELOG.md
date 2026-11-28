@@ -89,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs, and its lines are still lost. The plugin interface stays at version
   8: the lines go through a new host interface, `CloacinaLog`, that the host
   binds by name, and a package that does not import it is not refused.
+- **The `tracing` and `log` lines of a packaged Rust poll trigger are
+  written on the agent** (CLOACINA-T-1144). The agent opened the trigger's
+  library without the `CloacinaLog` binding, so its lines were lost. Now they
+  are written in the agent's log, in a span `poll` with the tenant, package,
+  trigger and poll id.
 
 ## [0.12.0] - 2026-10-13
 
