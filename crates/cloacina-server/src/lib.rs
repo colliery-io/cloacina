@@ -163,6 +163,10 @@ const REACTOR_OWNERSHIP_CHECK_INTERVAL: std::time::Duration = std::time::Duratio
 /// it does the reverse. Change them together and with that trade in mind.
 const REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE: u32 = 3;
 
+/// The connections of one tenant's pool on one replica (CLOACINA-T-1080:
+/// unchanged by the server role).
+pub const TENANT_POOL_SIZE: u32 = 2;
+
 /// Cached per-tenant database connections for schema isolation.
 ///
 /// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
@@ -171,6 +175,9 @@ const REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE: u32 = 3;
 pub struct TenantDatabaseCache {
     databases: tokio::sync::RwLock<std::collections::HashMap<String, Database>>,
     database_url: String,
+    /// `public`'s own pool (CLOACINA-T-1080). `None`: `public` resolves to
+    /// the admin pool given to [`Self::resolve`].
+    public: Option<Database>,
 }
 
 impl TenantDatabaseCache {
@@ -178,19 +185,28 @@ impl TenantDatabaseCache {
         Self {
             databases: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             database_url,
+            public: None,
         }
+    }
+
+    /// This cache, with `public`'s own pool (CLOACINA-T-1080): the server's
+    /// pool of `public`, with `public$server`.
+    pub fn with_public(mut self, public: Database) -> Self {
+        self.public = Some(public);
+        self
     }
 
     /// Get or create a schema-scoped Database for the given tenant.
     ///
-    /// Returns the admin (public schema) database if tenant_id is "public".
+    /// For "public": `public`'s own pool, or the admin database when this
+    /// cache has none.
     pub async fn resolve(
         &self,
         tenant_id: &str,
         admin_db: &Database,
     ) -> Result<Database, cloacina::database::connection::DatabaseError> {
         if tenant_id == "public" {
-            return Ok(admin_db.clone());
+            return Ok(self.public.clone().unwrap_or_else(|| admin_db.clone()));
         }
 
         // Fast path: check read lock
@@ -208,13 +224,18 @@ impl TenantDatabaseCache {
             .await
             .map_err(cloacina::database::connection::DatabaseError::Migration)?;
 
-        // Slow path: create and cache
+        // Slow path: create and cache. CLOACINA-T-1080: each connection is
+        // the admin user and takes the tenant's server role with `SET ROLE`
+        // at each checkout, so Postgres refuses a query outside the tenant's
+        // tables. The role is made with the tenant and at each migration run
+        // of its schema (the first open above included).
         let db = Database::try_new_with_schema(
             &self.database_url,
             "cloacina",
-            2, // small pool per tenant
+            TENANT_POOL_SIZE,
             Some(tenant_id),
-        )?;
+        )?
+        .with_session_role(&cloacina::database::server_role_name(tenant_id))?;
 
         let mut cache = self.databases.write().await;
         // Double-check after acquiring write lock
@@ -232,6 +253,32 @@ impl TenantDatabaseCache {
     pub async fn evict(&self, tenant_id: &str) -> bool {
         let mut cache = self.databases.write().await;
         cache.remove(tenant_id).is_some()
+    }
+}
+
+/// The DAL of each tenant's own pool, for the graph scheduler
+/// (CLOACINA-T-1080): a tenant's reactors and accumulators keep their state,
+/// firings and recovery events in the tenant's schema, where the tenant's
+/// runner reads its firings.
+pub struct ServerTenantDals {
+    cache: Arc<TenantDatabaseCache>,
+    admin_db: Database,
+}
+
+impl ServerTenantDals {
+    pub fn new(cache: Arc<TenantDatabaseCache>, admin_db: Database) -> Self {
+        Self { cache, admin_db }
+    }
+}
+
+#[async_trait::async_trait]
+impl cloacina::computation_graph::scheduler::TenantDals for ServerTenantDals {
+    async fn dal_for(&self, tenant: &str) -> Result<cloacina::dal::unified::DAL, String> {
+        self.cache
+            .resolve(tenant, &self.admin_db)
+            .await
+            .map(cloacina::dal::unified::DAL::new)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -1039,8 +1086,12 @@ pub async fn run(
     // can then resolve `{"$secret": …}` bindings via `context.secret(...)`.
     // Without `CLOACINA_SECRET_KEK` the resolver is None and secret resolution
     // fails closed with a clear error.
+    // CLOACINA-T-1080: the admin pool finds the global tables in
+    // `cloacina_global` first, then `public`.
     let admin_database =
-        cloacina::Database::new(&database_url, "cloacina", runner_config.db_pool_size());
+        cloacina::Database::new(&database_url, "cloacina", runner_config.db_pool_size())
+            .with_search_path_head(cloacina::database::GLOBAL_SCHEMA)
+            .context("admin pool search path")?;
     // CLOACINA-T-1035: on a fresh install Postgres can come up after the
     // server. Wait for a connection, with backoff, before the migrations.
     // The HTTP listener binds later, so nothing answers `/ready` meanwhile.
@@ -1063,6 +1114,14 @@ pub async fn run(
     // CLOACINA-T-1056: `public`, then each tenant schema. A tenant schema
     // that cannot be migrated stops the start.
     startup_migrations::migrate_at_start(&admin_database, startup_migrations::TenantSchemas::All)
+        .await
+        .map_err(|e| {
+            tracing::error!("{e}");
+            anyhow::anyhow!(e)
+        })?;
+    // CLOACINA-T-1080: the global tables move to `cloacina_global`, then
+    // `public` gets its server role.
+    startup_migrations::split_global_at_start(&admin_database)
         .await
         .map_err(|e| {
             tracing::error!("{e}");
@@ -1098,10 +1157,20 @@ pub async fn run(
     cloacina::security::register_secret_refusal_recorder(Arc::new(
         secrets::AuditSecretRefusalRecorder::new(admin_database.clone()),
     ));
-    let public_secret_resolver = secrets::runner_secret_resolver("public", &admin_database);
+    // CLOACINA-T-1080: `public`'s own pool, as a named tenant's: the admin
+    // user, with `SET ROLE "public$server"` at each checkout. The global
+    // runner runs on it; the admin pool stays for the global tables.
+    // Its size is the global runner's pool size, as before the split.
+    let public_database =
+        cloacina::Database::new(&database_url, "cloacina", runner_config.db_pool_size())
+            .with_search_path_head("public")
+            .and_then(|db| db.with_session_role(&cloacina::database::server_role_name("public")))
+            .context("public pool")?;
+    let public_secret_resolver = secrets::runner_secret_resolver("public", &public_database);
     let runner = DefaultRunner::with_database_secrets(
-        admin_database,
-        runner_config,
+        public_database.clone(),
+        // The trusted keys are global (CLOACINA-T-1062).
+        runner_config.with_signature_trust_database(Some(admin_database.clone())),
         None,
         public_secret_resolver,
     )
@@ -1120,9 +1189,24 @@ pub async fn run(
     // (`public` for the admin runner), so no graph loads with the allow-all
     // policy of embedded use, and a key reaches its own tenant's graphs only.
     let endpoint_registry = EndpointRegistry::requiring_tenants();
-    let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+    // CLOACINA-T-1080: the admin DAL (global tables); the global runner's
+    // own database is `public`'s pool.
+    let unified_dal = cloacina::dal::unified::DAL::new(admin_database.clone());
+    // CLOACI-T-0862: the per-tenant schema-scoped `Database` cache, shared by
+    // the routes (via AppState), the fleet secret resolver factory and the
+    // graph scheduler: they must resolve the same tenant schemas.
+    // CLOACINA-T-1080: `public` resolves to its own pool.
+    let tenant_database_cache = Arc::new(
+        TenantDatabaseCache::new(database_url.clone()).with_public(public_database.clone()),
+    );
+    // CLOACINA-T-1080: each tenant's reactive state, firings and recovery
+    // events are in its own schema, through its own pool.
     let mut graph_scheduler_inner =
-        ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone());
+        ComputationGraphScheduler::with_dal(endpoint_registry.clone(), unified_dal.clone())
+            .with_tenant_dals(Arc::new(ServerTenantDals::new(
+                tenant_database_cache.clone(),
+                admin_database.clone(),
+            )));
 
     // CLOACI-T-0851 / ADR CLOACI-A-0012: install cross-replica reactor
     // ownership. Every server replica takes ONE dedicated pooled connection —
@@ -1146,7 +1230,7 @@ pub async fn run(
     {
         use cloacina::computation_graph::reactor_ownership::{OwnershipSession, PostgresOwnership};
 
-        let session = OwnershipSession::connect(runner.database())
+        let session = OwnershipSession::connect(&admin_database)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -1286,7 +1370,7 @@ pub async fn run(
         agent_heartbeat_interval_s.max(1) as u64 * agent_liveness_misses.max(1) as u64,
     );
     let agent_registry = Arc::new(crate::agent_registry::AgentRegistry::new(
-        runner.database().clone(),
+        admin_database.clone(),
         agent_liveness_window,
     ));
     let fleet_coordinator = Arc::new(crate::fleet_coordinator::FleetCoordinator::new());
@@ -1317,20 +1401,13 @@ pub async fn run(
         }
     }
 
-    // CLOACI-T-0862: the per-tenant schema-scoped `Database` cache. Hoisted here
-    // (was inline in the AppState literal) so BOTH the routes (via AppState) and
-    // the fleet secret resolver factory share ONE instance — they must resolve
-    // the same tenant schemas so a secret written over HTTP is the one a fleet
-    // task resolves.
-    let tenant_database_cache = Arc::new(TenantDatabaseCache::new(database_url.clone()));
-
     // CLOACINA-T-1024: alert webhook for finished runs. Off unless `main`
     // gave settings with `alerts::install`. The sender reads the notice rows
     // that the engine writes when a run ends, in each tenant schema.
     if let Some(alert_config) = crate::alerts::installed() {
         crate::alerts::spawn(
             alert_config.clone(),
-            runner.database().clone(),
+            admin_database.clone(),
             tenant_database_cache.clone(),
             substrate_shutdown_rx.clone(),
         )
@@ -1343,7 +1420,7 @@ pub async fn run(
     // Built once and shared by the global + per-tenant fleet executors.
     let secret_resolver_factory: Arc<dyn crate::fleet_executor::FleetSecretResolverFactory> =
         Arc::new(crate::secrets::ServerFleetSecretResolverFactory::new(
-            runner.database().clone(),
+            admin_database.clone(),
             tenant_database_cache.clone(),
         ));
 
@@ -1363,7 +1440,7 @@ pub async fn run(
                 require_signatures,
                 verification_org_id,
                 // CLOACINA-T-1062: the trusted keys are in the admin schema.
-                Some(runner.database().clone()),
+                Some(admin_database.clone()),
                 context_limits,
                 package_load_mode,
             ),
@@ -1456,7 +1533,7 @@ pub async fn run(
     let oidc_policy = Arc::new(crate::oidc::MappingPolicy::from_env());
     // CLOACI-T-0801: Postgres-backed login-flow state (multi-replica safe).
     let oidc_login = Arc::new(crate::oidc::LoginFlowStore::with_db(
-        runner.database().clone(),
+        admin_database.clone(),
         std::time::Duration::from_secs(600),
     ));
 
@@ -1498,15 +1575,13 @@ pub async fn run(
     // actuator, which sends the notice when it revokes agent keys
     // (CLOACINA-T-1083).
     let key_cache = Arc::new(crate::routes::auth::KeyCache::default_cache());
-    let key_notice: Arc<dyn crate::actuator::KeyRevocationNotice> =
-        Arc::new(crate::routes::auth::DbKeyRevocationNotice::new(
-            runner.database().clone(),
-            key_cache.clone(),
-        ));
+    let key_notice: Arc<dyn crate::actuator::KeyRevocationNotice> = Arc::new(
+        crate::routes::auth::DbKeyRevocationNotice::new(admin_database.clone(), key_cache.clone()),
+    );
     let fleet_actuator = crate::actuator::guard::build_actuator(
         &actuator_kind,
         &crate::actuator::guard::HostSubstrate,
-        runner.database().clone(),
+        admin_database.clone(),
         tenant_compilers,
         agent_log_format,
         Some(key_notice),
@@ -1543,7 +1618,7 @@ pub async fn run(
     // than one tenant (`public` and the tenant schemas) the start logs a
     // warning; the server still starts.
     if fleet_actuator.kind() == "docker" {
-        match cloacina::database::DatabaseAdmin::new(runner.database().clone())
+        match cloacina::database::DatabaseAdmin::new(admin_database.clone())
             .list_migrated_tenant_schemas()
             .await
         {
@@ -1569,7 +1644,6 @@ pub async fn run(
         substrate_shutdown_rx.clone(),
     );
 
-    let admin_database = runner.database().clone();
     let state = AppState {
         database: admin_database.clone(),
         default_max_agents,
@@ -1653,16 +1727,19 @@ pub async fn run(
     // substrate at-least-once + reconciliation for dedup rather than the thread
     // executor's per-task runner claim.
     if use_fleet {
+        // CLOACINA-T-1080: the global runner's own DAL is `public`'s pool,
+        // as a tenant runner's is its tenant's; the outbox is the admin DAL.
+        let public_dal = cloacina::dal::unified::DAL::new(state.runner.database().clone());
         let fleet_result_handler = cloacina::executor::TaskResultHandler::new(
-            unified_dal.clone(),
+            public_dal.clone(),
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
             Arc::new(std::sync::atomic::AtomicU64::new(0)),
             None,
         )
         .with_context_limits(context_limits);
         let fleet_executor = crate::fleet_executor::FleetExecutor::new(
-            unified_dal.clone(),
-            // Global runner: outbox == its own (admin) DAL (CLOACI-T-0781).
+            public_dal.clone(),
+            // The global outbox (CLOACI-T-0781).
             unified_dal.clone(),
             agent_registry.clone(),
             fleet_coordinator.clone(),
@@ -1682,7 +1759,7 @@ pub async fn run(
         // poll on the agents of their tenant.
         state.runner.set_poll_dispatcher(Arc::new(
             crate::fleet_poll_dispatcher::FleetPollDispatcher::new(
-                unified_dal.clone(),
+                public_dal.clone(),
                 unified_dal.clone(),
                 agent_registry.clone(),
                 fleet_coordinator.clone(),
@@ -3322,6 +3399,16 @@ mod tests {
     /// The build role of a tenant's compiler (CLOACINA-T-1063).
     mod build_role;
 
+    /// The server role of each tenant pool (CLOACINA-T-1080).
+    mod server_role;
+
+    /// The reactive state of a tenant's graphs is in its schema (CLOACINA-T-1080).
+    mod reactor_firings_tenant;
+
+    /// The global tables move to `cloacina_global`; `public`'s own pool
+    /// (CLOACINA-T-1080).
+    mod global_split;
+
     /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
     mod key_revocation_notice;
 
@@ -3338,7 +3425,13 @@ mod tests {
     /// (CLOACINA-T-1134).
     mod secret_binding_routes;
 
-    const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
+    /// The database of these tests. `CLOACINA_SERVER_TEST_DATABASE_URL` at
+    /// build time points them at another database, for example a scratch
+    /// database made for one run.
+    const TEST_DB_URL: &str = match option_env!("CLOACINA_SERVER_TEST_DATABASE_URL") {
+        Some(url) => url,
+        None => "postgres://cloacina:cloacina@localhost:15432/cloacina",
+    };
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.
     ///

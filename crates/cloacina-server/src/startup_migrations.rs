@@ -31,7 +31,10 @@
 //!   the tenant's name, and then fails with an error that names every tenant
 //!   that failed. The server does not start: a connection of a tenant reads
 //!   `<tenant>, public`, so a table that the tenant schema lacks would be
-//!   read from `public`.
+//!   looked up in `public`, where the tenant's server role is refused
+//!   (CLOACINA-T-1080).
+//! - Each migration run of a tenant schema also gives the tenant's build role
+//!   and server role their grants again, and makes them if they are absent.
 //! - A tenant with nothing pending costs one short transaction.
 
 use std::time::Instant;
@@ -183,12 +186,13 @@ pub async fn migrate_at_start(
     database: &Database,
     tenants: TenantSchemas<'_>,
 ) -> Result<Migrated, StartMigrationError> {
-    database
-        .run_migrations()
-        .await
-        .map_err(StartMigrationError::Public)?;
-
     let admin = DatabaseAdmin::new(database.clone());
+    // CLOACINA-T-1080: with the search path `public, cloacina_global`, so a
+    // later migration of a global table finds it after the move.
+    admin
+        .migrate_public_schema()
+        .await
+        .map_err(|e| StartMigrationError::Public(e.to_string()))?;
     // `public`'s build role and its grants (CLOACINA-T-1063). A tenant
     // schema gets its own with each migration run below.
     admin
@@ -249,6 +253,40 @@ pub async fn migrate_at_start(
             failures,
         })
     }
+}
+
+/// Moves the global tables into `cloacina_global` and makes `public`'s
+/// server role (CLOACINA-T-1080). Runs after [`migrate_at_start`]: the
+/// migrations of `public` first, so a global table a migration made is moved
+/// at the same start. The role of `public` is made after the move, so it is
+/// never granted a global table. A failure stops the start.
+pub async fn split_global_at_start(
+    database: &Database,
+) -> Result<cloacina::database::GlobalSplit, StartMigrationError> {
+    let admin = DatabaseAdmin::new(database.clone());
+    let split = admin
+        .split_global_schema()
+        .await
+        .map_err(|e| StartMigrationError::Public(format!("global tables: {e}")))?;
+    match &split {
+        cloacina::database::GlobalSplit::Moved {
+            tables,
+            outbox_rows,
+        } if !tables.is_empty() || *outbox_rows > 0 => info!(
+            tables = tables.len(),
+            outbox_rows, "global tables moved to cloacina_global"
+        ),
+        cloacina::database::GlobalSplit::Moved { .. } => {}
+        cloacina::database::GlobalSplit::PreviousMinor { written_by } => warn!(
+            written_by = %written_by,
+            "the global tables were laid out by a newer release; nothing moved"
+        ),
+    }
+    admin
+        .ensure_server_role("public")
+        .await
+        .map_err(|e| StartMigrationError::Public(format!("server role of public: {e}")))?;
+    Ok(split)
 }
 
 /// What the start-up rewrite of stored secrets did (CLOACINA-T-1071).

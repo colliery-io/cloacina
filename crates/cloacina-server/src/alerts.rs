@@ -708,7 +708,7 @@ fn quote_ident(name: &str) -> String {
 /// no connection pool of its own. A schema with no `delivery_outbox` table is
 /// not a tenant and is skipped.
 #[cfg(feature = "postgres")]
-async fn tenants_with_open_notices(admin_db: &Database) -> Vec<String> {
+pub(crate) async fn tenants_with_open_notices(admin_db: &Database) -> Vec<String> {
     let mut schemas = vec!["public".to_string()];
     match cloacina::database::DatabaseAdmin::new(admin_db.clone())
         .list_tenant_schemas()
@@ -747,7 +747,7 @@ async fn tenants_with_open_notices(admin_db: &Database) -> Vec<String> {
 }
 
 #[cfg(not(feature = "postgres"))]
-async fn tenants_with_open_notices(_admin_db: &Database) -> Vec<String> {
+pub(crate) async fn tenants_with_open_notices(_admin_db: &Database) -> Vec<String> {
     vec!["public".to_string()]
 }
 
