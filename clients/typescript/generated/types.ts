@@ -485,6 +485,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/packages/needs-new-build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /packages/needs-new-build — the packages of every tenant that need a
+         *     new publish (CLOACINA-T-1085).
+         * @description After a minor release that changes the plugin interface, each Rust package
+         *     built for the old interface gets one rebuild from its kept source. A
+         *     package that pins the old minor rebuilds with the old interface again and
+         *     is listed here, with its tenant, name, version, both interface versions
+         *     and the step. A platform admin reads it during an upgrade.
+         */
+        get: operations["list_packages_needing_new_build"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants": {
         parameters: {
             query?: never;
@@ -2469,6 +2494,34 @@ export interface components {
          *     returns `{items, total}`. `total` is best-effort — it equals the
          *     returned page size when the server doesn't run a separate COUNT.
          */
+        ListResponse_PackageNeedingNewBuild: {
+            items: {
+                /**
+                 * Format: int32
+                 * @description The plugin interface version the package was built for. Absent when
+                 *     it is not known.
+                 */
+                built_for?: number | null;
+                /**
+                 * Format: int32
+                 * @description The plugin interface version this release loads.
+                 */
+                current: number;
+                /** @description Package UUID. */
+                id: string;
+                package_name: string;
+                /** @description The reason and the step to take. */
+                reason: string;
+                tenant_id: string;
+                version: string;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
         ListResponse_ReactorFire: {
             items: {
                 /**
@@ -2615,6 +2668,56 @@ export interface components {
         };
         LogoutResponse: {
             status: string;
+        };
+        /**
+         * @description Why a package needs a new publish (CLOACINA-T-1085).
+         *
+         *     After a minor release that changes the plugin interface, a Rust package
+         *     built for the old interface does not run on the new agents. The compiler
+         *     rebuilds it once from its kept source; when the package pins the old
+         *     minor (in Cargo.toml or Cargo.lock), the rebuild has the old interface
+         *     again. The team changes the `cloacina` pin to the new minor and publishes
+         *     again. The package stays in service until then: agents of the old
+         *     interface still run it during a roll.
+         */
+        NeedsNewBuild: {
+            /**
+             * Format: int32
+             * @description The plugin interface version the package was built for. Absent when
+             *     it is not known: a library of another fidius ABI does not open.
+             */
+            built_for?: number | null;
+            /**
+             * Format: int32
+             * @description The plugin interface version this release loads.
+             */
+            current: number;
+            /** @description The reason and the step to take. */
+            reason: string;
+        };
+        /**
+         * @description One package that needs a new publish, in the list across tenants
+         *     (`GET /v1/packages/needs-new-build`, platform admin, CLOACINA-T-1085).
+         */
+        PackageNeedingNewBuild: {
+            /**
+             * Format: int32
+             * @description The plugin interface version the package was built for. Absent when
+             *     it is not known.
+             */
+            built_for?: number | null;
+            /**
+             * Format: int32
+             * @description The plugin interface version this release loads.
+             */
+            current: number;
+            /** @description Package UUID. */
+            id: string;
+            package_name: string;
+            /** @description The reason and the step to take. */
+            reason: string;
+            tenant_id: string;
+            version: string;
         };
         /**
          * @description Multipart form for workflow package upload. Spec-only type: the handler
@@ -3011,12 +3114,20 @@ export interface components {
                 description?: string | null;
                 /** @description Package UUID. */
                 id: string;
+                needs_new_build?: components["schemas"]["NeedsNewBuild"] | null;
                 package_name: string;
                 /**
                  * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
                  *     new executions until resumed.
                  */
                 paused?: boolean;
+                /**
+                 * Format: int32
+                 * @description The plugin interface version of the package's Rust build
+                 *     (CLOACINA-T-1085). Absent for a Python package and for a build whose
+                 *     interface is not recorded yet.
+                 */
+                plugin_interface_version?: number | null;
                 /** @description Task IDs included in this package. */
                 tasks: string[];
                 /**
@@ -3265,6 +3376,7 @@ export interface components {
             description?: string | null;
             /** @description Package UUID. */
             id: string;
+            needs_new_build?: components["schemas"]["NeedsNewBuild"] | null;
             /**
              * @description Why this built package is not loaded (CLOACINA-T-1075). A server that
              *     loads packages from their metadata only does not load a package that
@@ -3281,6 +3393,11 @@ export interface components {
              *     new executions until resumed.
              */
             paused?: boolean;
+            /**
+             * Format: int32
+             * @description As in [`WorkflowSummary::plugin_interface_version`] (CLOACINA-T-1085).
+             */
+            plugin_interface_version?: number | null;
             /**
              * @description The task dependency graph (nodes + their upstream dependencies) for
              *     rendering the full workflow DAG. Empty for packages predating
@@ -3392,12 +3509,20 @@ export interface components {
             description?: string | null;
             /** @description Package UUID. */
             id: string;
+            needs_new_build?: components["schemas"]["NeedsNewBuild"] | null;
             package_name: string;
             /**
              * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
              *     new executions until resumed.
              */
             paused?: boolean;
+            /**
+             * Format: int32
+             * @description The plugin interface version of the package's Rust build
+             *     (CLOACINA-T-1085). Absent for a Python package and for a build whose
+             *     interface is not recorded yet.
+             */
+            plugin_interface_version?: number | null;
             /** @description Task IDs included in this package. */
             tasks: string[];
             /**
@@ -4447,6 +4572,53 @@ export interface operations {
             };
             /** @description Missing or invalid API key */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_packages_needing_new_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages in service that need a new publish, across tenants */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_PackageNeedingNewBuild"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Platform admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

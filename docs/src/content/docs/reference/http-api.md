@@ -915,12 +915,41 @@ Get details for a specific workflow by package name.
 | `paused` | boolean | Whether this workflow is paused. A paused workflow refuses new executions until resumed. |
 | `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
 | `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence. |
+| `plugin_interface_version` | integer | Present for a Rust package whose plugin interface is recorded: the version of the Cloacina plugin interface its build has. The list response carries the same field. |
+| `needs_new_build` | object | Present only when the package needs a new publish: it was built for another plugin interface than this release loads, and its one rebuild from kept source did not change that. `{reason, built_for, current}`: the reason with the step to take, the interface it was built for (absent when not known) and the one this release loads. `build_status` stays `success`. The list response carries the same field. |
 
 **Errors:**
 
 | Status | Body |
 |---|---|
 | `404` | `{"error": "workflow 'etl_pipeline' not found"}` |
+
+### GET /v1/packages/needs-new-build
+
+The packages of every tenant that need a new publish, for an upgrade across
+a plugin interface change. Platform admin key (`workflows.read` and the
+platform admin flag).
+
+**Response:** `200 OK` — `{items, total}` envelope.
+
+```json
+{
+  "items": [
+    {
+      "tenant_id": "acme",
+      "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "package_name": "etl_pipeline",
+      "version": "1.2.0",
+      "built_for": 7,
+      "current": 8,
+      "reason": "built for plugin interface 7; this release loads plugin interface 8. ..."
+    }
+  ],
+  "total": 1
+}
+```
+
+See [After a release that changes the plugin interface](../../how-to/constructors/consume-a-provider/#after-a-release-that-changes-the-plugin-interface).
 
 ### GET /v1/tenants/{tenant_id}/workflows/{name}/source
 

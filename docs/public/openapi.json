@@ -1254,6 +1254,63 @@
         ]
       }
     },
+    "/v1/packages/needs-new-build": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "GET /packages/needs-new-build — the packages of every tenant that need a\nnew publish (CLOACINA-T-1085).",
+        "description": "After a minor release that changes the plugin interface, each Rust package\nbuilt for the old interface gets one rebuild from its kept source. A\npackage that pins the old minor rebuilds with the old interface again and\nis listed here, with its tenant, name, version, both interface versions\nand the step. A platform admin reads it during an upgrade.",
+        "operationId": "list_packages_needing_new_build",
+        "responses": {
+          "200": {
+            "description": "Packages in service that need a new publish, across tenants",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResponse_PackageNeedingNewBuild"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Platform admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/v1/tenants": {
       "get": {
         "tags": [
@@ -7966,6 +8023,69 @@
           }
         }
       },
+      "ListResponse_PackageNeedingNewBuild": {
+        "type": "object",
+        "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One package that needs a new publish, in the list across tenants\n(`GET /v1/packages/needs-new-build`, platform admin, CLOACINA-T-1085).",
+              "required": [
+                "tenant_id",
+                "id",
+                "package_name",
+                "version",
+                "current",
+                "reason"
+              ],
+              "properties": {
+                "built_for": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "description": "The plugin interface version the package was built for. Absent when\nit is not known.",
+                  "minimum": 0
+                },
+                "current": {
+                  "type": "integer",
+                  "format": "int32",
+                  "description": "The plugin interface version this release loads.",
+                  "minimum": 0
+                },
+                "id": {
+                  "type": "string",
+                  "description": "Package UUID."
+                },
+                "package_name": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "The reason and the step to take."
+                },
+                "tenant_id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "ListResponse_ReactorFire": {
         "type": "object",
         "description": "Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint\nreturns `{items, total}`. `total` is best-effort — it equals the\nreturned page size when the server doesn't run a separate COUNT.",
@@ -8310,6 +8430,81 @@
         ],
         "properties": {
           "status": {
+            "type": "string"
+          }
+        }
+      },
+      "NeedsNewBuild": {
+        "type": "object",
+        "description": "Why a package needs a new publish (CLOACINA-T-1085).\n\nAfter a minor release that changes the plugin interface, a Rust package\nbuilt for the old interface does not run on the new agents. The compiler\nrebuilds it once from its kept source; when the package pins the old\nminor (in Cargo.toml or Cargo.lock), the rebuild has the old interface\nagain. The team changes the `cloacina` pin to the new minor and publishes\nagain. The package stays in service until then: agents of the old\ninterface still run it during a roll.",
+        "required": [
+          "reason",
+          "current"
+        ],
+        "properties": {
+          "built_for": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The plugin interface version the package was built for. Absent when\nit is not known: a library of another fidius ABI does not open.",
+            "minimum": 0
+          },
+          "current": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The plugin interface version this release loads.",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason and the step to take."
+          }
+        }
+      },
+      "PackageNeedingNewBuild": {
+        "type": "object",
+        "description": "One package that needs a new publish, in the list across tenants\n(`GET /v1/packages/needs-new-build`, platform admin, CLOACINA-T-1085).",
+        "required": [
+          "tenant_id",
+          "id",
+          "package_name",
+          "version",
+          "current",
+          "reason"
+        ],
+        "properties": {
+          "built_for": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The plugin interface version the package was built for. Absent when\nit is not known.",
+            "minimum": 0
+          },
+          "current": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The plugin interface version this release loads.",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "Package UUID."
+          },
+          "package_name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason and the step to take."
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "version": {
             "type": "string"
           }
         }
@@ -9143,12 +9338,32 @@
                   "type": "string",
                   "description": "Package UUID."
                 },
+                "needs_new_build": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NeedsNewBuild",
+                      "description": "Set when the package needs a new publish: it was built for another\nplugin interface than this release loads, and its rebuild from kept\nsource did not change that (CLOACINA-T-1085). Absent when it needs\nnothing."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "package_name": {
                   "type": "string"
                 },
                 "paused": {
                   "type": "boolean",
                   "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
+                },
+                "plugin_interface_version": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "description": "The plugin interface version of the package's Rust build\n(CLOACINA-T-1085). Absent for a Python package and for a build whose\ninterface is not recorded yet.",
+                  "minimum": 0
                 },
                 "tasks": {
                   "type": "array",
@@ -9715,6 +9930,17 @@
             "type": "string",
             "description": "Package UUID."
           },
+          "needs_new_build": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NeedsNewBuild",
+                "description": "As in [`WorkflowSummary::needs_new_build`] (CLOACINA-T-1085)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "not_loaded_reason": {
             "type": [
               "string",
@@ -9728,6 +9954,15 @@
           "paused": {
             "type": "boolean",
             "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
+          },
+          "plugin_interface_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "As in [`WorkflowSummary::plugin_interface_version`] (CLOACINA-T-1085).",
+            "minimum": 0
           },
           "task_graph": {
             "type": "array",
@@ -9962,12 +10197,32 @@
             "type": "string",
             "description": "Package UUID."
           },
+          "needs_new_build": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NeedsNewBuild",
+                "description": "Set when the package needs a new publish: it was built for another\nplugin interface than this release loads, and its rebuild from kept\nsource did not change that (CLOACINA-T-1085). Absent when it needs\nnothing."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "package_name": {
             "type": "string"
           },
           "paused": {
             "type": "boolean",
             "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
+          },
+          "plugin_interface_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The plugin interface version of the package's Rust build\n(CLOACINA-T-1085). Absent for a Python package and for a build whose\ninterface is not recorded yet.",
+            "minimum": 0
           },
           "tasks": {
             "type": "array",

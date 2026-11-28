@@ -298,6 +298,7 @@ on its own `/metrics` endpoint (default `127.0.0.1:9000`, shared with
 | `cloacina_compiler_builds_total` | `status` | Total cargo builds executed. `status` ∈ `ok`, `failed`, `timed_out`. Timed-out rows are left for the stale-build sweeper. |
 | `cloacina_compiler_sweep_resets_total` | — | Stale builds reset to `pending` by the sweeper. Each increment corresponds to one row reclaimed. Sustained non-zero rate indicates worker crashes or hung builds. |
 | `cloacina_compiler_describes_total` | `status` | Describes of packages built before the package metadata document existed, read from their stored build. `status` ∈ `ok`, `failed`. A failed describe is recorded on the package (`describe_error`). |
+| `cloacina_compiler_interface_checks_total` | `status` | Rust packages in service built for another plugin interface, after their one rebuild from kept source. `status` ∈ `rebuilt` (the rebuild has this release's interface; no publish needed), `needs_new_build` (the package is marked; its team publishes again). |
 | `cloacina_compiler_heartbeat_failures_total` | — | Heartbeat-update failures from the builder. Repeated failures starve `build_claimed_at` and the sweeper will eventually reclaim the row. |
 
 ### Histograms

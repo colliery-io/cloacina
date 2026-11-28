@@ -652,10 +652,18 @@ The version that is in service stays active until the build of the
 uploaded one succeeds. A failed build leaves it in service; see
 `package versions`.
 
-### `package list [--filter <SUBSTRING>]`
+### `package list [--filter <SUBSTRING>] [--needs-new-build [--all-tenants]]`
 
 `GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
 client-side as a substring match on the package name.
+
+`--needs-new-build` shows only the packages that need a new publish: Rust
+packages built for another plugin interface than the server's release,
+whose rebuild from kept source still has the old interface. Each row names
+the version, the interface the package was built for (`BUILT FOR`), the one
+the release loads (`LOADS`) and the step to take. With `--all-tenants` the
+list covers every tenant, from `GET /v1/packages/needs-new-build` (platform
+admin key). See [Upgrade across a plugin interface change](../../how-to/constructors/consume-a-provider/#after-a-release-that-changes-the-plugin-interface).
 
 ### `package inspect <ID>`
 

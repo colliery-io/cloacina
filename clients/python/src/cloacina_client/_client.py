@@ -108,6 +108,7 @@ from ._generated.api.workflows import (
     delete_workflow,
     get_workflow,
     get_workflow_source,
+    list_packages_needing_new_build,
     list_workflow_versions,
     list_workflows,
     pause_workflow,
@@ -958,6 +959,10 @@ class Client(_Base):
     def compiler_status(self):
         return _unwrap(compiler_status.sync_detailed(client=self._gen))
 
+    def list_packages_needing_new_build(self):
+        """The packages of every tenant that need a new publish (platform admin)."""
+        return _unwrap(list_packages_needing_new_build.sync_detailed(client=self._gen))
+
 
 class AsyncClient(_Base):
     """Asynchronous cloacina-server client (httpx + websockets)."""
@@ -1182,6 +1187,12 @@ class AsyncClient(_Base):
 
     async def compiler_status(self):
         return _unwrap(await compiler_status.asyncio_detailed(client=self._gen))
+
+    async def list_packages_needing_new_build(self):
+        """The packages of every tenant that need a new publish (platform admin)."""
+        return _unwrap(
+            await list_packages_needing_new_build.asyncio_detailed(client=self._gen)
+        )
 
     # ---- WebSocket (substrate delivery) ----
 
