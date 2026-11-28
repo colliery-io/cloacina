@@ -103,6 +103,14 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["create", "delete", "get"]
+  # The agent pods of a pool (CLOACINA-T-1145). Before a pool loses agents the
+  # actuator lists its pods (by their app label) and sets the annotation
+  # `controller.kubernetes.io/pod-deletion-cost` on them, so the ReplicaSet
+  # deletes the pods of idle agents first. `list` + `patch` only: no `get`,
+  # no `delete` (the ReplicaSet deletes the pod when the replica count drops).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

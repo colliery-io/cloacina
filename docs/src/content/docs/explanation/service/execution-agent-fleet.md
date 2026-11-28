@@ -978,8 +978,38 @@ each tenant:
    has been idle for `CLOACINA_AUTOSCALE_IDLE_S` (default 300 s), and its last
    scale-down is `CLOACINA_AUTOSCALE_COOLDOWN_S` (default 60 s) ago, it goes
    back to its min. The work is read again just before the write; a task
-   placed in between keeps the pool. A pool with work is never shrunk, so a
-   scale-down stops no agent with work in flight.
+   placed in between keeps the pool.
+5. **Step down.** A pool with work in flight has a spare agent when one of
+   its agents is idle (no task in flight, none placed) and nothing waits that
+   needs an agent. When it has had a spare agent for
+   `CLOACINA_AUTOSCALE_IDLE_S`, it loses one agent, and one more each
+   `CLOACINA_AUTOSCALE_COOLDOWN_S` while it stays so, down to its min. The
+   agent that goes is an idle one: of several, the one registered last. The
+   work is read again just before the write; if that agent got work, or work
+   waits, the pool keeps its count.
+
+**Which agent goes.** On each tick the autoscaler lists each pool's idle
+agents (the one registered last first) and its busy ones, and the actuator
+that lowers the count removes in that order: idle agents first, then agents
+not registered yet, busy agents last. A busy agent is never removed while an
+idle one exists.
+
+- **Kubernetes.** Each agent's id is its pod's name: the actuator starts the
+  agent with `CLOACINA_AGENT_ID` from the pod's `metadata.name`. Before it
+  lowers `replicas`, it sets `controller.kubernetes.io/pod-deletion-cost` on
+  the pool's pods: below -1000 on the pods of idle agents (lowest on the one
+  that goes first), 1000 on those of busy agents, none on a pod of no known
+  agent. The ReplicaSet deletes the pods of lowest cost first. This needs
+  `list` and `patch` on pods; if the costs cannot be written while an agent
+  of the pool is busy, the pool keeps its pods that tick.
+- **Docker.** Each container has an agent key of its own, so the agent that
+  registered with that key is the container's agent. The actuator stops the
+  idle agents' containers by id.
+
+The time a pool has had a spare agent is kept in the memory of the server
+replica that leads the tick. A replica that did not lead the last ticks starts
+it again, so a step-down can come later than `CLOACINA_AUTOSCALE_IDLE_S`,
+never sooner.
 
 So ten tasks that request 2 Gi on a pool of 8 Gi agents with a max of 3 take
 the pool from 0 to 3 agents in one tick: each agent offers 8 Gi less its own
@@ -1015,7 +1045,8 @@ count is a log line (tenant, pool, from, to) and
 
 The state of each pool (its count, since when it is idle, its last
 scale-down) is in the database, with the database clock, so the rules hold
-whichever server replica leads a tick.
+whichever server replica leads a tick. The time a pool has had a spare agent
+is the one part in a replica's memory (see step 5).
 
 ### Stopping an agent
 
