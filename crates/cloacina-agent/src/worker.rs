@@ -489,6 +489,9 @@ pub(crate) struct DispatchRegistry {
     running: HashMap<String, oneshot::Sender<()>>,
     cancelled: HashSet<String>,
     cancelled_order: VecDeque<String>,
+    /// Dispatches the agent stopped itself at the end of its drain
+    /// (CLOACINA-T-1029): their work is handed back to the server.
+    handed_back: HashSet<String>,
 }
 
 impl DispatchRegistry {
@@ -527,6 +530,39 @@ impl DispatchRegistry {
 
     pub(crate) fn is_cancelled(&self, dispatch_id: &str) -> bool {
         self.cancelled.contains(dispatch_id)
+    }
+
+    /// The agent stops: stop every worker that still runs, and remember that
+    /// its work is handed back, not cancelled by the server
+    /// (CLOACINA-T-1029). Returns how many were told to stop.
+    pub(crate) fn hand_back_all(&mut self) -> usize {
+        let ids: Vec<String> = self.running.keys().cloned().collect();
+        self.hand_back_ids(&ids)
+    }
+
+    /// [`hand_back_all`](Self::hand_back_all) for the dispatches `ids` only.
+    pub(crate) fn hand_back_ids(&mut self, ids: &[String]) -> usize {
+        let mut stopped = 0;
+        for id in ids {
+            if let Some(tx) = self.running.remove(id) {
+                self.handed_back.insert(id.clone());
+                if tx.send(()).is_ok() {
+                    stopped += 1;
+                }
+            }
+        }
+        stopped
+    }
+
+    /// Whether a worker runs for the dispatch now.
+    #[cfg(test)]
+    pub(crate) fn is_running(&self, dispatch_id: &str) -> bool {
+        self.running.contains_key(dispatch_id)
+    }
+
+    /// Whether the agent handed this dispatch back; forgets it.
+    pub(crate) fn take_handed_back(&mut self, dispatch_id: &str) -> bool {
+        self.handed_back.remove(dispatch_id)
     }
 }
 
