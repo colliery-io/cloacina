@@ -589,6 +589,16 @@ logs the tenant's name and exits, and the existing pod keeps serving.
 A tenant created through the old pod while the new pod runs is migrated
 by the new pod when it first opens that tenant.
 
+The old pod keeps working on the schema that the new pod migrated: each
+migration of a minor leaves the previous minor's server working, and a
+server on a schema exactly one minor ahead of it starts with no migration.
+A server more than one minor behind the schema refuses to start and names
+both releases ([Schema versions](../production-deployment/#schema-versions)).
+
+Before the upgrade, stop the compilers and pause package uploads. Bring them back once every server pod runs the new
+version. A compiler runs no migration: one that starts before the server
+has migrated waits for it, up to 10 minutes.
+
 ## Uninstall
 
 ```sh

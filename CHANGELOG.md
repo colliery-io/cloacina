@@ -76,6 +76,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `cloacina_fleet_worker_starts_total{start}` and
     `cloacina_fleet_warm_workers_retired_total{reason}`. An older server
     ignores the counts; an older agent sends none.
+- **Schema guards: each schema records the release that migrated it, and
+  only the server migrates** (CLOACINA-T-1087). Migration 072 adds the table
+  `cloacina_schema_release`, written in the migration transaction.
+  - A server, an embedded runner or `cloacinactl daemon` on a schema more
+    than one minor ahead of it refuses to start (a tenant schema: is not
+    opened), and the error names both releases. On a schema exactly one
+    minor ahead it starts with no migration and logs a warning.
+  - `cloacina-compiler` runs no migration, with or without
+    `--tenant-schema`. On a schema that lacks migrations of its binary it
+    waits for the server, logging every 30 seconds, and exits after 10
+    minutes; on a schema too new it exits at once. A compiler that was the
+    first process on an empty database now needs a server to migrate it.
+  - The build role of a tenant compiler can read `__diesel_schema_migrations`
+    and `cloacina_schema_release` of its schema.
+  - A new migration must leave the previous minor's server working; CI fails
+    a new `up.sql` with a drop, a rename, `SET NOT NULL`, a `NOT NULL` column
+    without a default, a unique index or a constraint, unless the file has a
+    `-- compat:` line.
+
+### Upgrade notes
+
+- **Upgrade order** (CLOACINA-T-1087): stop the compilers and pause package
+  uploads before the server roll; start the compilers after it. A compiler
+  of the previous minor during the roll is not covered.
+- **From 0.12, active packages:** migration 052 makes the active version of
+  a package the newest that is not superseded and whose build succeeded.
+  The servers of 0.12 read it as the newest that is not superseded; with no
+  uploads during the roll the two read the same version.
 
 ### Fixed
 
