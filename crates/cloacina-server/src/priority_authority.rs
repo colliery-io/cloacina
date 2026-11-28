@@ -115,6 +115,17 @@ mod tests {
         assert_eq!(parse(Some("2m")), Duration::from_secs(120), "not a number");
     }
 
+    /// CLOACINA-T-1123: the value of `--priority-aging-interval-s` is the
+    /// interval of the runners. The default is set, so other tests see none
+    /// changed.
+    #[test]
+    fn the_flag_sets_the_ageing_interval_of_the_runners() {
+        use std::time::Duration;
+        crate::set_priority_aging_interval_seconds(120).unwrap();
+        assert_eq!(crate::priority_aging_interval(), Duration::from_secs(120));
+        assert!(crate::set_priority_aging_interval_seconds(u64::MAX).is_err());
+    }
+
     #[test]
     fn the_log_line_is_for_a_change_of_the_given_priority_not_for_each_run() {
         let limit = PublisherLimit::for_tenant("acme");

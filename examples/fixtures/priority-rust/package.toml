@@ -1,0 +1,12 @@
+[package]
+name = "priority-rust"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "packaged_priority_workflow"
+language = "rust"
+description = "Priority fixture: a packaged workflow and a task that declare a priority"
+author = "Cloacina Test Fixtures"

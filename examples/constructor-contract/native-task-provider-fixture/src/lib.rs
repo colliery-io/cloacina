@@ -57,6 +57,8 @@ impl Prefix {
     /// The only thing the author writes: read the bound `#[config]` + `#[param]`
     /// and `set` an output key back into the context.
     fn execute(&self) -> Result<(), ConstructorError> {
+        // CLOACINA-T-1150: this line reaches the host's log.
+        tracing::info!(name = %self.name, "native provider line");
         self.set("result", format!("{}{}", self.prefix, self.name));
         Ok(())
     }

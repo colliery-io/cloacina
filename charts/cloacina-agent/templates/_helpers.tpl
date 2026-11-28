@@ -88,4 +88,7 @@ secret ref). Fails the install with a clear message if either is missing.
 {{- if not (or $hasInline $hasRef) -}}
 {{- fail "cloacina-agent: configure exactly one of `apiKey` (inline; renders a Secret) or `apiKeySecretRef.name` (bring your own Secret)" -}}
 {{- end -}}
+{{- if and .Values.server.ca.configMap .Values.server.ca.secret -}}
+{{- fail "cloacina-agent: set one of `server.ca.configMap` or `server.ca.secret`, not both" -}}
+{{- end -}}
 {{- end -}}

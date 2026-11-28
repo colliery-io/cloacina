@@ -201,17 +201,44 @@ def set_version(new: str) -> None:
             _write(rel, t2)
 
 
+UNRELEASED_STUB = "## [Unreleased]\n\n### Changed (breaking)\n\n### Upgrade notes\n\n"
+
+
+def _drop_empty_subsections(block: str) -> str:
+    """Remove `### ...` headings that have nothing under them."""
+    return re.sub(r"^###[^\n]*\n\s*(?=^###|\Z)", "", block, flags=re.MULTILINE)
+
+
+def release_changelog(text: str, new: str, date: str) -> str:
+    """The changelog of a bump to `new` (CLOACINA-T-1089).
+
+    `## [Unreleased]` becomes `## [new] - date`, with its empty subsections
+    dropped, and a new empty `## [Unreleased]` goes above it. With no
+    Unreleased section, both go above the first version. A changelog that
+    already has `## [new]` is returned as it is.
+    """
+    if re.search(rf"^##\s*\[{re.escape(new)}\]", text, re.MULTILINE):
+        return text
+    m = re.search(r"^##\s*\[Unreleased\][^\n]*\n", text, re.MULTILINE | re.IGNORECASE)
+    if m:
+        nxt = re.search(r"^##\s*\[", text[m.end():], re.MULTILINE)
+        end = m.end() + nxt.start() if nxt else len(text)
+        body = _drop_empty_subsections(text[m.end():end].lstrip("\n"))
+        released = f"## [{new}] - {date}\n\n" + (body.rstrip() + "\n\n" if body.strip() else "")
+        return text[: m.start()] + UNRELEASED_STUB + released + text[end:]
+    stub = UNRELEASED_STUB + f"## [{new}] - {date}\n\n"
+    m = re.search(r"^##\s*\[", text, re.MULTILINE)
+    return (text[: m.start()] + stub + text[m.start():]) if m else (text.rstrip() + "\n\n" + stub)
+
+
 def changelog_stub(new: str) -> None:
+    import datetime
+
     cl = PROJECT_ROOT / "CHANGELOG.md"
     if not cl.exists():
         return
     text = cl.read_text()
-    if re.search(rf"^##\s*\[{re.escape(new)}\]", text, re.MULTILINE):
-        return
-    stub = f"## [{new}] - UNRELEASED\n\n### Added\n\n### Changed\n\n### Fixed\n\n"
-    m = re.search(r"^##\s*\[", text, re.MULTILINE)
-    text = (text[: m.start()] + stub + text[m.start():]) if m else (text.rstrip() + "\n\n" + stub)
-    cl.write_text(text)
+    cl.write_text(release_changelog(text, new, datetime.date.today().isoformat()))
 
 
 def run_check() -> int:
@@ -239,7 +266,8 @@ def run_bump(new: str) -> int:
         for lbl, got, exp in bad:
             print(f"  ✗ {lbl}: {got!r} != {exp!r}", file=sys.stderr)
         return 1
-    print(f"bumped {old} -> {new} across all core touchpoints + CHANGELOG stub; version-lockstep verified.")
+    print(f"bumped {old} -> {new} across all core touchpoints; CHANGELOG [Unreleased] is now "
+          f"[{new}] under a new empty [Unreleased]; version-lockstep verified.")
     print(f"Next: review, commit, then `git tag v{new}` when ready.")
     return 0
 

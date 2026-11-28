@@ -214,6 +214,17 @@ pub(crate) fn bind_engine_log(loaded: &fidius_host::loader::LoadedLibrary, libra
                  log lines are not written"
             );
         }
+        // The library was opened and bound before in this process (a native
+        // provider is opened once per member, CLOACINA-T-1150): the first bind
+        // stays in effect.
+        Err(fidius_host::LoadError::HostBindFailed { code, .. })
+            if code == fidius_core::host_ffi::BIND_ERR_ALREADY_BOUND =>
+        {
+            tracing::debug!(
+                library = %library_path.display(),
+                "CloacinaLog already bound for this library"
+            );
+        }
         Err(e) => {
             tracing::warn!(
                 library = %library_path.display(),

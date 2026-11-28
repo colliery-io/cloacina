@@ -200,6 +200,22 @@ Package it explicitly with `--native`:
 cloacinactl constructor package ./cloacina-provider-kafka --native --sign-key key.secret
 ```
 
+### Log lines of a native provider
+
+A native provider logs with the `tracing` macros or the `log` crate, as any
+Rust code does. The process that loads the provider writes each line with its
+own logger and filter, in the span of the call: the line of a task member
+carries the ids of the task. The native glue of `constructor_provider!` sets
+this up at load; the provider sets no subscriber or logger itself.
+
+- A line from the `source` iterator of a stream accumulator is written with no
+  ids: the iterator runs on its own thread.
+- A provider built against `cloacina-constructor-contract` 0.12 or earlier
+  writes no lines. Build it again against the current `cloacina-macros` and
+  `cloacina-constructor-contract` to get them.
+- `println!` and `eprintln!` go to the process's stdout and stderr.
+- A wasm provider's lines are not written.
+
 ## Stream accumulators — loop-owning sources
 
 A per-event accumulator (`kind = accumulator`) transforms one event per

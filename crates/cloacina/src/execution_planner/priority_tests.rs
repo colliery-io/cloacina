@@ -352,6 +352,35 @@ async fn a_declared_priority_is_held_to_the_publishers_limit_as_it_is_when_the_r
     assert_eq!((grant.asked, grant.given), (2, 7));
 }
 
+/// CLOACINA-T-1123: the task row keeps the priority its task asked for
+/// beside the one it was given; a task that declares none asks nothing.
+#[tokio::test]
+async fn the_task_row_keeps_the_asked_task_priority_beside_the_given_one() {
+    let tenant = Tenant::new().await;
+    tenant
+        .scheduler
+        .set_priority_authority(Arc::new(PublisherLimitedTo(
+            std::sync::atomic::AtomicU8::new(5),
+            Mutex::new(Vec::new()),
+        )));
+
+    tenant.run("held", Some(8), Some(1)).await;
+    let row = tenant.task_row("held").await;
+    assert_eq!(
+        (row.task_priority_asked, row.task_priority),
+        (Some(1), 5),
+        "asked 1, held to the publisher's 5"
+    );
+
+    tenant.run("lower", Some(8), Some(9)).await;
+    let row = tenant.task_row("lower").await;
+    assert_eq!((row.task_priority_asked, row.task_priority), (Some(9), 9));
+
+    tenant.run("inherits", Some(8), None).await;
+    let row = tenant.task_row("inherits").await;
+    assert_eq!((row.task_priority_asked, row.task_priority), (None, 8));
+}
+
 #[tokio::test]
 async fn one_tenant_dispatches_by_workflow_priority_then_task_priority_then_time_waited() {
     let tenant = Tenant::new().await;

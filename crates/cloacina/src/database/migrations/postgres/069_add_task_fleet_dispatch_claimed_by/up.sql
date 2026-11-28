@@ -1,0 +1,12 @@
+-- CLOACINA-T-1136: the claim a fleet dispatch was recorded under.
+--
+-- The fleet executor writes the runner of its claim here with
+-- `fleet_dispatch_id` (migration 065), and a takeover moves it with the
+-- claim. A replica takes over the wait of a stale dispatch only when this
+-- still equals `claimed_by`. A runner of the previous release claims and
+-- sends a task without knowing the dispatch columns: on its rows the two
+-- differ, or this is NULL, and the stale claim sweeper recovers them as
+-- before.
+--
+-- compat: one nullable column; the previous release does not read it.
+ALTER TABLE task_executions ADD COLUMN fleet_dispatch_claimed_by UUID;

@@ -30,7 +30,8 @@ pub use envelope::{
     unwrap as envelope_unwrap, wrap as envelope_wrap,
 };
 pub use key_encryption::{
-    KeyEncryptionError, decrypt_bytes, decrypt_private_key, encrypt_bytes, encrypt_private_key,
+    KeyEncryptionError, decrypt_bytes, decrypt_bytes_bound, decrypt_private_key, encrypt_bytes,
+    encrypt_bytes_bound, encrypt_private_key,
 };
 pub use signing::{
     GeneratedKeypair, SigningError, compute_key_fingerprint, decode_private_key_pem,

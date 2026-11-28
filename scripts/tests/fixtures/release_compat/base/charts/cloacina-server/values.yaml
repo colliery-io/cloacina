@@ -1,0 +1,6 @@
+---
+server:
+  bind: "0.0.0.0:8080"
+  drainSeconds: 30
+  logFormat: text
+resources: {}

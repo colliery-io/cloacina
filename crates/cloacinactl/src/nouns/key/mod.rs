@@ -23,6 +23,8 @@ use crate::shared::error::CliError;
 use crate::shared::render;
 use crate::{GlobalOpts, OutputFormat};
 
+mod tenant_key;
+
 #[derive(Args)]
 pub struct KeyCmd {
     #[command(subcommand)]
@@ -40,13 +42,22 @@ pub enum Role {
 
 #[derive(Subcommand)]
 enum KeyVerb {
-    /// Create an API key. Tenant scope inferred from the calling key unless
-    /// admin + `--role admin`.
+    /// Create an API key. With `--tenant <name>`, a key of that tenant
+    /// (`POST /v1/tenants/{name}/keys`); without it, a key of `public`
+    /// (`POST /v1/auth/keys`).
     Create {
         /// Human-readable name/label for the key.
         name: String,
         #[arg(long, value_enum, default_value_t = Role::Read)]
         role: Role,
+        /// Make a platform admin key: no tenant, role `admin` and the
+        /// platform admin flag. Needs a platform admin key (CLOACINA-T-1065).
+        #[arg(long, conflicts_with = "role")]
+        platform_admin: bool,
+        /// When the key expires: an RFC 3339 timestamp in the future, for
+        /// example `2027-01-31T00:00:00Z`. Not set: the key does not expire.
+        #[arg(long)]
+        expires_at: Option<String>,
     },
     List,
     Revoke {
@@ -65,6 +76,24 @@ impl KeyVerb {
             Role::Agent => "agent",
         }
     }
+
+    /// The body of `POST /v1/auth/keys`. A platform admin key has role
+    /// `admin`.
+    fn create_body(name: &str, role: Role, platform_admin: bool) -> serde_json::Value {
+        if platform_admin {
+            serde_json::json!({ "name": name, "role": "admin", "platform_admin": true })
+        } else {
+            serde_json::json!({ "name": name, "role": KeyVerb::role_str(role) })
+        }
+    }
+}
+
+/// The refusal of `key create --platform-admin --tenant <name>`.
+fn platform_admin_with_tenant(tenant: &str) -> CliError {
+    CliError::UserError(format!(
+        "--platform-admin makes a key with no tenant; it cannot be combined with --tenant \
+         {tenant}"
+    ))
 }
 
 impl KeyCmd {
@@ -72,13 +101,46 @@ impl KeyCmd {
         let config = CloacinaConfig::load(&globals.home.join("config.toml"));
         let ctx = ClientContext::resolve(globals, &config).map_err(CliError::Other)?;
         let output = ctx.output;
+        let tenant = ctx.tenant.clone();
         let client = CliClient::new(ctx)?;
+        // CLOACINA-T-1140: `--tenant <name>` makes a key of that tenant.
+        if let (
+            KeyVerb::Create {
+                name,
+                role,
+                platform_admin,
+                expires_at,
+            },
+            Some(tenant),
+        ) = (&self.verb, tenant.as_deref())
+        {
+            // A platform admin key has no tenant (CLOACINA-T-1065). `--tenant`
+            // is a global flag, so clap cannot refuse the pair.
+            if *platform_admin {
+                return Err(platform_admin_with_tenant(tenant));
+            }
+            return tenant_key::create(
+                &client,
+                tenant,
+                name,
+                KeyVerb::role_str(*role),
+                expires_at.as_deref(),
+                output,
+            )
+            .await;
+        }
+
         match self.verb {
-            KeyVerb::Create { name, role } => {
-                let body = serde_json::json!({
-                    "name": name,
-                    "role": KeyVerb::role_str(role),
-                });
+            KeyVerb::Create {
+                name,
+                role,
+                platform_admin,
+                expires_at,
+            } => {
+                let mut body = KeyVerb::create_body(&name, role, platform_admin);
+                if let Some(at) = &expires_at {
+                    body["expires_at"] = serde_json::Value::String(at.clone());
+                }
                 let resp: serde_json::Value = client.post("/v1/auth/keys", &body).await?;
 
                 // One-time-only warning for human output.
@@ -91,7 +153,17 @@ impl KeyCmd {
                         .unwrap_or("<none>");
                     println!("created key: {plaintext}");
                     println!("ID:          {id}");
-                    println!("role:        {}", KeyVerb::role_str(role));
+                    let role = resp
+                        .get("permissions")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    println!("role:        {role}");
+                    if platform_admin {
+                        println!("platform admin: yes");
+                    }
+                    if let Some(at) = resp.get("expires_at").and_then(|v| v.as_str()) {
+                        println!("expires at:  {at}");
+                    }
                     println!("NOTE: this is the only time the secret will be shown. Save it now.");
                     Ok(())
                 } else {
@@ -113,5 +185,58 @@ impl KeyCmd {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        key: KeyCmd,
+    }
+
+    /// CLOACINA-T-1065: `--platform-admin` asks for a platform admin key with
+    /// role `admin`, and cannot be combined with `--role`.
+    #[test]
+    fn platform_admin_flag_sends_the_field_and_role_admin() {
+        let cli = Cli::try_parse_from(["key", "create", "ops", "--platform-admin"]).unwrap();
+        let KeyVerb::Create {
+            name,
+            role,
+            platform_admin,
+            ..
+        } = cli.key.verb
+        else {
+            panic!("not a create");
+        };
+        assert!(platform_admin);
+        assert_eq!(
+            KeyVerb::create_body(&name, role, platform_admin),
+            serde_json::json!({ "name": "ops", "role": "admin", "platform_admin": true })
+        );
+
+        assert!(
+            Cli::try_parse_from(["key", "create", "ops", "--platform-admin", "--role", "read"])
+                .is_err()
+        );
+
+        let cli = Cli::try_parse_from(["key", "create", "ci", "--role", "write"]).unwrap();
+        let KeyVerb::Create {
+            name,
+            role,
+            platform_admin,
+            ..
+        } = cli.key.verb
+        else {
+            panic!("not a create");
+        };
+        assert_eq!(
+            KeyVerb::create_body(&name, role, platform_admin),
+            serde_json::json!({ "name": "ci", "role": "write" })
+        );
     }
 }

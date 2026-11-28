@@ -384,6 +384,10 @@ fn load_native_member<C: Serialize>(
                 crate::fleet::protocol::host_target_triple()
             ),
         })?;
+    // CLOACINA-T-1150: the provider's `tracing` and `log` lines go to this
+    // process's log. Bound before `configure`, so its lines are kept too. A
+    // provider built before declares no `CloacinaLog` import and loads as before.
+    crate::registry::loader::package_loader::bind_engine_log(&loaded, &lib_path);
     let plugin = loaded
         .plugins
         .into_iter()
@@ -462,8 +466,10 @@ impl Task for WasmTaskConstructor {
         // Blocking wasmtime call off the async executor.
         let handle = self.handle.clone();
         let call_id = id.clone();
+        // CLOACINA-T-1150: the provider's log lines land in the caller's span.
+        let span = tracing::Span::current();
         let out_json: String = tokio::task::spawn_blocking(move || {
-            handle.call_method::<_, String>(METHOD_EXECUTE, &(inv_json,))
+            span.in_scope(|| handle.call_method::<_, String>(METHOD_EXECUTE, &(inv_json,)))
         })
         .await
         .map_err(|e| exec_err(&call_id, format!("constructor task join: {e}")))?
@@ -790,8 +796,10 @@ impl Trigger for WasmTriggerConstructor {
 
         let handle = self.handle.clone();
         let call_name = name.clone();
+        // CLOACINA-T-1150: the provider's log lines land in the caller's span.
+        let span = tracing::Span::current();
         let out_json: String = tokio::task::spawn_blocking(move || {
-            handle.call_method::<_, String>(METHOD_POLL, &(inv_json,))
+            span.in_scope(|| handle.call_method::<_, String>(METHOD_POLL, &(inv_json,)))
         })
         .await
         .map_err(|e| TriggerError::PollError {
@@ -1543,8 +1551,10 @@ impl WasmReactorConstructor {
 
         let handle = self.handle.clone();
         let call_name = name.clone();
+        // CLOACINA-T-1150: the provider's log lines land in the caller's span.
+        let span = tracing::Span::current();
         let out_json: String = tokio::task::spawn_blocking(move || {
-            handle.call_method::<_, String>(METHOD_EVALUATE, &(inv_json,))
+            span.in_scope(|| handle.call_method::<_, String>(METHOD_EVALUATE, &(inv_json,)))
         })
         .await
         .map_err(|e| LoaderError::Validation {
@@ -2833,5 +2843,29 @@ mod version_pin_tests {
         assert!(!version_satisfies_pin("0.10.0", "0.1"));
         assert!(!version_satisfies_pin("10.0.0", "1"));
         assert!(!version_satisfies_pin("0.2.0", "0.1.0"));
+    }
+}
+
+/// CLOACINA-T-1150: the `CloacinaLog` a native provider imports (from the
+/// constructor contract) is the one the host binds (from the workflow plugin).
+#[cfg(test)]
+mod provider_log_interface_tests {
+    use cloacina_constructor_contract::host_log::__fidius_host_CloacinaLog as provider;
+    use cloacina_workflow_plugin::host_log::__fidius_host_CloacinaLog as host;
+
+    #[test]
+    fn the_providers_log_interface_is_the_one_the_host_binds() {
+        assert_eq!(
+            provider::CloacinaLog_HOST_INTERFACE_HASH,
+            host::CloacinaLog_HOST_INTERFACE_HASH
+        );
+        assert_eq!(
+            provider::CloacinaLog_HOST_INTERFACE_VERSION,
+            host::CloacinaLog_HOST_INTERFACE_VERSION
+        );
+        assert_eq!(
+            provider::CloacinaLog_HOST_FN_COUNT,
+            host::CloacinaLog_HOST_FN_COUNT
+        );
     }
 }
