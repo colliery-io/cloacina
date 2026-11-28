@@ -1182,8 +1182,10 @@ pub async fn run(
     // of who published or created it, at each run start. The OIDC map is
     // read once here and shared with the routes.
     let oidc_policy = Arc::new(crate::oidc::MappingPolicy::from_env());
+    // CLOACINA-T-1080: keys, login sessions and accounts are global tables,
+    // read through the admin pool; the runner's own pool is `public`'s.
     let priority_lookup = priority_authority::PrincipalLookup {
-        admin: runner.database().clone(),
+        admin: admin_database.clone(),
         oidc_policy: oidc_policy.clone(),
     };
     runner.set_priority_authority(Arc::new(priority_authority::PublisherLimit::with_lookup(
