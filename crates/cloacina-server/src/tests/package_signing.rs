@@ -670,6 +670,185 @@ async fn a_signed_package_passes_the_load_check_and_is_refused_at_the_next_load_
     clean_up(&state, &[&tenant]).await;
 }
 
+// ----- a revoke while the package is loaded (CLOACINA-T-1119) -----
+
+/// The workflow name of the document these tests store.
+const T1119_WORKFLOW: &str = "t1119_workflow";
+
+/// The reconciler of a tenant's runner that loads packages from their
+/// metadata document, as the server runs it, and its runtime. One per
+/// replica: each has its own runtime and its own loaded packages.
+fn replica(
+    state: &AppState,
+    tenant: &str,
+    server_org: Option<cloacina::UniversalUuid>,
+) -> (RegistryReconciler, Arc<cloacina::Runtime>) {
+    let mut config = runner_config_for_tenant_cache(
+        None,
+        "default",
+        true,
+        server_org.map(|o| o.0),
+        Some(state.database.clone()),
+        Default::default(),
+        cloacina::registry::PackageLoadMode::MetadataOnly,
+    );
+    config.set_tenant_id(tenant);
+    let database = tenant_database(tenant);
+    let registry: Arc<dyn WorkflowRegistry> = Arc::new(
+        DAL::new(database.clone())
+            .workflow_registry(cloacina::dal::UnifiedRegistryStorage::new(database)),
+    );
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runtime = Arc::new(cloacina::Runtime::empty());
+    let reconciler = RegistryReconciler::new(registry, config.reconciler_config(), shutdown_rx)
+        .expect("reconciler")
+        .with_runtime(runtime.clone());
+    (reconciler, runtime)
+}
+
+/// The metadata document of a package with one task, as a compiler stores it.
+fn t1119_document() -> cloacina::registry::PackageDescription {
+    let task = serde_json::json!({
+        "index": 0,
+        "id": "only",
+        "namespaced_id_template": format!("{{tenant}}::pkg::{T1119_WORKFLOW}::only"),
+        "dependencies": [],
+        "trigger_rules": { "type": "Always" },
+        "retry_policy": serde_json::to_value(cloacina::retry::RetryPolicy::default()).unwrap(),
+    });
+    serde_json::from_value(serde_json::json!({
+        "format_version": cloacina::registry::PACKAGE_DESCRIPTION_VERSION,
+        "language": "python",
+        "described_by": "test",
+        "package_name": "pkg",
+        "workflow_name": T1119_WORKFLOW,
+        "tasks": [task],
+    }))
+    .expect("document")
+}
+
+/// Marks the package built and stores its document, as the compiler does.
+async fn mark_built_described(tenant: &str, package_id: uuid::Uuid) {
+    mark_built(tenant, package_id).await;
+    let database = tenant_database(tenant);
+    let registry = DAL::new(database.clone())
+        .workflow_registry(cloacina::dal::UnifiedRegistryStorage::new(database));
+    assert!(
+        registry
+            .store_package_description(package_id, &t1119_document())
+            .await
+            .expect("store the document"),
+        "the row is not built"
+    );
+}
+
+/// Uploads the fixture signed by `keypair` and marks it built and described.
+/// Returns the package id. The upload starts the tenant's runner; it is
+/// stopped, so only the test's replicas run.
+async fn upload_signed_described(
+    state: &AppState,
+    tenant: &str,
+    token: &str,
+    keypair: &GeneratedKeypair,
+) -> uuid::Uuid {
+    let bytes = package_bytes();
+    let answer = upload(state, tenant, token, &bytes, Some(&sign(&bytes, keypair))).await;
+    assert_eq!(answer.0, StatusCode::CREATED, "body: {:?}", answer.1);
+    let package_id =
+        uuid::Uuid::parse_str(answer.1["package_id"].as_str().expect("package id")).expect("uuid");
+    let _ = state.tenant_runners.shutdown_all().await;
+    mark_built_described(tenant, package_id).await;
+    package_id
+}
+
+/// The build status and build error of a package row in the tenant's schema.
+async fn build_state(tenant: &str, package_id: uuid::Uuid) -> (String, Option<String>) {
+    let database = tenant_database(tenant);
+    let registry = DAL::new(database.clone())
+        .workflow_registry(cloacina::dal::UnifiedRegistryStorage::new(database));
+    let row = registry
+        .inspect_package_by_id(package_id)
+        .await
+        .expect("read the row")
+        .expect("row");
+    (row.build_status, row.build_error)
+}
+
+/// The `package.signer_revoked` audit rows of the tenant.
+async fn signer_revoked_rows(state: &AppState, tenant: &str) -> Vec<serde_json::Value> {
+    DAL::new(state.database.clone())
+        .audit_events()
+        .list(cloacina::dal::unified::audit_events::AuditEventFilter {
+            tenant_id: Some(tenant.to_string()),
+            action: Some("package.signer_revoked".to_string()),
+            ..Default::default()
+        })
+        .await
+        .expect("audit rows")
+        .into_iter()
+        .map(|r| {
+            serde_json::json!({
+                "target": r.target,
+                "detail": r.detail,
+            })
+        })
+        .collect()
+}
+
+/// A signed package is loaded on two replicas of a tenant. The tenant
+/// revokes the signer's key. At the next pass of each replica, with no
+/// restart, the package starts no new run: its workflow is gone from each
+/// runtime. The row is `failed` with the key's fingerprint, and one audit row
+/// records the refusal.
+#[tokio::test]
+#[serial]
+async fn a_revoked_keys_package_starts_no_new_run_on_any_replica() {
+    let state = state_with(true, None).await;
+    let token = create_test_api_key(&state).await;
+    let tenant = make_tenant(&state, "revoke").await;
+    let keypair = generate_signing_keypair();
+    let key_id = trust(&state, &tenant, &token, &keypair).await;
+    let package_id = upload_signed_described(&state, &tenant, &token, &keypair).await;
+
+    let (first, first_runtime) = replica(&state, &tenant, None);
+    let (second, second_runtime) = replica(&state, &tenant, None);
+    for (reconciler, runtime) in [(&first, &first_runtime), (&second, &second_runtime)] {
+        let result = reconciler.reconcile().await.expect("reconcile");
+        assert_eq!(result.packages_loaded, vec![package_id], "{result:?}");
+        assert!(runtime.get_workflow(T1119_WORKFLOW).is_some());
+    }
+
+    revoke(&state, &tenant, &token, &key_id).await;
+    let started = std::time::Instant::now();
+    for (reconciler, runtime) in [(&first, &first_runtime), (&second, &second_runtime)] {
+        let result = reconciler.reconcile().await.expect("reconcile after the revoke");
+        assert!(
+            runtime.get_workflow(T1119_WORKFLOW).is_none(),
+            "a replica can still start a run of the package: {result:?}"
+        );
+        assert_eq!(reconciler.get_status().await.packages_loaded, 0);
+    }
+    // One pass of each replica: well inside the stated bound of two passes.
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+
+    let (status, error) = build_state(&tenant, package_id).await;
+    assert_eq!(status, "failed");
+    let error = error.expect("build error");
+    assert!(error.contains(&keypair.fingerprint), "{error}");
+
+    let rows = signer_revoked_rows(&state, &tenant).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["target"], package_id.to_string());
+    assert_eq!(rows[0]["detail"]["fingerprint"], keypair.fingerprint.as_str());
+
+    // A later pass changes nothing more.
+    let result = first.reconcile().await.expect("reconcile");
+    assert!(result.packages_loaded.is_empty(), "{result:?}");
+    assert_eq!(signer_revoked_rows(&state, &tenant).await.len(), 1);
+
+    clean_up(&state, &[&tenant]).await;
+}
+
 /// A package put into a tenant's tables without the upload route is refused
 /// at load when signatures are required: with no row, with a row that has no
 /// org, and with a row whose signer no org trusts.
