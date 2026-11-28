@@ -110,8 +110,9 @@ export interface paths {
         put?: never;
         /**
          * POST /auth/keys — create a new API key.
-         * @description Requires admin role. Non-admin keys cannot create keys with higher
-         *     permissions than their own (prevents privilege escalation).
+         * @description Platform admin only (the route table). Without `platform_admin` the key
+         *     belongs to the tenant `public`. With `platform_admin: true` it is a
+         *     platform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).
          *     Returns the plaintext key exactly once. It cannot be retrieved again.
          */
         post: operations["create_key"];
@@ -1852,6 +1853,12 @@ export interface components {
             expires_at?: string | null;
             name: string;
             /**
+             * @description `POST /auth/keys` only: make a platform admin key (no tenant, role
+             *     `admin`, the platform admin flag). Needs `role: admin`. The tenant
+             *     route refuses `true` with 400 (CLOACINA-T-1065).
+             */
+            platform_admin?: boolean;
+            /**
              * @description Required. A request with no role is refused with 400: the server does
              *     not choose a role for the caller.
              */
@@ -2197,7 +2204,10 @@ export interface components {
             expires_at?: string | null;
             /** @description Key UUID. */
             id: string;
-            /** @description God-mode flag — never granted via the create endpoints. */
+            /**
+             * @description Platform admin flag. Set only by `POST /auth/keys` with
+             *     `platform_admin: true`, and by the bootstrap.
+             */
             is_admin: boolean;
             /** @description One-time plaintext API key. */
             key: string;
@@ -2926,6 +2936,13 @@ export interface components {
                  *     The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
                  */
                 last_poll_at?: string | null;
+                /**
+                 * @description Why the last poll of this trigger gave no answer: no agent of the
+                 *     tenant could take it, no answer came in time, the agent refused it, or
+                 *     the trigger returned an error. Nothing fired for that poll. `None`
+                 *     after a poll that answered fire or skip (CLOACINA-T-1077).
+                 */
+                last_poll_error?: string | null;
                 /** @description RFC 3339 timestamp. */
                 last_run_at?: string | null;
                 /** @description RFC 3339 timestamp. */
@@ -3112,6 +3129,13 @@ export interface components {
             enabled: boolean;
             /** @description Schedule UUID. */
             id: string;
+            /**
+             * @description Why the last poll of this trigger gave no answer: no agent of the
+             *     tenant could take it, no answer came in time, the agent refused it, or
+             *     the trigger returned an error. Nothing fired for that poll. `None`
+             *     after a poll that answered fire or skip (CLOACINA-T-1077).
+             */
+            last_poll_error?: string | null;
             /** @description Whether the schedule is paused (CLOACI-T-0749). */
             paused?: boolean;
             /** @description RFC 3339 timestamp of when it was paused, if paused. */
@@ -3142,6 +3166,13 @@ export interface components {
              *     The next poll is due `poll_interval_ms` after this (CLOACI-T-0938).
              */
             last_poll_at?: string | null;
+            /**
+             * @description Why the last poll of this trigger gave no answer: no agent of the
+             *     tenant could take it, no answer came in time, the agent refused it, or
+             *     the trigger returned an error. Nothing fired for that poll. `None`
+             *     after a poll that answered fire or skip (CLOACINA-T-1077).
+             */
+            last_poll_error?: string | null;
             /** @description RFC 3339 timestamp. */
             last_run_at?: string | null;
             /** @description RFC 3339 timestamp. */
@@ -3234,6 +3265,16 @@ export interface components {
             description?: string | null;
             /** @description Package UUID. */
             id: string;
+            /**
+             * @description Why this built package is not loaded (CLOACINA-T-1075). A server that
+             *     loads packages from their metadata only does not load a package that
+             *     has no metadata document: it waits for the tenant's compiler to
+             *     describe it, or the compiler could not (`describe_error`). Absent when
+             *     the package has a document, is not built, or the server runs with
+             *     single trust. A package the server refuses has `build_status`
+             *     `failed` and the reason in `build_error`.
+             */
+            not_loaded_reason?: string | null;
             package_name: string;
             /**
              * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
@@ -3695,7 +3736,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin` with a role other than admin, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3713,7 +3754,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Admin role required */
+            /** @description Platform admin key required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3783,6 +3824,15 @@ export interface operations {
             };
             /** @description Key not found or already revoked */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The key is the last live platform admin key */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4502,7 +4552,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description A tenant of this name exists (`tenant_exists`) */
+            /** @description A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5201,7 +5251,7 @@ export interface operations {
                     "application/json": components["schemas"]["KeyCreatedResponse"];
                 };
             };
-            /** @description No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
+            /** @description No role, an unknown role, `platform_admin: true`, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request */
             400: {
                 headers: {
                     [name: string]: unknown;

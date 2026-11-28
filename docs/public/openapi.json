@@ -285,7 +285,7 @@
           "keys"
         ],
         "summary": "POST /auth/keys — create a new API key.",
-        "description": "Requires admin role. Non-admin keys cannot create keys with higher\npermissions than their own (prevents privilege escalation).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
+        "description": "Platform admin only (the route table). Without `platform_admin` the key\nbelongs to the tenant `public`. With `platform_admin: true` it is a\nplatform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
         "operationId": "create_key",
         "requestBody": {
           "content": {
@@ -309,7 +309,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin` with a role other than admin, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -329,7 +329,7 @@
             }
           },
           "403": {
-            "description": "Admin role required",
+            "description": "Platform admin key required",
             "content": {
               "application/json": {
                 "schema": {
@@ -417,6 +417,16 @@
           },
           "404": {
             "description": "Key not found or already revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The key is the last live platform admin key",
             "content": {
               "application/json": {
                 "schema": {
@@ -1357,7 +1367,7 @@
             }
           },
           "409": {
-            "description": "A tenant of this name exists (`tenant_exists`)",
+            "description": "A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2393,7 +2403,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin: true`, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -6710,6 +6720,10 @@
           "name": {
             "type": "string"
           },
+          "platform_admin": {
+            "type": "boolean",
+            "description": "`POST /auth/keys` only: make a platform admin key (no tenant, role\n`admin`, the platform admin flag). Needs `role: admin`. The tenant\nroute refuses `true` with 400 (CLOACINA-T-1065)."
+          },
           "role": {
             "$ref": "#/components/schemas/KeyRole",
             "description": "Required. A request with no role is refused with 400: the server does\nnot choose a role for the caller."
@@ -7415,7 +7429,7 @@
           },
           "is_admin": {
             "type": "boolean",
-            "description": "God-mode flag — never granted via the create endpoints."
+            "description": "Platform admin flag. Set only by `POST /auth/keys` with\n`platform_admin: true`, and by the bootstrap."
           },
           "key": {
             "type": "string",
@@ -8928,6 +8942,13 @@
                   ],
                   "description": "RFC 3339 timestamp of the scheduler's last poll of this trigger\n(`trigger`-type schedules only; `None` for cron or never-polled).\nThe next poll is due `poll_interval_ms` after this (CLOACI-T-0938)."
                 },
+                "last_poll_error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the last poll of this trigger gave no answer: no agent of the\ntenant could take it, no answer came in time, the agent refused it, or\nthe trigger returned an error. Nothing fired for that poll. `None`\nafter a poll that answered fire or skip (CLOACINA-T-1077)."
+                },
                 "last_run_at": {
                   "type": [
                     "string",
@@ -9402,6 +9423,13 @@
             "type": "string",
             "description": "Schedule UUID."
           },
+          "last_poll_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last poll of this trigger gave no answer: no agent of the\ntenant could take it, no answer came in time, the agent refused it, or\nthe trigger returned an error. Nothing fired for that poll. `None`\nafter a poll that answered fire or skip (CLOACINA-T-1077)."
+          },
           "paused": {
             "type": "boolean",
             "description": "Whether the schedule is paused (CLOACI-T-0749)."
@@ -9470,6 +9498,13 @@
               "null"
             ],
             "description": "RFC 3339 timestamp of the scheduler's last poll of this trigger\n(`trigger`-type schedules only; `None` for cron or never-polled).\nThe next poll is due `poll_interval_ms` after this (CLOACI-T-0938)."
+          },
+          "last_poll_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last poll of this trigger gave no answer: no agent of the\ntenant could take it, no answer came in time, the agent refused it, or\nthe trigger returned an error. Nothing fired for that poll. `None`\nafter a poll that answered fire or skip (CLOACINA-T-1077)."
           },
           "last_run_at": {
             "type": [
@@ -9679,6 +9714,13 @@
           "id": {
             "type": "string",
             "description": "Package UUID."
+          },
+          "not_loaded_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why this built package is not loaded (CLOACINA-T-1075). A server that\nloads packages from their metadata only does not load a package that\nhas no metadata document: it waits for the tenant's compiler to\ndescribe it, or the compiler could not (`describe_error`). Absent when\nthe package has a document, is not built, or the server runs with\nsingle trust. A package the server refuses has `build_status`\n`failed` and the reason in `build_error`."
           },
           "package_name": {
             "type": "string"

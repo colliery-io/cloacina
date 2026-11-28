@@ -28,11 +28,15 @@ class CreateKeyRequest:
         expires_at (None | str | Unset): Optional. When the key expires, as an RFC 3339 timestamp in the
             future (for example `2027-01-31T00:00:00Z`). After it the key is
             refused with 401 `key_expired`. Not set: the key does not expire.
+        platform_admin (bool | Unset): `POST /auth/keys` only: make a platform admin key (no tenant, role
+            `admin`, the platform admin flag). Needs `role: admin`. The tenant
+            route refuses `true` with 400 (CLOACINA-T-1065).
     """
 
     name: str
     role: KeyRole
     expires_at: None | str | Unset = UNSET
+    platform_admin: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -46,6 +50,8 @@ class CreateKeyRequest:
         else:
             expires_at = self.expires_at
 
+        platform_admin = self.platform_admin
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -56,6 +62,8 @@ class CreateKeyRequest:
         )
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
+        if platform_admin is not UNSET:
+            field_dict["platform_admin"] = platform_admin
 
         return field_dict
 
@@ -75,10 +83,13 @@ class CreateKeyRequest:
 
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
+        platform_admin = d.pop("platform_admin", UNSET)
+
         create_key_request = cls(
             name=name,
             role=role,
             expires_at=expires_at,
+            platform_admin=platform_admin,
         )
 
         create_key_request.additional_properties = d
