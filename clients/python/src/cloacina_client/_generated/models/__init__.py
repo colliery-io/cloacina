@@ -125,6 +125,7 @@ from .task_attempt_error_detail import TaskAttemptErrorDetail
 from .task_attempt_output_detail import TaskAttemptOutputDetail
 from .task_execution_detail import TaskExecutionDetail
 from .task_output_response import TaskOutputResponse
+from .task_wait_reason import TaskWaitReason
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_backfill_summary import TenantListResponseBackfillSummary
 from .tenant_list_response_backfill_summary_items_item import (
@@ -290,6 +291,7 @@ __all__ = (
     "TaskAttemptOutputDetail",
     "TaskExecutionDetail",
     "TaskOutputResponse",
+    "TaskWaitReason",
     "TenantCreatedResponse",
     "TenantListResponseBackfillSummary",
     "TenantListResponseBackfillSummaryItemsItem",

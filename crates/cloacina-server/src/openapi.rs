@@ -38,12 +38,13 @@ use cloacina_api_types::{
     InjectAccumulatorResponse, InputSlot, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole,
     ListResponse, ReactorFire, ReactorFireTimeseries, ReactorStatus, RetryBackfillRequest,
     SecretDeletedResponse, SecretMetadataResponse, TaskAttemptErrorDetail, TaskAttemptOutputDetail,
-    TaskExecutionDetail, TaskOutputResponse, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerExecution,
-    TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary, WorkflowDeletedResponse,
-    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceFile,
-    WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
-    WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
+    TaskExecutionDetail, TaskOutputResponse, TaskWaitReason, TenantCreatedResponse,
+    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
+    TriggerExecution, TriggerPauseResponse, TriggerScheduleInfo, TriggerScheduleSummary,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse,
+    WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode,
+    WorkflowUploadedResponse, WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    WsTicketResponse,
 };
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi, ToSchema};
@@ -254,6 +255,7 @@ impl Modify for SecurityAddon {
         ExecutionEventsResponse,
         TaskExecutionDetail,
         TaskAttemptErrorDetail,
+        TaskWaitReason,
         ExecutionTasksResponse,
         TaskAttemptOutputDetail,
         TaskOutputResponse,

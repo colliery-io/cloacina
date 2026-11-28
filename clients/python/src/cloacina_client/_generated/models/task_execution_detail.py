@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.task_attempt_error_detail import TaskAttemptErrorDetail
+    from ..models.task_wait_reason import TaskWaitReason
 
 
 T = TypeVar("T", bound="TaskExecutionDetail")
@@ -42,6 +43,7 @@ class TaskExecutionDetail:
             server has a log URL template (`--task-log-url-template`).
         started_at (None | str | Unset): RFC 3339 timestamp; `null` until the task starts.
         sub_status (None | str | Unset): `sub_status` qualifier (e.g. deferral), when present.
+        wait_reason (None | TaskWaitReason | Unset):
     """
 
     attempt: int
@@ -59,9 +61,12 @@ class TaskExecutionDetail:
     log_url: None | str | Unset = UNSET
     started_at: None | str | Unset = UNSET
     sub_status: None | str | Unset = UNSET
+    wait_reason: None | TaskWaitReason | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.task_wait_reason import TaskWaitReason
+
         attempt = self.attempt
 
         created_at = self.created_at
@@ -125,6 +130,14 @@ class TaskExecutionDetail:
         else:
             sub_status = self.sub_status
 
+        wait_reason: dict[str, Any] | None | Unset
+        if isinstance(self.wait_reason, Unset):
+            wait_reason = UNSET
+        elif isinstance(self.wait_reason, TaskWaitReason):
+            wait_reason = self.wait_reason.to_dict()
+        else:
+            wait_reason = self.wait_reason
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -154,12 +167,15 @@ class TaskExecutionDetail:
             field_dict["started_at"] = started_at
         if sub_status is not UNSET:
             field_dict["sub_status"] = sub_status
+        if wait_reason is not UNSET:
+            field_dict["wait_reason"] = wait_reason
 
         return field_dict
 
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.task_attempt_error_detail import TaskAttemptErrorDetail
+        from ..models.task_wait_reason import TaskWaitReason
 
         d = dict(src_dict)
         attempt = d.pop("attempt")
@@ -252,6 +268,23 @@ class TaskExecutionDetail:
 
         sub_status = _parse_sub_status(d.pop("sub_status", UNSET))
 
+        def _parse_wait_reason(data: object) -> None | TaskWaitReason | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                wait_reason_type_0 = TaskWaitReason.from_dict(data)
+
+                return wait_reason_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TaskWaitReason | Unset, data)
+
+        wait_reason = _parse_wait_reason(d.pop("wait_reason", UNSET))
+
         task_execution_detail = cls(
             attempt=attempt,
             created_at=created_at,
@@ -268,6 +301,7 @@ class TaskExecutionDetail:
             log_url=log_url,
             started_at=started_at,
             sub_status=sub_status,
+            wait_reason=wait_reason,
         )
 
         task_execution_detail.additional_properties = d

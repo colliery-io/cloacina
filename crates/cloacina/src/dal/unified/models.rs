@@ -145,6 +145,11 @@ pub struct UnifiedTaskExecution {
     /// CLOACINA-T-1123: the priority the task declares, as asked. `None`:
     /// it declares none and takes its workflow's.
     pub task_priority_asked: Option<i32>,
+    /// CLOACINA-T-1148: why the task waits, as a short code; `None` when it
+    /// does not wait or nothing put it off.
+    pub wait_reason: Option<String>,
+    /// CLOACINA-T-1148: the wait reason in words.
+    pub wait_message: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -1082,6 +1087,8 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             task_priority: u.task_priority,
             fleet_dispatch_claimed_by: u.fleet_dispatch_claimed_by,
             task_priority_asked: u.task_priority_asked,
+            wait_reason: u.wait_reason,
+            wait_message: u.wait_message,
         }
     }
 }

@@ -95,6 +95,8 @@ mod unified_schema {
             task_priority -> Integer,
             fleet_dispatch_claimed_by -> Nullable<DbUuid>,
             task_priority_asked -> Nullable<Integer>,
+            wait_reason -> Nullable<Text>,
+            wait_message -> Nullable<Text>,
         }
     }
 

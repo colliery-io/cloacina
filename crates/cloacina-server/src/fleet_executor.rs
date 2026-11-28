@@ -56,6 +56,7 @@ use cloacina::security::{
 };
 use cloacina::task::TaskNamespace;
 use cloacina::{Context, SecretResolver};
+use cloacina_api_types::TaskWaitReason;
 use std::collections::BTreeSet;
 use tracing::{debug, info, warn};
 
@@ -643,7 +644,13 @@ impl FleetExecutor {
     /// not a failure of the task. Only for a dispatch that has not stamped the
     /// start: the task must still be `Ready`. After the start, use
     /// [`defer_refused_for_capacity`](Self::defer_refused_for_capacity).
-    async fn defer_for_capacity(&self, event: &TaskReadyEvent, why: &str) -> ExecutionResult {
+    ///
+    /// The task row records `why` (CLOACINA-T-1148), in the same write.
+    async fn defer_for_capacity(
+        &self,
+        event: &TaskReadyEvent,
+        why: &TaskWaitReason,
+    ) -> ExecutionResult {
         metrics::counter!("cloacina_fleet_dispatch_deferred_total").increment(1);
         let not_before = cloacina::database::universal_types::UniversalTimestamp(
             chrono::Utc::now()
@@ -653,12 +660,13 @@ impl FleetExecutor {
         match self
             .dal
             .task_execution()
-            .defer_dispatch(event.task_execution_id, not_before)
+            .defer_dispatch_because(event.task_execution_id, not_before, Some(why))
             .await
         {
             Ok(_) => debug!(
                 task_id = %event.task_execution_id,
-                why,
+                code = %why.code,
+                why = %why.message,
                 "fleet: no capacity now; the task waits and keeps its attempt"
             ),
             Err(e) => warn!(
@@ -692,7 +700,10 @@ impl FleetExecutor {
             waiting_before,
             NO_CAPACITY_RETRY_DELAY,
             None,
-            "the agent refused: full or shutting down",
+            &TaskWaitReason::new(
+                TaskWaitReason::AGENT_REFUSED,
+                "the agent the task was sent to refused it: full or shutting down",
+            ),
         )
         .await
     }
@@ -709,8 +720,9 @@ impl FleetExecutor {
         waiting_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
         delay: Duration,
         fetch_wait_since: Option<cloacina::database::universal_types::UniversalTimestamp>,
-        why: &'static str,
+        reason: &TaskWaitReason,
     ) -> ExecutionResult {
+        let why = reason.message.as_str();
         const WHY_LOG: &str =
             "fleet: the agent did not run the task; it waits and keeps its attempt";
         let not_before = cloacina::database::universal_types::UniversalTimestamp(
@@ -727,22 +739,24 @@ impl FleetExecutor {
             let written = match fetch_wait_since {
                 Some(since) => {
                     tasks
-                        .defer_dispatch_after_fetch_refusal(
+                        .defer_dispatch_after_fetch_refusal_because(
                             event.task_execution_id,
                             self.instance_id,
                             not_before,
                             waiting_before,
                             since,
+                            Some(reason),
                         )
                         .await
                 }
                 None => {
                     tasks
-                        .defer_dispatch_after_start(
+                        .defer_dispatch_after_start_because(
                             event.task_execution_id,
                             self.instance_id,
                             not_before,
                             waiting_before,
+                            reason,
                         )
                         .await
                 }
@@ -1095,7 +1109,13 @@ impl TaskExecutor for FleetExecutor {
                         "fleet: could not read the tasks in flight; the task waits"
                     );
                     return Ok(self
-                        .defer_for_capacity(&event, "the tasks in flight could not be read")
+                        .defer_for_capacity(
+                            &event,
+                            &TaskWaitReason::new(
+                                TaskWaitReason::DISPATCH_RETRY,
+                                "the server could not read the tasks in flight; it tries again",
+                            ),
+                        )
                         .await);
                 }
             };
@@ -1110,19 +1130,22 @@ impl TaskExecutor for FleetExecutor {
             let Some(agent) =
                 select_fleet_agent(&loading, &task_tenant, &runnable_triples, &demand, &load)
             else {
-                if let Some(reason) = crate::agent_registry::plugin_interface_wait_reason(
+                // CLOACINA-T-1148: the task row records why it waits.
+                let reason = crate::agent_registry::wait_reason(
                     &snapshot,
                     &task_tenant,
-                    demand.pool,
+                    &runnable_triples,
+                    &demand,
                     package_interface,
-                ) {
+                );
+                if reason.code == TaskWaitReason::PLUGIN_INTERFACE {
                     // CLOACINA-T-1085: a package of another interface than
                     // this server's has no agent of its interface live: it
                     // fails at once, with the reason and the step, not
                     // through its retries. One of the server's own interface
                     // waits for an agent, as above.
                     if let Some(message) = crate::agent_registry::fails_at_once_reason(
-                        &reason,
+                        &reason.message,
                         package_interface,
                         needs_new_build.as_deref(),
                     ) {
@@ -1147,24 +1170,22 @@ impl TaskExecutor for FleetExecutor {
                     }
                     info!(
                         task_id = %event.task_execution_id,
-                        "fleet: the task waits: {reason}"
+                        "fleet: the task waits: {}", reason.message
                     );
-                    return Ok(self.defer_for_capacity(&event, &reason).await);
+                } else {
+                    // CLOACINA-T-1012: a wait for capacity, not a failure. The
+                    // task stays Ready and keeps its attempt count.
+                    debug!(
+                        task_id = %event.task_execution_id,
+                        tenant = ?task_tenant,
+                        pool = demand.pool,
+                        cpu_millis = ?demand.cpu_millis,
+                        memory_bytes = ?demand.memory_bytes,
+                        code = %reason.code,
+                        "fleet: no agent selected for the task: {}", reason.message
+                    );
                 }
-                // CLOACINA-T-1012: a wait for capacity, not a failure. The task
-                // stays Ready and keeps its attempt count.
-                debug!(
-                    task_id = %event.task_execution_id,
-                    tenant = ?task_tenant,
-                    pool = demand.pool,
-                    cpu_millis = ?demand.cpu_millis,
-                    memory_bytes = ?demand.memory_bytes,
-                    "fleet: no live agent of the task's tenant and pool has a free slot, \
-                     a runnable arch and room for the task's requests"
-                );
-                return Ok(self
-                    .defer_for_capacity(&event, "no agent of the pool has room for the task")
-                    .await);
+                return Ok(self.defer_for_capacity(&event, &reason).await);
             };
             let agent_id = agent.agent_id.clone();
 
@@ -1201,7 +1222,13 @@ impl TaskExecutor for FleetExecutor {
                         "fleet: could not write the placement; the task waits"
                     );
                     return Ok(self
-                        .defer_for_capacity(&event, "the placement could not be written")
+                        .defer_for_capacity(
+                            &event,
+                            &TaskWaitReason::new(
+                                TaskWaitReason::DISPATCH_RETRY,
+                                "the server could not write the placement; it tries again",
+                            ),
+                        )
                         .await);
                 }
             }
@@ -1231,7 +1258,16 @@ impl TaskExecutor for FleetExecutor {
                     "fleet: another dispatch took the room on the agent; the task waits"
                 );
                 return Ok(self
-                    .defer_for_capacity(&event, "another dispatch took the room on the agent")
+                    .defer_for_capacity(
+                        &event,
+                        &TaskWaitReason::new(
+                            TaskWaitReason::NO_CAPACITY,
+                            format!(
+                                "another dispatch took the last room on agent {agent_id}; \
+                                 the task tries again"
+                            ),
+                        ),
+                    )
                     .await);
             }
             drop(placing);
@@ -2131,7 +2167,15 @@ impl FleetExecutor {
                         Some(cloacina::database::universal_types::UniversalTimestamp(
                             since,
                         )),
-                        "the agent could not fetch the package artifact",
+                        &TaskWaitReason::new(
+                            TaskWaitReason::ARTIFACT_FETCH,
+                            format!(
+                                "the agent could not fetch the package artifact; waited {} s \
+                                 of {} s",
+                                waited.as_secs(),
+                                self.artifact_fetch_wait.as_secs()
+                            ),
+                        ),
                     )
                     .await;
             }

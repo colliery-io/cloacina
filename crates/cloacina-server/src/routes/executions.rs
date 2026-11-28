@@ -710,6 +710,13 @@ pub async fn get_execution_tasks(
                     sub_status: t.sub_status,
                     last_error: t.last_error,
                     error_details: t.error_details,
+                    // CLOACINA-T-1148: why the task waits, while it does.
+                    wait_reason: t.wait_reason.map(|code| {
+                        cloacina_api_types::TaskWaitReason::new(
+                            &code,
+                            t.wait_message.unwrap_or_default(),
+                        )
+                    }),
                 })
                 .collect();
             Json(ExecutionTasksResponse {

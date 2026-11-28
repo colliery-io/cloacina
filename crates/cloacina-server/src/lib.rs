@@ -3404,6 +3404,8 @@ mod tests {
     mod priority_publisher;
     /// A run with a priority through the router (CLOACINA-T-1123).
     mod priority_routes;
+    /// The tasks route gives why a task waits (CLOACINA-T-1148).
+    mod wait_reason;
 
     /// Tenant runners at start, after a publish and at the limit (CLOACINA-T-1031).
     /// A signed upload end to end, and the signature check at load

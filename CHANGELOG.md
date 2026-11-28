@@ -394,6 +394,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A waiting task says why** (CLOACINA-T-1148). While the agent fleet puts
+  a task off, its row in `GET .../executions/{id}/tasks` has `wait_reason`,
+  a code and a message (for example `no_capacity`, `no_agent`,
+  `plugin_interface`); the UI shows it under the task's status. It is `null`
+  once the task is placed or starts. Migration 079 adds the columns.
 - **The compatibility promise** (CLOACINA-T-1046): a reference page on what a patch, a minor and a major may change, the schema rule, version skew, the upgrade order, and the full stop of the upgrade to 0.13.0.
 - **Agent and compiler images at each release** (CLOACINA-T-1088). A release
   publishes `ghcr.io/colliery-io/cloacina-agent` (from
@@ -458,11 +463,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-- **Database migrations 051 to 078.** The server applies them at start:
+- **Database migrations 051 to 079.** The server applies them at start:
   `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
   `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,
-  `073`, `074`, `075`, `076`, `077`, `078` (Postgres and SQLite) and `071`, `072`
-  (Postgres only). Back up the database before the upgrade; there is no downgrade,
+  `073`, `074`, `075`, `076`, `077`, `078`, `079` (Postgres and SQLite) and
+  `071`, `072` (Postgres only). Back up the database before the upgrade; there
+  is no downgrade,
   restore the backup to go back.
 - **Database migration `077`** (CLOACINA-T-1085, Postgres and SQLite): two
   nullable columns on `workflow_packages`, `interface_checked_for` and

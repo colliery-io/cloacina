@@ -67,6 +67,7 @@ pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskAttemptErrorDetail,
     TaskAttemptOutputDetail, TaskExecutionDetail, TaskOutputQuery, TaskOutputResponse,
+    TaskWaitReason,
 };
 pub use fleet::{
     AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressPortInfo, AgentEgressRule,

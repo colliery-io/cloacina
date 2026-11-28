@@ -488,6 +488,112 @@ pub fn fails_at_once_reason(
     ))
 }
 
+/// Why no agent was selected for a task (CLOACINA-T-1148): the reason the
+/// task row records while it waits. Called when [`select_fleet_agent`] found
+/// none, with the same inputs; `live` is the whole roster, before the filter
+/// of [`agents_loading`]. The first that holds of:
+///
+/// 1. `plugin_interface`: the agents of the tenant and pool load another
+///    plugin interface version ([`plugin_interface_wait_reason`]).
+/// 2. `no_agent`: no live agent of the tenant and pool.
+/// 3. `platform`: none of them runs on a platform the package is built for.
+/// 4. `too_large`: the task's requests are more than any of them holds when
+///    empty.
+/// 5. `no_capacity`: they are full now.
+pub fn wait_reason(
+    live: &[FleetAgent],
+    task_tenant: &Option<String>,
+    runnable_triples: &Option<Vec<String>>,
+    demand: &TaskDemand<'_>,
+    package_interface: Option<u32>,
+) -> cloacina_api_types::TaskWaitReason {
+    use cloacina_api_types::TaskWaitReason as Why;
+    let tenant = task_tenant.as_deref().unwrap_or("public");
+    let pool = demand.pool;
+    if let Some(message) = plugin_interface_wait_reason(live, task_tenant, pool, package_interface)
+    {
+        return Why::new(Why::PLUGIN_INTERFACE, message);
+    }
+    let here: Vec<&FleetAgent> = live
+        .iter()
+        .filter(|a| {
+            &a.tenant_id == task_tenant
+                && cloacina_api_types::agent_pool_of(&a.capabilities) == pool
+        })
+        .collect();
+    if here.is_empty() {
+        return Why::new(
+            Why::NO_AGENT,
+            format!(
+                "no live agent of tenant {tenant}, pool {pool}; the task runs when one registers"
+            ),
+        );
+    }
+    let runnable: Vec<&FleetAgent> = here
+        .iter()
+        .copied()
+        .filter(|a| loads_plugin_interface(a, package_interface))
+        .filter(|a| can_run_package(a, runnable_triples))
+        .collect();
+    if runnable.is_empty() {
+        let mut agents: Vec<&str> = here.iter().map(|a| a.target_triple.as_str()).collect();
+        agents.sort();
+        agents.dedup();
+        let built = runnable_triples
+            .as_ref()
+            .map(|ts| {
+                let mut ts: Vec<&str> = ts.iter().map(String::as_str).collect();
+                ts.sort();
+                ts.dedup();
+                ts.join(", ")
+            })
+            .unwrap_or_default();
+        return Why::new(
+            Why::PLATFORM,
+            format!(
+                "no agent of tenant {tenant}, pool {pool} runs on a platform the package is \
+                 built for (package: {built}; agents: {})",
+                agents.join(", ")
+            ),
+        );
+    }
+    let holds = |a: &FleetAgent| {
+        let room = |request: Option<u64>, total: Option<u64>| {
+            total.is_none_or(|total| charge(request, Some(total), a.max_concurrency) <= total)
+        };
+        a.max_concurrency > 0
+            && room(demand.cpu_millis, a.cpu_millis)
+            && room(demand.memory_bytes, a.memory_bytes)
+    };
+    let requests = demand.cpu_millis.is_some() || demand.memory_bytes.is_some();
+    if requests && !runnable.iter().any(|a| holds(a)) {
+        let asked = |what: &str, v: Option<u64>| v.map(|v| format!("{what} {v}"));
+        let asks: Vec<String> = [
+            asked("cpu_millis", demand.cpu_millis),
+            asked("memory_bytes", demand.memory_bytes),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        return Why::new(
+            Why::TOO_LARGE,
+            format!(
+                "the task requests {}, more than any agent of tenant {tenant}, pool {pool} \
+                 holds; lower the request or use larger agents",
+                asks.join(" and ")
+            ),
+        );
+    }
+    Why::new(
+        Why::NO_CAPACITY,
+        format!(
+            "the {} agent(s) of tenant {tenant}, pool {pool} that can run the task have no \
+             free slot or no room for its requests now",
+            runnable.len()
+        ),
+    )
+}
+
 /// Select a live fleet agent for a task: same tenant as the work, in the pool
 /// the task names, able to run the package, with a free slot, and with room
 /// for the task's CPU and memory requests.
@@ -564,6 +670,110 @@ pub(crate) fn test_fleet_agent(id: &str, cap: u32, tenant: Option<&str>) -> Flee
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── wait reason (CLOACINA-T-1148) ────────────────────────────────────────
+
+    fn why(
+        live: &[FleetAgent],
+        triples: Option<Vec<&str>>,
+        demand: TaskDemand<'_>,
+        interface: Option<u32>,
+    ) -> cloacina_api_types::TaskWaitReason {
+        let triples = triples.map(|ts| ts.into_iter().map(str::to_string).collect());
+        wait_reason(
+            live,
+            &Some("acme".to_string()),
+            &triples,
+            &demand,
+            interface,
+        )
+    }
+
+    #[test]
+    fn the_wait_reason_names_each_case_with_its_code() {
+        use cloacina_api_types::TaskWaitReason as W;
+        let mac = || Some(vec!["aarch64-apple-darwin"]);
+
+        // No agent of the tenant and pool: other tenants do not count.
+        let other = vec![test_fleet_agent("x", 4, Some("other"))];
+        let r = why(&other, mac(), TaskDemand::pool("default"), None);
+        assert_eq!(r.code, W::NO_AGENT);
+        assert!(
+            r.message.contains("tenant acme, pool default"),
+            "{}",
+            r.message
+        );
+
+        // Agents of another plugin interface.
+        let mut old = test_fleet_agent("old", 4, Some("acme"));
+        old.plugin_interface_version = Some(7);
+        let r = why(
+            std::slice::from_ref(&old),
+            mac(),
+            TaskDemand::pool("default"),
+            Some(8),
+        );
+        assert_eq!(r.code, W::PLUGIN_INTERFACE);
+        assert!(r.message.contains("plugin interface 8"), "{}", r.message);
+
+        // An agent of another platform.
+        let mut linux = test_fleet_agent("linux", 4, Some("acme"));
+        linux.target_triple = "x86_64-unknown-linux-gnu".to_string();
+        let r = why(
+            std::slice::from_ref(&linux),
+            mac(),
+            TaskDemand::pool("default"),
+            None,
+        );
+        assert_eq!(r.code, W::PLATFORM);
+        assert!(
+            r.message.contains("x86_64-unknown-linux-gnu"),
+            "{}",
+            r.message
+        );
+
+        // A request no agent of the pool holds.
+        let mut small = test_fleet_agent("small", 4, Some("acme"));
+        small.memory_bytes = Some(1 << 30);
+        let big = TaskDemand {
+            pool: "default",
+            cpu_millis: None,
+            memory_bytes: Some(8 << 30),
+        };
+        let r = why(std::slice::from_ref(&small), mac(), big, None);
+        assert_eq!(r.code, W::TOO_LARGE);
+
+        // The same agent with no free slot: capacity. An interpreted package
+        // (no triples) runs on any platform.
+        let mut full = test_fleet_agent("full", 2, Some("acme"));
+        full.available_capacity = 0;
+        let r = why(
+            std::slice::from_ref(&full),
+            None,
+            TaskDemand::pool("default"),
+            None,
+        );
+        assert_eq!(r.code, W::NO_CAPACITY);
+        assert!(r.message.contains("the 1 agent(s)"), "{}", r.message);
+    }
+
+    #[test]
+    fn each_wait_reason_code_is_listed() {
+        use cloacina_api_types::TaskWaitReason as W;
+        for code in [
+            W::PLUGIN_INTERFACE,
+            W::NO_AGENT,
+            W::PLATFORM,
+            W::TOO_LARGE,
+            W::NO_CAPACITY,
+            W::AGENT_REFUSED,
+            W::ARTIFACT_FETCH,
+            W::DISPATCH_RETRY,
+        ] {
+            assert!(W::CODES.contains(&code), "{code}");
+        }
+        assert_eq!(W::CODES.len(), 8);
+    }
 
     // ── plugin interface version (CLOACINA-T-1086) ───────────────────────────
 
