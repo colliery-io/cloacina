@@ -99,6 +99,18 @@ PROMISES = {
 }
 
 
+
+# Each kind of disturbance of the schedule (CLOACINA-T-1109), and the
+# promises it puts to the test. The report shows them next to each
+# disturbance; the runner refuses a kind that is not here.
+DISTURBANCE_TESTS = {
+    "kill_agent": ("failure.agent_dies", "run_once.long_task"),
+    "restart_server": ("failure.server_restart", "run_once.other_replica", "schedules.on_time"),
+    "postgres_away": ("failure.postgres_away", "schedules.backlog"),
+    "fill_capacity": ("capacity.waits", "run_once.no_free_agent", "schedules.on_time"),
+}
+
+
 def row_of(promise_id):
     return PROMISES[promise_id][0]
 
@@ -118,4 +130,8 @@ def problems():
     for row in ROWS:
         if row not in CHAPTER_TASK:
             found.append(f"row {row!r} has no chapter task")
+    for kind, tested in DISTURBANCE_TESTS.items():
+        for promise_id in tested:
+            if promise_id not in PROMISES:
+                found.append(f"disturbance {kind} tests an unknown promise: {promise_id}")
     return found

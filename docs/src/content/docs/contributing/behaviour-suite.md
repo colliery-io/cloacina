@@ -110,8 +110,9 @@ angreal test bdd standing --down           # remove the cluster and everything i
 
 The first call makes the cluster `cloacina-k8s-bdd-standing`; later calls
 attach to it. It installs the server with the Helm chart, with the fleet
-executor, a database that keeps its data across a restart of its pod, and a
-run history retention of two days. Then it creates the three tenants, their
+executor, two server replicas (`--server-replicas N` sets another number), a
+database that keeps its data across a restart of its pod, and a run history
+retention of two days. Then it creates the three tenants, their
 agents, keys and compilers, publishes the workload's packages with each
 tenant's own key, stores each tenant's secret, creates the scheduled
 workflow instances, and runs `features/standing/standing_workload.feature`.
@@ -227,7 +228,73 @@ window, "does not hold" is a break. A rule can also read the windows itself,
 to judge what happened around one: every run that was active when the agent
 died ended `Completed`.
 
-The report lists the disturbances of the last 24 hours.
+The record holds two lines for each disturbance with the same `id`: one
+written before the action, with no `end`, and one when it ends. The checker
+takes the last line of an id. Other fields of the line (`tenant`, `pod`,
+`mode`, `outcome`) are there for the rules of a chapter to read.
+
+The report lists the disturbances of the last 24 hours, each with the
+promises it tests and their state.
+
+## The disturbance schedule
+
+```bash
+angreal test bdd standing --disturb --dry-run   # the schedule of the next day and every command; touches nothing
+angreal test bdd standing --disturb             # run the schedule until stopped
+angreal test bdd standing --disturb-stop        # stop it
+```
+
+The schedule is one table, `SCHEDULE` in
+`.angreal/test/bdd/suite/disturb.py`: a cycle of four hours, one kind of
+disturbance each hour at minute 2, while the hourly six-minute task of
+`standing_archive` runs on an agent of every tenant. The tenant changes with
+each cycle, and the mode of a kill with every second cycle. In a day each
+kind runs six times, on each tenant twice.
+
+| Kind | What is done | Promises it tests |
+|---|---|---|
+| `kill_agent` | The roster names an agent of the tenant with a task in flight; the agent id in each agent pod's log names its pod; that pod is deleted. Plain (SIGTERM: the agent drains its work) or with `--grace-period=0 --force` (the agent dies with it). | An agent dies mid-task and the task finishes on another agent. A long task runs one time. |
+| `restart_server` | One pod of the server Deployment is deleted, in the same two modes, and the Deployment is waited for. The standing deployment runs two server replicas (`--server-replicas 1` runs one). | The server restarts and runs survive. A task whose result lands on another replica runs one time. A schedule fires on time. |
+| `postgres_away` | The Postgres Deployment is scaled to zero for four minutes, then back to one; the runner waits for it and for the server's `/ready`. | Postgres goes away and nothing is lost or doubled. A backlog drains in order. |
+| `fill_capacity` | Sixteen held runs of `standing_hold` are started through the API with the tenant's write key: twice what its agents take at once. | Work waits when a tenant is full and runs when capacity arrives. A task with no free agent runs one time. A schedule fires on time. |
+
+Each disturbance has a window that ends some minutes after the action (15
+or 20), for recovery. The schedule spaces the windows so that two never
+overlap; the dry run checks it.
+
+**It acts on the suite's own cluster only.** The runner runs no program but
+`kubectl`, and never `docker`. Every call names the suite's kubeconfig,
+`<tmp>/cloacina-k8s-bdd-standing/kubeconfig.host.yaml`, and its context
+`default`; another kubeconfig is refused, and no other kubeconfig is in the
+environment of the call. Before each disturbance it reads that kubeconfig
+and the cluster, and refuses to act unless the kubeconfig has one context
+and one cluster at `https://localhost:6443`, and the cluster holds the
+namespace `cloacina-bdd-standing` with the Deployment
+`bdd-standing-cloacina-server`. Each command is checked against a short
+list: the verbs (`get`, `logs`, `delete pod`, `scale` of the Postgres
+Deployment to 0 or 1, `rollout status`), the namespaces of the suite and of
+its tenants, no `--all-namespaces`, no selector on a delete. The API it calls
+is on a loopback address. A refusal stops the schedule.
+
+**Everything is on record.** The disturbance record is
+`bdd-standing-report/disturbances.jsonl`, the file the checker reads. The
+run's log, `bdd-standing-report/disturbance-log.jsonl`, holds every check,
+command (with its exit code), refusal and skip, with its time and target. A
+`kill_agent` that finds no agent with work in flight within three minutes is
+not done, and the log says why.
+
+**Stopping leaves nothing half done.** `--disturb-stop` writes a stop file.
+The runner reads it between steps: it ends the disturbance in hand, scales
+Postgres back if it is away, closes the record and exits. Ctrl-C does the
+same. A runner that starts closes any window an earlier runner left open,
+and brings Postgres back. One disturbance runs at a time, across processes:
+while one runs, a lock file makes any other, from the schedule or from a
+scenario, a skip with a line in the log.
+
+If Postgres or the server does not come back, the record says so
+(`"recovered": false`), the schedule stops, and the runner prints the
+command that brings Postgres back. That is a finding of the run: bring the
+deployment back by hand and file the task.
 
 ## Add a chapter
 

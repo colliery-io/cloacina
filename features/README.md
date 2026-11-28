@@ -18,6 +18,7 @@ database URL, not with the tenant's build role.
 ```
 angreal test bdd standing --dry-run     # every feature parsed, every step resolved; no cluster
 angreal test bdd standing --self-test   # unit tests of the checker and the fixtures; no server
+angreal test bdd standing --disturb --dry-run   # the disturbance schedule and its commands; touches nothing
 ```
 
 A chapter owns its feature here, its steps in
