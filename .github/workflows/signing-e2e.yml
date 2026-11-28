@@ -1,0 +1,69 @@
+---
+name: Signing E2E
+
+# End-to-end test of package signing (CLOACINA-T-1121): Postgres,
+# cloacina-server with --require-signatures, a tenant with one trusted key, a
+# compiler for that tenant, and `cloacinactl package publish --sign`. A signed
+# package builds, loads and runs to Completed; an unsigned one and one signed
+# by an untrusted key are refused.
+#
+# It runs on each pull request that touches the signing path, on demand, and
+# from the nightly suite, which is the release gate (unified_release.yml
+# calls nightly.yml).
+
+on:
+  pull_request:
+    paths:
+      - 'crates/cloacina/src/security/**'
+      - 'crates/cloacina/src/crypto/**'
+      - 'crates/cloacina/src/registry/reconciler/**'
+      - 'crates/cloacina-server/src/routes/workflows.rs'
+      - 'crates/cloacina-server/src/routes/trusted_keys.rs'
+      - 'crates/cloacinactl/src/nouns/package/**'
+      - 'crates/cloacinactl/src/nouns/trusted_key/**'
+      - 'examples/fixtures/compiler-happy-rust/**'
+      - '.angreal/test/e2e/signed_publish.py'
+      - '.angreal/test/e2e/compiler.py'
+      - '.github/workflows/signing-e2e.yml'
+  workflow_dispatch: {}
+  workflow_call: {}
+
+env:
+  CARGO_NET_RETRY: "10"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  CARGO_HTTP_MULTIPLEXING: "false"
+
+jobs:
+  signing-e2e:
+    name: Signing E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/free-disk-space
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        uses: ./.github/actions/install-angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-signing-e2e"
+
+      - name: Install libpq
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      # The task starts its own Postgres with docker compose and resets it.
+      - name: Signing e2e (publish --sign to a server that requires signatures)
+        run: angreal test e2e signed-publish
