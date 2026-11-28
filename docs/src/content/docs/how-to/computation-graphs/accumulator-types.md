@@ -387,6 +387,18 @@ In a package, the server builds each accumulator from its type and its config (t
 
 The graph of a package that loads runs on an agent of the tenant at each firing. A refused package gets `build_status` `failed`, and `build_error` names the accumulators. With `--single-trust`, and in embedded use and the daemon, no type is refused.
 
+### Input strategy
+
+The `input_strategy` of `[metadata]` in `package.toml` (`latest` or `sequential`; `latest` when it is not set) is the strategy of the package's graph. The reactor of the same package that the graph binds to runs with it too. The rule is the same for a Rust and a Python package, for the load in process (single trust, embedded use, the daemon) and for the load from the stored document; the document the compiler stores says the same strategy.
+
+A reactor of another package keeps the strategy it was loaded with. A graph that binds to such a reactor with another strategy does not load: the package load fails, and its error names the graph, the reactor and `input strategy differs`. Give the graph the reactor's strategy in `package.toml`.
+
+```toml
+[metadata]
+graph_name = "orders_graph"
+input_strategy = "sequential"
+```
+
 ## Related
 
 - [Computation graphs tutorial 12 — full multi-source pipeline](../../../tutorials/embed/12-full-pipeline/)
