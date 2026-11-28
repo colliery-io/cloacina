@@ -1,0 +1,16 @@
+# Fixture of the behaviour suite's "Operations" chapter (CLOACINA-T-1115): a
+# job that fails on purpose, as its run's context says: for good, or once and
+# then passes on a retry.
+[package]
+name = "operations-fail-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "operations_fail"
+language = "python"
+description = "operations chapter: fails for good, or once and then passes"
+author = "behaviour-suite"
+entry_module = "operations_fail.tasks"

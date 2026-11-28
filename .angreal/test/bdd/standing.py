@@ -40,7 +40,7 @@ from ..e2e import k8s_fleet as k8s
 from . import chapters, gherkin
 from . import publish as publish_chapter
 from .standing_world import StandingWorld
-from .suite import workload
+from .suite import alerts, workload
 
 test = angreal.command_group(
     name="test", about="Cloacina test suites (unit, integration, e2e, soak)"
@@ -61,7 +61,12 @@ SERVER_PORT = 18100
 DATABASE_PORT = 15432
 REPORT_DIR = PROJECT_ROOT / "bdd-standing-report"
 # Days of finished runs the standing deployment keeps.
-RUN_HISTORY_DAYS = 2
+RUN_HISTORY_DAYS = workload.RUN_HISTORY_DAYS
+# Where `--check` forwards the alert receiver and the server's metrics
+# listener (CLOACINA-T-1115).
+ALERTS_LOCAL_PORT = 18090
+METRICS_LOCAL_PORT = 19090
+METRICS_PORT = 9090
 
 
 def _hostdir():
@@ -107,6 +112,10 @@ def _server_values(tag, agent_ref, chart_actuator, compiler_ref):
         "retention:\n"
         f"  runHistoryDays: {RUN_HISTORY_DAYS}\n"
         "  outboxAckedSeconds: 3600\n"
+        # CLOACINA-T-1115: failed runs alert the suite's receiver.
+        "alertWebhook:\n"
+        f"  url: {alerts.webhook_url(NS)}\n"
+        "  events: [failed]\n"
     )
 
 
@@ -176,13 +185,19 @@ def _check(interval, port):
     forwards = [
         _Forward(kubeconfig, f"svc/{RELEASE}-cloacina-server", f"{SERVER_PORT}:8080", NS),
         _Forward(kubeconfig, f"svc/{RELEASE}-postgresql", f"{DATABASE_PORT}:5432", NS),
+        # CLOACINA-T-1115: the alert receiver, and one replica's metrics.
+        _Forward(kubeconfig, f"svc/{alerts.NAME}", f"{ALERTS_LOCAL_PORT}:{alerts.PORT}", NS),
+        _Forward(kubeconfig, f"svc/{RELEASE}-cloacina-server-metrics",
+                 f"{METRICS_LOCAL_PORT}:{METRICS_PORT}", NS),
     ]
     try:
         k8s._wait_http(f"http://127.0.0.1:{SERVER_PORT}/ready", timeout_s=60)
         from .suite import check
 
         return check.main(["--config", str(settings), "--out", str(REPORT_DIR),
-                           "--interval", str(interval), "--port", str(port), "--record"])
+                           "--interval", str(interval), "--port", str(port), "--record",
+                           "--alerts-url", f"http://127.0.0.1:{ALERTS_LOCAL_PORT}{alerts.PATH}",
+                           "--metrics-url", f"http://127.0.0.1:{METRICS_LOCAL_PORT}/metrics"])
     finally:
         for forward in forwards:
             forward.close()
@@ -296,6 +311,9 @@ def standing(dry_run=False, self_test=False, check=False, down=False, chapter="s
             values_text=_server_values(tag, agent_ref, chart_actuator, compiler_ref),
             reuse=True,
         )
+
+        print("\n--- the alert receiver (CLOACINA-T-1115) ---\n")
+        world.deploy_alert_receiver(agent_ref)
 
         print("\n--- port-forward the server API ---\n")
         fwd, base = k8s.start_port_forward(kubeconfig, release=RELEASE, ns=NS, port=SERVER_PORT)
