@@ -271,6 +271,11 @@ def _dump_diag(kubeconfig, label):
 # chart RBAC, identical helm values) instead of duplicating brittle logic.
 # ---------------------------------------------------------------------------
 
+# The label of the pods a harness runs itself (curl probes, upload pods,
+# compilers): the values below list it in the chart's NetworkPolicies.
+E2E_CLIENT_LABEL = "cloacina-e2e-client"
+
+
 # The server's helm values: in-cluster postgres (ephemeral), K8s actuator bound
 # to the fleet ServiceAccount, autoscaler OFF so desired_count is exactly what
 # the caller provisions, no auto-provision on tenant create.
@@ -288,6 +293,11 @@ def _server_values(tag, agent_ref, bootstrap_secret):
         "    username: cloacina\n"
         "    password: cloacina\n"
         "    database: cloacina\n"
+        # CLOACINA-T-1069: k3s enforces NetworkPolicy. The compilers the
+        # harnesses apply carry E2E_CLIENT_LABEL.
+        "  networkPolicy:\n"
+        "    from:\n"
+        f"      - podSelector: {{matchLabels: {{{E2E_CLIENT_LABEL}: \"true\"}}}}\n"
         "apiKeySecretRef:\n"
         f"  name: {bootstrap_secret}\n"
         "  key: bootstrap-key\n"
@@ -301,6 +311,15 @@ def _server_values(tag, agent_ref, bootstrap_secret):
         # service name does NOT resolve — so leaving this unset exercises that
         # the chart default is correct (regression guard for the T-0815 FQDN fix).
         "server:\n"
+        # CLOACINA-T-1069: the API port admits the curl and upload pods the
+        # harnesses run (E2E_CLIENT_LABEL) and the agents a driver applies
+        # itself with fleet.actuator=none (the actuator's own rule covers them
+        # only with fleet.actuator=kubernetes).
+        "  networkPolicy:\n"
+        "    from:\n"
+        f"      - podSelector: {{matchLabels: {{{E2E_CLIENT_LABEL}: \"true\"}}}}\n"
+        '      - namespaceSelector: {matchLabels: {cloacina.managed: "true"}}\n'
+        '        podSelector: {matchLabels: {cloacina.managed: "true"}}\n'
         "  extraEnv:\n"
         # Keep reconcile running but stop the util-based autoscaler from
         # scaling our hand-provisioned agents back to floor=0 (util is 0

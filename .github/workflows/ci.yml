@@ -619,6 +619,7 @@ jobs:
             --set postgresql.enabled=true \
             --set postgresql.auth.password="${PASSWORD}" \
             --set fleet.actuator=kubernetes \
+            --set-string 'server.networkPolicy.from[0].podSelector.matchLabels.cloacina-e2e-client=true' \
             --wait --timeout=8m
 
       - name: Wait for rollout
@@ -646,8 +647,11 @@ jobs:
           # The pod runs detached and its log is read after it ends: with
           # `kubectl run -i --rm`, a command that ends at once can finish
           # before kubectl attaches, and its output is lost.
+          # CLOACINA-T-1069: the install lists this label in
+          # server.networkPolicy.from; other pods cannot reach the API port.
           kubectl run healthcheck \
             -n cloacina-e2e \
+            --labels=cloacina-e2e-client=true \
             --restart=Never \
             --image=curlimages/curl:8.10.1 \
             --command -- curl -sS --retry 5 --retry-connrefused --max-time 10 \

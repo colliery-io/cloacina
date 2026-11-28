@@ -459,7 +459,9 @@ class PublishWorld:
                 "replicas": 1,
                 "selector": {"matchLabels": {"app": name}},
                 "template": {
-                    "metadata": {"labels": {"app": name}},
+                    # CLOACINA-T-1069: k8s_fleet.E2E_CLIENT_LABEL, which the
+                    # e2e values list in postgresql.networkPolicy.from.
+                    "metadata": {"labels": {"app": name, "cloacina-e2e-client": "true"}},
                     "spec": {"containers": [{
                         "name": "compiler",
                         "image": compiler_ref,
