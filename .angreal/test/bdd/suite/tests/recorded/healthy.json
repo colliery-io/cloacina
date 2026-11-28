@@ -123,7 +123,32 @@
            "created_at": "2026-11-27T12:15:01.004", "started_at": "2026-11-27T12:15:01.200", "completed_at": null, "waiting_since": null,
            "schedule_id": "5c4e0000-0000-4000-8000-00000000a003", "scheduled_time": "2026-11-27T12:15:00+00:00", "run_once_tag": null, "held_seconds": null}
         ]},
-        "run_once_inbox": {"rows": []}
+        "run_once_inbox": {"rows": []},
+        "schedules": {"rows": [
+          {"id": "5c5e0000-0000-4000-8000-00000000a101", "workflow_name": "standing_rollup", "instance_name": null, "trigger_name": "standing_rollup_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a102", "workflow_name": "standing_extract", "instance_name": null, "trigger_name": "standing_extract_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a103", "workflow_name": "standing_extract", "instance_name": "in_order", "trigger_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a104", "workflow_name": "standing_archive", "instance_name": null, "trigger_name": "standing_archive_schedule", "cron_expression": "0 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a105", "workflow_name": "standing_flaky", "instance_name": null, "trigger_name": "standing_flaky_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a106", "workflow_name": "standing_driver", "instance_name": "drive", "trigger_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a1f0", "workflow_name": "standing_extract", "instance_name": null, "trigger_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "paused": false, "backfill": "{\"start\": \"2026-11-27T10:00:00Z\"}", "created_at": "2026-11-27T12:11:00.000"}
+        ]},
+        "fires": {"rows": [
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a101", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:00.800", "run_id": "5e2e0000-0000-4000-8000-00000000a111", "status": "Completed", "started_at": "2026-11-27T12:10:01.004", "completed_at": "2026-11-27T12:10:03.100", "rollup_done": {"interval_start": "2026-11-27T12:05:00+00:00", "interval_end": "2026-11-27T12:10:00+00:00", "scheduled_time": "2026-11-27T12:10:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a102", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:00.900", "run_id": "5e2e0000-0000-4000-8000-00000000a112", "status": "Completed", "started_at": "2026-11-27T12:10:01.310", "completed_at": "2026-11-27T12:10:04.200", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:05:00+00:00", "interval_end": "2026-11-27T12:10:00+00:00", "scheduled_time": "2026-11-27T12:10:00+00:00", "rows": 112}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a103", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:00.950", "run_id": "5e2e0000-0000-4000-8000-00000000a113", "status": "Completed", "started_at": "2026-11-27T12:10:01.400", "completed_at": "2026-11-27T12:10:04.500", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:05:00+00:00", "interval_end": "2026-11-27T12:10:00+00:00", "scheduled_time": "2026-11-27T12:10:00+00:00", "rows": 112}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a105", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:01.000", "run_id": "5e2e0000-0000-4000-8000-00000000a115", "status": "Completed", "started_at": "2026-11-27T12:10:01.500", "completed_at": "2026-11-27T12:10:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a106", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:01.050", "run_id": "5e2e0000-0000-4000-8000-00000000a116", "status": "Completed", "started_at": "2026-11-27T12:10:01.220", "completed_at": "2026-11-27T12:10:05.900", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a101", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:00.800", "run_id": "5e2e0000-0000-4000-8000-00000000a121", "status": "Completed", "started_at": "2026-11-27T12:15:01.004", "completed_at": "2026-11-27T12:15:03.100", "rollup_done": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00", "scheduled_time": "2026-11-27T12:15:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a102", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:00.900", "run_id": "5e2e0000-0000-4000-8000-00000000a122", "status": "Completed", "started_at": "2026-11-27T12:15:01.310", "completed_at": "2026-11-27T12:15:04.200", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00", "scheduled_time": "2026-11-27T12:15:00+00:00", "rows": 131}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a103", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:00.950", "run_id": "5e2e0000-0000-4000-8000-00000000a123", "status": "Completed", "started_at": "2026-11-27T12:15:01.400", "completed_at": "2026-11-27T12:15:04.500", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00", "scheduled_time": "2026-11-27T12:15:00+00:00", "rows": 131}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a105", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:01.000", "run_id": "5e2e0000-0000-4000-8000-00000000a125", "status": "Completed", "started_at": "2026-11-27T12:15:01.500", "completed_at": "2026-11-27T12:15:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a106", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:01.050", "run_id": "5e2e0000-0000-4000-8000-00000000a126", "status": "Completed", "started_at": "2026-11-27T12:15:01.220", "completed_at": "2026-11-27T12:15:05.010", "rollup_done": null, "extract_loaded": null}
+        ]},
+        "busy_runs": {"rows": [
+          {"workflow_name": "standing_archive", "started_at": "2026-11-27T12:00:02.118", "completed_at": "2026-11-27T12:06:03.010"},
+          {"workflow_name": "standing_hold", "started_at": "2026-11-27T12:08:04.900", "completed_at": "2026-11-27T12:10:05.000"}
+        ]}
       },
       "logs": {
         "marks": {"pods": ["cloacina-agent-7d4b9-a1", "cloacina-agent-7d4b9-a2"], "rows": [
@@ -178,7 +203,23 @@
              {"action": "other_tenant", "other_tenant": "team_c", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
         ]},
         "run_once_tasks": {"rows": []},
-        "run_once_inbox": {"rows": []}
+        "run_once_inbox": {"rows": []},
+        "schedules": {"rows": [
+          {"id": "5c5e0000-0000-4000-8000-00000000b101", "workflow_name": "standing_rollup", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b102", "workflow_name": "standing_extract", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b103", "workflow_name": "standing_extract", "instance_name": "in_order", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b104", "workflow_name": "standing_archive", "instance_name": null, "cron_expression": "0 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b105", "workflow_name": "standing_flaky", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b106", "workflow_name": "standing_driver", "instance_name": "drive", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"}
+        ]},
+        "fires": {"rows": [
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b101", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.090", "completed_at": "2026-11-27T12:15:03.000", "rollup_done": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b102", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.400", "completed_at": "2026-11-27T12:15:04.000", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b103", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.450", "completed_at": "2026-11-27T12:15:04.100", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b105", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.610", "completed_at": "2026-11-27T12:15:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b106", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.300", "completed_at": "2026-11-27T12:15:04.800", "rollup_done": null, "extract_loaded": null}
+        ]},
+        "busy_runs": {"rows": []}
       },
       "logs": {"marks": {"pods": [], "rows": []}}
     },
@@ -223,7 +264,23 @@
              {"action": "other_tenant", "other_tenant": "team_a", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
         ]},
         "run_once_tasks": {"rows": []},
-        "run_once_inbox": {"rows": []}
+        "run_once_inbox": {"rows": []},
+        "schedules": {"rows": [
+          {"id": "5c5e0000-0000-4000-8000-00000000c101", "workflow_name": "standing_rollup", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c102", "workflow_name": "standing_extract", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c103", "workflow_name": "standing_extract", "instance_name": "in_order", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c104", "workflow_name": "standing_archive", "instance_name": null, "cron_expression": "0 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c105", "workflow_name": "standing_flaky", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c106", "workflow_name": "standing_driver", "instance_name": "drive", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"}
+        ]},
+        "fires": {"rows": [
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c101", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.150", "completed_at": "2026-11-27T12:15:03.000", "rollup_done": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c102", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.480", "completed_at": "2026-11-27T12:15:04.000", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c103", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.520", "completed_at": "2026-11-27T12:15:04.100", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c105", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.700", "completed_at": "2026-11-27T12:15:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c106", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.390", "completed_at": "2026-11-27T12:15:04.700", "rollup_done": null, "extract_loaded": null}
+        ]},
+        "busy_runs": {"rows": []}
       },
       "logs": {"marks": {"pods": [], "rows": []}}
     }

@@ -11,6 +11,7 @@ deployment of server, compilers and agents.
 | `tenant_code/` | Tenant code runs only on the tenant's agents and in its compiler: one scenario for each claim of CLOACINA-A-0019 (CLOACINA-T-1079) | `angreal test bdd standing --chart-actuator --chapter tenant_code` |
 | `failure/` | An agent dies, the server restarts, Postgres goes away, and work survives (CLOACINA-T-1112) | `angreal test bdd standing --chapter failure` |
 | `run_once/` | A task runs one time: a long task, a task with no free agent, a task whose result reaches the other server replica (CLOACINA-T-1110) | `angreal test bdd standing --chapter run_once` |
+| `schedules/` | A schedule fires on time, a run knows its interval, a backlog drains in order (CLOACINA-T-1111) | `angreal test bdd standing --chapter schedules` |
 
 The `tenant_code` chapter makes a tenant of its own, `team_d`, and takes its
 agent away in one scenario. Its compiler scenarios need `--chart-actuator`:
@@ -22,6 +23,12 @@ disturbance schedule, so it acts on the suite's own cluster only. Its
 Postgres scenario takes the database away for eleven minutes. Do not run it
 while `--disturb` runs a disturbance: the runner's lock makes the second a
 skip, and the scenario fails with that reason.
+
+The `schedules` chapter makes two schedules of its own on team B and removes
+them at the end of their scenarios. Its last two scenarios restart both
+server replicas, write each restart to the disturbance record
+(`bdd-standing-report/disturbances.jsonl`), and open a port forward of their
+own on port 18110.
 
 ```
 angreal test bdd standing --dry-run     # every feature parsed, every step resolved; no cluster

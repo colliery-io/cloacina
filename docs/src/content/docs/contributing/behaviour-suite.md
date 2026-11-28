@@ -76,6 +76,11 @@ attempts the server recorded (the chapter `run_once`).
 The server runs two replicas, so a task's result can reach a replica that
 did not dispatch the task.
 
+The checker computes each schedule's fire times from its cron expression in
+the workload description (`.angreal/test/bdd/suite/cron.py`), not from the
+server's next fire time, and compares them with the fires the server
+recorded (the chapter `schedules`).
+
 The workload is described once, in `.angreal/test/bdd/suite/workload.py`:
 the tenants, the packages, the schedules, and which workflow gives evidence
 for which promise. The driver deploys from it and the checker judges from

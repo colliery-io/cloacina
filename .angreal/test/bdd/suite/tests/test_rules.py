@@ -49,13 +49,15 @@ class RegistryTest(unittest.TestCase):
         registry = rules.load()
         self.assertEqual(registry.problems(), [])
         self.assertEqual(rules.chapter_modules(),
-                         ["failure", "publishing", "run_once", "standing", "tenant_code"])
+                         ["failure", "publishing", "run_once", "schedules", "standing", "tenant_code"])
         ids = sorted(rule.id for rule in registry.rules)
         self.assertEqual(ids, ["failure.agent_death", "failure.postgres_fire_times",
                                "failure.postgres_runs_end", "failure.server_restart",
                                "publishing.bad_build_keeps_running", "publishing.new_version_built",
                                "publishing.step_back", "run_once.long_task",
                                "run_once.no_free_agent", "run_once.other_replica",
+                               "schedules.backlog_order", "schedules.every_fire",
+                               "schedules.interval", "schedules.on_time",
                                "standing.agents", "standing.schedules",
                                "standing.self_driving", "tenant_code.build_role_reach",
                                "tenant_code.tenant_pool_role"])
@@ -365,7 +367,7 @@ class ReplayTest(unittest.TestCase):
             code, text = self.run_check(["--replay", HEALTHY, "--out", folder])
             self.assertEqual(code, 0, text)
             # The gap rule of CLOACINA-T-1080 holds on this snapshot: "holds now".
-            self.assertIn("holds 13", text)
+            self.assertIn("holds 16", text)
             self.assertIn("holds now 1", text)
             with open(os.path.join(folder, "report", "report.json"), encoding="utf-8") as handle:
                 made = json.load(handle)
