@@ -372,8 +372,26 @@ fn kind_shell(
     // deps. A native provider crate opts in with `features = ["native"]`.
     let native_cfg = quote! { #[cfg(all(not(target_arch = "wasm32"), feature = "native"))] };
 
-    let wasm = kind_shell_variant(kind, members, contract, fidius_crate, &wasm_cfg);
-    let native = kind_shell_variant(kind, members, contract, &native_crate, &native_cfg);
+    // CLOACINA-T-1150: the native shell points the provider's `tracing` and
+    // `log` at the host's log (the host binds `CloacinaLog` at load). The wasm
+    // shell does not.
+    let native_log = quote! { #contract::host_log::install(); };
+    let wasm = kind_shell_variant(
+        kind,
+        members,
+        contract,
+        fidius_crate,
+        &wasm_cfg,
+        &TokenStream2::new(),
+    );
+    let native = kind_shell_variant(
+        kind,
+        members,
+        contract,
+        &native_crate,
+        &native_cfg,
+        &native_log,
+    );
     quote! {
         #wasm
         #native
@@ -382,13 +400,15 @@ fn kind_shell(
 
 /// One cfg-gated copy of a kind's shell (wasm or native — see [`kind_shell`]).
 /// `cfg` is the mutually-exclusive gate; `fidius_crate` is the fidius crate path
-/// the fidius macros generate against for this target.
+/// the fidius macros generate against for this target. `log_install` runs at
+/// the start of `configure` and of each call (empty for wasm).
 fn kind_shell_variant(
     kind: Kind,
     members: &[Ident],
     contract: &Path,
     fidius_crate: &LitStr,
     cfg: &TokenStream2,
+    log_install: &TokenStream2,
 ) -> TokenStream2 {
     let trait_ident = kind.trait_ident();
     let method_ident = kind.method_ident();
@@ -436,6 +456,7 @@ fn kind_shell_variant(
         #[::fidius_macro::plugin_impl(#trait_ident, crate = #fidius_crate, config = #configure_ty)]
         impl #trait_ident for #holder_ty {
             fn #method_ident(&self, invocation_json: String) -> String {
+                #log_install
                 match &self.inner {
                     ::std::option::Option::Some(__m) => #contract::#object_ident::#method_ident(__m.as_ref(), invocation_json),
                     ::std::option::Option::None => #no_member.to_string(),
@@ -448,6 +469,7 @@ fn kind_shell_variant(
             // The fidius `configure` hook: select the member named in the payload
             // and build it once at load.
             fn configure(__c: #configure_ty) -> Self {
+                #log_install
                 #(#dispatch_arms)*
                 Self { inner: ::std::option::Option::None }
             }
@@ -508,6 +530,8 @@ fn stream_accumulator_shell(members: &[Ident], contract: &Path) -> TokenStream2 
         #[::fidius_macro::plugin_impl(#trait_ident, crate = #native_crate, config = #configure_ty)]
         impl #trait_ident for #holder_ty {
             fn source(&self, _seed: u64) -> ::fidius_core::Stream<String> {
+                // CLOACINA-T-1150: the provider's log lines go to the host's log.
+                #contract::host_log::install();
                 match &self.inner {
                     ::std::option::Option::Some(__m) => ::fidius_core::Stream::from_iter(
                         #contract::StreamAccumulatorObject::source(__m.as_ref()),
@@ -522,6 +546,7 @@ fn stream_accumulator_shell(members: &[Ident], contract: &Path) -> TokenStream2 
         #cfg
         impl #holder_ty {
             fn configure(__c: #configure_ty) -> Self {
+                #contract::host_log::install();
                 #(#dispatch_arms)*
                 Self { inner: ::std::option::Option::None }
             }

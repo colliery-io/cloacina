@@ -953,6 +953,7 @@ mod tests {
             permissions: "read".into(),
             tenant_id: tenant.map(str::to_string),
             is_admin,
+            max_priority: None,
         }
     }
 

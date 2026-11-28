@@ -68,6 +68,14 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The log lines of a native provider go to the host's log (CLOACINA-T-1150).
+/// Native targets only: the wasm guest build stays serde-only.
+// fidius's `#[host_interface]` emits `cfg(feature = "host")` items for the
+// host side; this crate needs only the plugin side.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(unexpected_cfgs)]
+pub mod host_log;
+
 /// Re-export of the canonical CLOACI-I-0128 input-slot descriptor. The constructor
 /// manifest's `params` reuse this verbatim (NOT a vendored copy), so an
 /// constructor's injectable runtime surface is described with the same

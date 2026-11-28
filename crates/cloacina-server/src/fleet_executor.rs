@@ -989,6 +989,7 @@ impl TaskExecutor for FleetExecutor {
                 python_platforms,
                 declared_secrets,
                 package_interface,
+                needs_new_build,
             ) = match self
                 .dal
                 .workflow_packages()
@@ -1007,6 +1008,7 @@ impl TaskExecutor for FleetExecutor {
                     pkg.python_platforms,
                     pkg.declared_secrets,
                     pkg.plugin_interface_version,
+                    pkg.needs_new_build,
                 ),
                 Ok(None) => {
                     return Ok(self
@@ -1114,6 +1116,35 @@ impl TaskExecutor for FleetExecutor {
                     demand.pool,
                     package_interface,
                 ) {
+                    // CLOACINA-T-1085: a package of another interface than
+                    // this server's has no agent of its interface live: it
+                    // fails at once, with the reason and the step, not
+                    // through its retries. One of the server's own interface
+                    // waits for an agent, as above.
+                    if let Some(message) = crate::agent_registry::fails_at_once_reason(
+                        &reason,
+                        package_interface,
+                        needs_new_build.as_deref(),
+                    ) {
+                        warn!(
+                            task_id = %event.task_execution_id,
+                            package = %namespace.package_name,
+                            "fleet: the task fails: {message}"
+                        );
+                        let no_retries = RetryPolicy {
+                            max_attempts: 0,
+                            ..retry_policy.clone()
+                        };
+                        return Ok(self
+                            .reconcile_error(
+                                &event,
+                                &claimed_task,
+                                &no_retries,
+                                start.elapsed(),
+                                message,
+                            )
+                            .await);
+                    }
                     info!(
                         task_id = %event.task_execution_id,
                         "fleet: the task waits: {reason}"
@@ -1437,6 +1468,8 @@ impl TaskExecutor for FleetExecutor {
                 cpu_millis: demand.cpu_millis,
                 memory_bytes: demand.memory_bytes,
                 inline: placement.inline,
+                // CLOACINA-T-1091: the end of the output the agent keeps.
+                output_max_bytes: Some(crate::task_output::max_bytes()),
             };
             let payload_bytes = match serde_json::to_vec(&packet) {
                 Ok(b) => b,
@@ -2042,7 +2075,7 @@ impl FleetExecutor {
         agent_id: &str,
         waiting_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
         fetch_wait_before: Option<cloacina::database::universal_types::UniversalTimestamp>,
-        result_req: AgentResultRequest,
+        mut result_req: AgentResultRequest,
     ) -> ExecutionResult {
         // ── 8. Map AgentOutcome → Result<Context, ExecutorError>.
         // CLOACI-T-0780: a refusal is an expected fail-closed reschedule, not a
@@ -2112,6 +2145,13 @@ impl FleetExecutor {
             );
             fetch_gave_up_after = Some(waited);
         }
+        // CLOACINA-T-1091: the end of the attempt's output, stored with the
+        // result. The wait of this dispatch took the report, so the rules of
+        // CLOACINA-A-0017 accepted it. A store that fails is logged; the
+        // result goes on as it is.
+        if let Some(output) = result_req.output.take() {
+            self.store_attempt_output(claimed_task, output).await;
+        }
         let was_refused = matches!(result_req.outcome, AgentOutcome::Refused { .. });
         let outcome: Result<Context<serde_json::Value>, ExecutorError> = match result_req.outcome {
             AgentOutcome::Success { context } => match value_to_context(context) {
@@ -2170,6 +2210,42 @@ impl FleetExecutor {
         self.result_handler
             .handle_outcome(event, claimed_task, outcome, retry_policy, start.elapsed())
             .await
+    }
+
+    /// Store the output of the attempt in the tenant's schema
+    /// (CLOACINA-T-1091), held to the server's cap. Never fails the task: an
+    /// error is a warning, with the sizes only.
+    async fn store_attempt_output(
+        &self,
+        claimed_task: &ClaimedTask,
+        output: cloacina::fleet::AttemptOutput,
+    ) {
+        let Some(output) = crate::task_output::cap(Some(output), crate::task_output::max_bytes())
+        else {
+            return;
+        };
+        let (kept, total, cut) = (output.text.len(), output.total_bytes, output.cut);
+        if let Err(e) = self
+            .dal
+            .task_execution()
+            .record_attempt_output(
+                claimed_task.task_execution_id,
+                claimed_task.workflow_execution_id,
+                claimed_task.attempt,
+                output,
+            )
+            .await
+        {
+            warn!(
+                task_id = %claimed_task.task_execution_id,
+                attempt = claimed_task.attempt,
+                output_bytes = kept,
+                total_bytes = total,
+                cut,
+                error = %e,
+                "fleet: the output of the attempt was not stored; the result is not changed"
+            );
+        }
     }
 }
 
@@ -2818,6 +2894,17 @@ mod tests {
             after: i64,
             outcome: AgentOutcome,
         ) -> i64 {
+            agent_reports_with_output(stack, event, after, outcome, None).await
+        }
+
+        /// [`agent_reports`] with the output of the attempt (CLOACINA-T-1091).
+        async fn agent_reports_with_output(
+            stack: &Stack,
+            event: &TaskReadyEvent,
+            after: i64,
+            outcome: AgentOutcome,
+            output: Option<cloacina::fleet::AttemptOutput>,
+        ) -> i64 {
             let recipient = format!("{}{}", AGENT_RECIPIENT_PREFIX, AGENT);
             let mut found = None;
             for _ in 0..400 {
@@ -2842,6 +2929,12 @@ mod tests {
                 event.task_execution_id.0.to_string()
             );
             assert_eq!(packet.attempt, 1, "each dispatch is of attempt 1");
+            // CLOACINA-T-1091: the packet tells the agent how much output to
+            // keep.
+            assert_eq!(
+                packet.output_max_bytes,
+                Some(crate::task_output::max_bytes())
+            );
 
             // The start is stamped at dispatch (the timeline reads it).
             let mut started = false;
@@ -2862,6 +2955,7 @@ mod tests {
                 dispatch_id: packet.dispatch_id.clone(),
                 duration_ms: 0,
                 outcome,
+                output,
             };
             // CLOACINA-T-1050: a report carries the tenant of its agent.
             let report = crate::fleet_coordinator::CheckedReport {
@@ -2900,6 +2994,71 @@ mod tests {
             let push_id = agent_reports(stack, event, after, outcome).await;
             run.await.unwrap().expect("the dispatch returns a result");
             push_id
+        }
+
+        /// CLOACINA-T-1091: the output an agent sends with a failure is stored
+        /// for that attempt, and the failure is the task's as before.
+        #[tokio::test]
+        async fn the_output_of_a_reported_attempt_is_stored_with_its_attempt() {
+            let stack = stack(RetryPolicy::builder().max_attempts(1).build()).await;
+            let event = waiting_task(&stack.dal).await;
+            let executor = stack.executor.clone();
+            let dispatched = event.clone();
+            let run = tokio::spawn(async move { executor.execute(dispatched).await });
+            agent_reports_with_output(
+                &stack,
+                &event,
+                0,
+                AgentOutcome::Failure {
+                    message: "boom".into(),
+                    classification: cloacina::fleet::FailureClassification::TaskError,
+                },
+                Some(cloacina::fleet::AttemptOutput {
+                    text: "loading rows\nTraceback: boom\n".into(),
+                    total_bytes: 30,
+                    cut: false,
+                }),
+            )
+            .await;
+            run.await.unwrap().expect("the dispatch returns a result");
+
+            assert_eq!(row(&stack.dal, &event).await.status, "Failed");
+            let outputs = stack
+                .dal
+                .task_execution()
+                .attempt_outputs(event.task_execution_id, None)
+                .await
+                .unwrap();
+            assert_eq!(outputs.len(), 1);
+            assert_eq!(outputs[0].attempt, 1);
+            assert_eq!(outputs[0].output, "loading rows\nTraceback: boom\n");
+            assert_eq!(outputs[0].total_bytes, 30);
+            assert!(!bool::from(outputs[0].cut));
+        }
+
+        /// CLOACINA-T-1091: a report with no output stores no row.
+        #[tokio::test]
+        async fn a_report_with_no_output_stores_no_row() {
+            let stack = stack(RetryPolicy::default()).await;
+            let event = waiting_task(&stack.dal).await;
+            dispatch(
+                &stack,
+                &event,
+                0,
+                AgentOutcome::Success {
+                    context: serde_json::json!({}),
+                },
+            )
+            .await;
+            assert!(
+                stack
+                    .dal
+                    .task_execution()
+                    .attempt_outputs(event.task_execution_id, None)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
         }
 
         #[tokio::test]
@@ -3561,6 +3720,7 @@ mod tests {
                         dispatch_id: packet.dispatch_id.clone(),
                         duration_ms: 0,
                         outcome,
+                        output: None,
                     },
                 }
             }

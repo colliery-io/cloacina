@@ -43,6 +43,19 @@ pub struct PollRequest {
     pub workflow_name: String,
 }
 
+/// What a dispatcher needs to run one poll of a polling accumulator
+/// (CLOACINA-T-1156).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccumulatorPollRequest {
+    /// The tenant of the runner that loaded the package.
+    pub tenant_id: String,
+    /// The package that declares the accumulator, and its version.
+    pub package_name: String,
+    pub package_version: String,
+    /// The accumulator's name in the package.
+    pub accumulator_name: String,
+}
+
 /// Runs a poll somewhere other than this process and gives back the answer.
 #[async_trait]
 pub trait PollDispatcher: Send + Sync {
@@ -50,6 +63,20 @@ pub trait PollDispatcher: Send + Sync {
     /// agent, no answer in time, the agent refused, the trigger failed),
     /// with the reason.
     async fn poll(&self, request: &PollRequest) -> Result<TriggerResult, TriggerError>;
+
+    /// Run one poll of a polling accumulator (CLOACINA-T-1156).
+    /// `Ok(Some(value))`: the value the poll function returned.
+    /// `Ok(None)`: no change. `Err`: no answer, with the reason.
+    async fn poll_accumulator(
+        &self,
+        request: &AccumulatorPollRequest,
+    ) -> Result<Option<serde_json::Value>, String> {
+        Err(format!(
+            "polling accumulator '{}' of package '{}' not polled: this dispatcher does not run \
+             polls of polling accumulators",
+            request.accumulator_name, request.package_name
+        ))
+    }
 
     /// How long one [`poll`](Self::poll) can take at most. The scheduler
     /// waits this long for it.

@@ -143,7 +143,24 @@ fn to_summary(schedule: &Schedule, counts: &BackfillCounts) -> Result<BackfillSu
         },
         retry_of: spec.retry_of,
         created_at: schedule.created_at.0.to_rfc3339(),
+        priority: None,
+        priority_notice: None,
     })
+}
+
+/// A summary with the priority of the backfill (CLOACINA-T-1123).
+async fn with_priority(
+    state: &AppState,
+    tenant_id: &str,
+    dal: &DAL,
+    schedule: &Schedule,
+    mut summary: BackfillSummary,
+) -> BackfillSummary {
+    let (priority, notice) =
+        crate::priority_authority::schedule_priority(state, tenant_id, dal, schedule.id.0).await;
+    summary.priority = priority;
+    summary.priority_notice = notice;
+    summary
 }
 
 /// Reads one backfill of the workflow in the path. A row of another
@@ -318,11 +335,11 @@ async fn check_params(
 )]
 pub async fn create_backfill(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<CreateBackfillRequest>,
 ) -> Response {
-    match create_backfill_inner(&state, &tenant_id, &name, body).await {
+    match create_backfill_inner(&state, &auth, &tenant_id, &name, body).await {
         Ok(summary) => Json(summary).into_response(),
         Err(e) => e.into_response(),
     }
@@ -330,10 +347,18 @@ pub async fn create_backfill(
 
 async fn create_backfill_inner(
     state: &AppState,
+    auth: &AuthenticatedKey,
     tenant_id: &str,
     name: &str,
     body: CreateBackfillRequest,
 ) -> Result<BackfillSummary, ApiError> {
+    // CLOACINA-T-1123: a priority outside the scale is a bad request. One
+    // inside it is never refused: each run is held to the creator's limit.
+    if let Some(asked) = body.priority
+        && let Err(message) = cloacina_api_types::validate_priority(i64::from(asked))
+    {
+        return Err(ApiError::bad_request("invalid_priority", message));
+    }
     let start = parse_time("start", &body.start)?;
     let end = parse_time("end", &body.end)?;
     let (dal, tenant_db) = tenant_dal(state, tenant_id).await?;
@@ -361,7 +386,21 @@ async fn create_backfill_inner(
         .create_backfill(new)
         .await
         .map_err(|e| internal("create backfill failed", e))?;
+    // CLOACINA-T-1123: the backfill keeps its priority and its creator,
+    // before the scheduler is woken for its first run.
+    if let Some(asked) = body.priority {
+        crate::priority_authority::record_schedule_priority(
+            state,
+            tenant_id,
+            &dal,
+            schedule.id.0,
+            asked,
+            auth,
+        )
+        .await;
+    }
     let summary = to_summary(&schedule, &BackfillCounts::default())?;
+    let summary = with_priority(state, tenant_id, &dal, &schedule, summary).await;
     tracing::info!(
         "Created backfill {} of '{}' for tenant '{}': {} interval(s)",
         summary.id,
@@ -370,12 +409,19 @@ async fn create_backfill_inner(
         summary.progress.total
     );
     wake_cron_scheduler(state, tenant_id, tenant_db).await;
-    let detail = serde_json::json!({
+    let mut detail = serde_json::json!({
         "workflow": name,
         "start": summary.start,
         "end": summary.end,
         "intervals": summary.progress.total,
     });
+    if let Some(grant) = summary.priority {
+        detail["priority_asked"] = grant.asked.into();
+        detail["priority_given"] = grant.given.into();
+        if grant.is_held() {
+            detail["priority_lowered"] = true.into();
+        }
+    }
     let event = AuditEvent::ok(audit_record::actions::BACKFILL_CREATE, &summary.id);
     audit_record::note(Some(tenant_id), event.detail(detail));
     Ok(summary)
@@ -430,7 +476,8 @@ pub async fn list_backfills(
             .map_err(|e| internal("list backfills failed", e))?;
         let mut items = Vec::with_capacity(schedules.len());
         for schedule in &schedules {
-            items.push(summary_of(&dal, schedule).await?);
+            let summary = summary_of(&dal, schedule).await?;
+            items.push(with_priority(&state, &tenant_id, &dal, schedule, summary).await);
         }
         Ok::<_, ApiError>(items)
     }
@@ -471,6 +518,7 @@ pub async fn get_backfill(
         let (dal, _) = tenant_dal(&state, &tenant_id).await?;
         let schedule = load_backfill(&dal, &name, &id).await?;
         let backfill = summary_of(&dal, &schedule).await?;
+        let backfill = with_priority(&state, &tenant_id, &dal, &schedule, backfill).await;
         // One more than the list holds, to know that it is cut.
         let mut failed = dal
             .schedule()
@@ -549,6 +597,7 @@ pub async fn cancel_backfill(
         }
         let schedule = load_backfill(&dal, &name, &id).await?;
         let summary = summary_of(&dal, &schedule).await?;
+        let summary = with_priority(&state, &tenant_id, &dal, &schedule, summary).await;
         tracing::info!(
             "Cancelled backfill {} of '{}' for tenant '{}'",
             summary.id,
@@ -642,7 +691,24 @@ pub async fn retry_backfill(
             .create_backfill(new)
             .await
             .map_err(|e| internal("create backfill failed", e))?;
+        // CLOACINA-T-1123: the retry keeps the priority of the backfill it
+        // retries, set by whoever asks for the retry.
+        let (source_priority, _) =
+            crate::priority_authority::schedule_priority(&state, &tenant_id, &dal, source.id.0)
+                .await;
+        if let Some(grant) = source_priority {
+            crate::priority_authority::record_schedule_priority(
+                &state,
+                &tenant_id,
+                &dal,
+                schedule.id.0,
+                grant.asked,
+                &_auth,
+            )
+            .await;
+        }
         let summary = to_summary(&schedule, &BackfillCounts::default())?;
+        let summary = with_priority(&state, &tenant_id, &dal, &schedule, summary).await;
         tracing::info!(
             "Created backfill {} of '{}' for tenant '{}': retry of {} interval(s) of {}",
             summary.id,

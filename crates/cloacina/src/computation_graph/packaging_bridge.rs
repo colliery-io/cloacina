@@ -243,6 +243,27 @@ pub fn build_declaration_without_code(
     declaration_with_graph_fn(graph_meta, graph_fn, provider_root)
 }
 
+/// The input strategy a package names: `"sequential"`, else `latest`.
+pub fn input_strategy_named(name: &str) -> InputStrategy {
+    match name {
+        "sequential" => InputStrategy::Sequential,
+        _ => InputStrategy::Latest,
+    }
+}
+
+/// Give a graph declaration the manifest's `input_strategy`, when the
+/// manifest names one (CLOACINA-T-1135). A Python graph declaration is built
+/// with `latest`; the in-process load and the compiler's describe child both
+/// call this, so the graph runs with the strategy the stored document has.
+pub fn apply_manifest_input_strategy(
+    declaration: &mut ComputationGraphDeclaration,
+    manifest_strategy: Option<&str>,
+) {
+    if let Some(name) = manifest_strategy {
+        declaration.reactor.strategy = input_strategy_named(name);
+    }
+}
+
 fn declaration_with_graph_fn(
     graph_meta: &GraphPackageMetadata,
     graph_fn: CompiledGraphFn,
@@ -253,10 +274,7 @@ fn declaration_with_graph_fn(
         _ => ReactionCriteria::WhenAny,
     };
 
-    let strategy = match graph_meta.input_strategy.as_str() {
-        "sequential" => InputStrategy::Sequential,
-        _ => InputStrategy::Latest,
-    };
+    let strategy = input_strategy_named(&graph_meta.input_strategy);
 
     // Create accumulator factories from FFI metadata
     let accumulators = graph_meta
@@ -965,6 +983,220 @@ fn polling_interval_from_config(
         .unwrap_or_else(|| std::time::Duration::from_secs(5))
 }
 
+/// Where the polls of a Python package's polling accumulators go, on a
+/// server that loads packages from their metadata (CLOACINA-T-1156). The
+/// server holds the timer, the boundary send and the checkpoint; each poll
+/// goes to an agent of the tenant through the dispatcher of the runner.
+#[derive(Clone)]
+pub struct DispatchedPolls {
+    pub tenant_id: String,
+    pub package_name: String,
+    pub package_version: String,
+    pub dispatcher: crate::trigger::PollDispatcherSlot,
+}
+
+impl DispatchedPolls {
+    fn request(&self, accumulator_name: &str) -> crate::trigger::AccumulatorPollRequest {
+        crate::trigger::AccumulatorPollRequest {
+            tenant_id: self.tenant_id.clone(),
+            package_name: self.package_name.clone(),
+            package_version: self.package_version.clone(),
+            accumulator_name: accumulator_name.to_string(),
+        }
+    }
+}
+
+/// A polling accumulator with no code here (CLOACINA-T-1156): each poll asks
+/// the dispatcher, which runs the poll function on an agent. A poll with no
+/// answer emits nothing, as a poll that returned `None`.
+struct DispatchedPollingAccumulator {
+    request: crate::trigger::AccumulatorPollRequest,
+    dispatcher: crate::trigger::PollDispatcherSlot,
+    interval: std::time::Duration,
+}
+
+fn record_accumulator_poll(outcome: &'static str) {
+    metrics::counter!("cloacina_accumulator_polls_total", "outcome" => outcome).increment(1);
+}
+
+/// The intervals that passed while one poll ran, past the one it was for.
+/// They are skipped, never queued.
+fn skipped_intervals(took: std::time::Duration, interval: std::time::Duration) -> u64 {
+    if interval.is_zero() {
+        return 0;
+    }
+    (took.as_millis() / interval.as_millis().max(1)) as u64
+}
+
+#[async_trait::async_trait]
+impl super::accumulator::PollingAccumulator for DispatchedPollingAccumulator {
+    /// The JSON bytes of the value, as an in-process poll gives them: the
+    /// boundary and the checkpoint have the same shape either way.
+    type Output = Vec<u8>;
+
+    async fn poll(&mut self) -> Option<Vec<u8>> {
+        let dispatcher = self
+            .dispatcher
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Some(dispatcher) = dispatcher else {
+            record_accumulator_poll("missed");
+            tracing::warn!(
+                accumulator = %self.request.accumulator_name,
+                package = %self.request.package_name,
+                "polling accumulator not polled: it runs only on the tenant's agents, and this \
+                 server has no agent fleet to send the poll to (--default-executor fleet)"
+            );
+            return None;
+        };
+        let started = std::time::Instant::now();
+        let answer = tokio::time::timeout(
+            dispatcher.wait(),
+            dispatcher.poll_accumulator(&self.request),
+        )
+        .await;
+        let skipped = skipped_intervals(started.elapsed(), self.interval);
+        if skipped > 0 {
+            metrics::counter!("cloacina_accumulator_polls_total", "outcome" => "in_flight")
+                .increment(skipped);
+            tracing::debug!(
+                accumulator = %self.request.accumulator_name,
+                skipped,
+                "polling accumulator: intervals skipped while a poll ran"
+            );
+        }
+        match answer {
+            Ok(Ok(Some(value))) => match serde_json::to_vec(&value) {
+                Ok(bytes) => {
+                    record_accumulator_poll("emit");
+                    Some(bytes)
+                }
+                Err(e) => {
+                    record_accumulator_poll("missed");
+                    tracing::warn!(
+                        accumulator = %self.request.accumulator_name,
+                        "polling accumulator: the agent's value could not be encoded: {e}"
+                    );
+                    None
+                }
+            },
+            Ok(Ok(None)) => {
+                record_accumulator_poll("skip");
+                None
+            }
+            Ok(Err(reason)) => {
+                record_accumulator_poll("missed");
+                tracing::warn!(
+                    accumulator = %self.request.accumulator_name,
+                    package = %self.request.package_name,
+                    "polling accumulator: no value this interval: {reason}"
+                );
+                None
+            }
+            Err(_elapsed) => {
+                record_accumulator_poll("missed");
+                tracing::warn!(
+                    accumulator = %self.request.accumulator_name,
+                    package = %self.request.package_name,
+                    wait_s = dispatcher.wait().as_secs(),
+                    "polling accumulator: no answer in time; no value this interval"
+                );
+                None
+            }
+        }
+    }
+
+    fn interval(&self) -> std::time::Duration {
+        self.interval
+    }
+}
+
+/// The factory of a [`DispatchedPollingAccumulator`] (CLOACINA-T-1156).
+struct DispatchedPollingAccumulatorFactory {
+    interval: std::time::Duration,
+    polls: DispatchedPolls,
+}
+
+impl AccumulatorFactory for DispatchedPollingAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+        let sender = BoundarySender::with_freshness(
+            boundary_tx,
+            SourceName::new(&name),
+            config.freshness.clone(),
+        );
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+            checkpoint,
+            health: config.health_tx,
+        };
+        let poller = DispatchedPollingAccumulator {
+            request: self.polls.request(&name),
+            dispatcher: self.polls.dispatcher.clone(),
+            interval: self.interval,
+        };
+        tracing::info!(
+            accumulator = %name,
+            package = %self.polls.package_name,
+            interval = ?self.interval,
+            "polling accumulator polls on the tenant's agents"
+        );
+        let handle = tokio::spawn(super::accumulator::polling_accumulator_runtime(
+            poller, ctx, socket_rx,
+        ));
+        (socket_tx, handle)
+    }
+}
+
+/// The factory of an accumulator of type `acc_type`. With `polls`, a polling
+/// accumulator polls through the dispatcher (CLOACINA-T-1156); every other
+/// type is the same as [`accumulator_factory_for`].
+fn accumulator_factory_with_polls(
+    acc_type: &str,
+    config: &std::collections::HashMap<String, String>,
+    provider_root: Option<&std::path::Path>,
+    polls: Option<&DispatchedPolls>,
+) -> Arc<dyn AccumulatorFactory> {
+    match (acc_type, polls) {
+        ("polling", Some(polls)) => Arc::new(DispatchedPollingAccumulatorFactory {
+            interval: polling_interval_from_config(config),
+            polls: polls.clone(),
+        }),
+        _ => accumulator_factory_for(acc_type, config, provider_root),
+    }
+}
+
+/// Put a [`DispatchedPollingAccumulator`] in place of each polling
+/// accumulator of `accumulators` (CLOACINA-T-1156). `entries` are the
+/// declarations the factories were built from, with the manifest applied.
+pub fn dispatch_polling_accumulators(
+    accumulators: &mut [AccumulatorDeclaration],
+    entries: &[cloacina_workflow_plugin::AccumulatorDeclarationEntry],
+    polls: &DispatchedPolls,
+) {
+    for acc in accumulators.iter_mut() {
+        if let Some(entry) = entries
+            .iter()
+            .find(|e| e.name == acc.name && e.accumulator_type == "polling")
+        {
+            acc.factory =
+                accumulator_factory_with_polls("polling", &entry.config, None, Some(polls));
+        }
+    }
+}
+
 /// `provider_root` (CLOACI-T-0925) is the tree a provider-backed `stream`
 /// accumulator resolves in — the directory the reconciler staged for the package
 /// that declared it. `None` = no staged tree known (embedded, tests, or a Python
@@ -1148,18 +1380,48 @@ pub async fn dispatch_package_reactors_into_scheduler(
         accumulator_overrides,
         tenant_id,
         None,
+        None,
     )
     .await
 }
 
 /// [`dispatch_package_reactors_into_scheduler`] binding an EXPLICIT provider tree
 /// (CLOACI-T-0925) — see [`dispatch_runtime_reactors_into_scheduler_in`].
+///
+/// `graph_reactor` names the reactor that the package's graph binds to, with
+/// the graph's input strategy (CLOACINA-T-1135): that reactor loads with it,
+/// so the graph's declaration finds the same contract. Each other reactor
+/// loads with `latest`.
 pub async fn dispatch_package_reactors_into_scheduler_in(
     reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
     scheduler: &super::scheduler::ComputationGraphScheduler,
     accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
     tenant_id: Option<String>,
     provider_root: Option<&std::path::Path>,
+    graph_reactor: Option<(&str, InputStrategy)>,
+) -> Result<Vec<String>, String> {
+    dispatch_package_reactors_into_scheduler_with_polls(
+        reactor_metadata,
+        scheduler,
+        accumulator_overrides,
+        tenant_id,
+        provider_root,
+        graph_reactor,
+        None,
+    )
+    .await
+}
+
+/// [`dispatch_package_reactors_into_scheduler_in`] where, with `polls`, each
+/// polling accumulator polls through the dispatcher (CLOACINA-T-1156).
+pub async fn dispatch_package_reactors_into_scheduler_with_polls(
+    reactor_metadata: &[cloacina_workflow_plugin::ReactorPackageMetadata],
+    scheduler: &super::scheduler::ComputationGraphScheduler,
+    accumulator_overrides: &[cloacina_workflow_plugin::types::AccumulatorConfig],
+    tenant_id: Option<String>,
+    provider_root: Option<&std::path::Path>,
+    graph_reactor: Option<(&str, InputStrategy)>,
+    polls: Option<&DispatchedPolls>,
 ) -> Result<Vec<String>, String> {
     use cloacina_computation_graph::ReactionMode;
 
@@ -1173,14 +1435,18 @@ pub async fn dispatch_package_reactors_into_scheduler_in(
                     .iter()
                     .find(|cfg| cfg.name == acc.name)
                 {
-                    Some(override_cfg) => accumulator_factory_for(
+                    Some(override_cfg) => accumulator_factory_with_polls(
                         &override_cfg.accumulator_type,
                         &override_cfg.config,
                         provider_root,
+                        polls,
                     ),
-                    None => {
-                        accumulator_factory_for(&acc.accumulator_type, &acc.config, provider_root)
-                    }
+                    None => accumulator_factory_with_polls(
+                        &acc.accumulator_type,
+                        &acc.config,
+                        provider_root,
+                        polls,
+                    ),
                 };
                 AccumulatorDeclaration {
                     name: acc.name.clone(),
@@ -1193,7 +1459,10 @@ pub async fn dispatch_package_reactors_into_scheduler_in(
             "when_all" => ReactionMode::WhenAll.into(),
             _ => ReactionMode::WhenAny.into(),
         };
-        let strategy = InputStrategy::Latest;
+        let strategy = match &graph_reactor {
+            Some((name, strategy)) if *name == meta.name => strategy.clone(),
+            _ => InputStrategy::Latest,
+        };
 
         scheduler
             .load_reactor(

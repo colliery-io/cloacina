@@ -25,9 +25,9 @@ use crate::database::schema::unified::{
     execution_events, fleet_agents, fleet_result_inbox, key_trust_acls, login_throttle,
     package_artifacts, package_providers, package_signatures, reactor_owner_addresses,
     reactor_state, recovery_events, schedule_executions, schedules, secrets, signing_keys,
-    state_accumulator_buffers, task_attempt_errors, task_execution_metadata, task_executions,
-    tenant_data_keys, trusted_keys, workflow_execution_package_pins, workflow_executions,
-    workflow_packages, workflow_registry, ws_tickets,
+    state_accumulator_buffers, task_attempt_errors, task_attempt_outputs, task_execution_metadata,
+    task_executions, tenant_data_keys, trusted_keys, workflow_execution_package_pins,
+    workflow_executions, workflow_packages, workflow_registry, ws_tickets,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -268,6 +268,39 @@ impl TaskAttemptError {
             details: details.map(crate::task_logs::bound_error_details),
             failed_at,
         }
+    }
+}
+
+// =====================================================================// Task Attempt Output Models
+// =====================================================================
+/// The end of the output of one attempt of a task (CLOACINA-T-1091). It is
+/// task data: no `Debug` that prints it.
+#[derive(Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = task_attempt_outputs)]
+pub struct TaskAttemptOutput {
+    pub id: UniversalUuid,
+    pub task_execution_id: UniversalUuid,
+    pub workflow_execution_id: UniversalUuid,
+    /// The attempt, from 1.
+    pub attempt: i32,
+    /// The last bytes of the attempt's stdout and stderr, as one stream.
+    pub output: String,
+    /// How many bytes the attempt wrote in all.
+    pub total_bytes: i64,
+    /// `true` when `output` is not the whole stream.
+    pub cut: UniversalBool,
+    pub recorded_at: UniversalTimestamp,
+}
+
+impl std::fmt::Debug for TaskAttemptOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskAttemptOutput")
+            .field("task_execution_id", &self.task_execution_id)
+            .field("attempt", &self.attempt)
+            .field("output_bytes", &self.output.len())
+            .field("total_bytes", &self.total_bytes)
+            .field("cut", &self.cut)
+            .finish()
     }
 }
 
@@ -701,6 +734,12 @@ pub struct UnifiedWorkflowPackage {
     /// compiler that built it recorded. `None`: a Python package, or a build
     /// from before the column.
     pub plugin_interface_version: Option<i32>,
+    /// CLOACINA-T-1085: the plugin interface version the row was checked
+    /// for, with its one rebuild from kept source. `None`: not checked.
+    pub interface_checked_for: Option<i32>,
+    /// CLOACINA-T-1085: why the package needs a new publish, with the step.
+    /// `None`: it needs nothing.
+    pub needs_new_build: Option<String>,
 }
 
 #[derive(Debug, Insertable)]

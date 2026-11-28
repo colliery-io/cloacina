@@ -31,8 +31,10 @@
 //! - **the result pipe** (its number is in [`RESULT_FD_ENV`]): the worker
 //!   writes [`WorkerEvent::Started`] when the package is loaded, then
 //!   [`WorkerEvent::Done`] with the outcome.
-//! - **stdout and stderr** are the agent's: a task's log lines land in the
-//!   agent's log.
+//! - **stdout and stderr** are one pipe that the agent reads
+//!   (CLOACINA-T-1091, [`crate::output`]): each line goes to the agent's log
+//!   with the task's ids, and the last bytes of a task's attempt go with its
+//!   result. After a job the worker writes the job's end line there.
 //!
 //! A secret is never in the worker's arguments or environment. The worker
 //! has no API key: the agent does every request to the server.
@@ -140,6 +142,11 @@ pub(crate) struct WorkerJob {
     /// `text` or `json`: the format of the agent's log lines.
     pub log_format: String,
     pub max_unpacked_bytes: u64,
+    /// CLOACINA-T-1091: the line the worker writes on stdout when the job
+    /// ends, so the agent knows where the job's output stops. Set by the
+    /// agent for each job; a value the task cannot know.
+    #[serde(default)]
+    pub output_end: Option<String>,
     /// Tests only: what the job does in place of a packaged task.
     #[cfg(test)]
     #[serde(default)]
@@ -225,7 +232,7 @@ impl WorkerInput {
                 stop_id: Some(job.packet.poll_id.clone()),
                 timeout_seconds: job.packet.timeout_seconds,
                 memory_request: None,
-                name: job.packet.trigger_name.clone(),
+                name: job.packet.target_name().to_string(),
                 noun: "poll",
             },
         }
@@ -268,6 +275,15 @@ impl WorkerInput {
             WorkerInput::Task(job) => &job.log_format,
             WorkerInput::Graph(job) => &job.log_format,
             WorkerInput::Poll(job) => &job.log_format,
+        }
+    }
+
+    /// The end line of the job's output (CLOACINA-T-1091). Only a task's
+    /// output is kept.
+    fn output_end(&self) -> Option<&str> {
+        match self {
+            WorkerInput::Task(job) => job.output_end.as_deref(),
+            WorkerInput::Graph(_) | WorkerInput::Poll(_) => None,
         }
     }
 
@@ -466,6 +482,9 @@ pub(crate) struct WorkerSettings {
     pub work_root: PathBuf,
     /// The warm workers (CLOACINA-T-1126).
     pub warm: Arc<WarmPool>,
+    /// CLOACINA-T-1091: replace the exact values of a task's own secrets by
+    /// `***` in its output (`--task-output-masking`, on by default).
+    pub mask_task_output: bool,
 }
 
 impl WorkerSettings {
@@ -484,6 +503,7 @@ impl WorkerSettings {
                 cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES,
             work_root,
             warm: WarmPool::new(WarmConfig::off()),
+            mask_task_output: true,
         }
     }
 
@@ -770,6 +790,9 @@ mod spawn {
         /// where the watchdog says it killed it.
         idle_watch: Option<crate::memory::WatchGuard>,
         idle_stop: Option<mpsc::UnboundedReceiver<StopReason>>,
+        /// CLOACINA-T-1091: where the reader of the worker's stdout and
+        /// stderr puts the lines of the job that runs now.
+        output: crate::output::CaptureSlot,
     }
 
     /// How one job on a worker ended.
@@ -1063,6 +1086,26 @@ mod spawn {
             }
         };
         let result_fd = result_write.as_raw_fd();
+        // CLOACINA-T-1091: stdout and stderr are one pipe, read as one
+        // stream.
+        let (output_read, output_write) = match std::io::pipe() {
+            Ok(pipe) => pipe,
+            Err(e) => {
+                return Err(failure(
+                    FailureClassification::Transient,
+                    format!("open the output pipe of the worker: {e}"),
+                ));
+            }
+        };
+        let output_write_err = match output_write.try_clone() {
+            Ok(pipe) => pipe,
+            Err(e) => {
+                return Err(failure(
+                    FailureClassification::Transient,
+                    format!("open the output pipe of the worker: {e}"),
+                ));
+            }
+        };
         let mut rlimits = worker_rlimits(
             memory_limit,
             info.timeout_seconds,
@@ -1077,7 +1120,10 @@ mod spawn {
         let rlimits = rlimits.capped_at_own_limits();
         let mut policy = ChildPolicy::worker(rlimits)
             .env(RESULT_FD_ENV, result_fd.to_string())
-            .env("TMPDIR", &tmp_dir);
+            .env("TMPDIR", &tmp_dir)
+            // CLOACINA-T-1091: a Python task's lines reach the pipe as it
+            // writes them, so none is still in a buffer at the end line.
+            .env("PYTHONUNBUFFERED", "1");
         for (name, value) in &settings.env {
             policy = policy.env(name, value);
         }
@@ -1090,8 +1136,8 @@ mod spawn {
         let mut cmd = build_child_command(program, &policy, ChildStep::Build);
         cmd.args(&settings.args)
             .stdin(Stdio::piped())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+            .stdout(Stdio::from(output_write))
+            .stderr(Stdio::from(output_write_err));
         // SAFETY: the closure runs after fork and before exec. It calls only
         // `fcntl`, which is async-signal-safe, and does not allocate. It lets
         // the write end of the result pipe pass the exec, in this child only.
@@ -1118,7 +1164,11 @@ mod spawn {
             }
         };
         drop(result_write);
+        // The agent's copies of the write ends of the output pipe go with
+        // the command, so the pipe closes when the worker's group has exited.
+        drop(cmd);
         let pid = child.id().unwrap_or(0);
+        let output = crate::output::spawn_reader(output_read, pid);
         // The jobs go in on stdin. The pipe stays open for the life of the
         // worker: the worker reads its end to learn that the agent is gone.
         let stdin = child.stdin.take();
@@ -1148,12 +1198,101 @@ mod spawn {
             idle_since: Instant::now(),
             idle_watch: None,
             idle_stop: None,
+            output,
         })
+    }
+
+    /// How long the agent waits, after a job ended, for the rest of its
+    /// output to come through the pipe (CLOACINA-T-1091).
+    const OUTPUT_DRAIN: Duration = Duration::from_secs(2);
+
+    /// Run one job on a worker, and keep the end of a task's output for its
+    /// report (CLOACINA-T-1091).
+    async fn run_on(
+        worker: &mut Worker,
+        input: &mut WorkerInput,
+        info: &JobInfo,
+        settings: &WorkerSettings,
+        memory_limit: Option<u64>,
+        cancel: &mut Option<oneshot::Receiver<()>>,
+    ) -> JobEnd {
+        let captured = begin_capture(worker, input, settings);
+        let end = run_job_on(worker, input, info, settings, memory_limit, cancel).await;
+        if let Some((key, mut done)) = captured {
+            if matches!(end, JobEnd::NotTaken) {
+                // The job goes to another worker, with a capture of its own.
+                worker
+                    .output
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+            } else {
+                let output = match tokio::time::timeout(OUTPUT_DRAIN, &mut done).await {
+                    Ok(Ok(output)) => Some(output),
+                    // The end line did not come in time (a process the task
+                    // started still holds the pipe): close the capture here.
+                    _ => {
+                        crate::output::close(&worker.output);
+                        done.try_recv().ok()
+                    }
+                };
+                if let Some(output) = output {
+                    crate::output::keep_output(key, output);
+                }
+            }
+        }
+        end
+    }
+
+    /// Open the capture of a task's output on the worker, before the job goes
+    /// in. Returns the key of the attempt and where its output comes. `None`
+    /// for a graph firing and a poll.
+    fn begin_capture(
+        worker: &mut Worker,
+        input: &mut WorkerInput,
+        settings: &WorkerSettings,
+    ) -> Option<(String, oneshot::Receiver<cloacina::fleet::AttemptOutput>)> {
+        let WorkerInput::Task(job) = input else {
+            return None;
+        };
+        let packet = &job.packet;
+        let max_bytes = packet
+            .output_max_bytes
+            .unwrap_or(cloacina::fleet::DEFAULT_TASK_OUTPUT_MAX_BYTES);
+        let end_line = crate::output::new_end_line();
+        job.output_end = Some(end_line.clone());
+        let masker = if settings.mask_task_output {
+            crate::output::Masker::new(
+                job.secrets
+                    .values()
+                    .flat_map(|fields| fields.values().cloned()),
+            )
+        } else {
+            crate::output::Masker::off()
+        };
+        let span = cloacina::task_logs::task_span(
+            packet.tenant_id.as_deref().unwrap_or("public"),
+            &packet.task_name,
+            &packet.workflow_execution_id,
+            packet.attempt,
+            packet.dispatch_id.as_deref(),
+        );
+        let (tx, rx) = oneshot::channel();
+        let capture = crate::output::Capture::new(span, masker, max_bytes, end_line, tx);
+        *worker.output.lock().unwrap_or_else(|e| e.into_inner()) = Some(capture);
+        Some((
+            crate::output::output_key(
+                &packet.task_execution_id,
+                packet.attempt,
+                packet.dispatch_id.as_deref(),
+            ),
+            rx,
+        ))
     }
 
     /// Run one job on a worker and hold it to the job's limits. Returns when
     /// the worker gave its result, or when it has exited.
-    async fn run_on(
+    async fn run_job_on(
         worker: &mut Worker,
         input: &mut WorkerInput,
         info: &JobInfo,
@@ -1555,6 +1694,7 @@ pub(crate) fn worker_main() -> ! {
         #[cfg(target_os = "linux")]
         limit_cpu_for_job(cpu_allowance(job.info().timeout_seconds));
 
+        let output_end = job.output_end().map(str::to_string);
         // CLOACINA-T-1126: what a job could leave for the next one.
         let env_before = environment();
         let outcome = runtime.block_on(async {
@@ -1566,8 +1706,31 @@ pub(crate) fn worker_main() -> ! {
             }
         });
         let reusable = environment() == env_before && !has_live_children();
+        // CLOACINA-T-1091: what the task wrote goes out first, then the end
+        // line of its output, then the result.
+        if let Some(end_line) = &output_end {
+            end_output(end_line);
+        }
         write_event(&WorkerEvent::Done { outcome, reusable });
     }
+}
+
+/// Flush what the job wrote on stdout and stderr (Rust and C buffers), then
+/// write the job's end line on stdout (CLOACINA-T-1091). Python writes
+/// unbuffered: the agent starts the worker with `PYTHONUNBUFFERED=1`.
+#[cfg(unix)]
+fn end_output(end_line: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    // SAFETY: `fflush(NULL)` flushes every C output stream; no pointer is
+    // read.
+    unsafe {
+        libc::fflush(std::ptr::null_mut());
+    }
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{end_line}");
+    let _ = out.flush();
 }
 
 /// The environment of this process, to compare before and after a job.
@@ -1646,6 +1809,17 @@ pub(crate) mod tests {
         WriteTemp { file: String },
         /// Set the environment variable `name` to `value`.
         SetEnv { name: String, value: String },
+        /// CLOACINA-T-1091: write `stdout` with `print!`, `stderr` with
+        /// `eprint!` and `c_stdout` with C `printf` (buffered), then fail
+        /// when `fail`, else block for `block_ms` (0: succeed at once).
+        Print {
+            stdout: String,
+            stderr: String,
+            #[serde(default)]
+            c_stdout: String,
+            fail: bool,
+            block_ms: u64,
+        },
     }
 
     /// Run a test action. Called by `run_job` in place of the package load.
@@ -1712,6 +1886,34 @@ pub(crate) mod tests {
                 ok(serde_json::json!({ "pid": std::process::id() }))
             }
             TestAction::Crash => std::process::abort(),
+            TestAction::Print {
+                stdout,
+                stderr,
+                c_stdout,
+                fail,
+                block_ms,
+            } => {
+                print!("{stdout}");
+                eprint!("{stderr}");
+                if !c_stdout.is_empty() {
+                    let text = std::ffi::CString::new(c_stdout).unwrap();
+                    // SAFETY: a NUL-terminated string and a "%s" format.
+                    unsafe {
+                        libc::printf(c"%s".as_ptr(), text.as_ptr());
+                    }
+                }
+                if block_ms > 0 {
+                    std::thread::sleep(Duration::from_millis(block_ms));
+                }
+                if fail {
+                    AgentOutcome::Failure {
+                        message: "printed and failed".into(),
+                        classification: FailureClassification::TaskError,
+                    }
+                } else {
+                    ok(serde_json::json!({ "pid": std::process::id() }))
+                }
+            }
         }
     }
 
@@ -1786,6 +1988,7 @@ pub(crate) mod tests {
                 cpu_millis: None,
                 memory_bytes: None,
                 inline: false,
+                output_max_bytes: None,
             },
             secrets: HashMap::new(),
             package: PreparedPackage {
@@ -1798,6 +2001,7 @@ pub(crate) mod tests {
             work_dir: PathBuf::new(),
             log_format: "text".into(),
             max_unpacked_bytes: 1 << 20,
+            output_end: None,
             test_action: Some(action),
         }
     }
@@ -2897,6 +3101,7 @@ pub(crate) mod tests {
                 tenant_id: None,
                 language: Some("rust".into()),
                 not_after_unix_ms: None,
+                accumulator_name: None,
             },
             package: PreparedPackage {
                 digest: "none".into(),
@@ -3115,6 +3320,127 @@ pub(crate) mod tests {
         );
     }
 
+    // ── Polls of polling accumulators (CLOACINA-T-1156) ───────────────────
+
+    /// Pack a Python graph package with two polling accumulators and a
+    /// reactor: `t1156_tick` answers the process id as `polled_by`,
+    /// `t1156_quiet` answers `None`.
+    fn python_accumulator_package(dir: &std::path::Path) -> PreparedPackage {
+        let source = dir.join("t1156-py");
+        std::fs::create_dir_all(source.join("workflow/t1156_py")).unwrap();
+        std::fs::write(
+            source.join("package.toml"),
+            "[package]\nname = \"t1156-py\"\nversion = \"0.1.0\"\n\
+             interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+             extension = \"cloacina\"\n\n[metadata]\ngraph_name = \"t1156_graph\"\n\
+             language = \"python\"\ndescription = \"worker test\"\n\
+             entry_module = \"t1156_py.graph\"\nreaction_mode = \"when_any\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("workflow/t1156_py/__init__.py"), "").unwrap();
+        std::fs::write(
+            source.join("workflow/t1156_py/graph.py"),
+            "import os\nimport cloaca\n\n\n\
+             @cloaca.polling_accumulator(interval=\"5s\")\n\
+             def t1156_tick():\n    return {\"polled_by\": os.getpid()}\n\n\n\
+             @cloaca.polling_accumulator(interval=\"5s\")\n\
+             def t1156_quiet():\n    return None\n\n\n\
+             @cloaca.reactor(name=\"t1156_reactor\", accumulators=[\"t1156_tick\", \"t1156_quiet\"], mode=\"when_any\")\n\
+             class _Reactor:\n    pass\n",
+        )
+        .unwrap();
+        let archive = dir.join("t1156-py.cloacina");
+        fidius_core::package::pack_package(&source, Some(&archive)).unwrap();
+        PreparedPackage {
+            digest: format!("t1156-py-{}", std::process::id()),
+            library: None,
+            source_archive: Some(archive),
+            vendored_set: None,
+            providers: Providers::None,
+        }
+    }
+
+    /// A poll of `accumulator` in the package of
+    /// [`python_accumulator_package`].
+    fn python_accumulator_job(name: &str, package: &PreparedPackage, accumulator: &str) -> PollJob {
+        let mut one = poll_job(name, None);
+        one.package = package.clone();
+        one.packet.language = Some("python".into());
+        one.packet.package_name = "t1156-py".into();
+        one.packet.workflow_name = String::new();
+        one.packet.trigger_name = String::new();
+        one.packet.accumulator_name = Some(accumulator.to_string());
+        one
+    }
+
+    /// The value as the server reads it from the report.
+    fn accumulator_answer(end: PacketEnd) -> Option<serde_json::Value> {
+        match end {
+            PacketEnd::Report(outcome) => {
+                match cloacina::fleet::accumulator_poll_from_outcome(outcome) {
+                    Ok(answer) => answer,
+                    Err(e) => panic!("not an accumulator poll answer: {e}"),
+                }
+            }
+            PacketEnd::Cancelled => panic!("the poll was cancelled"),
+        }
+    }
+
+    /// A real Python polling accumulator's poll function runs in a worker:
+    /// its value reaches the server with the worker's process id; `None` is
+    /// no change; an accumulator the package does not have fails with why.
+    /// The same poll in the agent process gives the value from this process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_python_polling_accumulator_runs_in_a_worker_and_answers_its_value() {
+        let settings = test_settings("py-acc-poll", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let package = python_accumulator_package(&settings.work_root);
+        let here = std::process::id();
+
+        let value = accumulator_answer(
+            run_poll_in_worker(
+                python_accumulator_job("acc_tick", &package, "t1156_tick"),
+                &settings,
+            )
+            .await,
+        )
+        .expect("a value");
+        let polled_by = value["polled_by"].as_u64().unwrap();
+        assert_ne!(polled_by, u64::from(here), "a worker process ran the poll");
+
+        let quiet = accumulator_answer(
+            run_poll_in_worker(
+                python_accumulator_job("acc_quiet", &package, "t1156_quiet"),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(quiet, None, "no change");
+
+        let missing = run_poll_in_worker(
+            python_accumulator_job("acc_missing", &package, "t1156_none"),
+            &settings,
+        )
+        .await;
+        let (class, message) = failure(missing);
+        assert_eq!(class, FailureClassification::TaskError);
+        assert!(
+            message.contains("has no polling accumulator 't1156_none'"),
+            "{message}"
+        );
+
+        cloacina_python::install();
+        let mut inline = python_accumulator_job("acc_inline", &package, "t1156_tick");
+        inline.work_dir = settings.work_root.join("t1156-inline");
+        let value = cloacina::fleet::accumulator_poll_from_outcome(
+            crate::run_poll_job(inline, Some(Duration::from_secs(30)), || {}).await,
+        )
+        .expect("an answer")
+        .expect("a value");
+        assert_eq!(value["polled_by"].as_u64(), Some(u64::from(here)));
+    }
+
     /// A second poll of one build reuses the warm worker, under a key of
     /// kind `poll`: a task of the same build does not take it, nor a poll of
     /// another tenant.
@@ -3234,6 +3560,127 @@ pub(crate) mod tests {
             )
             .await,
         );
+    }
+
+    // ── The output of a task (CLOACINA-T-1091) ────────────────────────────
+
+    fn print_job(name: &str, stdout: &str, stderr: &str, fail: bool, block_ms: u64) -> WorkerJob {
+        job(
+            name,
+            TestAction::Print {
+                stdout: stdout.into(),
+                stderr: stderr.into(),
+                c_stdout: String::new(),
+                fail,
+                block_ms,
+            },
+        )
+    }
+
+    fn taken_output(job: &WorkerJob) -> cloacina::fleet::AttemptOutput {
+        let key = crate::output::output_key(
+            &job.packet.task_execution_id,
+            job.packet.attempt,
+            job.packet.dispatch_id.as_deref(),
+        );
+        crate::output::take_output(&key).expect("the attempt's output is kept")
+    }
+
+    /// stdout and stderr of a task that fails are one stream; the exact
+    /// value of its own secret is masked; the attempt's output is kept for
+    /// its report.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_task_keeps_its_stdout_and_stderr_masked() {
+        let settings = test_settings("output-fail", fast_watchdog(AgentMemory::Unknown));
+        let mut one = print_job(
+            "output-fail",
+            "out line with hunter2\n",
+            "err line\n",
+            true,
+            0,
+        );
+        one.secrets.insert(
+            "db".into(),
+            BTreeMap::from([("password".to_string(), "hunter2".to_string())]),
+        );
+        let key_job = print_job("output-fail", "", "", true, 0);
+        let (class, _) = failure(run_here_or_in_worker(one, &settings).await);
+        assert_eq!(class, FailureClassification::TaskError);
+        let out = taken_output(&key_job);
+        assert!(out.text.contains("out line with ***\n"), "{:?}", out.text);
+        assert!(out.text.contains("err line\n"), "{:?}", out.text);
+        assert!(!out.text.contains("hunter2"), "{:?}", out.text);
+        assert!(!out.text.contains("cloacina-output-end"), "{:?}", out.text);
+        assert!(!out.cut);
+    }
+
+    /// A success keeps its output, with the cap of the packet; C stdio
+    /// buffers are flushed before the end line. With masking off the value
+    /// stays.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_success_keeps_the_end_of_its_output_under_the_cap() {
+        let mut settings = test_settings("output-cap", fast_watchdog(AgentMemory::Unknown));
+        settings.mask_task_output = false;
+        let mut one = job(
+            "output-cap",
+            TestAction::Print {
+                stdout: format!("{}END-OF-RUST hunter2\n", "x".repeat(4096)),
+                stderr: String::new(),
+                c_stdout: "from C stdio\n".into(),
+                fail: false,
+                block_ms: 0,
+            },
+        );
+        one.packet.output_max_bytes = Some(64);
+        one.secrets.insert(
+            "db".into(),
+            BTreeMap::from([("password".to_string(), "hunter2".to_string())]),
+        );
+        let key_job = print_job("output-cap", "", "", false, 0);
+        success(run_here_or_in_worker(one, &settings).await);
+        let out = taken_output(&key_job);
+        assert!(out.cut);
+        assert!(out.text.len() <= 64, "{}", out.text.len());
+        assert!(out.total_bytes > 4096, "{}", out.total_bytes);
+        assert!(out.text.contains("from C stdio\n"), "{:?}", out.text);
+        assert!(
+            out.text.contains("hunter2"),
+            "masking is off: {:?}",
+            out.text
+        );
+    }
+
+    /// A task killed at its time limit leaves what it wrote before the kill,
+    /// sent with the failure.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_task_killed_at_its_time_limit_keeps_its_output() {
+        let settings = test_settings("output-time", fast_watchdog(AgentMemory::Unknown));
+        let mut slow = print_job("output-time", "before the kill\n", "", false, 60_000);
+        slow.packet.timeout_seconds = 1;
+        let key_job = print_job("output-time", "", "", false, 0);
+        let (class, _) = failure(run_here_or_in_worker(slow, &settings).await);
+        assert_eq!(class, FailureClassification::Timeout);
+        let out = taken_output(&key_job);
+        assert!(out.text.contains("before the kill\n"), "{:?}", out.text);
+    }
+
+    /// An inline task runs in the agent process: nothing is kept.
+    #[tokio::test]
+    async fn an_inline_task_keeps_no_output() {
+        let settings = test_settings("output-inline", fast_watchdog(AgentMemory::Unknown));
+        let mut one = print_job("output-inline", "inline line\n", "", false, 0);
+        one.packet.inline = true;
+        let key_job = print_job("output-inline", "", "", false, 0);
+        success(run_here_or_in_worker(one, &settings).await);
+        let key = crate::output::output_key(
+            &key_job.packet.task_execution_id,
+            key_job.packet.attempt,
+            key_job.packet.dispatch_id.as_deref(),
+        );
+        assert!(crate::output::take_output(&key).is_none());
     }
 
     // ── A worker does not outlive its agent ───────────────────────────────

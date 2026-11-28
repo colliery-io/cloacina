@@ -263,6 +263,13 @@ impl DefaultRunnerConfig {
         self.signature_trust_database.as_ref()
     }
 
+    /// This config, with the database of the trusted keys set
+    /// (CLOACINA-T-1080): a server sets it once its admin pool is open.
+    pub fn with_signature_trust_database(mut self, database: Option<crate::Database>) -> Self {
+        self.signature_trust_database = database;
+        self
+    }
+
     /// The config of this runner's registry reconciler: its interval, the
     /// tenant it loads for, and the signature check at load.
     pub fn reconciler_config(&self) -> crate::registry::ReconcilerConfig {

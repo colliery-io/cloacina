@@ -25,6 +25,8 @@ class KeyCreatedResponse:
             name (str):
             permissions (str): Role string: `read` | `write` | `admin` | `agent`.
             expires_at (None | str | Unset): When the key expires (RFC 3339); `null`: it does not expire.
+            max_priority (int | None | Unset): The highest priority the key may set; `null`: the default of its
+                role (CLOACINA-T-1123).
             tenant_id (None | str | Unset): Tenant scope; `null` for global keys.
     """
 
@@ -35,6 +37,7 @@ class KeyCreatedResponse:
     name: str
     permissions: str
     expires_at: None | str | Unset = UNSET
+    max_priority: int | None | Unset = UNSET
     tenant_id: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -57,6 +60,12 @@ class KeyCreatedResponse:
         else:
             expires_at = self.expires_at
 
+        max_priority: int | None | Unset
+        if isinstance(self.max_priority, Unset):
+            max_priority = UNSET
+        else:
+            max_priority = self.max_priority
+
         tenant_id: None | str | Unset
         if isinstance(self.tenant_id, Unset):
             tenant_id = UNSET
@@ -77,6 +86,8 @@ class KeyCreatedResponse:
         )
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
+        if max_priority is not UNSET:
+            field_dict["max_priority"] = max_priority
         if tenant_id is not UNSET:
             field_dict["tenant_id"] = tenant_id
 
@@ -106,6 +117,15 @@ class KeyCreatedResponse:
 
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
+        def _parse_max_priority(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        max_priority = _parse_max_priority(d.pop("max_priority", UNSET))
+
         def _parse_tenant_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -123,6 +143,7 @@ class KeyCreatedResponse:
             name=name,
             permissions=permissions,
             expires_at=expires_at,
+            max_priority=max_priority,
             tenant_id=tenant_id,
         )
 

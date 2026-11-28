@@ -1,0 +1,17 @@
+# Fixture of the behaviour suite chapter "tenant_code" (CLOACINA-T-1079,
+# features/tenant_code/tenant_code_boundary.feature): a Python package whose
+# import leaves a mark. The mark says which process imported it and which
+# credential names that process holds, never a value.
+[package]
+name = "tenant-code-mark-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "tenant_code_mark_py"
+language = "python"
+description = "tenant_code chapter fixture: the import leaves a mark"
+author = "tenant-code"
+entry_module = "tenant_code_mark_py.tasks"

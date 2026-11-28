@@ -129,9 +129,45 @@ prefix instead.
   `#[reactor(...)]`) pins the tier outright — the load fails, naming both
   runtimes, if the resolved provider ever disagrees. See
   [Capability Grants](../../../explanation/primitives/constructors/grants/).
-- After a Cloacina upgrade that bumps the plugin ABI, previously-compiled
-  packages are detected as stale at load and automatically recompiled from
-  retained source — no manual rebuild sweep.
+- After a minor release that changes the plugin interface, a Rust package
+  built for the old interface does not run on the new agents. Change the
+  `cloacina` pin to the new minor and publish the package again;
+  `cloacinactl package list --needs-new-build` names the packages that need
+  it. See below.
+
+## After a release that changes the plugin interface
+
+A Rust package is a library built against one version of the Cloacina plugin
+interface. A minor release can change that version; its changelog says so
+under "Upgrade notes". After the upgrade:
+
+1. The compiler checks each Rust package in service. A package built for the
+   old interface gets one rebuild from its kept source, against the crates its
+   own pins resolve. The package stays in service during the rebuild.
+2. When the rebuild has the new interface (the pin allows the new minor), the
+   package runs with no publish.
+3. When it has the old interface again (`cloacina = "0.12"` in `Cargo.toml`,
+   or a `Cargo.lock` that holds the old crates), the package is marked as
+   needing a new publish. The mark names the interface it was built for, the
+   one the release loads, and the step. It is not rebuilt again.
+4. A marked package stays in service. During a roll, agents of the old
+   release still run it. When the live agents of its tenant and pool all load
+   another interface, its tasks fail at once with the reason and the step,
+   not through their retries. With no live agent in the pool at all, a task
+   waits, as any task does.
+
+The step, for each marked package: change the `cloacina` pin in its
+`Cargo.toml` to the new minor, update `Cargo.lock`, and publish again.
+
+Where the marks show:
+
+- `cloacinactl package list --needs-new-build`: the tenant's packages.
+- `cloacinactl package list --needs-new-build --all-tenants`: every tenant's
+  (platform admin key), from `GET /v1/packages/needs-new-build`.
+- The package list and detail of the API: `plugin_interface_version` and
+  `needs_new_build` on each package.
+
+Python packages have no plugin interface and are not on the list.
 
 ## Stream accumulators from a provider
 

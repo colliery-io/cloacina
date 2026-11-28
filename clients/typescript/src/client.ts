@@ -243,6 +243,21 @@ export class CloacinaClient {
     );
   }
 
+  /** Set (0 to 10) or clear (`null`) the highest priority a key of the
+   * tenant may set (CLOACINA-T-1123). */
+  async updateTenantKey(
+    keyId: string,
+    maxPriority: number | null,
+    tenant?: string,
+  ): Promise<schemas["KeyInfo"]> {
+    return unwrap(
+      await this.api.PATCH("/v1/tenants/{tenant_id}/keys/{key_id}", {
+        params: { path: { tenant_id: this.#tenant(tenant), key_id: keyId } },
+        body: { max_priority: maxPriority },
+      }),
+    );
+  }
+
   /** Mint a single-use, short-lived WebSocket ticket. */
   async createWsTicket(): Promise<schemas["WsTicketResponse"]> {
     return unwrap(await this.api.POST("/v1/auth/ws-ticket"));
@@ -903,6 +918,36 @@ export class CloacinaClient {
     );
   }
 
+  /**
+   * The end of what each attempt of a task wrote on stdout and stderr
+   * (CLOACINA-T-1091), in attempt order. Pass `attempt` for one attempt.
+   * Empty for a task whose output was not kept.
+   */
+  async getTaskOutput(
+    execId: string,
+    taskId: string,
+    options: { attempt?: number; tenant?: string } = {},
+  ): Promise<schemas["TaskOutputResponse"]> {
+    return unwrap(
+      await this.api.GET(
+        "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
+        {
+          params: {
+            path: {
+              tenant_id: this.#tenant(options.tenant),
+              exec_id: execId,
+              task_id: taskId,
+            },
+            query:
+              options.attempt === undefined
+                ? {}
+                : { attempt: options.attempt },
+          },
+        },
+      ),
+    );
+  }
+
   // ---- fleet & compiler ----
 
   async listAgents(): Promise<schemas["ListResponse_AgentInfo"]> {
@@ -911,6 +956,16 @@ export class CloacinaClient {
 
   async compilerStatus(): Promise<schemas["CompilerStatus"]> {
     return unwrap(await this.api.GET("/v1/compiler/status"));
+  }
+
+  /**
+   * The packages of every tenant that need a new publish after a plugin
+   * interface change (platform admin key).
+   */
+  async listPackagesNeedingNewBuild(): Promise<
+    schemas["ListResponse_PackageNeedingNewBuild"]
+  > {
+    return unwrap(await this.api.GET("/v1/packages/needs-new-build"));
   }
 
   // ---- agent pools ----

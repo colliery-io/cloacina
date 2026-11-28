@@ -54,6 +54,8 @@ command-line flags (most also accept an environment variable). The
 | `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | Days to keep a finished workflow run and its rows before the retention job deletes them (`0` = keep for ever). See [Run history retention](../../how-to/service/production-deployment/#run-history-retention). |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | Seconds to keep a `delivery_outbox` row after its ack. `0` = keep for ever: `delivery_outbox` grows until a period is set. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes of the retention job. |
+| `--task-output-max-bytes` | `CLOACINA_TASK_OUTPUT_MAX_BYTES` | `262144` (256 KiB) | Bytes of the end of each fleet task attempt's output (stdout and stderr) that are kept with the result. `0` = none. See [The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output). |
+| `--task-output-retention-days` | `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `30` | Days to keep the stored output of a task attempt, whether run-history retention is on or not (`0` = keep for ever). |
 | `--reconcile-interval-s` | — | runtime default | Seconds between reconciler passes. |
 | `--log-retention-days` | — | `14` | Daily-rotated log files to keep (`0` = unbounded). |
 | `--home` | — | `~/.cloacina` | Home directory for keys, logs, config. |
@@ -327,6 +329,8 @@ The `[server]` section configures server-level deployment knobs read by `cloacin
 | `server.run_history_retention_days` | not set | Days to keep a finished run; `0` keeps run history for ever. Forwarded as `--run-history-retention-days`. |
 | `server.outbox_acked_retention_s` | not set | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever. Forwarded as `--outbox-acked-retention-s`. |
 | `server.retention_interval_s` | not set | Seconds between passes of the retention job. Forwarded as `--retention-interval-s`. |
+| `server.task_output_max_bytes` | not set | Bytes of the end of each fleet task attempt's output that are kept; `0` keeps none. Forwarded as `--task-output-max-bytes`. |
+| `server.task_output_retention_days` | not set | Days to keep the stored output of a task attempt; `0` keeps it for ever. Forwarded as `--task-output-retention-days`. |
 | `server.fleet_task_timeout_s` | not set | Time limit (seconds) of a fleet task that sets none of its own, and of a graph firing on the fleet. Forwarded as `--fleet-task-timeout-s`. |
 | `server.fleet_task_timeout_max_s` | not set | Longest time limit (seconds) a fleet task can get. Forwarded as `--fleet-task-timeout-max-s`. |
 | `server.alert_webhook_url` | not set | URL that gets a JSON `POST` when a run ends. Forwarded as the env var `CLOACINA_ALERT_WEBHOOK_URL`, not as an argument, because the URL can hold a token. |

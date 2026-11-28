@@ -179,18 +179,20 @@ started it, and per task one `task_executions` row, one
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
 row. A run of a packaged workflow adds one `workflow_execution_package_pins`
 row per package, the version it runs on. Each failed task attempt adds one
-`task_attempt_errors` row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
+`task_attempt_errors` row. Each attempt of a task that ran in an agent's worker process adds one `task_attempt_outputs` row, the end of its output (at most `--task-output-max-bytes`, 256 KiB by default). The server can remove them with a background retention job. The run-history and outbox periods are off by default; the task output period is on, at 30 days. With every period off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
-| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, the errors of their failed attempts, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
+| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, the errors of their failed attempts, the output of their attempts, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
+| `--task-output-retention-days` | `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `30` | The stored output of a task attempt is deleted this long after it was stored, whether `--run-history-retention-days` is set or not. `0` = off. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
 Where to set them:
 
 - **Helm chart `cloacina-server`:** the values `retention.runHistoryDays`,
-  `retention.outboxAckedSeconds` and `retention.intervalSeconds`. The chart
+  `retention.outboxAckedSeconds`, `retention.taskOutputDays` and
+  `retention.intervalSeconds`. The chart
   defaults are the server's (`0`, `3600`, `300`), so an install keeps run
   history for ever until you set `retention.runHistoryDays`.
 
@@ -200,8 +202,9 @@ Where to set them:
   ```
 
 - **`cloacinactl server start`:** the same flags, the env vars, or the keys
-  `run_history_retention_days`, `outbox_acked_retention_s` and
-  `retention_interval_s` of `[server]` in `config.toml`.
+  `run_history_retention_days`, `outbox_acked_retention_s`,
+  `task_output_retention_days` and `retention_interval_s` of `[server]` in
+  `config.toml`.
 
 What to know:
 
@@ -211,7 +214,8 @@ What to know:
 - **Acked outbox rows are kept until you set a period.** `--outbox-acked-retention-s` is `0` by default, so no acked `delivery_outbox` row is deleted and the table grows by one row for each message that its recipient acked: an execution event pushed to a subscriber, an alert, and on an agent fleet each task dispatch, whose row holds the task's context. These rows are queue records, not history. `3600` deletes each one an hour after its ack.
 - **Per tenant.** Each pass covers the admin (`public`) schema and every tenant schema, with the same periods.
 - **One replica at a time.** Each pass is gated on a Postgres advisory lock, so replicas do not work in parallel.
-- **Bounded work.** A pass removes at most 5,000 runs and 100,000 acked outbox rows per schema; a backlog drains over the next passes. Postgres reuses the freed space after autovacuum; the files on disk do not shrink without `VACUUM FULL`.
+- **Task output goes after 30 days by default.** At 256 KiB per attempt, 1,000 attempts a day store at most 250 MiB a day. Set `--task-output-retention-days 0` to keep it, or `--task-output-max-bytes 0` to keep none. See [The end of a task's output](../find-a-tasks-logs/#the-end-of-a-tasks-output).
+- **Bounded work.** A pass removes at most 5,000 runs, 100,000 acked outbox rows and 10,000 task output rows per schema; a backlog drains over the next passes. Postgres reuses the freed space after autovacuum; the files on disk do not shrink without `VACUUM FULL`.
 - **Watch it.** `cloacina_retention_rows_deleted_total{table}` counts removed rows; `cloacina_retention_errors_total` counts failed passes. See the [metrics catalog](../../../reference/metrics-catalog/).
 - **Separate from logs.** `--log-retention-days` limits log files on disk and nothing else.
 
@@ -225,6 +229,11 @@ job. For those, `cloacinactl admin cleanup-events` removes old
 [Cleaning Up Events](../../embed/cleaning-up-events/).
 
 ## Upgrading the server
+
+What each release keeps working, the version skew a server accepts and the
+upgrade order are in the [Compatibility Promise](../../../reference/compatibility-promise/).
+The upgrade from 0.12 to 0.13.0 is a full stop: stop every server and
+compiler, then start 0.13.0 ([why](../../../reference/compatibility-promise/#the-upgrade-to-0130-is-a-full-stop)).
 
 For Kubernetes/Helm deployments, follow the rolling-update path in
 [Deploying to Kubernetes](../deploying-to-kubernetes/#upgrades).
@@ -259,6 +268,13 @@ roll them one at a time behind the proxy.
 
 **Upgrade note, graph firings with the fleet:** with `--default-executor fleet`, a computation-graph firing that no agent takes now fails with its reason (no owning package, no agent with room in the tenant, a refusal of the agent, an enqueue error). Before, the server ran such a firing in its own process. A tenant with graphs and no live agent sees its firings fail, also during a short gap such as a roll of the agent pool; each failure is in the reactor's recent fires. A server that cannot build the fleet graph executor at start no longer starts.
 
+**Upgrade note, 0.13.0 is a full stop (the global tables move):** stop every server replica, then start 0.13.0. Do not roll: a 0.12 replica does not work once a 0.13.0 server has started. At its first start the server moves the global tables (API keys and their sessions, local accounts, WebSocket tickets, the login throttle, OIDC login flows, audit rows, agent pools, limits, desired counts and scale state, fleet agents, the result inbox, signing keys, trusted keys, trust grants and reactor owner addresses) from `public` into the schema `cloacina_global`, in one transaction under the migration lock. Later starts find nothing to move. No step is needed from the operator beyond the stop. What to expect:
+
+- **The outbox:** each row of `public.delivery_outbox` that is not a run-finished notice (work packets for agents, WebSocket deliveries, reactor events) moves to `cloacina_global.delivery_outbox` with its delivery state; the new servers deliver it from there. `public`'s pending run-finished notices stay in `public.delivery_outbox`, and the alert sender sends them after the start. A work packet that an agent was running at the stop is taken over by the new server as a dispatch whose replica stopped.
+- **Reactive state:** each tenant's reactors and accumulators now keep their state, firings and recovery events in the tenant's own schema. The state that named tenants' graphs had in `public` is not moved (it carries no tenant): their reactors and accumulators start once with no saved state. `public`'s graphs keep theirs.
+- **The reserved name:** a tenant named `cloacina_global` stops the start; tenant create refuses the name.
+- **Rollback:** the previous version does not run on the moved schema. Restore the pre-upgrade backup from step 1.
+
 **Upgrade note, active packages (from 0.12):** migration 052 changes which package version is active: the newest version that is not superseded and whose build succeeded. The servers of 0.12 read the active version as the newest that is not superseded. While both run, an upload makes a version that the two read differently until its build ends. Step 2 (no uploads while the servers roll) keeps such a version from being made during the upgrade.
 
 ### Schema versions
@@ -285,7 +301,9 @@ Migrations are forward only: no release reverts one, and an older release
 does not run on a schema more than one minor ahead of it. Each migration of a
 minor leaves the previous minor's server working on the new schema: it only
 adds tables, nullable columns, columns with a default and indexes; a column or
-table that the previous minor uses is removed one minor later.
+table that the previous minor uses is removed one minor later. The exception
+is 0.13.0: the move of the global tables to `cloacina_global` needs a full
+stop (see the upgrade note above).
 
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database: the previous minor runs on the new schema. To go

@@ -55,13 +55,13 @@ On a server, tenant code runs only on the tenant's agents and in the tenant's co
 - **A package with no document does not load.** A package that is not described yet waits for its compiler; the workflow detail gives `not_loaded_reason`. A package its compiler could not describe has `describe_error` and does not load until it is built again.
 - **The reactive layer is mostly data.** A reactor is a name, accumulators and a mode. An accumulator is code of the server picked by its type (`passthrough`, `batch`, `state`); the function an author decorates is not called. So reactors and graphs load from the document, Python ones too, and each graph firing goes to an agent.
 - **A poll trigger's code runs on an agent of its tenant.** The server's scheduler decides a poll is due and sends a poll packet to an agent of the tenant; a worker process of the agent loads the package and calls the trigger, held to a memory limit and killed at the poll time limit, and the agent answers fire, with the trigger's context, or skip. The server fires the workflow on a fire. The server never calls the trigger. Each poll is one dispatch, and a tenant with a poll trigger keeps one agent running (see [the fleet page](../execution-agent-fleet/#poll-triggers-on-agents)).
+- **A Python polling accumulator's poll function runs on an agent of its tenant** (CLOACINA-T-1156). The server keeps the accumulator: its timer, its last-output checkpoint and the send of each value to its reactor, on the replica that owns the reactor. At each interval it sends a poll packet to an agent of the tenant; a worker process of the agent imports the package and calls the poll function, and the agent answers its JSON value or no change. The server never calls the function. A poll with no answer emits nothing that interval. Each poll is one dispatch and needs a running agent (see [the fleet page](../execution-agent-fleet/#polling-accumulators-on-agents)).
 - **A package whose code would have to run in the server is refused** (CLOACINA-T-1078). The compiler records the list in the document, and the server checks it again at load:
   - a stream accumulator whose provider is native: the provider is a library opened by the process that runs the accumulator;
-  - a Python polling accumulator: its poll function runs at each interval;
   - a Python stream accumulator: its source runs where the accumulator runs;
   - a polling accumulator of a Rust package: it has no poll code in a package and would never emit.
 
-  Such a package gets `build_status` `failed` with a reason that names the kind and the names, in `build_error`. It stays refused until a new version is uploaded. A native provider that only a constructor-node task uses is not refused: that task runs on the tenant's agents, where the provider's grants are advisory. WASM providers are not refused.
+  Such a package gets `build_status` `failed` with a reason that names the kind and the names, in `build_error`. It stays refused until a new version is uploaded. A package refused for a Python polling accumulator by a server of the release before CLOACINA-T-1156 stays refused too, until a new version is uploaded. A native provider that only a constructor-node task uses is not refused: that task runs on the tenant's agents, where the provider's grants are advisory. WASM providers are not refused.
 - **Packages described by an earlier compiler** have a document of format 1. Their refusals are those of format 1: any bundled native provider, and any Python reactor, graph or accumulator. The compiler describes each one again on its pass (format 2), unless the server has refused it already.
 - **Cron schedules** need no tenant code: the expression, the timezone and the policy are data.
 
@@ -238,6 +238,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | DELETE | `/v1/tenants/{schema_name}` | platform | `tenants.manage` | `tenant.delete` |
 | GET | `/v1/compiler/status` | platform | `compiler.read` | none (read) |
 | GET | `/v1/audit` | platform | `audit.read` | none (read) |
+| GET | `/v1/packages/needs-new-build` | platform | `workflows.read` | none (read) |
 | POST | `/v1/auth/keys` | platform | `keys.manage` | `key.create` |
 | GET | `/v1/auth/keys` | platform | `keys.manage` | none (read) |
 | DELETE | `/v1/auth/keys/{key_id}` | platform | `keys.manage` | `key.revoke` |
@@ -249,6 +250,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | POST | `/v1/tenants/{tenant_id}/keys` | tenant in the path | `keys.manage` | `key.create` |
 | GET | `/v1/tenants/{tenant_id}/keys` | tenant in the path | `keys.manage` | none (read) |
 | DELETE | `/v1/tenants/{tenant_id}/keys/{key_id}` | tenant in the path | `keys.manage` | `key.revoke` |
+| PATCH | `/v1/tenants/{tenant_id}/keys/{key_id}` | tenant in the path | `keys.manage` | `key.update` |
 | POST | `/v1/tenants/{tenant_id}/accounts` | tenant in the path | `accounts.manage` | `account.create` |
 | GET | `/v1/tenants/{tenant_id}/accounts` | tenant in the path | `accounts.manage` | none (read) |
 | DELETE | `/v1/tenants/{tenant_id}/accounts/{account_id}` | tenant in the path | `accounts.manage` | `account.disable` |
@@ -283,6 +285,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | GET | `/v1/tenants/{tenant_id}/executions/{exec_id}` | tenant in the path | `executions.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/events` | tenant in the path | `executions.read` | none (read) |
 | GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/tasks` | tenant in the path | `executions.read` | none (read) |
+| GET | `/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output` | tenant in the path | `executions.read` | none (read) |
 | POST | `/v1/tenants/{tenant_id}/workflows` | tenant in the path | `packages.publish` | `package.upload` |
 | POST | `/v1/tenants/{tenant_id}/workflows/{name}/versions/{version}/activate` | tenant in the path | `packages.publish` | `package.activate` |
 | DELETE | `/v1/tenants/{tenant_id}/workflows/{name}/{version}` | tenant in the path | `packages.publish` | `package.delete` |
@@ -436,7 +439,14 @@ There is no soft-fail path: an upload with no signature, or signed by a key that
 
 **The check runs again at load.** With `--require-signatures`, the runner of each tenant verifies a package when it loads it: a signature stored for the tenant's org or the server-wide org, a live trusted key of one of the two, and a signature that verifies. A row in the tenant's tables is not enough: a caller that can write a tenant's schema cannot make a package load without a signature by a trusted key. The trusted keys are in the admin schema; a tenant's database user is granted its own schema only.
 
-**A revoke is not an unload.** A revoked key signs no new upload from the moment of the revoke. A package that is already loaded keeps running until its next load, which is the next start of the server; that load refuses it. An operator that must stop a package at once deletes it.
+**A revoke unloads.** A revoked key signs no new upload from the moment of the revoke. With `--require-signatures`, it also stops the loaded packages it signed (CLOACINA-T-1119). Each replica learns of a revoke without a notice: on each reconciler pass it reads the count and the latest revoke time of the trusted keys of the tenant's org and the server-wide org, from the admin schema. A revoke made through a route or through the library moves it alike. When it moved, the replica checks each loaded package again, against the hash its load check computed, and the live keys:
+
+- A package with a valid signature by a live trusted key keeps running.
+- A package with none left starts no new run on any replica. The first replica to see it sets that version's build status to `failed`, with the key's fingerprint in the build error, so no replica lists it and agents no longer fetch its code. Each replica cancels the version's runs that had not ended (`Cancelled`, the error names the fingerprint) and unloads the package with its schedules. The longest time from the revoke to the effect on every replica is about two reconciler passes: 10 seconds with the default interval of 5 seconds.
+- The refusal stays on that version, and one `package.signer_revoked` audit row records it. The way back is a new version signed by a live key.
+- A check that cannot run (a database error) refuses nothing; it runs again at the next pass.
+
+A revoke is an outage of each package it signed that has no other valid signature, by design: an operator signs those packages with another trusted key before the revoke, or accepts the outage. A key of a child org trusted through a trust ACL is not in the count: its revoke takes effect at the next load only.
 
 Trust is **per tenant**. Each tenant has its own trusted keys, and its `admin` adds and revokes them (`cloacinactl trusted-key`, or the `/v1/tenants/{tenant_id}/trusted-keys` routes); a platform admin can do the same for any tenant. A package signed for one tenant is not accepted by another. The server-wide org is the operator's own key set: a key in it is trusted for every tenant. An operator that wants strict per-tenant trust sets no `--verification-org-id`; each tenant then trusts only its own keys.
 
@@ -603,6 +613,9 @@ If package authors are not trusted, do not let them upload to a compiler that ot
 CLOACI-I-0106 closed the historical "isolation gaps" that existed in earlier server releases. The current state is **strong by default**:
 
 - **Fail-closed `SET search_path`.** Per-tenant connection acquisition sets `search_path` strictly to the tenant's schema; a failed `SET search_path` is a hard error, not a silent fall-through to `public`. This closes the cross-tenant data-leak risk that existed pre-I-0106.
+- **The tenant's server role on each tenant connection** (CLOACINA-T-1080). The server's pool of a tenant connects as the admin user and, at each checkout, runs `SET ROLE "<tenant>$server"` next to the `search_path`. The role is `NOLOGIN`, has no password, and holds `SELECT, INSERT, UPDATE, DELETE` on the tenant tables of its own schema (`SERVER_ROLE_TABLES`) and `USAGE` on that schema, nothing else. So Postgres refuses a query of the server's own code that leaves the tenant's tables: another tenant's schema, a table of `public`, a global table, or a table the tenant schema lacks, which the `search_path` would find in `public`. `public` is a tenant like the others: its pool takes `public$server` with the same table list, and the global runner runs on it. Each named tenant's pool holds 2 connections per replica, as before. No credential is issued, stored or rotated for the role; the admin user's credential is the only one. This guards against the server's own mistakes: code on the connection could `RESET ROLE`, and since CLOACINA-T-1075 the server runs no tenant code.
+- **The global tables are in their own schema, `cloacina_global`** (CLOACINA-T-1080): keys and their sessions, local accounts, tickets, the login throttle, OIDC login flows, audit rows, agent pools, limits, desired counts and scale state, fleet agents, the result inbox, signing and trusted keys, trust grants, reactor owner addresses, and the global outbox (work packets, deliveries, reactor events). The server reads them through its admin pool only (search path `cloacina_global, public`). No server role has a grant there. `public.delivery_outbox` holds `public`'s own run-finished notices. The server moves the tables there at its start; embedded use keeps every table in its own schema.
+- **Reactive state per tenant** (CLOACINA-T-1080). The graph scheduler gives each reactor and accumulator its tenant's pool: their state, firings and recovery events are in the tenant's schema, where the tenant's runner reads the firings. Two tenants with a graph of the same name keep separate state.
 - **Per-tenant `DefaultRunner` instances** held in `TenantRunnerCache`, one for every tenant from server start until the tenant is deleted. Workflow execution lands in the tenant's schema, not in a shared global runner.
 - **Per-tenant trigger filtering.** `GET /v1/tenants/{id}/triggers` routes through a tenant-scoped `Database`; the underlying SQL hits the tenant's schedules table, not a shared global table.
 - **Teardown orchestration** on `DELETE /v1/tenants/{name}` (CLOACI-T-0581, CLOACINA-T-1095): revoke keys and send the revocation notice → evict runner cache → evict DB cache → remove the compiler, the agents and their rows under the fleet lock → delete the tenant's admin-schema rows and drop schema and user in one transaction. A tenant made again with the same name gets no account, key, trusted key, pool or agent of the removed one; the audit rows stay, and the new tenant's own audit reads begin after the `tenant.removed` row. Cache eviction is part of the teardown; the historical "restart the server to reclaim the cache" workaround is gone.

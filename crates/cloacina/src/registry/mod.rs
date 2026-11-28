@@ -68,6 +68,7 @@ pub mod in_process;
 pub mod loader;
 pub mod package_description;
 pub mod placement_check;
+pub mod plugin_interface;
 pub mod reconciler;
 pub mod storage;
 pub mod traits;
@@ -85,7 +86,9 @@ pub use reconciler::{
     CronWorkflowRegistrar, PackageLoadMode, PackageStatusDetail, ReconcileResult, ReconcilerConfig,
     ReconcilerStatus, RegistryReconciler,
 };
-pub use traits::{LoadSignature, LoadSignatureRefusal, RegistryStorage, WorkflowRegistry};
+pub use traits::{
+    LoadSignature, LoadSignatureRefusal, RegistryStorage, SignerRevokeMarker, WorkflowRegistry,
+};
 pub use types::{
     LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId, WorkflowSourceFile,
 };

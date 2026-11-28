@@ -65,6 +65,20 @@ server — API-key and local-account auth keep working, and the OIDC routes retu
 CLOACINA_OIDC_MAP="group:acme-admins=acme:admin;group:acme-eng=acme:write;domain:acme.com=acme:read"
 ```
 
+A rule may take a third field, `<match>=<tenant>:<role>:<max_priority>`: the
+highest [priority](../../../explanation/priority/) a login that the rule
+matches may set, 0 to 10. Without it, the default of the role applies
+(`write` 5, `admin` 0). The runs of packages and schedules a person set up
+are held to the rule that matches them at each run start, so a changed rule
+applies to those runs after the rolling restart, with no new publish.
+
+```
+CLOACINA_OIDC_MAP="group:acme-oncall=acme:write:2;group:acme-eng=acme:write"
+```
+
+A third field that is not a whole number from 0 to 10 stops the server at
+start.
+
 ### What a `_` rule grants
 
 `<tenant>` may be `_`. Such a rule mints a key with **no tenant**. It does not

@@ -88,6 +88,45 @@ jobs:
         run: cargo test -p cloacina --features constructors-wasm --test '*constructor*' --test provider_bundle
 
   # -----------------------------------------------------------------------
+  # Packages across a plugin interface change (CLOACINA-T-1085)
+  #
+  # The compiler builds as a user's build does, with no --dev-workspace: a
+  # package pinned to the old minor resolves it from crates.io and is listed
+  # as needing a new publish; a package pinned to the release under test
+  # reaches it through a [patch.crates-io] path override and is rebuilt with
+  # the new interface. Needs crates.io, so nightly only.
+  # -----------------------------------------------------------------------
+
+  plugin-interface-registry:
+    name: Plugin interface change (crates.io)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL dev libraries
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libpq-dev
+
+      # The describe child embeds the interpreter: the build links libpython.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-compiler-tests"
+
+      - name: Old minor from crates.io, the release under test through a path override
+        run: cargo test -p cloacina-compiler --features sqlite --test interface_registry -- --ignored --nocapture
+
+  # -----------------------------------------------------------------------
   # Code coverage — cargo-tarpaulin on cloacina core
   # -----------------------------------------------------------------------
 

@@ -1,0 +1,19 @@
+# Fixture of the behaviour suite chapter "tenant_code" (CLOACINA-T-1079,
+# features/tenant_code/tenant_code_boundary.feature): a Python computation
+# graph of one node. The node returns where it ran, and writes the same facts
+# as a marked line to stderr, so the chapter can see where a firing ran.
+# The module tree lives under workflow/, as for demo-py-graph.
+[package]
+name = "tenant-code-graph-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+graph_name = "tenant_code_graph"
+language = "python"
+description = "tenant_code chapter fixture: a graph node that says where it ran"
+entry_module = "tenant_code_graph.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"

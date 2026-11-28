@@ -411,6 +411,38 @@ List the API keys scoped to a tenant. **Tenant-admin** — a caller with the
 | `403` | `{"error": "insufficient permissions"}` | Caller is not a tenant-admin for `{tenant_id}` (and not god-mode) |
 | `500` | `{"error": "failed to list API keys"}` | Database error |
 
+### PATCH /v1/tenants/{tenant_id}/keys/{key_id}
+
+Set or clear the highest [priority](../../explanation/priority/#a-limit-on-a-key)
+a key of the tenant may set (CLOACINA-T-1123). **Tenant-admin.** The key must
+belong to `{tenant_id}` and not be revoked.
+
+**Request body:**
+
+```json
+{ "max_priority": 2 }
+```
+
+`max_priority` is 0 (the highest) to 10, or `null` to clear it: the key then
+has the default of its role. The new limit applies to the key's next request
+on every server, and to the next run of each package and schedule the key set
+a priority for.
+
+**Response:** `200 OK` — the key, in the shape of one row of the key list,
+with its new `max_priority`.
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `invalid_priority` | `max_priority` above 10 |
+| `400` | `invalid_request` | A `read` or `agent` key, or a body that is not a key update |
+| `403` | `priority_above_limit` | A limit better than the caller's own |
+| `404` | `key_not_found` | No such live key in this tenant |
+
+`POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` take the same
+`max_priority` field, with the same checks.
+
 ### DELETE /v1/tenants/{tenant_id}/keys/{key_id}
 
 Revoke a tenant-scoped API key. **Tenant-admin.** The handler additionally
@@ -909,18 +941,47 @@ Get details for a specific workflow by package name.
 |---|---|---|
 | `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence. |
 | `build_status` | string | Real build state: `pending` / `building` / `failed` / `success`. |
-| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. A package the server refuses to load, because its code would run in the server (a stream accumulator on a native provider, a Python polling or stream accumulator, a polling accumulator in a Rust package), is `failed` with the reason here. |
+| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. A package the server refuses to load, because its code would run in the server (a stream accumulator on a native provider, a Python stream accumulator, a polling accumulator in a Rust package), is `failed` with the reason here. |
 | `describe_error` | string | Present only when the compiler could not write the metadata document of a built package: a package built before the document existed that cannot be described from its stored build. `build_status` stays `success`. |
 | `not_loaded_reason` | string | Present only on a server without single trust, for a built package with no metadata document: the server does not load it. It waits for the tenant's compiler to describe the package, or the compiler could not (`describe_error`). |
 | `paused` | boolean | Whether this workflow is paused. A paused workflow refuses new executions until resumed. |
 | `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
 | `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence. |
+| `plugin_interface_version` | integer | Present for a Rust package whose plugin interface is recorded: the version of the Cloacina plugin interface its build has. The list response carries the same field. |
+| `needs_new_build` | object | Present only when the package needs a new publish: it was built for another plugin interface than this release loads, and its one rebuild from kept source did not change that. `{reason, built_for, current}`: the reason with the step to take, the interface it was built for (absent when not known) and the one this release loads. `build_status` stays `success`. The list response carries the same field. |
 
 **Errors:**
 
 | Status | Body |
 |---|---|
 | `404` | `{"error": "workflow 'etl_pipeline' not found"}` |
+
+### GET /v1/packages/needs-new-build
+
+The packages of every tenant that need a new publish, for an upgrade across
+a plugin interface change. Platform admin key (`workflows.read` and the
+platform admin flag).
+
+**Response:** `200 OK` — `{items, total}` envelope.
+
+```json
+{
+  "items": [
+    {
+      "tenant_id": "acme",
+      "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "package_name": "etl_pipeline",
+      "version": "1.2.0",
+      "built_for": 7,
+      "current": 8,
+      "reason": "built for plugin interface 7; this release loads plugin interface 8. ..."
+    }
+  ],
+  "total": 1
+}
+```
+
+See [After a release that changes the plugin interface](../../how-to/constructors/consume-a-provider/#after-a-release-that-changes-the-plugin-interface).
 
 ### GET /v1/tenants/{tenant_id}/workflows/{name}/source
 
@@ -1451,6 +1512,62 @@ failed task the last entry is the error in `last_error` and `error_details`.
 |---|---|
 | `400` | `{"error": "invalid execution ID"}` |
 | `404` | `{"error": "<detail>"}` |
+
+### GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output
+
+The end of what each attempt of a task wrote on stdout and stderr, as one
+stream (CLOACINA-T-1091). It is kept for tasks that ran in an agent's worker
+process, for attempts that succeeded and failed alike, and shows when the
+attempt has ended. **Tenant-scoped read:** the same role that reads the run.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tenant_id` | string | Tenant identifier |
+| `exec_id` | UUID | Execution identifier |
+| `task_id` | UUID | Task execution identifier: the `id` of the task in `GET .../executions/{exec_id}/tasks` |
+
+**Query parameters:**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `attempt` | integer | all | Only this attempt. |
+
+**Response:** `200 OK`
+
+```json
+{
+  "tenant_id": "acme",
+  "execution_id": "6f1c2b1e-58a0-4d0e-9a53-0c8a2f1f4a10",
+  "task_id": "0d9c7a52-4f43-41f0-8a39-5b0a3f6f7f11",
+  "attempts": [
+    {
+      "attempt": 1,
+      "output": "loading rows\nTraceback (most recent call last):\n...",
+      "total_bytes": 812345,
+      "cut": true,
+      "recorded_at": "2026-11-27T10:15:02.118+00:00"
+    }
+  ]
+}
+```
+
+`attempts` is in attempt order. `output` holds at most the server's
+`--task-output-max-bytes` (256 KiB by default); when `cut` is `true` its start
+was dropped, and `total_bytes` says how much the attempt wrote. The exact
+values of the attempt's own secrets are `***` when the agent masks them. The
+list is empty for a task whose output was not kept (an `inline` task, the
+in-process executor, a task of another execution). Stored output is deleted
+after `--task-output-retention-days` (30 by default), and with its run by
+run-history retention. See
+[The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output).
+
+**Errors:**
+
+| Status | Body |
+|---|---|
+| `400` | `{"error": "invalid execution or task ID"}` |
 
 ## Triggers
 
@@ -2089,11 +2206,14 @@ applies the settings on its next tick; a changed setting rolls the pool's agents
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed, a `min_agents` above `max_agents`. The message names the field. |
+| `400` | `invalid_pool_settings` | The body is not the JSON object above (for example an unknown field, at any level), or a value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed, a `min_agents` above `max_agents`. The message names the field. |
 | `401` | (auth) | Missing or invalid API key. |
 | `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
-| `422` | | The body is not the JSON object above (for example an unknown field). |
 | `500` | `internal_error` | Failed to store the pool. |
+
+The request refuses an unknown field; the answers of the pool routes do not.
+A client reads an answer with a field it does not know, from a newer server,
+and ignores that field.
 
 #### DELETE /v1/tenants/{tenant_id}/pools/{pool}
 

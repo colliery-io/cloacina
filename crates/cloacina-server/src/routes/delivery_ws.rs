@@ -524,6 +524,7 @@ mod connection_tenant_tests {
             permissions: role.into(),
             tenant_id: tenant.map(str::to_string),
             is_admin,
+            max_priority: None,
         }
     }
 

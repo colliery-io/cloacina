@@ -24,7 +24,6 @@
 //!
 //! - a stream accumulator whose provider is native: the provider is a library
 //!   opened in the process that runs the accumulator;
-//! - a Python polling accumulator: its poll function runs at each interval;
 //! - a Python stream accumulator: its source runs in the process that runs
 //!   the accumulator;
 //! - a polling accumulator of a Rust package: it has no poll code in a
@@ -32,8 +31,12 @@
 //!
 //! A native provider that only a constructor-node task uses is not refused:
 //! the task runs on the tenant's agents. A poll trigger is not refused: its
-//! polls run on the tenant's agents (CLOACINA-T-1077). A compiler of the
-//! release before records it as `poll_trigger`; the server drops that kind.
+//! polls run on the tenant's agents (CLOACINA-T-1077). A Python polling
+//! accumulator is not refused: the server keeps its timer and its
+//! checkpoint, and its poll function runs on the tenant's agents
+//! (CLOACINA-T-1156). A compiler of a release before records them as
+//! `poll_trigger` and `python_polling_accumulator`; the server drops those
+//! kinds.
 //!
 //! The compiler records the list in the document (format 2,
 //! [`PackageDescription::in_process`]); the server refuses a package whose
@@ -51,8 +54,14 @@ use crate::registry::package_description::PackageDescription;
 pub const POLL_TRIGGER: &str = "poll_trigger";
 /// A native provider named by a stream accumulator.
 pub const NATIVE_STREAM_PROVIDER: &str = "native_stream_provider";
-/// A polling accumulator of a Python package.
+/// A polling accumulator of a Python package. No longer refused
+/// (CLOACINA-T-1156): a document whose compiler recorded it still carries the
+/// kind, and the server drops it.
 pub const PYTHON_POLLING_ACCUMULATOR: &str = "python_polling_accumulator";
+
+/// The kinds a compiler of a release before recorded and the server no
+/// longer refuses.
+const NO_LONGER_REFUSED: [&str; 2] = [POLL_TRIGGER, PYTHON_POLLING_ACCUMULATOR];
 /// A stream accumulator of a Python package.
 pub const PYTHON_STREAM_ACCUMULATOR: &str = "python_stream_accumulator";
 /// A polling accumulator of a Rust package.
@@ -182,7 +191,8 @@ pub fn in_process_reasons(
     push(NATIVE_STREAM_PROVIDER, native);
 
     if document.language == "python" {
-        push(PYTHON_POLLING_ACCUMULATOR, of_type("polling"));
+        // CLOACINA-T-1156: a polling accumulator is not in the list; its
+        // polls run on the tenant's agents.
         push(PYTHON_STREAM_ACCUMULATOR, of_type("stream"));
     } else {
         push(RUST_POLLING_ACCUMULATOR, of_type("polling"));
@@ -193,7 +203,8 @@ pub fn in_process_reasons(
 /// The reasons a server refuses `document` for: those the compiler recorded
 /// and those computed from the document again, merged by kind. A format 1
 /// document has no record; its caller keeps the rule of format 1. A
-/// recorded `poll_trigger` is dropped (CLOACINA-T-1077).
+/// recorded `poll_trigger` (CLOACINA-T-1077) or `python_polling_accumulator`
+/// (CLOACINA-T-1156) is dropped.
 pub fn refused_on_server(
     document: &PackageDescription,
     overrides: &[AccumulatorConfig],
@@ -202,7 +213,7 @@ pub fn refused_on_server(
     for recorded in document
         .in_process
         .iter()
-        .filter(|r| r.kind != POLL_TRIGGER)
+        .filter(|r| !NO_LONGER_REFUSED.contains(&r.kind.as_str()))
     {
         match merged.iter_mut().find(|r| r.kind == recorded.kind) {
             Some(reason) => {
@@ -345,10 +356,11 @@ mod tests {
         assert!(reasons[0].text().contains("no poll code"));
     }
 
-    /// A Python package with passthrough, batch and state accumulators has
-    /// nothing in process; a polling or stream one is named.
+    /// A Python package with passthrough, batch, state and polling
+    /// accumulators has nothing in process (a polling accumulator polls on
+    /// the agents, CLOACINA-T-1156); a stream one is named.
     #[test]
-    fn python_polling_and_stream_accumulators_are_refused_and_the_rest_load() {
+    fn a_python_stream_accumulator_is_refused_and_the_rest_load() {
         let mut doc = document("python");
         doc.reactors = vec![reactor(vec![
             acc("a", "passthrough", &[]),
@@ -367,10 +379,32 @@ mod tests {
             .into_iter()
             .map(|r| r.kind)
             .collect();
-        assert_eq!(
-            kinds,
-            vec![PYTHON_POLLING_ACCUMULATOR, PYTHON_STREAM_ACCUMULATOR]
-        );
+        assert_eq!(kinds, vec![PYTHON_STREAM_ACCUMULATOR]);
+    }
+
+    /// A `python_polling_accumulator` a compiler of the release before
+    /// recorded is dropped (CLOACINA-T-1156); a recorded stream one stays.
+    #[test]
+    fn a_recorded_python_polling_accumulator_is_dropped() {
+        let mut doc = document("python");
+        doc.reactors = vec![reactor(vec![acc(
+            "ticks",
+            "polling",
+            &[("interval", "2s")],
+        )])];
+        doc.in_process = vec![
+            InProcessReason {
+                kind: PYTHON_POLLING_ACCUMULATOR.to_string(),
+                names: vec!["ticks".to_string()],
+            },
+            InProcessReason {
+                kind: PYTHON_STREAM_ACCUMULATOR.to_string(),
+                names: vec!["feed".to_string()],
+            },
+        ];
+        let refused = refused_on_server(&doc, &[]);
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].kind, PYTHON_STREAM_ACCUMULATOR);
     }
 
     /// A poll trigger is not refused (CLOACINA-T-1077), and a `poll_trigger`

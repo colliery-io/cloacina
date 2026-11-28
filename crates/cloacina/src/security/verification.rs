@@ -489,6 +489,20 @@ pub async fn verify_stored_signature_for_orgs(
     key_manager: &DbKeyManager,
 ) -> Result<(VerificationResult, UniversalUuid), VerificationError> {
     let package_hash = compute_package_hash(package_data)?;
+    verify_stored_signature_hash_for_orgs(&package_hash, org_ids, package_signer, key_manager).await
+}
+
+/// [`verify_stored_signature_for_orgs`] for a package whose hash is known:
+/// the check of a loaded package again after a key is revoked
+/// (CLOACINA-T-1119). The bytes are not read again; the hash is the one the
+/// load check computed.
+pub async fn verify_stored_signature_hash_for_orgs(
+    package_hash: &str,
+    org_ids: &[UniversalUuid],
+    package_signer: &DbPackageSigner,
+    key_manager: &DbKeyManager,
+) -> Result<(VerificationResult, UniversalUuid), VerificationError> {
+    let package_hash = package_hash.to_string();
     let log_org = org_ids
         .first()
         .copied()

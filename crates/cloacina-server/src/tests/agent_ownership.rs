@@ -43,6 +43,7 @@ fn tenant_key(tenant: &str) -> AuthenticatedKey {
         permissions: "read".to_string(),
         tenant_id: Some(tenant.to_string()),
         is_admin: false,
+        max_priority: None,
     }
 }
 
@@ -53,6 +54,7 @@ fn platform_admin_key() -> AuthenticatedKey {
         permissions: "admin".to_string(),
         tenant_id: None,
         is_admin: true,
+        max_priority: None,
     }
 }
 
@@ -134,6 +136,7 @@ async fn report(
         outcome: AgentOutcome::Success {
             context: serde_json::json!({"forged": true}),
         },
+        output: None,
     };
     match report_result(State(state.clone()), Extension(key.clone()), Json(body)).await {
         Ok(_) => StatusCode::OK,

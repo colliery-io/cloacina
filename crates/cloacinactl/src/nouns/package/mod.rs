@@ -152,6 +152,15 @@ enum PackageVerb {
     List {
         #[arg(long)]
         filter: Option<String>,
+        /// Only the packages that need a new publish: built for another
+        /// plugin interface than the server's release, and not carried over
+        /// by a rebuild from their kept source.
+        #[arg(long)]
+        needs_new_build: bool,
+        /// With `--needs-new-build`: the packages of every tenant (platform
+        /// admin key).
+        #[arg(long, requires = "needs_new_build")]
+        all_tenants: bool,
     },
     /// Fetch metadata for a single package.
     Inspect { id: String },
@@ -225,7 +234,20 @@ impl PackageCmd {
                 };
                 upload::run(globals, &file, Some(signature)).await
             }
-            PackageVerb::List { filter } => list::run(globals, filter.as_deref()).await,
+            PackageVerb::List {
+                filter,
+                needs_new_build,
+                all_tenants,
+            } => {
+                let only = if all_tenants {
+                    list::Only::NeedsNewBuildAllTenants
+                } else if needs_new_build {
+                    list::Only::NeedsNewBuild
+                } else {
+                    list::Only::All
+                };
+                list::run(globals, filter.as_deref(), only).await
+            }
             PackageVerb::Inspect { id } => inspect::run(globals, &id).await,
             PackageVerb::Versions { name } => versions::list(globals, &name).await,
             PackageVerb::Activate { name, version } => {

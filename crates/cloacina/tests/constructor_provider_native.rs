@@ -121,9 +121,11 @@ fn dylib_ext() -> &'static str {
 fn build_fixture() -> (PathBuf, String) {
     let dir = fixture_dir();
 
+    // The fixture's own target dir, also when the caller sets CARGO_TARGET_DIR.
     let status = std::process::Command::new(env!("CARGO"))
         .arg("build")
         .current_dir(&dir)
+        .env("CARGO_TARGET_DIR", dir.join("target"))
         .status()
         .expect("spawn cargo build (native fixture)");
     assert!(status.success(), "native fixture build failed");
@@ -132,6 +134,7 @@ fn build_fixture() -> (PathBuf, String) {
     let out = std::process::Command::new(env!("CARGO"))
         .args(["run", "--quiet", "--bin", "emit_manifest"])
         .current_dir(&dir)
+        .env("CARGO_TARGET_DIR", dir.join("target"))
         .output()
         .expect("run emit_manifest");
     assert!(out.status.success(), "emit_manifest failed");
@@ -204,6 +207,101 @@ async fn native_provider_task_loads_and_runs_in_process() {
         out.get("result"),
         Some(&serde_json::json!("native-world")),
         "native constructor bound `prefix` + read context `name` in-process"
+    );
+}
+
+/// Text log lines, written by the host's subscriber.
+#[derive(Clone, Default)]
+struct Capture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl Capture {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+impl std::io::Write for Capture {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+    type Writer = Capture;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// CLOACINA-T-1150: a native provider's `tracing` line reaches the host's
+/// log, in the span of the caller.
+#[test]
+fn a_native_providers_tracing_line_reaches_the_host_log_with_the_callers_span() {
+    let (cdylib, base_manifest) = build_fixture();
+    // Its own copy, so its own image of the library and its own bind cells.
+    let work = tempfile::TempDir::new().unwrap();
+    let search_path = stage_native_provider(work.path(), &cdylib, &base_manifest);
+
+    let capture = Capture::default();
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(capture.clone())
+            .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+            .finish(),
+    );
+    let thread_dispatch = dispatch.clone();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .on_thread_start(move || {
+            // The default of each runtime thread, the blocking ones too.
+            std::mem::forget(tracing::dispatcher::set_default(&thread_dispatch));
+        })
+        .build()
+        .unwrap();
+
+    tracing::dispatcher::with_default(&dispatch, || {
+        rt.block_on(async {
+            let task = load_task_constructor(
+                &search_path,
+                PROVIDER,
+                "prefix",
+                &PrefixConfig {
+                    prefix: "native-".to_string(),
+                },
+                &ResolvedGrants::default(),
+            )
+            .expect("load native task constructor");
+            let mut ctx = Context::new();
+            ctx.insert("name", serde_json::json!("world")).unwrap();
+            let span = tracing::info_span!("task", task_id = %"t-1150");
+            let out = tracing::Instrument::instrument(task.execute(ctx), span)
+                .await
+                .expect("native task execute");
+            assert_eq!(out.get("result"), Some(&serde_json::json!("native-world")));
+            // Keep the library loaded for the process.
+            std::mem::forget(task);
+        })
+    });
+    rt.shutdown_background();
+    std::mem::forget(work);
+
+    let log = capture.text();
+    let line = log
+        .lines()
+        .find(|l| l.contains("native provider line"))
+        .unwrap_or_else(|| panic!("the provider's tracing line is in the host's log:\n{log}"));
+    println!("{line}");
+    assert!(line.contains(" INFO "), "level kept: {line}");
+    assert!(line.contains("name=world"), "field kept: {line}");
+    assert!(
+        line.contains("task{task_id=t-1150}"),
+        "the caller's span: {line}"
     );
 }
 

@@ -5,10 +5,20 @@ from .account_info import AccountInfo
 from .accumulator_status import AccumulatorStatus
 from .add_trusted_key_request import AddTrustedKeyRequest
 from .agent_egress_port import AgentEgressPort
+from .agent_egress_port_info import AgentEgressPortInfo
 from .agent_egress_rule import AgentEgressRule
+from .agent_egress_rule_info import AgentEgressRuleInfo
 from .agent_info import AgentInfo
 from .agent_pool_info import AgentPoolInfo
 from .agent_pool_settings import AgentPoolSettings
+from .agent_pool_settings_info import AgentPoolSettingsInfo
+from .agent_pool_settings_info_pod_annotations import (
+    AgentPoolSettingsInfoPodAnnotations,
+)
+from .agent_pool_settings_info_pod_labels import AgentPoolSettingsInfoPodLabels
+from .agent_pool_settings_info_service_account_annotations import (
+    AgentPoolSettingsInfoServiceAccountAnnotations,
+)
 from .agent_pool_settings_pod_annotations import AgentPoolSettingsPodAnnotations
 from .agent_pool_settings_pod_labels import AgentPoolSettingsPodLabels
 from .agent_pool_settings_service_account_annotations import (
@@ -73,6 +83,10 @@ from .list_response_graph_status import ListResponseGraphStatus
 from .list_response_graph_status_items_item import ListResponseGraphStatusItemsItem
 from .list_response_key_info import ListResponseKeyInfo
 from .list_response_key_info_items_item import ListResponseKeyInfoItemsItem
+from .list_response_package_needing_new_build import ListResponsePackageNeedingNewBuild
+from .list_response_package_needing_new_build_items_item import (
+    ListResponsePackageNeedingNewBuildItemsItem,
+)
 from .list_response_reactor_fire import ListResponseReactorFire
 from .list_response_reactor_fire_items_item import ListResponseReactorFireItemsItem
 from .list_response_reactor_fire_items_item_inputs import (
@@ -93,6 +107,8 @@ from .list_response_trusted_key_summary_items_item import (
 from .local_login_request import LocalLoginRequest
 from .local_login_response import LocalLoginResponse
 from .logout_response import LogoutResponse
+from .needs_new_build import NeedsNewBuild
+from .package_needing_new_build import PackageNeedingNewBuild
 from .package_upload_form import PackageUploadForm
 from .priority_grant import PriorityGrant
 from .reactor_fire import ReactorFire
@@ -106,7 +122,9 @@ from .rotate_secret_request_fields import RotateSecretRequestFields
 from .secret_deleted_response import SecretDeletedResponse
 from .secret_metadata_response import SecretMetadataResponse
 from .task_attempt_error_detail import TaskAttemptErrorDetail
+from .task_attempt_output_detail import TaskAttemptOutputDetail
 from .task_execution_detail import TaskExecutionDetail
+from .task_output_response import TaskOutputResponse
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_backfill_summary import TenantListResponseBackfillSummary
 from .tenant_list_response_backfill_summary_items_item import (
@@ -147,6 +165,7 @@ from .trigger_schedule_info import TriggerScheduleInfo
 from .trigger_schedule_summary import TriggerScheduleSummary
 from .trusted_key_revoked_response import TrustedKeyRevokedResponse
 from .trusted_key_summary import TrustedKeySummary
+from .update_key_request import UpdateKeyRequest
 from .whoami_response import WhoamiResponse
 from .workflow_deleted_response import WorkflowDeletedResponse
 from .workflow_detail import WorkflowDetail
@@ -167,10 +186,16 @@ __all__ = (
     "AccumulatorStatus",
     "AddTrustedKeyRequest",
     "AgentEgressPort",
+    "AgentEgressPortInfo",
     "AgentEgressRule",
+    "AgentEgressRuleInfo",
     "AgentInfo",
     "AgentPoolInfo",
     "AgentPoolSettings",
+    "AgentPoolSettingsInfo",
+    "AgentPoolSettingsInfoPodAnnotations",
+    "AgentPoolSettingsInfoPodLabels",
+    "AgentPoolSettingsInfoServiceAccountAnnotations",
     "AgentPoolSettingsPodAnnotations",
     "AgentPoolSettingsPodLabels",
     "AgentPoolSettingsServiceAccountAnnotations",
@@ -231,6 +256,8 @@ __all__ = (
     "ListResponseGraphStatusItemsItem",
     "ListResponseKeyInfo",
     "ListResponseKeyInfoItemsItem",
+    "ListResponsePackageNeedingNewBuild",
+    "ListResponsePackageNeedingNewBuildItemsItem",
     "ListResponseReactorFire",
     "ListResponseReactorFireItemsItem",
     "ListResponseReactorFireItemsItemInputs",
@@ -245,6 +272,8 @@ __all__ = (
     "LocalLoginRequest",
     "LocalLoginResponse",
     "LogoutResponse",
+    "NeedsNewBuild",
+    "PackageNeedingNewBuild",
     "PackageUploadForm",
     "PriorityGrant",
     "ReactorFire",
@@ -258,7 +287,9 @@ __all__ = (
     "SecretDeletedResponse",
     "SecretMetadataResponse",
     "TaskAttemptErrorDetail",
+    "TaskAttemptOutputDetail",
     "TaskExecutionDetail",
+    "TaskOutputResponse",
     "TenantCreatedResponse",
     "TenantListResponseBackfillSummary",
     "TenantListResponseBackfillSummaryItemsItem",
@@ -281,6 +312,7 @@ __all__ = (
     "TriggerScheduleSummary",
     "TrustedKeyRevokedResponse",
     "TrustedKeySummary",
+    "UpdateKeyRequest",
     "WhoamiResponse",
     "WorkflowDeletedResponse",
     "WorkflowDetail",

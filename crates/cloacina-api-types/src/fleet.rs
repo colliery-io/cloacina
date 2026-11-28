@@ -64,11 +64,17 @@ pub fn agent_pool_of(capabilities: &[String]) -> &str {
         .unwrap_or(DEFAULT_AGENT_POOL)
 }
 
-/// Settings of one agent pool of a tenant (CLOACINA-T-1021).
+/// Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request
+/// sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
 ///
 /// Each field is optional. A field that is absent means the server-wide
 /// default (`CLOACINA_AGENT_*` on the server). The settings apply to every
 /// managed agent of the pool: a pool has one size of agent.
+///
+/// A request with an unknown field is refused. The answers of the pool
+/// routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+/// so that an older client reads an answer of a newer server
+/// (CLOACINA-T-1149).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
@@ -158,6 +164,163 @@ pub struct AgentEgressPort {
     pub protocol: Option<String>,
 }
 
+/// The settings of one agent pool, as the pool routes return them. The same
+/// fields and the same JSON as [`AgentPoolSettings`], but an unknown field is
+/// ignored: a client reads an answer of a newer server (CLOACINA-T-1149).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AgentPoolSettingsInfo {
+    /// CPU request of the agent container, a Kubernetes quantity (`500m`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_request: Option<String>,
+    /// Memory request of the agent container, a Kubernetes quantity (`8Gi`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_request: Option<String>,
+    /// CPU limit of the agent container, a Kubernetes quantity (`4`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_limit: Option<String>,
+    /// Memory limit of the agent container, a Kubernetes quantity (`32Gi`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_limit: Option<String>,
+    /// How many tasks one agent runs at the same time. Absent: the agent's
+    /// own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrency: Option<u32>,
+    /// Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Name of the Kubernetes ServiceAccount the agent pods run as. Absent:
+    /// the namespace's `default` ServiceAccount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_account_name: Option<String>,
+    /// Annotations the actuator puts on that ServiceAccount.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub service_account_annotations: std::collections::BTreeMap<String, String>,
+    /// Labels added to the pool's pods.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub pod_labels: std::collections::BTreeMap<String, String>,
+    /// Annotations added to the pool's pods.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub pod_annotations: std::collections::BTreeMap<String, String>,
+    /// The pod's `automountServiceAccountToken`. Absent means `false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automount_service_account_token: Option<bool>,
+    /// Extra egress rules for the pool's pods, added to the default (cluster
+    /// DNS and the server only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_egress: Vec<AgentEgressRuleInfo>,
+    /// Fewest agents of the pool. Absent: the pool keeps `max_agents` agents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_agents: Option<u32>,
+    /// Most agents of the pool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_agents: Option<u32>,
+}
+
+/// One extra egress rule, as the pool routes return it. An unknown field is
+/// ignored (CLOACINA-T-1149).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AgentEgressRuleInfo {
+    /// IPv4 or IPv6 CIDR block.
+    pub cidr: String,
+    /// Ports the rule allows. Empty: every port.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<AgentEgressPortInfo>,
+}
+
+/// One port of an [`AgentEgressRuleInfo`]. An unknown field is ignored
+/// (CLOACINA-T-1149).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct AgentEgressPortInfo {
+    /// Port number, 1 to 65535.
+    pub port: u16,
+    /// `TCP` (the default), `UDP` or `SCTP`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+}
+
+impl From<AgentEgressPort> for AgentEgressPortInfo {
+    fn from(p: AgentEgressPort) -> Self {
+        Self {
+            port: p.port,
+            protocol: p.protocol,
+        }
+    }
+}
+
+impl From<AgentEgressPortInfo> for AgentEgressPort {
+    fn from(p: AgentEgressPortInfo) -> Self {
+        Self {
+            port: p.port,
+            protocol: p.protocol,
+        }
+    }
+}
+
+impl From<AgentEgressRule> for AgentEgressRuleInfo {
+    fn from(r: AgentEgressRule) -> Self {
+        Self {
+            cidr: r.cidr,
+            ports: r.ports.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<AgentEgressRuleInfo> for AgentEgressRule {
+    fn from(r: AgentEgressRuleInfo) -> Self {
+        Self {
+            cidr: r.cidr,
+            ports: r.ports.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<AgentPoolSettings> for AgentPoolSettingsInfo {
+    fn from(s: AgentPoolSettings) -> Self {
+        Self {
+            cpu_request: s.cpu_request,
+            memory_request: s.memory_request,
+            cpu_limit: s.cpu_limit,
+            memory_limit: s.memory_limit,
+            max_concurrency: s.max_concurrency,
+            image: s.image,
+            service_account_name: s.service_account_name,
+            service_account_annotations: s.service_account_annotations,
+            pod_labels: s.pod_labels,
+            pod_annotations: s.pod_annotations,
+            automount_service_account_token: s.automount_service_account_token,
+            extra_egress: s.extra_egress.into_iter().map(Into::into).collect(),
+            min_agents: s.min_agents,
+            max_agents: s.max_agents,
+        }
+    }
+}
+
+/// The settings a client read, to send back in a request. A field this
+/// client does not know was dropped when it read them.
+impl From<AgentPoolSettingsInfo> for AgentPoolSettings {
+    fn from(s: AgentPoolSettingsInfo) -> Self {
+        Self {
+            cpu_request: s.cpu_request,
+            memory_request: s.memory_request,
+            cpu_limit: s.cpu_limit,
+            memory_limit: s.memory_limit,
+            max_concurrency: s.max_concurrency,
+            image: s.image,
+            service_account_name: s.service_account_name,
+            service_account_annotations: s.service_account_annotations,
+            pod_labels: s.pod_labels,
+            pod_annotations: s.pod_annotations,
+            automount_service_account_token: s.automount_service_account_token,
+            extra_egress: s.extra_egress.into_iter().map(Into::into).collect(),
+            min_agents: s.min_agents,
+            max_agents: s.max_agents,
+        }
+    }
+}
+
 /// One agent pool of a tenant, as the pool routes return it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -167,7 +330,7 @@ pub struct AgentPoolInfo {
     pub pool: String,
     /// The pool's settings as stored. A field that is absent means the
     /// server-wide default.
-    pub settings: AgentPoolSettings,
+    pub settings: AgentPoolSettingsInfo,
     /// How many agents the server keeps for the pool: the tenant's desired
     /// count for `default`, the pool's `max_agents` for another pool.
     pub desired_agents: u32,
@@ -217,5 +380,78 @@ mod tests {
         assert_eq!(s.max_agents, Some(2));
         // A misspelt field is refused, not ignored.
         assert!(serde_json::from_str::<AgentPoolSettings>(r#"{"memory_limt":"32Gi"}"#).is_err());
+    }
+
+    /// CLOACINA-T-1149: the request types refuse an unknown field at each
+    /// level.
+    #[test]
+    fn pool_request_types_refuse_an_unknown_field() {
+        assert!(serde_json::from_str::<AgentEgressPort>(r#"{"port":443,"new":1}"#).is_err());
+        assert!(
+            serde_json::from_str::<AgentEgressRule>(r#"{"cidr":"198.51.100.0/24","new":1}"#)
+                .is_err()
+        );
+        assert!(
+            serde_json::from_str::<AgentPoolSettings>(
+                r#"{"extra_egress":[{"cidr":"198.51.100.0/24","ports":[{"port":443,"new":1}]}]}"#
+            )
+            .is_err()
+        );
+    }
+
+    /// CLOACINA-T-1149: an answer of a newer server, with a field this
+    /// client does not know at each level, decodes.
+    #[test]
+    fn pool_answer_with_an_unknown_field_decodes() {
+        let answer = r#"{
+            "tenant_id": "acme",
+            "pool": "big",
+            "settings": {
+                "memory_limit": "32Gi",
+                "max_agents": 2,
+                "a_new_setting": {"x": 1},
+                "extra_egress": [{
+                    "cidr": "198.51.100.0/24",
+                    "a_new_rule_field": true,
+                    "ports": [{"port": 443, "protocol": "TCP", "a_new_port_field": "y"}]
+                }]
+            },
+            "desired_agents": 2,
+            "live_agents": 1
+        }"#;
+        let info: AgentPoolInfo = serde_json::from_str(answer).unwrap();
+        assert_eq!(info.settings.memory_limit.as_deref(), Some("32Gi"));
+        assert_eq!(info.settings.max_agents, Some(2));
+        assert_eq!(info.settings.extra_egress[0].cidr, "198.51.100.0/24");
+        assert_eq!(info.settings.extra_egress[0].ports[0].port, 443);
+    }
+
+    /// CLOACINA-T-1149: the request and the response type write the same
+    /// JSON, and convert both ways with no loss.
+    #[test]
+    fn pool_request_and_response_types_write_the_same_json() {
+        let settings = AgentPoolSettings {
+            memory_limit: Some("32Gi".to_string()),
+            pod_labels: [("team".to_string(), "data".to_string())].into(),
+            extra_egress: vec![AgentEgressRule {
+                cidr: "198.51.100.0/24".to_string(),
+                ports: vec![AgentEgressPort {
+                    port: 443,
+                    protocol: Some("TCP".to_string()),
+                }],
+            }],
+            max_agents: Some(2),
+            ..Default::default()
+        };
+        let info = AgentPoolSettingsInfo::from(settings.clone());
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            serde_json::to_value(&info).unwrap()
+        );
+        assert_eq!(AgentPoolSettings::from(info), settings);
+        assert_eq!(
+            serde_json::to_string(&AgentPoolSettingsInfo::default()).unwrap(),
+            "{}"
+        );
     }
 }
