@@ -229,6 +229,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`cloacinactl key create --tenant <name>` makes a key of that tenant**
   (CLOACINA-T-1140). Before, `--tenant` was ignored and the key was made in
   `public`. Now the command calls `POST /v1/tenants/{name}/keys`.
+- **The `tracing` and `log` lines of a packaged Rust poll trigger are
+  written on the agent** (CLOACINA-T-1144). The agent opened the trigger's
+  library without the `CloacinaLog` binding, so its lines were lost. Now they
+  are written in the agent's log, in a span `poll` with the tenant, package,
+  trigger and poll id.
 
 ### Upgrade notes
 

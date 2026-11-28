@@ -2192,12 +2192,27 @@ pub(crate) async fn run_poll_job(
         return worker::tests::run_test_action(action, None).await;
     }
 
-    let trigger = match load_poll_trigger(&packet, &package, &work_dir).await {
-        Ok(trigger) => trigger,
-        Err(outcome) => return outcome,
-    };
-    started();
-    poll::run_poll(trigger, time_limit, packet.timeout_seconds).await
+    // CLOACINA-T-1144: the trigger's log lines carry the poll's ids, in the
+    // worker process or in the agent process, wherever the poll runs.
+    let span = tracing::info_span!(
+        "poll",
+        tenant = %packet.tenant_id.as_deref().unwrap_or("public"),
+        package = %packet.package_name,
+        trigger = %packet.trigger_name,
+        poll_id = %packet.poll_id,
+    );
+    tracing::Instrument::instrument(
+        async move {
+            let trigger = match load_poll_trigger(&packet, &package, &work_dir).await {
+                Ok(trigger) => trigger,
+                Err(outcome) => return outcome,
+            };
+            started();
+            poll::run_poll(trigger, time_limit, packet.timeout_seconds).await
+        },
+        span,
+    )
+    .await
 }
 
 /// The trigger of a poll. A Python package is imported into the per-build

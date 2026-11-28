@@ -105,6 +105,10 @@ lines it lets through.
   agent or its worker process, the server, or the embedded runner. Each line
   keeps its level and target, and the process's filter applies to it:
   `RUST_LOG=info` drops a `debug!` of the task.
+- Lines of a packaged Rust poll trigger polled on an agent, with the
+  `tracing` macros or the `log` crate. They carry the ids of the poll, the
+  fields of a span named `poll`: `tenant`, `package`, `trigger` and
+  `poll_id`.
 
 These lines do not carry the ids:
 
