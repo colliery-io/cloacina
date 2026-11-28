@@ -47,6 +47,8 @@ use crate::database::{AnyPool, BackendType, Database};
 pub mod agent_desired;
 #[cfg(feature = "postgres")]
 pub mod agent_limits;
+#[cfg(feature = "postgres")]
+pub mod agent_pool_scale;
 pub mod agent_pools;
 #[cfg(feature = "postgres")]
 pub mod api_keys;
@@ -83,6 +85,8 @@ pub mod ws_tickets;
 pub use agent_desired::AgentDesiredDAL;
 #[cfg(feature = "postgres")]
 pub use agent_limits::AgentLimitsDAL;
+#[cfg(feature = "postgres")]
+pub use agent_pool_scale::{AgentPoolScaleDAL, PoolScaleState};
 pub use agent_pools::AgentPoolsDAL;
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
@@ -185,6 +189,13 @@ impl DAL {
     #[cfg(feature = "postgres")]
     pub fn agent_desired(&self) -> AgentDesiredDAL<'_> {
         AgentDesiredDAL::new(self)
+    }
+
+    /// Returns the autoscaler's per-pool state DAL (Postgres only).
+    /// CLOACINA-T-1029.
+    #[cfg(feature = "postgres")]
+    pub fn agent_pool_scale(&self) -> AgentPoolScaleDAL<'_> {
+        AgentPoolScaleDAL::new(self)
     }
 
     /// Returns an API key DAL (Postgres only).

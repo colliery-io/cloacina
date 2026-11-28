@@ -24,6 +24,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     that role `WITH ADMIN OPTION`, or drop the role. Tenant delete drops the
     role. The number of connections per tenant per replica is unchanged (2).
 
+- **Agent keys of the Kubernetes actuator expire and are rotated**
+  (CLOACINA-T-1083). A key the actuator mints for a tenant's agents expires
+  after 30 days (`--agent-key-lifetime-days`). When 10 days are left
+  (`--agent-key-rotate-days`) the actuator mints a new key and every pool's
+  pods roll onto it. The old key is revoked only when every pool's rollout is
+  complete; before, it was revoked as soon as the Deployments were applied,
+  while old pods still used it. On the first reconcile after the upgrade each
+  tenant's agents move to an expiring key and roll once. Docker actuator keys
+  do not expire.
+  - A key a person creates takes an optional `expires_at` (`cloacinactl key
+    create --expires-at`); no default.
+  - An expired key is answered `401` with the code `key_expired`, also a
+    login key past its TTL, where the code was `unauthorized`.
+  - An agent logs its key's expiry when it registers, and a warning when less
+    than 10 days are left.
+
+- **Server: a run or an instance that binds an undeclared secret is refused**
+  (CLOACINA-T-1134). `POST .../workflows/{name}/execute` and
+  `POST .../workflows/{name}/instances` answer `400 secret_not_declared` when
+  the context or params bind a secret (`{"$secret": "<stored>"}`) under a name
+  the workflow's package does not declare. Before, the route accepted it and
+  each task of the run was refused the secret. A client that sends bindings
+  its package does not declare must drop them, or the package must declare
+  them (`secrets(...)`, `@cloaca.workflow_secrets(...)`).
+- **`cloacina-client`: `ClientError::Auth` and `ClientError::InvalidRequest`
+  keep the error code** (CLOACINA-T-1141). Each holds an `ApiErrorDetail`
+  with the server's `message` and its `code`, in place of a `String`.
+  `ClientError::code()` now gives the code of a 400, 401, 403 or 422 too.
+  The error text is unchanged. A caller that read the `String` reads
+  `detail.message` (or `detail.to_string()`); read the code to tell
+  refusals apart.
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task
@@ -91,6 +122,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `cloacina_fleet_worker_starts_total{start}` and
     `cloacina_fleet_warm_workers_retired_total{reason}`. An older server
     ignores the counts; an older agent sends none.
+- **Packages: the workflow plugin interface goes from version 7 to 8**
+  (`plugin_interface`). A Rust package built against the 0.12 crates does
+  not load on this server. Change the package's `cloacina` crate pins to the
+  new minor and publish it again. Python packages are not affected.
+- **API keys: a key request must name its role** (CLOACINA-T-1055).
+  `POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` answer 400 to
+  a request with no `role`; the server does not choose one
+  (`CreateKeyRequest.role`). Name the role in each key request.
+- **Package delete answers 404 for a missing version, and 409 while it
+  builds** (CLOACINA-T-1122).
+  `DELETE /v1/tenants/{tenant_id}/workflows/{name}/{version}` answered 200
+  when no package matched; it now answers `404 workflow_not_found`. A version
+  the compiler is building is refused with `409 package_building`, and
+  nothing is removed. A version in any other build state is removed with its
+  stored archives.
+- **Fleet: poll triggers run in worker processes** (CLOACINA-T-1143). An
+  agent runs each poll of a poll trigger in a worker process, as a task: with
+  the agent's memory share for a task with no request, and a kill of its
+  process group at `--fleet-poll-timeout-s`. Errors: `poll exceeded its memory
+  limit of <limit>`, `poll exceeded timeout of <n>s`. Warm workers keep a
+  poll's package loaded under a key of their own (kind `poll`): a task never
+  takes a poll's warm worker. A trigger's state in memory lasts as long as
+  its warm worker, so a trigger whose interval is longer than
+  `--warm-worker-idle-seconds` starts fresh at each poll. Measured on a debug
+  build, median of 20: a warm poll under 1 ms, a poll in a new worker 17 ms
+  (Rust) and 90 ms (Python).
+- **The waiting-task gauges carry a `priority` label** (CLOACINA-T-1123).
+  `cloacina_waiting_tasks` and `cloacina_oldest_waiting_task_age_seconds`
+  have one series per tenant, pool and workflow priority (`0` to `10`). A
+  query or alert that reads one series per pool now gets one per priority:
+  sum over `priority` for the figure of the pool, for example
+  `sum by (tenant, pool) (cloacina_waiting_tasks)`. For the oldest age, take
+  `max by (tenant, pool)`.
+- **The ageing interval of waiting work is a server flag** (CLOACINA-T-1123):
+  `--priority-aging-interval-s`, the `[server]` key `priority_aging_interval_s`
+  of `cloacinactl server start`, and still
+  `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`. A value of that variable that is
+  not a whole number of seconds now stops the server at start; before, it was
+  ignored with a warning.
+- **Fleet: each agent pool scales on the waiting work that does not fit**
+  (CLOACINA-T-1029). The autoscaler no longer scales on utilization:
+  `CLOACINA_AUTOSCALE_UP_THRESHOLD` and `CLOACINA_AUTOSCALE_DOWN_THRESHOLD`
+  no longer apply.
+  - Each tick, for each pool of each tenant, the waiting tasks are packed by
+    their CPU and memory requests onto the free room of the pool's agents,
+    then into new agents of the pool's size; the pool grows to hold them in
+    one step, up to its max.
+  - A pool goes back to its min when it has been idle (no task in flight,
+    none waiting) for `CLOACINA_AUTOSCALE_IDLE_S` (default 300 s).
+    `CLOACINA_AUTOSCALE_COOLDOWN_S` (60 s) is now the gap between two
+    scale-downs; a scale-up does not wait.
+  - A pool other than `default` may set `min_agents` below `max_agents`
+    (`cloacinactl tenant pool set ... --min-agents`); `0` lets it scale to
+    zero. A pool with no `min_agents` keeps `max_agents` agents, as before.
+  - New gauges per tenant and pool: `cloacina_fleet_pool_agents_desired`,
+    `_agents_ready`, `_cpu_requested_millis`, `_cpu_offered_millis`,
+    `_memory_requested_bytes`, `_memory_offered_bytes`, `_waiting_tasks`,
+    `_waiting_unplaceable_tasks`, and `cloacina_fleet_pool_scaled_total`.
+  - Migration 072 (Postgres) adds the table `agent_pool_scale`.
+- **Fleet: an agent drains on SIGTERM** (CLOACINA-T-1029). It takes no new
+  work, lets what it runs finish for `--drain-seconds` /
+  `CLOACINA_AGENT_DRAIN_SECONDS` (default 25 s), then hands the rest back:
+  those tasks are Ready again with the same attempt. Before, a stopped agent
+  dropped its work, which ran again after the stale-claim sweep. With
+  `CLOACINA_AGENT_DRAIN_S` set on the server, the Kubernetes actuator gives
+  its agents that drain time and sets the pods'
+  `terminationGracePeriodSeconds` to it plus 15 s; setting it rolls the agent
+  pods once.
+- **Schema guards: each schema records the release that migrated it, and
+  only the server migrates** (CLOACINA-T-1087). Migration 074 adds the table
+  `cloacina_schema_release`, written in the migration transaction.
+  - A server, an embedded runner or `cloacinactl daemon` on a schema more
+    than one minor ahead of it refuses to start (a tenant schema: is not
+    opened), and the error names both releases. On a schema exactly one
+    minor ahead it starts with no migration and logs a warning.
+  - `cloacina-compiler` runs no migration, with or without
+    `--tenant-schema`. On a schema that lacks migrations of its binary it
+    waits for the server, logging every 30 seconds, and exits after 10
+    minutes; on a schema too new it exits at once. A compiler that was the
+    first process on an empty database now needs a server to migrate it.
+  - The build role of a tenant compiler can read `__diesel_schema_migrations`
+    and `cloacina_schema_release` of its schema.
+  - A new migration must leave the previous minor's server working; CI fails
+    a new `up.sql` with a drop, a rename, `SET NOT NULL`, a `NOT NULL` column
+    without a default, a unique index or a constraint, unless the file has a
+    `-- compat:` line.
+- **Version skew: agents of the server's minor and the one before, and
+  dispatch by plugin interface version** (CLOACINA-T-1086). Migration 075
+  adds nullable columns to `fleet_agents` and `workflow_packages`.
+  - An agent sends its release and its plugin interface version at register.
+    The server accepts its own minor (up to its own patch) and the minor
+    before, and refuses others with `400 agent_version_unsupported` naming
+    both releases. An agent that sends no release counts as 0.12, so a 0.14
+    server refuses an agent from before this change. Upgrade the server
+    first, then the agents.
+  - A refused agent logs the server's message and registers again every 60
+    seconds. Every failed register now logs the server's code and message.
+  - The compiler records the plugin interface version of each Rust build; the
+    server sends such a package only to an agent of the same number, and the
+    task waits otherwise. Rust packages built before this change, and Python
+    packages, go to any agent.
+  - The protocol number is checked as a range.
+  - `/health` answers `{"status": "ok", "version": "<release>"}`, and every
+    answer has the header `x-cloacina-version`. `cloacinactl` warns once on
+    stderr when the server is of another minor; the server refuses no client
+    by version.
+- **Server: tenant code runs in the server process only with single trust**
+  (CLOACINA-T-1075). `--single-trust` / `CLOACINA_SINGLE_TRUST` / chart value
+  `server.singleTrust` is off by default. Off: the server loads each package
+  from the metadata document its compiler stored, opens no tenant library and
+  imports no tenant Python module; the executor is `fleet`, and
+  `--default-executor default` stops the start (the default of
+  `--default-executor` is now not set, where it was `"default"`). A package
+  with no metadata document does not load. On: packages load in process as
+  before, and `--default-executor default` is allowed, with a warning at
+  start. A server that ran tasks in its own process needs `--single-trust`,
+  or agents for each tenant. The daemon and embedded use are not changed.
+  - The chart fails at render unless it is told where tasks run:
+    `fleet.actuator=kubernetes`, `fleet.externalAgents=true` or
+    `server.singleTrust=true`. The values file of 0.12 renders only with one
+    of them added.
+- **Fleet: a graph firing that no agent takes fails with its reason**
+  (CLOACINA-T-1076). With the fleet executor the server no longer runs such a
+  firing in its own process: no owning package, no agent with room in the
+  tenant, a refusal of the agent or an enqueue error fails the firing, and
+  the failure is in the reactor's recent fires. A server that cannot build
+  the fleet graph executor at start does not start.
+- **Poll triggers run on the tenant's agents** (CLOACINA-T-1077). A package
+  with a poll trigger loads on a server that loads from metadata; each poll
+  is a work packet to an agent of the tenant, which answers fire or skip. A
+  poll with no answer fires nothing; the reason is in `last_poll_error`
+  (migration 068). New setting `--fleet-poll-timeout-s` (default 30). A
+  tenant with an active poll trigger keeps one agent.
+- **A task reads only the secrets its package declares** (CLOACINA-T-1081).
+  Any other name answers `secret not granted`, on agents and in the server
+  process. A package that declares no secret, or has no metadata document,
+  reads none; a package built before `secrets(...)` reads none until a new
+  version declares them. Each refusal by the server writes an audit row,
+  action `secret.refused`.
+- **Colliding tenant names are refused** (CLOACINA-T-1070). `POST
+  /v1/tenants` answers `409 tenant_namespace_taken` for a name whose
+  Kubernetes namespace another tenant has (`team_a`, `team__a`, `Team_A`,
+  `team_a_`, or names alike in their first 47 characters). Tenants that
+  exist do not move.
+- **Chart: network policies close the API port and bundled Postgres by
+  default; bundled Postgres gets a generated password** (CLOACINA-T-1069).
+  `server.networkPolicy.enabled` and `postgresql.networkPolicy.enabled` are
+  new and `true`. On a CNI that enforces NetworkPolicy, the API port admits
+  only the server pods and, with `fleet.actuator=kubernetes`, the managed
+  agents: list the ingress controller or gateway, agents you run yourself and
+  tools in `server.networkPolicy.from`. The chart compiler's port admits
+  nobody (`compiler.networkPolicy.from`); bundled Postgres admits the server
+  and the compilers (`postgresql.networkPolicy.from`). The default of
+  `postgresql.auth.password` is now empty: a new install gets a generated
+  password kept in the Secret `<release>-postgresql`; an install that kept
+  the old default keeps its password. With `fleet.networkPolicy.enabled` and
+  the Kubernetes actuator, the server does not start when it cannot write the
+  agent NetworkPolicy. The agent takes `--ca-file` /
+  `CLOACINA_AGENT_CA_FILE`.
 
 ### Fixed
 
@@ -104,6 +294,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs, and its lines are still lost. The plugin interface stays at version
   8: the lines go through a new host interface, `CloacinaLog`, that the host
   binds by name, and a package that does not import it is not refused.
+- **`cloacinactl key create --tenant <name>` makes a key of that tenant**
+  (CLOACINA-T-1140). Before, `--tenant` was ignored and the key was made in
+  `public`. Now the command calls `POST /v1/tenants/{name}/keys`.
+- **The `tracing` and `log` lines of a packaged Rust poll trigger are
+  written on the agent** (CLOACINA-T-1144). The agent opened the trigger's
+  library without the `CloacinaLog` binding, so its lines were lost. Now they
+  are written in the agent's log, in a span `poll` with the tenant, package,
+  trigger and poll id.
+
+### Upgrade notes
+
+- **Database migrations 051 to 075.** The server applies them at start:
+  `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
+  `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,
+  `073`, `074`, `075` (Postgres and SQLite) and `071`, `072` (Postgres
+  only). Back up the database before the upgrade; there is no downgrade,
+  restore the backup to go back.
+- **Upgrade order** (CLOACINA-T-1087, CLOACINA-T-1046): back up the
+  database; scale the compilers to zero and pause package uploads; roll the
+  server; start the compilers again; then the agents; then `cloacinactl` and
+  the SDKs. A compiler of the previous minor during the roll is not covered.
+- **Stored secrets are rewritten bound to their tenant and name at the first
+  start** (CLOACINA-T-1071). With `CLOACINA_SECRET_KEK` set, the new server
+  rewrites the secrets of `public` and of each tenant schema once, one
+  transaction per schema, under the migration lock. A replica of the previous
+  version cannot read a rewritten secret: scale the old replicas to zero
+  before the new one starts. The previous version cannot read rewritten
+  secrets after a rollback: restore the backup, or create the secrets again.
+  An embedded program that stores secrets with `SecretStore` calls
+  `SecretStore::bind_stored_rows(org_id, kek)` once for each `org_id` before
+  it reads them.
+- **The bootstrap key runs when no live platform admin key exists**
+  (CLOACINA-T-1065), even when tenant keys exist. Rotate the bootstrap key
+  with `cloacinactl key create <name> --platform-admin`, revoke the old key,
+  then drop `CLOACINA_BOOTSTRAP_KEY` (chart: `apiKeySecretRef`) or give it a
+  new value. A value that was used before fails the start. The last live
+  platform admin key cannot be revoked (`409`).
+- **From 0.12, active packages:** migration 052 makes the active version of
+  a package the newest that is not superseded and whose build succeeded.
+  The servers of 0.12 read it as the newest that is not superseded; with no
+  uploads during the roll the two read the same version.
+- **Chart: `/metrics` moves off the API port** (CLOACINA-T-1025,
+  CLOACINA-T-1032). `metrics.enabled` is `true` by default: the server serves
+  `/metrics` on `metrics.port` (9090) through the Service
+  `<fullname>-metrics`, and the API port answers 404 for it. Scrape the
+  metrics Service, and add your Prometheus pods to
+  `metrics.networkPolicy.from`: until then the NetworkPolicy refuses the
+  scrape. `metrics.enabled=false` keeps `/metrics` on the API port.
 
 ## [0.12.0] - 2026-10-13
 

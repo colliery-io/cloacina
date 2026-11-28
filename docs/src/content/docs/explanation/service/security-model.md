@@ -54,7 +54,7 @@ On a server, tenant code runs only on the tenant's agents and in the tenant's co
 - **`public` is a tenant like the others.** Its packages load the same way.
 - **A package with no document does not load.** A package that is not described yet waits for its compiler; the workflow detail gives `not_loaded_reason`. A package its compiler could not describe has `describe_error` and does not load until it is built again.
 - **The reactive layer is mostly data.** A reactor is a name, accumulators and a mode. An accumulator is code of the server picked by its type (`passthrough`, `batch`, `state`); the function an author decorates is not called. So reactors and graphs load from the document, Python ones too, and each graph firing goes to an agent.
-- **A poll trigger's code runs on an agent of its tenant.** The server's scheduler decides a poll is due and sends a poll packet to an agent of the tenant; the agent loads the package, calls the trigger and answers fire, with the trigger's context, or skip. The server fires the workflow on a fire. The server never calls the trigger. Each poll is one dispatch, and a tenant with a poll trigger keeps one agent running (see [the fleet page](../execution-agent-fleet/#poll-triggers-on-agents)).
+- **A poll trigger's code runs on an agent of its tenant.** The server's scheduler decides a poll is due and sends a poll packet to an agent of the tenant; a worker process of the agent loads the package and calls the trigger, held to a memory limit and killed at the poll time limit, and the agent answers fire, with the trigger's context, or skip. The server fires the workflow on a fire. The server never calls the trigger. Each poll is one dispatch, and a tenant with a poll trigger keeps one agent running (see [the fleet page](../execution-agent-fleet/#poll-triggers-on-agents)).
 - **A package whose code would have to run in the server is refused** (CLOACINA-T-1078). The compiler records the list in the document, and the server checks it again at load:
   - a stream accumulator whose provider is native: the provider is a library opened by the process that runs the accumulator;
   - a Python polling accumulator: its poll function runs at each interval;
@@ -89,6 +89,7 @@ The cache is **per replica**. Each way a key is revoked sends a revocation notic
 - `POST /v1/auth/logout`
 - `POST /v1/auth/refresh`: the rotated-out key, and the key it revokes when the account is no longer active or the login session is over (CLOACINA-T-1128)
 - tenant delete, `DELETE /v1/tenants/{name}`: every key of the tenant (CLOACINA-T-1095)
+- the fleet actuator, when it revokes agent keys: a stopped Docker container's key, and on Kubernetes the tenant's old key after a rotation or a replacement (CLOACINA-T-1083)
 
 Every server listens and clears its whole key cache when a notice arrives, and again each time its listener connects. So:
 
@@ -96,7 +97,18 @@ Every server listens and clears its whole key cache when a notice arrives, and a
 
 A notice that cannot be sent does not fail a key revoke, a logout or a refresh: the key is revoked in the database, a warning is logged, and other replicas refuse it within the TTL. Tenant delete answers `500` in that case, and a second delete sends it again.
 
-The expiry of a minted login key sends no notice: an expired key is refused on a cache miss, so it can pass on a replica that cached it for at most 30 seconds after it expires.
+An expiry sends no notice and needs none: each replica's key cache drops an entry whose `expires_at` has passed, so an expired key is refused on every replica at once. It is answered `401` with the code `key_expired`; an unknown or revoked key is answered `401` with the code `unauthorized`.
+
+#### Key expiry
+
+A key can have an expiry (`expires_at`). After it the key is refused on every route.
+
+- **Keys a person creates.** `POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` take an optional `expires_at`, an RFC 3339 time in the future. There is no default: a key created with no `expires_at` does not expire. This holds for every role. The bootstrap key has no expiry.
+- **Login keys** (local accounts and OIDC) expire after the session TTL; see [Session lifecycle](#session-lifecycle-mint-refresh-logout).
+- **Agent keys of the Kubernetes actuator** expire 30 days after they are minted (`--agent-key-lifetime-days`). When 10 days are left (`--agent-key-rotate-days`), the next reconcile mints a new key for the tenant, writes it to the Secret `cloacina-agent-key`, and names it on every pool's pod template, so every pool's pods roll onto it. The agent does not ask for a key: the actuator rotates.
+- **The old agent key is revoked only after the rollout.** The old pods hold the old key until Kubernetes replaces them. The actuator revokes it on the first reconcile after which every pool's rollout is complete: every replica runs the new pod template and is available, and no pod of the old template is left. Until then the old key stays valid; if a rollout never completes, the old key expires. This holds for every key replacement, also one for a key that was revoked or of the wrong role.
+- **Agent keys of the Docker actuator** have no expiry. Each container has its own key, revoked when the container stops; the Docker actuator is for a single user.
+- **Hand-started agents.** An agent logs the expiry of its key when it registers, and a warning when less than 10 days are left. The operator creates a new key of role `agent` before then and restarts the agent with it; see [Manage API Keys](../../../how-to/service/manage-api-keys/#keys-that-expire).
 
 This is a deliberate trade, not an oversight:
 
@@ -117,7 +129,7 @@ A key carries two pieces of authority: a **role** inside one tenant, and the **p
   - `write`: `read`, plus upload packages, run workflows, operate triggers, fire and pause reactors, inject into accumulators.
   - `admin`: `write`, plus the keys, local accounts, secrets, audit record and fleet size of its tenant.
   - `agent`: act as an execution agent, and nothing else. It cannot read the tenant's workflows, executions or events.
-- The **platform admin flag** passes every tenant check and every platform route: create and delete tenants, the global key routes, agent limits, agent pools. It grants every permission except `agent.act`: a key with the flag cannot register as an agent or take an agent's stream. The bootstrap key made on first start has the flag. No route makes a second key with the flag.
+- The **platform admin flag** passes every tenant check and every platform route: create and delete tenants, the global key routes, agent limits, agent pools. It grants every permission except `agent.act`: a key with the flag cannot register as an agent or take an agent's stream. The bootstrap key made on first start has the flag. A platform admin makes another key with the flag through `POST /v1/auth/keys` with `"platform_admin": true` (`cloacinactl key create --platform-admin`): no tenant, role `admin`, no expiry. No other route makes one. The server refuses to revoke the last live platform admin key (`409`).
 
 A key's role string that is not one of the four holds no permission: the key authenticates and every route answers `403`. The server logs each such key at start.
 
@@ -318,6 +330,14 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 - **An unknown role grants nothing.** A stored key or local account whose role is not one of the four read as `read`; it is now refused on every route.
 - **The bootstrap key cannot act as an agent.**
 
+### Upgrading to agent key expiry
+
+- **Kubernetes agents move to an expiring key once.** A tenant's agent key from before has no expiry. On its first reconcile after the upgrade the actuator mints a key that expires, and every pool's agent Deployment rolls once. The old key is revoked when every pool's rollout is complete. Every key the actuator mints from then on expires and is rotated.
+- **An old key stays valid until the rollout is complete.** Before, the actuator revoked the old key as soon as it had applied the Deployments, while old pods still used it. Now it waits for every pool's rollout.
+- **Docker keys, keys a person created, and the bootstrap key** do not change: they have no expiry.
+- **A client that reads the `401` code** sees `key_expired` for an expired key, also a login key past its TTL, where it saw `unauthorized` before.
+- **No migration.** The `api_keys.expires_at` column exists already.
+
 ### Authenticating: identity providers
 
 A bearer key is always the *subject* the matcher evaluates, but there are three ways to obtain one:
@@ -330,20 +350,26 @@ In every case the result is an ordinary bearer key; authorization does not care 
 
 ### Session lifecycle: mint, refresh, logout
 
-Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`); directly-created API keys have neither and never expire.
+Minted keys (local + OIDC) carry an `expires_at` and an `issued_via` provenance (`local:<account_id>` or `oidc:<issuer>:<sub>`). Directly-created API keys have no provenance, and an expiry only when their creator gave one ([Key expiry](#key-expiry)).
 
-- **Refresh** — `POST /v1/auth/refresh` re-checks that the underlying account / identity is still valid, mints a fresh key, and revokes the old one. The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
+- **Refresh** — `POST /v1/auth/refresh` mints a fresh key and revokes the old one. For a local account it first checks that the account is still active. For an OIDC login it runs the current allowlist on the claims stored at login, and once an hour it reads the groups again at the IdP when the IdP gave a refresh token (see [What bounds an OIDC session](#what-bounds-an-oidc-session)). The UI calls this silently before a key's TTL lapses, so a session survives without storing a long-lived credential in the browser. Refresh is *authenticated*: it presents the current, still-valid key. A key that has already lapsed cannot be refreshed — the browser must sign in again, which is why the UI refreshes on a timer rather than on demand.
 - **Logout** — `POST /v1/auth/logout` revokes the caller's key, deletes the server-side login session, and sends the revocation notice, so every replica clears its auth cache.
 
-A refreshed key is **re-minted with exactly the scope the original login resolved to** — tenant and role are read from the stored key record, not from anything the caller sends — and the mint path takes no `is_admin` argument at all. A refresh therefore cannot broaden a session's authority, and god-mode remains unreachable through any login flow.
+A refreshed key keeps the tenant of the key it replaces, and its role comes from the server's own records, never from anything the caller sends: the stored key for a local account, the current allowlist run on the stored login claims for OIDC. The mint path takes no `is_admin` argument at all, so god-mode remains unreachable through any login flow.
 
 #### What bounds an OIDC session
 
 Each OIDC sign-in opens a **server-side login session** with an absolute deadline (`CLOACINA_OIDC_SESSION_MAX_AGE_S`, default 8 hours). Refresh rotates the 15-minute key inside that window; it never extends the deadline. Past it, refreshing fails and the user goes through the full OIDC flow again — which re-checks the identity at the IdP *and* re-resolves the current allowlist.
 
-Cloacina deliberately does **not** spend the IdP's own refresh token on each refresh. Doing so would require `offline_access` (not universally granted), would put the IdP on the hot path of every session in the deployment, and would mean taking custody of a long-lived credential — the very thing short-TTL minted keys exist to avoid. The cost of the simpler design is that a user deactivated *at the IdP* keeps their cloacina session until the absolute deadline expires. Deployments where the IdP is the authority on employment status should lower `CLOACINA_OIDC_SESSION_MAX_AGE_S` accordingly (e.g. `3600` for same-hour offboarding); disabling the corresponding local account or revoking the key cuts a session off immediately, subject to the 30-second cross-replica window above.
+The login session stores the login's claims (`sub`, `email`, `email_verified`, `groups`). Each refresh runs the current `CLOACINA_OIDC_MAP` on them: a lower role applies to the new key, and a tenant the identity no longer maps to ends that session. The map is read at start, so a map change applies without downtime: a rolling restart, then live sessions follow at their next refresh. Sessions opened before this release have no stored claims and keep their role to their deadline.
 
-The `oidc_sessions` table retains an encrypted (AES-256-GCM) column for IdP refresh material for deployments that later opt into token custody; it is unused — and NULL — by default.
+When the IdP gave a refresh token at login and `CLOACINA_SECRET_KEK` is set, the server keeps that token in `oidc_sessions.refresh_enc`, AES-256-GCM with associated data `cloacina:oidc-refresh:v1:<login_id>`, so it decrypts only for its own login. Once per `CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S` (default one hour) one refresh of the login spends it at the token endpoint and reads the groups again. The IdP is on the path once an hour per login, not at every refresh.
+
+- The IdP refuses the token: the session ends.
+- The IdP cannot be reached: the session keeps its last claims and runs to its deadline, with a warning in the log.
+- No refresh token, or no KEK: the groups are read at login only, and the deadline bounds a group removal. Lower `CLOACINA_OIDC_SESSION_MAX_AGE_S` (for example `3600`) for a tighter bound.
+
+Disabling a local account or revoking the key cuts a session off immediately, subject to the 30-second cross-replica window above.
 
 OIDC in-flight login state (the `state` / nonce / PKCE verifier between the redirect and the callback) and the login session itself both live in Postgres, so refresh and the callback can land on any replica — no sticky sessions.
 
@@ -383,11 +409,14 @@ Object- or workflow-level authorization *within* a tenant is a deliberate non-go
 
 ### Bootstrap key invariants
 
-The first server startup is a chicken-and-egg situation — there's no key yet, and you need a key to create one. Cloacina solves it by **generating an `is_admin` bootstrap key on first startup if no API keys exist in the database**, writing the plaintext to `~/.cloacina/bootstrap-key` (mode 0600) exactly once.
+The first server startup is a chicken-and-egg situation — there's no key yet, and you need a key to create one. Cloacina solves it by **making an `is_admin` bootstrap key at a start when no live platform admin key exists**: no unrevoked, unexpired key with `is_admin = true`. Tenant keys do not count. The server writes the plaintext to `bootstrap-key` in its home (`~/.cloacina/bootstrap-key`, mode 0600).
 
-The invariant: the file is written *exactly* once. If `~/.cloacina/bootstrap-key` already exists, the server refuses to overwrite it. This prevents the "I restarted the server and now I have a different admin key in the file" surprise that would otherwise be a confusing footgun. Operators who lose the file must read the existing key from the database directly.
+- The file is written at each bootstrap, over an older file. A start that finds a live platform admin key writes nothing.
+- The database holds only a hash of the key. A lost file cannot be read back from it.
+- With `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) the server uses that value for the key and writes it to the file as well. A value that was used before cannot be used again, even after a revoke: the start fails and says to set a new value.
+- In the Helm chart the home is an `emptyDir`: the file is lost when the pod restarts. Read it from the pod that logged `Bootstrap admin key written`, or pin the key in a Secret (`apiKeySecretRef`), then rotate it.
 
-In production, set `--bootstrap-key` (or `CLOACINA_BOOTSTRAP_KEY`) to pin the initial key from a secrets manager rather than relying on the auto-generated path — the file write is then skipped.
+Rotate the bootstrap key after the first start: make a second platform admin key, store it, and revoke the bootstrap key. No restart is needed. If every platform admin key is lost, revoke the admin rows in the database and restart: the bootstrap runs again and tenant keys keep working. [Configure a multi-tenant deployment](../../../how-to/service/configure-multi-tenant-deployment/#5-rotate-the-bootstrap-key) gives the steps.
 
 ## Package signature verification
 
@@ -610,7 +639,28 @@ A task runs on a `cloacina-agent` of its own tenant, in a worker process of the 
 - **Secrets.** A task receives the secrets its package declares, through the run's `$secret` bindings, unwrapped by the agent for that one execution. The server sends no other secret: a dispatch whose context names a secret the package does not declare is refused, with an audit row (`secret.refused`), and the agent refuses any name the work packet does not carry. The bindings are the caller's: a task cannot change them for a later task. A package with no declaration (no metadata document, or one built before `secrets(...)`) receives no secret. The agent hands the secrets to the task's worker process over a pipe: they are not in the worker's arguments or environment, and the agent does not log them. A worker holds the secrets of the task it runs. In a warm worker the next task gets only its own secrets: the worker overwrites the line that carried a task's secrets once it has read it, and drops the task's secrets when the task ends. The memory they were in is not overwritten, and the next task is code of the same package and tenant: package code that keeps a secret in a global keeps it for the next task of the worker. Inline tasks of one tenant that run on the same agent share its memory, so a task can find another running inline task's unwrapped secrets there.
 - **The files of other tasks.** Each worker has a temporary directory of its own, which the agent empties after each task and removes when the worker ends. Every worker of an agent runs as the same user, so a task can read the files of another task that runs at the same time, and the agent's package cache.
 
+### What a stored secret is bound to
+
+One key-encryption key (`CLOACINA_SECRET_KEK`) wraps each tenant's data key, and the data key encrypts the tenant's secrets (AES-256-GCM). Each ciphertext carries associated data: the wrapped data key is bound to its tenant (`cloacina:dek:v1:<org_id>`), and a secret's value to its tenant and its name (`cloacina:secret:v1:<org_id>:<name>`). A person with write access to the database who copies a data key or a secret row into another tenant's schema, or to another secret name, gets a row that does not decrypt. The binding does not stop that person from deleting rows, or from putting back a row of the same tenant and name from a backup. Signing keys and the OIDC refresh column are wrapped under the same key-encryption key with no associated data.
+
 For the operational mechanics — how to provision tenants, how to safely decommission them, how to rotate per-tenant credentials — see the [Multi-tenancy explanation](../multi-tenancy/) and the multi-tenant how-tos under `/service/how-to/`.
+
+## Traffic in transit and the network
+
+**The server ends no TLS.** `cloacina-server` listens on plain HTTP. TLS ends in the cluster, in a service mesh with mTLS or in a gateway in front of the server; the operator provides it (CLOACINA-T-1069). Without one, every bearer key, task context and package crosses the cluster network in clear text:
+
+- **Encrypted with an ingress or gateway:** clients outside the cluster to the ingress; agents that reach the server by an `https://` URL.
+- **Encrypted only with a mesh:** the reactor inject that one server replica forwards to another, sent to a pod IP.
+- **Encrypted as the URL sets:** the server and compiler connections to Postgres. The chart's bundled Postgres is not set up for TLS.
+- **Encrypted by the server's TLS client:** its calls to the identity provider, the Kubernetes API and an `https://` alert webhook.
+
+The agent trusts the system roots of its image, and a private CA given with `--ca-file` (`CLOACINA_AGENT_CA_FILE`). See [Transport Security](../../../how-to/service/transport-security/) for what a mesh or a gateway must do.
+
+**Who can reach which port.** The Helm chart closes its ports with NetworkPolicies by default: the API port is open to the server pods, the agents the server makes and `server.networkPolicy.from`; the metrics port to `metrics.networkPolicy.from`; the chart compiler's port to `compiler.networkPolicy.from` (nobody by default); bundled Postgres to the server and the compilers. A tenant's agents reach only DNS and the server's API port; its compiler, DNS, the database, the server and its build egress. The policies are a second line behind authentication: every API route still checks its key. They take effect only on a CNI that enforces NetworkPolicy, and they do not limit the server's own egress.
+
+**The agent policy is checked at start.** With the Kubernetes actuator and `fleet.networkPolicy.enabled`, a server that cannot write the tenant NetworkPolicy (the server endpoint variables unset, or no RBAC for `create`, `patch` and `delete` on `networkpolicies`) does not start. It does not run agents without their policy.
+
+**Bundled Postgres has a generated password.** An empty `postgresql.auth.password` makes the chart generate one and keep it in a Secret; the server and compiler manifests read it from the Secret and do not hold it.
 
 ## `/metrics` and `/health` posture
 
@@ -621,7 +671,7 @@ The Prometheus `/metrics` endpoint and the `/health` + `/ready` probes are **una
 
 When the server binary is started with no `--metrics-bind`, `/metrics` is on the API port. Every client that can reach the API can read it, and that includes each tenant's execution agents. Metric labels hold tenant names, workflow names and other names that tenants choose (graphs, reactors, accumulators, sources), so one tenant's code can read another tenant's names.
 
-Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer. The Helm chart does both by default: `metrics.enabled` and `metrics.networkPolicy.enabled` are `true`, so a chart install has the metrics port, a ClusterIP Service for it, and a NetworkPolicy that admits only the peers listed in `metrics.networkPolicy.from` (nobody until you list your Prometheus). The NetworkPolicy takes effect only on a CNI that enforces NetworkPolicy. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
+Deployments where this is unacceptable should start the server with `--metrics-bind <ADDR>` (env `CLOACINA_METRICS_BIND`). `/metrics` is then served only on that address, the metrics listener serves nothing else, and the API port answers 404 for `/metrics`. Limit who can reach the metrics address at the network layer. The Helm chart does both by default: `metrics.enabled` and `metrics.networkPolicy.enabled` are `true`, so a chart install has the metrics port, a ClusterIP Service for it, and a NetworkPolicy that admits to it only the peers listed in `metrics.networkPolicy.from` (nobody until you list your Prometheus). The NetworkPolicy takes effect only on a CNI that enforces NetworkPolicy. The scrape itself stays unauthenticated. `cloacina-compiler` has the same flag (`--metrics-bind`, env `CLOACINA_COMPILER_METRICS_BIND`).
 
 `/ready` gives a fixed `reason` (`database unreachable`, or `python runtime unavailable; restart required`). The package that wedged the Python runtime is named in the server log only.
 

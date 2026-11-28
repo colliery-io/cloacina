@@ -258,6 +258,14 @@ jobs:
           python3 scripts/check_sdk_coverage.py
           python3 scripts/check_sdk_versions.py
 
+      # CLOACINA-T-1087: a migration leaves the previous minor's server
+      # working (no drop, rename, NOT NULL without default or unique index
+      # without a `-- compat:` line). Stdlib-only script.
+      - name: Migration compat lint
+        run: |
+          python3 scripts/check_migration_compat.py --self-test
+          python3 scripts/check_migration_compat.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

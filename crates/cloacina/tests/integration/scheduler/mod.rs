@@ -19,6 +19,8 @@ mod cron_basic;
 mod cron_recovery;
 // mod cron_scheduling; // Temporarily disabled - needs updating
 mod dependency_resolution;
+#[cfg(feature = "postgres")]
+mod priority_dispatch;
 mod reactor_predicate;
 mod stale_claims;
 mod trigger_rules;
