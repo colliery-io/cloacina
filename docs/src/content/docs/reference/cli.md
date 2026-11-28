@@ -365,6 +365,18 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
                           [--python-uv-cache-dir <DIR>]
                           [--python-offline]
                           [--uv <PATH>]
+                          [--tenant-schema <SCHEMA>]
+                          [--build-target <TRIPLE>]
+                          [--build-target-package <NAME>]
+                          [--cargo-flag <FLAG>]... | [--cargo-flags-replace <FLAG>]...
+                          [--cargo-target-dir <DIR>]
+                          [--vendor-dir <DIR>]
+                          [--dev-workspace <DIR>]
+                          [--build-rlimit-cpu <SECONDS>]
+                          [--build-rlimit-mem <SIZE>]
+                          [--build-rlimit-files <N>]
+                          [--build-rlimit-procs <N>]
+                          [--log-retention-days <DAYS>]
 ```
 
 | Flag | Default | Description |
@@ -384,23 +396,42 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
 | `--python-uv-cache-dir <DIR>` | `uv`'s own | The cache folder of `uv` (env `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`). |
 | `--python-offline` | off | Vendor with no network (env `CLOACINA_COMPILER_PYTHON_OFFLINE`). |
 | `--uv <PATH>` | `uv` on `PATH` | The `uv` program (env `CLOACINA_UV`). |
+| `--tenant-schema <SCHEMA>` | (none: `public`) | Build only this tenant's packages; run one compiler per tenant (env `CLOACINA_TENANT_SCHEMA`). |
+| `--build-target <TRIPLE>` | (none: the primary compiler) | Run as a per-target compiler that builds for this triple (env `CLOACINA_BUILD_TARGET`). |
+| `--build-target-package <NAME>` | (none) | With `--build-target`: build only this package (env `CLOACINA_BUILD_TARGET_PACKAGE`). |
+| `--cargo-flag <FLAG>` | (none) | A cargo flag added to the default list; repeat it. Write a value that starts with `-` as `--cargo-flag=<value>`. Not with `--cargo-flags-replace`. |
+| `--cargo-flags-replace <FLAG>` | (none) | The whole cargo flag list, defaults replaced, starting with the subcommand (usually `build`); repeat it. |
+| `--cargo-target-dir <DIR>` | the package's own `target/` | A shared cargo target folder for package builds. |
+| `--vendor-dir <DIR>` | `~/.cargo` | `CARGO_HOME` of the cargo build: a vendored cargo home (env `CLOACINA_COMPILER_VENDOR_DIR`). |
+| `--dev-workspace <DIR>` | (none) | Dev only: a local cloacina workspace that builds patch to (env `CLOACINA_COMPILER_DEV_WORKSPACE`). |
+| `--build-rlimit-cpu <SECONDS>` | (none) | `RLIMIT_CPU` of the cargo build, Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_CPU`). |
+| `--build-rlimit-mem <SIZE>` | `4G` | `RLIMIT_AS` of the cargo build: bytes, or a size with `K`, `M` or `G`; Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_MEM`). |
+| `--build-rlimit-files <N>` | `1024` | `RLIMIT_NOFILE` of the cargo build, Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_FILES`). |
+| `--build-rlimit-procs <N>` | `256` | `RLIMIT_NPROC` of the cargo build, Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_PROCS`). |
+| `--log-retention-days <DAYS>` | `14` | Daily log files to keep; `0` keeps all. |
 
-The unpack limit and the Python settings are taken in three ways: a flag,
-the env var, or a key of `[compiler]` in `config.toml` (`max_unpacked_bytes`,
-`python_platforms`, `python_version`, `python_index_url`, `python_wheel_dir`,
-`python_uv_cache_dir`, `python_offline`, `uv`). The order is flag, env var,
-`config.toml`; a setting that none of them gives is not forwarded. See
+Each of these settings, but `--bind`, `--metrics-bind`, `--database-url` and
+the four intervals, is taken in three ways: a flag, the env var where the
+compiler has one, or a key of `[compiler]` in `config.toml`
+(`max_unpacked_bytes`, `python_platforms`, `python_version`,
+`python_index_url`, `python_wheel_dir`, `python_uv_cache_dir`,
+`python_offline`, `uv`, `tenant_schema`, `build_target`,
+`build_target_package`, `cargo_flags`, `cargo_flags_replace`,
+`cargo_target_dir`, `vendor_dir`, `dev_workspace`, `build_rlimit_cpu`,
+`build_rlimit_mem`, `build_rlimit_files`, `build_rlimit_procs`,
+`log_retention_days`). The order is flag, env var, `config.toml`; a setting
+that none of them gives is not forwarded, and `cloacina-compiler` uses its
+default. Cargo flag additions and a replacement cannot both be given, by
+flags or by keys: `compiler start` stops with a message that names both. See
 [Run cloacina-compiler in Production](../../how-to/service/running-the-compiler/)
-for what each Python setting does.
+for what each setting does.
 
-The other flags of `cloacina-compiler` are not flags of `compiler start`:
-`--tenant-schema`, `--build-target`, `--build-target-package`,
-`--cargo-flag`, `--cargo-flags-replace`, `--cargo-target-dir`,
-`--build-timeout-s`, `--describe-timeout-s`, `--vendor-dir`, `--dev-workspace`, the four
-`--build-rlimit-*` flags and `--log-retention-days`. Set the ones that have
-an env var through the environment, which `cloacina-compiler` inherits, or
-run `cloacina-compiler` itself. A test of `cloacinactl` holds this list: a new
-flag of `cloacina-compiler` must be added to `compiler start` or to it.
+Two flags of `cloacina-compiler` are not flags of `compiler start`: its time
+limits `--build-timeout-s` and `--describe-timeout-s`. Set them through
+their env vars (`CLOACINA_COMPILER_BUILD_TIMEOUT_S`,
+`CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S`), which `cloacina-compiler` inherits,
+or run `cloacina-compiler` itself. A test of `cloacinactl` holds this list: a
+new flag of `cloacina-compiler` must be added to `compiler start` or to it.
 
 `cloacina-compiler` vendors the dependencies of a Python package that is
 published with a `requirements.lock` and no `vendor/` folder. Its settings
@@ -943,6 +974,17 @@ local_addr = "127.0.0.1:9000"
 # python_uv_cache_dir = "/var/cache/uv"
 # python_offline = false
 # uv = "uv"
+# tenant_schema = "team_a"
+# build_target = "x86_64-linux"
+# build_target_package = "etl"
+# cargo_flags = ["--locked"]                # or cargo_flags_replace, not both
+# cargo_target_dir = "/var/cache/cargo-target"
+# vendor_dir = "/opt/cargo-home"
+# build_rlimit_cpu = 600
+# build_rlimit_mem = "4G"
+# build_rlimit_files = 1024
+# build_rlimit_procs = 256
+# log_retention_days = 14
 
 # Additional package directories for the daemon (~ expansion supported).
 [watch]

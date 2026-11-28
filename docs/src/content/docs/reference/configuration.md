@@ -392,11 +392,26 @@ start`, which forwards them to the `cloacina-compiler` binary:
 | `compiler.python_uv_cache_dir` | not set | The cache folder of `uv`. Forwarded as `--python-uv-cache-dir`. |
 | `compiler.python_offline` | not set | `true`: vendor with no network. Forwarded as `--python-offline`. |
 | `compiler.uv` | not set | The `uv` program. Forwarded as `--uv`. |
+| `compiler.tenant_schema` | not set | Build only this tenant's packages. Forwarded as `--tenant-schema`. |
+| `compiler.build_target` | not set | Run as a per-target compiler for this triple. Forwarded as `--build-target`. |
+| `compiler.build_target_package` | not set | With `build_target`: build only this package. Forwarded as `--build-target-package`. |
+| `compiler.cargo_flags` | `[]` | Cargo flags added to the default list. Each one is forwarded as `--cargo-flag=<flag>`. Not with `cargo_flags_replace`. |
+| `compiler.cargo_flags_replace` | `[]` | The whole cargo flag list, defaults replaced. Each one is forwarded as `--cargo-flags-replace=<flag>`. |
+| `compiler.cargo_target_dir` | not set | A shared cargo target folder. Forwarded as `--cargo-target-dir`. |
+| `compiler.vendor_dir` | not set | `CARGO_HOME` of the cargo build. Forwarded as `--vendor-dir`. |
+| `compiler.dev_workspace` | not set | Dev only: a local cloacina workspace. Forwarded as `--dev-workspace`. |
+| `compiler.build_rlimit_cpu` | not set | `RLIMIT_CPU` of the cargo build, CPU-seconds. Forwarded as `--build-rlimit-cpu`. |
+| `compiler.build_rlimit_mem` | not set | `RLIMIT_AS` of the cargo build, a string: bytes, or a size with `K`, `M` or `G`. Forwarded as `--build-rlimit-mem`. |
+| `compiler.build_rlimit_files` | not set | `RLIMIT_NOFILE` of the cargo build. Forwarded as `--build-rlimit-files`. |
+| `compiler.build_rlimit_procs` | not set | `RLIMIT_NPROC` of the cargo build. Forwarded as `--build-rlimit-procs`. |
+| `compiler.log_retention_days` | not set | Daily log files to keep; `0` keeps all. Forwarded as `--log-retention-days`. |
 
 Each key has a flag of the same name on `cloacinactl compiler start`
-(`python_platforms` is `--python-platform`) and the env var of the compiler
-setting. Precedence: flag > env var > `config.toml` `[compiler]` > the
-compiler's default.
+(`python_platforms` is `--python-platform`, `cargo_flags` is `--cargo-flag`)
+and the env var of the compiler setting where it has one. Precedence: flag >
+env var > `config.toml` `[compiler]` > the compiler's default. The compiler's
+time limits `--build-timeout-s` and `--describe-timeout-s` have no key: set
+their env vars or run `cloacina-compiler` itself.
 
 ## Environment Variables
 
