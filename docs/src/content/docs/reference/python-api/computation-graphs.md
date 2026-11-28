@@ -382,7 +382,9 @@ def source_name():
 
 **Function Signature:** The decorated function takes no arguments and returns a dict.
 
-**Returns:** `dict` to deliver to the graph
+**Returns:** `dict` to deliver to the graph, or `None` for no change this interval.
+
+**On a server:** without single trust the function runs on an agent of the tenant, one poll per interval, and its value must be JSON. Module globals last only as long as the agent's worker that runs the polls. See [polling accumulators on agents](../../../explanation/service/execution-agent-fleet/#polling-accumulators-on-agents).
 
 **Example:**
 ```python

@@ -320,6 +320,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a package the newest that is not superseded and whose build succeeded.
   The servers of 0.12 read it as the newest that is not superseded; with no
   uploads during the roll the two read the same version.
+- **Python polling accumulators poll on agents** (CLOACINA-T-1156). A server
+  without single trust no longer refuses a Python package for a polling
+  accumulator: it keeps the accumulator's timer and checkpoint and sends each
+  poll to an agent of the tenant, which calls the poll function. Agents of
+  this release register `job:accumulator_poll`; an older agent is never sent
+  such a poll, and the poll emits nothing until an agent of this release runs.
+  The fleet's floor of one agent counts poll triggers only: keep one agent of
+  a tenant whose only polled code is a polling accumulator. A package the
+  previous release refused for its polling accumulator stays refused until a
+  new version is uploaded.
 - **Chart: `/metrics` moves off the API port** (CLOACINA-T-1025,
   CLOACINA-T-1032). `metrics.enabled` is `true` by default: the server serves
   `/metrics` on `metrics.port` (9090) through the Service
