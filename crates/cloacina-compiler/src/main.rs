@@ -39,8 +39,9 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
-    /// Cloacina home directory (logs + tmp scratch space).
-    #[arg(long, default_value_os_t = default_home())]
+    /// Cloacina home directory (logs + tmp scratch space). The images set it
+    /// with `CLOACINA_HOME` (CLOACINA-T-1088).
+    #[arg(long, env = "CLOACINA_HOME", default_value_os_t = default_home())]
     home: PathBuf,
 
     /// Address to bind the local /health + /v1/status endpoint to.
@@ -296,7 +297,32 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_size;
+    use super::{Cli, parse_size};
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    /// CLOACINA-T-1088: `CLOACINA_HOME` sets the home, and `--home` wins over
+    /// it. One test, so that no other test of this binary sets the variable
+    /// at the same time.
+    #[test]
+    fn cloacina_home_env_sets_the_home_and_the_flag_wins() {
+        // SAFETY: no other test in this binary reads or writes the process
+        // environment.
+        unsafe { std::env::set_var("CLOACINA_HOME", "/var/lib/cloacina") };
+        let from_env =
+            Cli::try_parse_from(["cloacina-compiler", "--database-url", "postgres://h/d"]).unwrap();
+        let from_flag = Cli::try_parse_from([
+            "cloacina-compiler",
+            "--database-url",
+            "postgres://h/d",
+            "--home",
+            "/srv/cloacina",
+        ])
+        .unwrap();
+        unsafe { std::env::remove_var("CLOACINA_HOME") };
+        assert_eq!(from_env.home, PathBuf::from("/var/lib/cloacina"));
+        assert_eq!(from_flag.home, PathBuf::from("/srv/cloacina"));
+    }
 
     #[test]
     fn parse_size_plain_bytes() {
