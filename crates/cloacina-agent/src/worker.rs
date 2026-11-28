@@ -293,6 +293,10 @@ impl WorkerInput {
                 packet.context = serde_json::json!({});
                 packet.wrapped_secrets = Vec::new();
                 packet.secret_key_id = None;
+                // Not the ids of the job it follows: nothing of the load is
+                // taken for that job's attempt.
+                packet.task_execution_id = String::new();
+                packet.dispatch_id = None;
                 WorkerInput::Task(WorkerJob {
                     packet,
                     secrets: HashMap::new(),
@@ -310,6 +314,7 @@ impl WorkerInput {
                 packet.cache = HashMap::new();
                 packet.wrapped_secrets = Vec::new();
                 packet.secret_key_id = None;
+                packet.firing_id = String::new();
                 WorkerInput::Graph(GraphJob {
                     packet,
                     package: job.package.clone(),
@@ -2935,6 +2940,8 @@ pub(crate) mod tests {
             let warm = input.warm_up().expect("a load-only job");
             let line = serde_json::to_string(&warm).unwrap();
             assert!(!line.contains(VALUE), "{line}");
+            assert!(!line.contains("task-w-task") && !line.contains("dispatch-w-task"));
+            assert!(!line.contains("firing-w_graph"), "{line}");
             assert!(line.contains("\"warm_up\":true"), "{line}");
             assert_eq!(
                 warm.warm_key(Some(1)),
