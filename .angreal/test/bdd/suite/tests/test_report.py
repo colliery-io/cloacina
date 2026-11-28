@@ -46,7 +46,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(item["evidence_from"], ["standing_archive"])
         row = next(row for row in made["rows"] if row["row"] == "Run once")
         self.assertEqual(row["chapter_task"], "CLOACINA-T-1110")
-        self.assertEqual(made["summary"][report.NO_RULE], len(promises.PROMISES) - 6)
+        self.assertEqual(made["summary"][report.NO_RULE], len(promises.PROMISES) - 10)
 
     def test_a_promise_that_holds_shows_for_how_long(self):
         registry = rules.load()
@@ -62,7 +62,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(item["held_for_seconds"], 60)
         self.assertEqual(item["held_for"], "1 min")
         self.assertFalse(made["red"])
-        self.assertEqual(made["summary"][engine.SHOW_HOLDS], 6)
+        self.assertEqual(made["summary"][engine.SHOW_HOLDS], 10)
 
     def test_a_broken_promise_makes_the_report_red(self):
         data = sources.read_snapshot(HEALTHY)

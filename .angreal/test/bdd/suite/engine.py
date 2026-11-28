@@ -109,6 +109,30 @@ def parse_time(value):
     return parsed.timestamp()
 
 
+_SERIES = re.compile(r'^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{(.*)\})?\s+(\S+)(?:\s+\d+)?$')
+_LABEL = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
+
+
+def parse_metrics(text):
+    """The series of a Prometheus text page: [(name, labels, value)]. A line
+    that is not a series (a comment, a blank) is skipped."""
+    found = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _SERIES.match(line)
+        if not match:
+            continue
+        try:
+            value = float(match.group(3))
+        except ValueError:
+            continue
+        labels = dict(_LABEL.findall(match.group(2) or ""))
+        found.append((match.group(1), labels, value))
+    return found
+
+
 def format_time(epoch):
     if epoch is None:
         return None
@@ -220,6 +244,30 @@ class Snapshot:
         """The rows of a database source of a tenant; `tenant=None` for a
         source of the whole deployment."""
         return self._entry(tenant, "db", name).get("rows") or []
+
+    def alerts(self):
+        """What the alert receiver answered: `started_at` and `records`
+        (CLOACINA-T-1115)."""
+        entry = self.data.get("alerts")
+        if entry is None:
+            raise Missing("the alert receiver was not read")
+        if entry.get("error"):
+            raise Missing(f"the alert receiver is away: {entry['error']}")
+        body = entry.get("body")
+        if not isinstance(body, dict):
+            raise Missing("the alert receiver gave no list")
+        return body
+
+    def metrics(self, name):
+        """The series of one metric of the server: [(labels, value)]
+        (CLOACINA-T-1115)."""
+        entry = self.data.get("metrics")
+        if entry is None:
+            raise Missing("the metrics listener was not read")
+        if entry.get("error"):
+            raise Missing(f"the metrics listener is away: {entry['error']}")
+        return [(labels, value) for metric, labels, value in parse_metrics(entry.get("text") or "")
+                if metric == name]
 
     def windows(self, kind=None):
         return [w for w in self._windows if kind is None or w.kind == kind]

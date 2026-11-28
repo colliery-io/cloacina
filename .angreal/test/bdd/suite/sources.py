@@ -119,15 +119,40 @@ def read_disturbances(path):
     return found
 
 
-def collect(registry, api, database, keys, disturbances_path=None, now=None):
+def fetch(url, timeout_s=15, as_json=True):
+    """One GET with no key, for the channels of the harness (CLOACINA-T-1115):
+    the alert receiver (JSON) and the server's metrics listener (text).
+    Returns a snapshot entry: `{"body": ...}`, `{"text": ...}` or
+    `{"error": ...}`."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout_s) as response:
+            text = response.read().decode("utf-8", "replace")
+    except Exception as exc:
+        return {"error": f"{exc.__class__.__name__}: {exc}"}
+    if not as_json:
+        return {"text": text}
+    try:
+        return {"body": json.loads(text)}
+    except ValueError:
+        return {"error": "the answer is not JSON"}
+
+
+def collect(registry, api, database, keys, disturbances_path=None, now=None,
+            alerts_url=None, metrics_url=None):
     """Take one snapshot: every source the registered rules need, for each
-    tenant that has a key."""
+    tenant that has a key. With `alerts_url` and `metrics_url`, also the
+    alerts of the last three hours and the server's metrics."""
     snapshot = {
         "taken_at": time.time() if now is None else now,
         "tenants": {},
         "admin": {"db": {}},
         "disturbances": read_disturbances(disturbances_path),
     }
+    if alerts_url:
+        since = int(float(snapshot["taken_at"])) - 3 * 3600
+        snapshot["alerts"] = fetch(f"{alerts_url}?since={since}")
+    if metrics_url:
+        snapshot["metrics"] = fetch(metrics_url, as_json=False)
     for tenant in sorted(keys):
         entry = {"api": {}, "db": {}}
         for name, path in sorted(registry.api_needs.items()):

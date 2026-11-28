@@ -7,6 +7,7 @@ deployment of server, compilers and agents.
 | Folder | Chapter | Driver |
 |---|---|---|
 | `publishing/` | A team publishes its own jobs to a shared orchestrator (CLOACINA-T-1026) | `angreal test bdd publish`, or `angreal test bdd standing --chapter publishing` |
+| `operations/` | Alerts, the audit record, the backlog and the lag, retention, a server log with no task output (CLOACINA-T-1115) | `angreal test bdd standing --chapter operations` |
 | `standing/` | The standing workload of several teams (CLOACINA-T-1107) | `angreal test bdd standing` |
 
 ```
