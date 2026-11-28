@@ -111,34 +111,36 @@ which embeds a local Postgres subchart so the chart no longer depends
 on the Bitnami `postgresql` chart). See
 [Deploying to Kubernetes (Helm)](../deploying-to-kubernetes/) for the chart-driven install path.
 
-The Helm chart currently ships the server only — the compiler is not
-yet templated. For a server+compiler topology on K8s, layer your own
-`Deployment` for the compiler on top of the chart install. A minimal
-sketch:
+The agent chart is published next to it, at
+`ghcr.io/colliery-io/charts/cloacina-agent`, with the same version.
 
-```yaml
-# Server lifecycle is owned by the Helm chart; this is just the
-# compiler Deployment to lay on top.
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: cloacina-compiler }
-spec:
-  replicas: 2
-  selector: { matchLabels: { app: cloacina-compiler } }
-  template:
-    metadata: { labels: { app: cloacina-compiler } }
-    spec:
-      containers:
-        - name: compiler
-          image: ghcr.io/colliery-io/cloacina-compiler:latest
-          args: ["--bind", "0.0.0.0:9000", "--database-url", "$(DATABASE_URL)"]
-          envFrom: [{ secretRef: { name: cloacina-db } }]
-          ports: [{ containerPort: 9000 }]
+The server chart also runs the compiler. Set `compiler.enabled=true` and
+the chart adds a compiler `Deployment` that reads the server's database
+URL:
+
+```bash
+helm install cloacina oci://ghcr.io/colliery-io/charts/cloacina-server \
+  --version X.Y.Z \
+  --set database.url=postgres://user:pass@db:5432/cloacina \
+  --set compiler.enabled=true
 ```
 
-The compiler pods don't need a Service unless you want to scrape
-`/v1/status` from outside the cluster — use a single ClusterIP
-Service with a round-robin endpoint if so.
+The `compiler.*` values:
+
+| Value | Default | Notes |
+|---|---|---|
+| `compiler.replicaCount` | `1` | Compiler pods. |
+| `compiler.image.repository` | the server repository with `-compiler` | `ghcr.io/colliery-io/cloacina-compiler` with the default server image. |
+| `compiler.image.tag` | the chart's `appVersion` | |
+| `compiler.bind` | `0.0.0.0:9000` | `--bind` of the compiler. |
+| `compiler.pollIntervalMs` | `1000` | `--poll-interval-ms`. |
+| `compiler.extraArgs` | `--cargo-flags-replace=build`, `--cargo-flags-replace=--lib` | Extra compiler flags. The default drops `--frozen --offline`, so in-cluster builds fetch crates. |
+| `compiler.extraEnv` | `[]` | Extra env vars of the compiler container. |
+| `compiler.buildCacheSize` | `8Gi` | Size limit of the emptyDir that holds the shared cargo target folder. |
+| `compiler.securityContext` | no privilege escalation, read-only root, all capabilities dropped | The server container's hardening. |
+
+The compiler pods need no Service unless you want to scrape
+`/v1/status` from outside the cluster; use one ClusterIP Service if so.
 
 ## Config knobs
 

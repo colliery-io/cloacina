@@ -12,6 +12,18 @@ workers.
 
 ## Quick start
 
+Each release publishes the chart to
+`oci://ghcr.io/colliery-io/charts/cloacina-agent`, with the release version:
+
+```bash
+helm install fleet oci://ghcr.io/colliery-io/charts/cloacina-agent \
+  --version X.Y.Z \
+  --set server.url=http://my-release-cloacina-server:8080 \
+  --set apiKeySecretRef.name=cloacina-agent-key
+```
+
+From a checkout of the repository:
+
 ```bash
 helm install fleet charts/cloacina-agent \
   --set server.url=http://my-release-cloacina-server:8080 \

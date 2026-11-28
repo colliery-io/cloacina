@@ -155,10 +155,18 @@ See [Running the server image](../service/running-the-server-image/) for the ful
 
 ## Kubernetes (Helm)
 
-A Helm chart with an embedded local Postgres subchart ships in-tree:
+Every release publishes two charts to ghcr.io, each with the release
+version:
+
+| Chart | What it installs |
+|-------|------------------|
+| `oci://ghcr.io/colliery-io/charts/cloacina-server` | The server, with an embedded local Postgres subchart and an optional compiler |
+| `oci://ghcr.io/colliery-io/charts/cloacina-agent` | A fleet of execution agents |
 
 ```sh
-helm install cloacina-server ./charts/cloacina-server
+helm install cloacina-server oci://ghcr.io/colliery-io/charts/cloacina-server --version X.Y.Z
 ```
+
+The agent chart is published from the first release after 0.12.0.
 
 See [Deploying to Kubernetes](../service/deploying-to-kubernetes/) for production values, the embedded Postgres subchart story, and the operator-flag reference.

@@ -7,7 +7,9 @@ sidebar:
 
 The official Helm chart for `cloacina-server` is published as an OCI
 artifact to `ghcr.io/colliery-io/charts/cloacina-server`. This
-page covers install, configuration, and upgrade.
+page covers install, configuration, and upgrade. The chart of the
+execution agents is published next to it, at
+`ghcr.io/colliery-io/charts/cloacina-agent`, with the same version.
 
 ## Prerequisites
 
