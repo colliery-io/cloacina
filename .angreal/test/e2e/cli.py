@@ -11,6 +11,7 @@ test are stable.
 """
 
 import json
+import os
 import signal
 import subprocess
 import tempfile
@@ -335,24 +336,8 @@ def cli():
                 )
             print("  ok: API-08 health response carries x-request-id")
 
-            # --- API-05: `package pack --sign` exits non-zero ---
-            with tempfile.TemporaryDirectory() as fakepkg_s:
-                fakepkg = Path(fakepkg_s)
-                (fakepkg / "package.toml").write_text("[package]\nname = 'x'\nversion = '0.1.0'\n")
-                fake_key = fakepkg / "fake.key"
-                fake_key.write_text("not-a-real-key")
-                code, _, stderr = _cloacinactl(
-                    home,
-                    "package", "pack",
-                    str(fakepkg),
-                    "--sign", str(fake_key),
-                    check=False,
-                )
-                assert code != 0, "API-05: --sign must fail-hard"
-                assert "not yet implemented" in stderr.lower(), (
-                    f"API-05: error should mention 'not yet implemented', got: {stderr!r}"
-                )
-            print("  ok: API-05 --sign fails hard with clear message")
+            # API-05 (`package pack --sign`) is in the authoring section below:
+            # it needs a package that packs (CLOACINA-T-1062, CLOACINA-T-1142).
 
             # NOTE: the original API-17 scenario asserted that
             # `execution events --follow` exited non-zero with
@@ -464,6 +449,57 @@ def cli():
                 # 4b. validate accepts the packed archive too
                 code, out, _ = _cloacinactl(home, "package", "validate", str(archive))
                 assert code == 0 and "valid" in out, f"validate(archive) failed: {out!r}"
+
+                # 4c. API-05 (CLOACINA-T-1062): `pack --sign` signs the archive
+                # with an Ed25519 key file and writes `<archive>.sig` beside
+                # it. stdout stays the archive path; stderr names the
+                # signature. The key is made here, mode 600, and never printed.
+                key = Path(authored_s) / "signing-key.pem"
+                subprocess.run(
+                    ["openssl", "genpkey", "-algorithm", "ed25519", "-out", str(key)],
+                    check=True,
+                    capture_output=True,
+                )
+                os.chmod(key, 0o600)
+                signed = Path(authored_s) / f"{pkg_name}-signed.cloacina"
+                sig = Path(f"{signed}.sig")
+                code, out, stderr = _cloacinactl(
+                    home, "package", "pack", str(pkg_dir),
+                    "--out", str(signed), "--sign", str(key),
+                    check=False,
+                )
+                if code != 0 or not signed.exists() or not sig.exists():
+                    raise AssertionError(
+                        f"API-05: pack --sign should write {signed.name} and {sig.name}\n"
+                        f"  exit={code}\n  stdout={out!r}\n  stderr={stderr!r}"
+                    )
+                assert sig.stat().st_size > 0, "API-05: the signature file is empty"
+                assert Path(out.strip()).name == signed.name, (
+                    f"API-05: stdout should be the archive path, got {out!r}"
+                )
+                assert sig.name in stderr, (
+                    f"API-05: stderr should name the signature file, got {stderr!r}"
+                )
+                print("  ok: API-05 pack --sign writes <archive>.sig")
+
+                # A key file that is not an Ed25519 key is refused, and no
+                # signature is written.
+                bad_key = Path(authored_s) / "not-a-key.pem"
+                bad_key.write_text("not-a-real-key")
+                os.chmod(bad_key, 0o600)
+                refused = Path(authored_s) / f"{pkg_name}-refused.cloacina"
+                code, _, stderr = _cloacinactl(
+                    home, "package", "pack", str(pkg_dir),
+                    "--out", str(refused), "--sign", str(bad_key),
+                    check=False,
+                )
+                assert code != 0 and "is not a signing key" in stderr, (
+                    f"API-05: a bad key should be refused; code={code} stderr={stderr!r}"
+                )
+                assert not Path(f"{refused}.sig").exists(), (
+                    "API-05: a refused key wrote a signature"
+                )
+                print("  ok: API-05 pack --sign refuses a file that is not a key")
 
                 # 5. upload to the tenant — the server parses package.toml,
                 # stores the source package, and returns a package id. NOTE:
