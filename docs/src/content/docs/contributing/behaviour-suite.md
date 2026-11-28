@@ -67,7 +67,14 @@ checker reads that list.
 
 Every task of the workload prints one line that starts with `STANDING_MARK`
 when its body starts: a count of real starts that does not depend on the
-server's own records.
+server's own records. The JSON object after it names the workflow, the task
+and the run: `schedule_id` and `scheduled_time` for a scheduled run,
+`run_once_tag` (a key of the run's context) for a run by hand. The checker
+reads these lines from the agent pods' output and compares them with the
+attempts the server recorded (the chapter `run_once`).
+
+The server runs two replicas, so a task's result can reach a replica that
+did not dispatch the task.
 
 The workload is described once, in `.angreal/test/bdd/suite/workload.py`:
 the tenants, the packages, the schedules, and which workflow gives evidence
@@ -145,15 +152,25 @@ python3 -I .angreal/test/bdd/suite/check.py --config suite.json
 {
   "server": "http://192.0.2.10:8080",
   "database_url": "postgres://checker:PASSWORD@192.0.2.11:5432/cloacina",
-  "keys": {"team_a": "KEY", "team_b": "KEY", "team_c": "KEY"}
+  "keys": {"team_a": "KEY", "team_b": "KEY", "team_c": "KEY"},
+  "kubeconfig": "/path/to/kubeconfig",
+  "namespace": "cloacina-bdd-standing"
 }
 ```
+
+With `kubeconfig` the checker also reads the pods' output with `kubectl
+logs`: the marks of each tenant's agent pods, and lines of the server
+replicas in `namespace`. It keeps each line it has read for three hours in
+`<out>/logs`, so the lines of a pod that a disturbance deleted stay in later
+passes. With no kubeconfig the rules that read the pods' output cannot
+judge. `angreal test bdd standing --check` passes both.
 
 | Option | Meaning |
 |---|---|
 | `--config FILE` | A JSON file with `server`, `database_url` and `keys`. It holds keys: give it owner-only access. |
 | `--server URL`, `--keys FILE` | The same values one by one. A flag wins over the config file. |
 | `--database-url URL` | The database. The environment variable `CLOACINA_SUITE_DATABASE_URL` does the same and does not show in the process list. |
+| `--kubeconfig FILE`, `--namespace NS` | Read the pods' output with `kubectl logs`; the server replicas are in `NS`. A flag wins over the config file. |
 | `--psql PATH` | The `psql` program. The checker reads the database with `psql` and looks for `psql`, `psql17`, `psql16` and `psql15` on the path. |
 | `--out DIR` | Where the report, the state and the snapshots go. Default `bdd-standing-report`. |
 | `--interval N` | Seconds between passes. Default 60. |

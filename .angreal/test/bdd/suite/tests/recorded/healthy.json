@@ -46,6 +46,13 @@
         {"role": "team_b$build", "connections": 1},
         {"role": "team_c", "connections": 2},
         {"role": "team_c$build", "connections": 1}
+      ]},
+      "run_once_public_inbox": {"rows": []}
+    },
+    "logs": {
+      "results_elsewhere": {"pods": ["bdd-standing-cloacina-server-5f7c9-a", "bdd-standing-cloacina-server-5f7c9-b"], "rows": [
+        {"pod": "bdd-standing-cloacina-server-5f7c9-b", "at": "2026-11-27T11:24:11.301Z",
+         "text": "INFO cloacina_server::routes::agent: agent result is for no dispatch this replica waits for: stored for the replica that does task_id=7a500000-0000-4000-8000-00000000a002 agent_id=team_a-agent-1 attempt=1 dispatch_id=Some(\"d-a002\") duration_ms=120004"}
       ]}
     }
   },
@@ -101,6 +108,29 @@
            "context": "{\"tenant\": \"team_a\", \"standing_driver_actions\": [{\"action\": \"publish_broken\", \"package\": \"standing-target-rust\", \"version\": \"0.1.2\", \"status\": 201, \"bytes\": 1490, \"at\": \"2026-11-27T11:50:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1150\", \"at\": \"2026-11-27T11:50:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T11:50:05Z\"}]}"},
           {"id": "5d0c1a10-0000-4000-8000-0000000a1215", "status": "Completed", "started_at": "2026-11-27T12:15:01.220", "completed_at": "2026-11-27T12:15:05.010",
            "context": "{\"tenant\": \"team_a\", \"standing_driver_actions\": [{\"action\": \"step_back\", \"package\": \"standing-target-py\", \"version\": \"0.1.2\", \"status\": 200, \"at\": \"2026-11-27T12:15:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1215\", \"at\": \"2026-11-27T12:15:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T12:15:05Z\"}]}"}
+        ]},
+        "run_once_tasks": {"rows": [
+          {"task_id": "7a500000-0000-4000-8000-00000000a002", "run_id": "5e100000-0000-4000-8000-00000000a002", "workflow_name": "standing_hold", "task_name": "hold", "status": "Completed", "attempt": 1,
+           "created_at": "2026-11-27T11:20:04.900", "started_at": "2026-11-27T11:22:10.050", "completed_at": "2026-11-27T11:24:11.400", "waiting_since": "2026-11-27T11:20:05.010",
+           "schedule_id": null, "scheduled_time": null, "run_once_tag": "hold-2b0d7c66-0000-4000-8000-00000000a002", "held_seconds": null},
+          {"task_id": "7a500000-0000-4000-8000-00000000a001", "run_id": "5e100000-0000-4000-8000-00000000a001", "workflow_name": "standing_archive", "task_name": "archive", "status": "Completed", "attempt": 1,
+           "created_at": "2026-11-27T12:00:02.118", "started_at": "2026-11-27T12:00:02.400", "completed_at": "2026-11-27T12:06:03.010", "waiting_since": null,
+           "schedule_id": "5c4e0000-0000-4000-8000-00000000a001", "scheduled_time": "2026-11-27T12:00:00+00:00", "run_once_tag": null, "held_seconds": "360.0"},
+          {"task_id": "7a500000-0000-4000-8000-00000000a003", "run_id": "5e100000-0000-4000-8000-00000000a003", "workflow_name": "standing_rollup", "task_name": "read_interval", "status": "Completed", "attempt": 1,
+           "created_at": "2026-11-27T12:10:01.004", "started_at": "2026-11-27T12:10:01.200", "completed_at": "2026-11-27T12:10:01.900", "waiting_since": null,
+           "schedule_id": "5c4e0000-0000-4000-8000-00000000a003", "scheduled_time": "2026-11-27T12:10:00+00:00", "run_once_tag": null, "held_seconds": null},
+          {"task_id": "7a500000-0000-4000-8000-00000000a004", "run_id": "5e100000-0000-4000-8000-00000000a004", "workflow_name": "standing_rollup", "task_name": "read_interval", "status": "Running", "attempt": 1,
+           "created_at": "2026-11-27T12:15:01.004", "started_at": "2026-11-27T12:15:01.200", "completed_at": null, "waiting_since": null,
+           "schedule_id": "5c4e0000-0000-4000-8000-00000000a003", "scheduled_time": "2026-11-27T12:15:00+00:00", "run_once_tag": null, "held_seconds": null}
+        ]},
+        "run_once_inbox": {"rows": []}
+      },
+      "logs": {
+        "marks": {"pods": ["cloacina-agent-7d4b9-a1", "cloacina-agent-7d4b9-a2"], "rows": [
+          {"pod": "cloacina-agent-7d4b9-a2", "at": "2026-11-27T11:22:10.210Z", "text": "STANDING_MARK {\"at\": 1764242530.2, \"host\": \"cloacina-agent-7d4b9-a2\", \"pid\": 41, \"run_once_tag\": \"hold-2b0d7c66-0000-4000-8000-00000000a002\", \"schedule_id\": null, \"scheduled_time\": null, \"task\": \"hold\", \"workflow\": \"standing_hold\"}"},
+          {"pod": "cloacina-agent-7d4b9-a1", "at": "2026-11-27T12:00:02.611Z", "text": "STANDING_MARK {\"at\": 1764244802.6, \"host\": \"cloacina-agent-7d4b9-a1\", \"pid\": 52, \"run_once_tag\": null, \"schedule_id\": \"5c4e0000-0000-4000-8000-00000000a001\", \"scheduled_time\": \"2026-11-27T12:00:00+00:00\", \"task\": \"archive\", \"workflow\": \"standing_archive\"}"},
+          {"pod": "cloacina-agent-7d4b9-a2", "at": "2026-11-27T12:10:01.390Z", "text": "STANDING_MARK {\"run_once_tag\":null,\"schedule_id\":\"5c4e0000-0000-4000-8000-00000000a003\",\"scheduled_time\":\"2026-11-27T12:10:00+00:00\",\"task\":\"read_interval\",\"workflow\":\"standing_rollup\"}"},
+          {"pod": "cloacina-agent-7d4b9-a1", "at": "2026-11-27T12:15:01.400Z", "text": "STANDING_MARK {\"run_once_tag\":null,\"schedule_id\":\"5c4e0000-0000-4000-8000-00000000a003\",\"scheduled_time\":\"2026-11-27T12:15:00+00:00\",\"task\":\"read_interval\",\"workflow\":\"standing_rollup\"}"}
         ]}
       }
     },
@@ -146,8 +176,11 @@
            "context": {"tenant": "team_b", "standing_driver_actions": [
              {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000b1215", "at": "2026-11-27T12:15:03Z"},
              {"action": "other_tenant", "other_tenant": "team_c", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
-        ]}
-      }
+        ]},
+        "run_once_tasks": {"rows": []},
+        "run_once_inbox": {"rows": []}
+      },
+      "logs": {"marks": {"pods": [], "rows": []}}
     },
     "team_c": {
       "api": {
@@ -188,8 +221,11 @@
            "context": {"tenant": "team_c", "standing_driver_actions": [
              {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000c1215", "at": "2026-11-27T12:15:03Z"},
              {"action": "other_tenant", "other_tenant": "team_a", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
-        ]}
-      }
+        ]},
+        "run_once_tasks": {"rows": []},
+        "run_once_inbox": {"rows": []}
+      },
+      "logs": {"marks": {"pods": [], "rows": []}}
     }
   }
 }

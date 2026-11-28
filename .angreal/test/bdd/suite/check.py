@@ -11,8 +11,14 @@ and a JSON file, served on localhost.
     {
       "server": "http://127.0.0.1:18100",
       "database_url": "postgres://user:password@127.0.0.1:15432/cloacina",
-      "keys": {"team_a": "...", "team_b": "...", "team_c": "..."}
+      "keys": {"team_a": "...", "team_b": "...", "team_c": "..."},
+      "kubeconfig": "/path/to/kubeconfig",
+      "namespace": "cloacina-bdd-standing"
     }
+
+`kubeconfig` and `namespace` are optional: with them the checker also reads
+the pods' output with `kubectl logs` (the marks the tasks print, and the
+server replicas' lines).
 
 The server URL, the keys file and the database URL can also be given one by
 one: `--server`, `--keys` (a JSON file, tenant to key), and the environment
@@ -56,6 +62,11 @@ def parse_args(argv):
     parser.add_argument("--database-url",
                         help="postgres://… (or set CLOACINA_SUITE_DATABASE_URL)")
     parser.add_argument("--psql", help="path of the psql program")
+    parser.add_argument("--kubeconfig",
+                        help="kubeconfig of the cluster, to read the pods' output with kubectl "
+                             "(or `kubeconfig` in the config file)")
+    parser.add_argument("--namespace",
+                        help="namespace of the server replicas (or `namespace` in the config file)")
     parser.add_argument("--out", default=DEFAULT_OUT,
                         help=f"folder for the report, the state and the record (default {DEFAULT_OUT})")
     parser.add_argument("--disturbances",
@@ -177,6 +188,15 @@ def main(argv=None):
     elif not database.binary:
         print("warning: no psql program found; give its path with --psql", file=sys.stderr)
     disturbances = args.disturbances or os.path.join(out, "disturbances.jsonl")
+    logs = None
+    config = _read_json(args.config, "the config file") if args.config else {}
+    kubeconfig = args.kubeconfig or config.get("kubeconfig")
+    if kubeconfig:
+        logs = sources.Logs(kubeconfig, args.namespace or config.get("namespace") or "default",
+                            os.path.join(out, "logs"))
+    elif registry.log_needs:
+        print("warning: no kubeconfig; the rules that read the pods' output cannot judge",
+              file=sys.stderr)
 
     served = None
     if args.port and not args.once:
@@ -188,7 +208,8 @@ def main(argv=None):
     try:
         while True:
             started = time.time()
-            data = sources.collect(registry, api, database, keys, disturbances_path=disturbances)
+            data = sources.collect(registry, api, database, keys, disturbances_path=disturbances,
+                                   logs=logs)
             if args.record:
                 sources.write_snapshot(os.path.join(out, "snapshots"), data)
             made = one_pass(registry, ledger, data, out, args.interval)

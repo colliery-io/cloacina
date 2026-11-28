@@ -54,6 +54,28 @@ TARGETS = {"py": TARGET_PY, "rust": TARGET_RUST}
 
 HOLD_WORKFLOW = "standing_hold"
 HOLD_SECONDS = 120
+
+# Each task body of the workload prints one line that starts with this when
+# it starts, with a JSON object after it (CLOACINA-T-1107, CLOACINA-T-1110):
+# the workflow, the task, and what names the run (`schedule_id` and
+# `scheduled_time` for a scheduled run, `run_once_tag` for a run by hand).
+MARK = "STANDING_MARK "
+# The context key a run by hand carries so its marks name it.
+RUN_TAG_KEY = "run_once_tag"
+
+# Where the pods are, for the checker's `kubectl logs`.
+AGENT_SELECTOR = "app.kubernetes.io/name=cloacina-agent"
+SERVER_SELECTOR = "app.kubernetes.io/name=cloacina-server"
+SERVER_REPLICAS = 2
+
+
+def agent_namespace(tenant):
+    """The namespace of a tenant's agents: the rule of the server's actuator
+    (`actuator::kubernetes::tenant_namespace`) for a schema name."""
+    segment = "".join(char if char.isalnum() else "-" for char in tenant.lower()).strip("-")
+    while "--" in segment:
+        segment = segment.replace("--", "-")
+    return f"cloacina-tenant-{segment or 'unnamed'}"
 # More holds at once than the tenant's agents can take.
 HOLD_BURST = 12
 
@@ -137,7 +159,8 @@ EVIDENCE = {
     "publish.step_back": [DRIVER_WORKFLOW, TARGET_PY_WORKFLOW],
     "run_once.long_task": ["standing_archive"],
     "run_once.no_free_agent": [HOLD_WORKFLOW, "standing_rollup", "standing_extract"],
-    "run_once.other_replica": ["standing_rollup", "standing_extract", "standing_archive"],
+    "run_once.other_replica": ["standing_rollup", "standing_extract", "standing_archive",
+                               HOLD_WORKFLOW],
     "schedules.on_time": ["standing_rollup", "standing_extract", "standing_archive", HOLD_WORKFLOW],
     "schedules.interval": ["standing_rollup", "standing_extract"],
     "schedules.backlog": ["standing_extract"],
