@@ -259,6 +259,13 @@ roll them one at a time behind the proxy.
 
 **Upgrade note, graph firings with the fleet:** with `--default-executor fleet`, a computation-graph firing that no agent takes now fails with its reason (no owning package, no agent with room in the tenant, a refusal of the agent, an enqueue error). Before, the server ran such a firing in its own process. A tenant with graphs and no live agent sees its firings fail, also during a short gap such as a roll of the agent pool; each failure is in the reactor's recent fires. A server that cannot build the fleet graph executor at start no longer starts.
 
+**Upgrade note, 0.13.0 is a full stop (the global tables move):** stop every server replica, then start 0.13.0. Do not roll: a 0.12 replica does not work once a 0.13.0 server has started. At its first start the server moves the global tables (API keys and their sessions, local accounts, WebSocket tickets, the login throttle, OIDC login flows, audit rows, agent pools, limits, desired counts and scale state, fleet agents, the result inbox, signing keys, trusted keys, trust grants and reactor owner addresses) from `public` into the schema `cloacina_global`, in one transaction under the migration lock. Later starts find nothing to move. No step is needed from the operator beyond the stop. What to expect:
+
+- **The outbox:** each row of `public.delivery_outbox` that is not a run-finished notice (work packets for agents, WebSocket deliveries, reactor events) moves to `cloacina_global.delivery_outbox` with its delivery state; the new servers deliver it from there. `public`'s pending run-finished notices stay in `public.delivery_outbox`, and the alert sender sends them after the start. A work packet that an agent was running at the stop is taken over by the new server as a dispatch whose replica stopped.
+- **Reactive state:** each tenant's reactors and accumulators now keep their state, firings and recovery events in the tenant's own schema. The state that named tenants' graphs had in `public` is not moved (it carries no tenant): their reactors and accumulators start once with no saved state. `public`'s graphs keep theirs.
+- **The reserved name:** a tenant named `cloacina_global` stops the start; tenant create refuses the name.
+- **Rollback:** the previous version does not run on the moved schema. Restore the pre-upgrade backup from step 1.
+
 **Upgrade note, active packages (from 0.12):** migration 052 changes which package version is active: the newest version that is not superseded and whose build succeeded. The servers of 0.12 read the active version as the newest that is not superseded. While both run, an upload makes a version that the two read differently until its build ends. Step 2 (no uploads while the servers roll) keeps such a version from being made during the upgrade.
 
 ### Schema versions
@@ -285,7 +292,9 @@ Migrations are forward only: no release reverts one, and an older release
 does not run on a schema more than one minor ahead of it. Each migration of a
 minor leaves the previous minor's server working on the new schema: it only
 adds tables, nullable columns, columns with a default and indexes; a column or
-table that the previous minor uses is removed one minor later.
+table that the previous minor uses is removed one minor later. The exception
+is 0.13.0: the move of the global tables to `cloacina_global` needs a full
+stop (see the upgrade note above).
 
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database: the previous minor runs on the new schema. To go

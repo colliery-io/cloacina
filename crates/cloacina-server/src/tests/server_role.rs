@@ -155,7 +155,10 @@ async fn the_tenant_pool_reaches_only_the_tenant_tables_of_its_schema() {
         results.push((format!("{table}: read"), read.and(delete)));
     }
     let mut global = Vec::new();
-    for table in cloacina::database::SERVER_GLOBAL_TABLES {
+    for table in cloacina::database::SERVER_GLOBAL_TABLES
+        .iter()
+        .chain(cloacina::database::SERVER_BOOKKEEPING_TABLES)
+    {
         global.push((
             format!("public.{table}"),
             try_sql(&db, &format!("SELECT COUNT(*) FROM public.{table}")).await,
@@ -228,7 +231,11 @@ async fn each_table_of_a_tenant_schema_is_in_one_list() {
     admin_db.close();
 
     let tenant_tables = cloacina::database::SERVER_ROLE_TABLES;
-    let global_tables = cloacina::database::SERVER_GLOBAL_TABLES;
+    let global_tables: Vec<&str> = cloacina::database::SERVER_GLOBAL_TABLES
+        .iter()
+        .chain(cloacina::database::SERVER_BOOKKEEPING_TABLES)
+        .copied()
+        .collect();
     let in_neither: Vec<&String> = tables
         .iter()
         .filter(|t| !tenant_tables.contains(&t.as_str()) && !global_tables.contains(&t.as_str()))

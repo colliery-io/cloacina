@@ -632,6 +632,12 @@ helm upgrade --install cloacina \
 
 ## Upgrades
 
+**0.13.0 is a full stop.** Scale the server Deployment to zero, wait for
+every pod to end, then upgrade and scale back up. The first 0.13.0 start
+moves the global tables into the schema `cloacina_global`, and a 0.12 pod
+does not work after it (see the 0.13.0 upgrade note in
+[Production Deployment](../production-deployment/#upgrading-the-server)).
+
 ```sh
 helm upgrade cloacina \
   oci://ghcr.io/colliery-io/charts/cloacina-server \

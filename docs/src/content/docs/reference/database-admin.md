@@ -232,7 +232,8 @@ The method performs these operations in a single transaction:
      of those tables. No `CREATE`, no default privileges, and no grant on a
      table of `SERVER_GLOBAL_TABLES` (keys, accounts, sessions, tickets,
      audit rows, pools, limits, agents, the result inbox, signing and trusted
-     keys, the migration table).
+     keys) or of `SERVER_BOOKKEEPING_TABLES` (the migration table and the
+     release row).
    - The connected user becomes a member that may take the role:
      `GRANT "tenant_xyz$server" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE`
      (Postgres 16 and later; a plain `GRANT` before 16).
@@ -242,8 +243,25 @@ The method performs these operations in a single transaction:
    older version gets it at the next server start. `ensure_server_role(schema)`
    does the same on its own. The server's pool of the tenant connects as the
    admin user and runs `SET ROLE "tenant_xyz$server"` at each checkout
-   (`Database::with_session_role`). `public` has no server role: its pool is
-   the admin pool.
+   (`Database::with_session_role`). The server makes `public$server` at
+   start, after the move of the global tables below.
+
+### The global schema (server only)
+
+`split_global_schema()` moves the global tables (`SERVER_GLOBAL_TABLES`)
+from `public` into the schema `cloacina_global` (`GLOBAL_SCHEMA`), in one
+transaction under the migration lock. The server runs it at each start,
+after the migrations of `public`; a start with nothing to move changes
+nothing. It also makes `cloacina_global.delivery_outbox` once and moves to
+it every row of `public.delivery_outbox` that is not a run-finished notice
+(`recipient = 'alert_webhook'`). The mark `cloacina_global.cloacina_global_layout`
+(`id = 1`, `written_by`, `moved_at`) records the release; it is read with the
+release check of each schema: more than one minor ahead stops the start, one
+minor ahead changes nothing. A schema `cloacina_global` that holds migrations
+(a tenant of that name) stops it, and `create_tenant` refuses the name.
+`migrate_public_schema()` runs the migrations of `public` with the search
+path `public, cloacina_global`. Embedded use does not call either: its
+tables stay where its migrations made them.
 
 ### What `remove_tenant` Does
 

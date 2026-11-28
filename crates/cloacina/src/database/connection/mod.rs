@@ -232,6 +232,11 @@ pub struct Database {
     /// (CLOACINA-T-1080). `None`: the connected user, as before. Only a pool
     /// with a schema takes it.
     role: Option<String>,
+    /// For a pool with no tenant schema: the schema its `search_path` names
+    /// first (CLOACINA-T-1080). `cloacina_global` for the server's admin
+    /// pool (`cloacina_global, public`), `public` for the server's pool of
+    /// `public`. `None`: no `SET`, as before.
+    path_head: Option<String>,
     /// The resolved PostgreSQL endpoint this pool dials, with ANY userinfo
     /// stripped — `postgresql://host:port/dbname?params` (CLOACI-T-0888).
     ///
@@ -402,6 +407,7 @@ impl Database {
                     backend,
                     schema: validated_schema,
                     role: None,
+                    path_head: None,
                     endpoint: endpoint_of(&endpoint_source),
                     #[cfg(feature = "sqlite")]
                     _memory_tempfile: None,
@@ -446,6 +452,7 @@ impl Database {
                     backend,
                     schema: validated_schema,
                     role: None,
+                    path_head: None,
                     _memory_tempfile: memory_tempfile,
                 })
             }
@@ -479,6 +486,7 @@ impl Database {
                 backend: BackendType::Postgres,
                 schema: validated_schema,
                 role: None,
+                path_head: None,
                 endpoint: endpoint_of(&endpoint_source),
                 #[cfg(feature = "sqlite")]
                 _memory_tempfile: None,
@@ -512,6 +520,7 @@ impl Database {
                 backend: BackendType::Sqlite,
                 schema: validated_schema,
                 role: None,
+                path_head: None,
                 endpoint: None,
                 _memory_tempfile: memory_tempfile,
             });
@@ -534,16 +543,42 @@ impl Database {
     /// and Postgres checks each query against the rights of `role`. The
     /// connected user must be a member of `role` that may `SET ROLE` to it.
     ///
-    /// Only a pool with a schema takes the role: [`Self::schema`] is `Some`.
+    /// Only a pool that sets a `search_path` takes the role: one with a
+    /// tenant schema, or one with [`Self::with_search_path_head`].
     pub fn with_session_role(mut self, role: &str) -> Result<Self, DatabaseError> {
         let role = validate_role_name(role)?.to_string();
-        if self.schema.is_none() {
+        if self.schema.is_none() && self.path_head.is_none() {
             return Err(DatabaseError::InvalidRole(format!(
                 "{role} (a session role needs a schema)"
             )));
         }
         self.role = Some(role);
         Ok(self)
+    }
+
+    /// This pool (with no tenant schema), with each PostgreSQL checkout
+    /// running `SET search_path TO <head>, public`, or `TO public` when
+    /// `head` is `public` (CLOACINA-T-1080). [`Self::schema`] stays `None`:
+    /// the pool is not a tenant's. The server's admin pool takes
+    /// `cloacina_global`, so the global tables are found there before
+    /// `public`; the server's pool of `public` takes `public`.
+    pub fn with_search_path_head(mut self, head: &str) -> Result<Self, DatabaseError> {
+        if head != "public" {
+            validate_schema_name(head)?;
+        }
+        if self.schema.is_some() {
+            return Err(DatabaseError::Schema(SchemaError::InvalidCharacters(
+                format!("{head} (a pool with a tenant schema has its own search_path)"),
+            )));
+        }
+        self.path_head = Some(head.to_string());
+        Ok(self)
+    }
+
+    /// The schema the `search_path` of each checkout names first, for a pool
+    /// with no tenant schema (CLOACINA-T-1080).
+    pub fn search_path_head(&self) -> Option<&str> {
+        self.path_head.as_deref()
     }
 
     /// The role each checkout takes with `SET ROLE`, if any
@@ -877,6 +912,69 @@ impl Database {
         let pool = &self.pool;
 
         let conn = pool.get().await?;
+
+        // CLOACINA-T-1080: a pool with no tenant schema and a search_path
+        // head (the server's admin pool, the server's pool of `public`).
+        if self.schema.is_none() {
+            if let Some(ref head) = self.path_head {
+                let path = if head == "public" {
+                    "public".to_string()
+                } else {
+                    format!("{head}, public")
+                };
+                let role = self.role.clone();
+                let set_result = conn
+                    .interact(move |conn| {
+                        use diesel::connection::SimpleConnection;
+                        match role {
+                            None => conn.batch_execute(&format!("SET search_path TO {path}")),
+                            Some(role) => conn.batch_execute(&format!(
+                                "SET search_path TO {path}; SET ROLE \"{role}\""
+                            )),
+                        }
+                    })
+                    .await;
+                let failed = match set_result {
+                    Ok(Ok(())) => None,
+                    Ok(Err(e)) => Some(e.to_string()),
+                    Err(e) => Some(e.to_string()),
+                };
+                if let Some(cause) = failed {
+                    tracing::error!(
+                        search_path_head = %head,
+                        error = %cause,
+                        "SET search_path failed; rejecting connection (CLOACINA-T-1080)"
+                    );
+                    drop(conn);
+                    return Err(search_path_pool_error(head, &cause));
+                }
+                if let (true, Some(expected)) = (is_strict_search_path(), self.role.clone()) {
+                    let probe: Result<Result<CurrentSchemaRow, diesel::result::Error>, _> = conn
+                        .interact(|conn| {
+                            diesel::sql_query(
+                                "SELECT current_schema() AS s, current_user::text AS u",
+                            )
+                            .get_result(conn)
+                        })
+                        .await;
+                    let actual = match probe {
+                        Ok(Ok(row)) => row.u,
+                        Ok(Err(e)) => format!("<probe failed: {e}>"),
+                        Err(e) => format!("<probe failed: {e}>"),
+                    };
+                    if actual != expected {
+                        drop(conn);
+                        return Err(search_path_pool_error(
+                            head,
+                            &format!(
+                                "session role mismatch: expected '{expected}', got '{actual}'"
+                            ),
+                        ));
+                    }
+                }
+            }
+            return Ok(conn);
+        }
 
         if let Some(ref schema) = self.schema {
             // Validate schema name to prevent SQL injection.

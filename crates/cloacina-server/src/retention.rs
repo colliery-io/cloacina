@@ -318,6 +318,25 @@ async fn run_pass(state: &AppState, cfg: &RetentionConfig) {
             debug!(schema = %schema, "retention: nothing to remove");
         }
     }
+
+    // CLOACINA-T-1080: the global outbox, `cloacina_global.delivery_outbox`,
+    // through the admin pool. `public`'s own notices were cleared above.
+    let global_cfg = RetentionConfig {
+        run_history: None,
+        ..*cfg
+    };
+    let (sweep, error) = sweep_schema(&DAL::new(state.database.clone()), &global_cfg, now).await;
+    record(&sweep);
+    if let Some(e) = error {
+        metrics::counter!(ERRORS_METRIC).increment(1);
+        warn!(error = %e, "retention: global outbox pass failed; retrying next tick");
+    } else if sweep.outbox_acked > 0 {
+        info!(
+            outbox_acked = sweep.outbox_acked,
+            more = sweep.more,
+            "retention: removed rows of the global outbox"
+        );
+    }
 }
 
 #[cfg(test)]
