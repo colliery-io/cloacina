@@ -195,6 +195,15 @@ class StandingWorld(PublishWorld):
 
     # -- the checker's settings -------------------------------------------------
 
+    @staticmethod
+    def _write_owner_only(path, value):
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            json.dump(value, out, indent=1)
+        os.chmod(str(path), 0o600)
+
     def write_checker_settings(self):
         """Write what the checker needs: the server URL, the database URL and
         a read key for each tenant. Owner-only: the file holds keys.
@@ -206,9 +215,17 @@ class StandingWorld(PublishWorld):
             "database_url": f"postgres://cloacina:cloacina@127.0.0.1:{self.database_port}/cloacina",
             "keys": dict(self.checker_keys),
         }
-        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
-        handle = os.open(str(self.settings_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(handle, "w", encoding="utf-8") as out:
-            json.dump(settings, out, indent=1)
-        os.chmod(str(self.settings_path), 0o600)
+        self._write_owner_only(self.settings_path, settings)
+        return settings
+
+    def write_disturb_settings(self, path):
+        """Write what the disturbance schedule needs (CLOACINA-T-1109): the
+        server URL, a write key for each tenant (to start held runs) and a
+        read key (to read the roster). Owner-only: the file holds keys."""
+        settings = {
+            "server": self.base_url,
+            "keys": dict(self.keys),
+            "read_keys": dict(self.checker_keys),
+        }
+        self._write_owner_only(path, settings)
         return settings

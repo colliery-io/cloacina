@@ -118,13 +118,16 @@ def format_time(epoch):
 class Window:
     """One disturbance: something broken on purpose, on record."""
 
-    def __init__(self, kind, start, end=None, settle_until=None, target="", ident=""):
+    def __init__(self, kind, start, end=None, settle_until=None, target="", ident="", extra=None):
         self.kind = kind
         self.start = start
         self.end = end
         self.settle_until = settle_until
         self.target = target
         self.ident = ident
+        # The whole line, for the fields a rule of a chapter reads (the
+        # tenant, the mode of a kill).
+        self.extra = dict(extra or {})
 
     @classmethod
     def from_dict(cls, data):
@@ -133,7 +136,7 @@ class Window:
             return None
         return cls(str(data["kind"]), start, parse_time(data.get("end")),
                    parse_time(data.get("settle_until")), str(data.get("target") or ""),
-                   str(data.get("id") or ""))
+                   str(data.get("id") or ""), extra=data)
 
     @property
     def closes(self):
@@ -161,17 +164,43 @@ class Window:
         return f"{self.kind}{target}, {format_time(self.start)} to {end}"
 
 
+def merge_lines(entries):
+    """The lines of a disturbance record, one for each disturbance. The
+    runner writes a line when a disturbance starts and a second line with the
+    same `id` when it ends (CLOACINA-T-1109): the last line of an id wins, in
+    the place of its first line. A line with no id stands alone."""
+    merged = []
+    where = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ident = entry.get("id")
+        if ident and ident in where:
+            merged[where[ident]] = entry
+            continue
+        if ident:
+            where[ident] = len(merged)
+        merged.append(entry)
+    return merged
+
+
 def read_windows(lines):
     """Windows from the lines of a disturbance record (one JSON object each).
     A line that cannot be read is skipped: the record is written by another
     program and may be half written."""
-    found = []
+    entries = []
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         try:
-            window = Window.from_dict(json.loads(line))
+            entries.append(json.loads(line))
+        except ValueError:
+            continue
+    found = []
+    for entry in merge_lines(entries):
+        try:
+            window = Window.from_dict(entry)
         except (ValueError, AttributeError):
             window = None
         if window is not None:
@@ -186,7 +215,8 @@ class Snapshot:
         self.data = data
         self.now = parse_time(data.get("taken_at")) or 0.0
         self.tenants = list((data.get("tenants") or {}).keys())
-        self._windows = [w for w in (Window.from_dict(d) for d in data.get("disturbances") or [])
+        self._windows = [w for w in (Window.from_dict(d)
+                                     for d in merge_lines(data.get("disturbances") or []))
                          if w is not None]
 
     def _entry(self, scope, kind, name):
