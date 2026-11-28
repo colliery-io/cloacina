@@ -1013,11 +1013,31 @@ impl RegistryReconciler {
             triggerless_graph_names,
         };
 
+        self.record_task_versions(&package_state);
         let mut loaded_packages = self.loaded_packages.write().await;
         loaded_packages.insert(metadata.id, package_state);
         drop(loaded_packages);
 
         Ok(())
+    }
+
+    /// Record in the runtime the package version of each task of a loaded
+    /// package (CLOACINA-T-1137). The in-process executor pins an execution
+    /// to it, and fails a later task of the execution when another version is
+    /// loaded.
+    pub(super) fn record_task_versions(&self, state: &PackageState) {
+        let Some(runtime) = &self.runtime else {
+            return;
+        };
+        for ns in &state.task_namespaces {
+            runtime.set_task_version(
+                ns.clone(),
+                crate::runtime::LoadedTaskVersion {
+                    package_id: state.metadata.id,
+                    version: state.metadata.version.clone(),
+                },
+            );
+        }
     }
 
     /// Unload a package from the global registries.

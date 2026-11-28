@@ -614,7 +614,7 @@ pub use inventory_entries::{
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
-pub use runtime::Runtime;
+pub use runtime::{LoadedTaskVersion, Runtime};
 pub use task::namespace::parse_namespace;
 pub use task::{Task, TaskNamespace, TaskRegistry, TaskState};
 pub use tenant_scope::{TenantKey, TenantOwner, TenantResolveMiss, TenantScope};
