@@ -59,7 +59,18 @@ pub fn confirm_destructive(action: &str) -> Result<(), CliError> {
 
 impl CliClient {
     pub fn new(ctx: ClientContext) -> Result<Arc<Self>, CliError> {
-        let mut builder = cloacina_client::ClientBuilder::new(&ctx.server).api_key(&ctx.api_key);
+        // CLOACINA-T-1086: a user agent with this release, and one warning on
+        // stderr when the server is of another minor. The call goes on.
+        let mut builder = cloacina_client::ClientBuilder::new(&ctx.server)
+            .api_key(&ctx.api_key)
+            .user_agent(format!("cloacinactl/{}", env!("CARGO_PKG_VERSION")))
+            .on_server_version(Arc::new(|server: &str| {
+                if let Some(warning) =
+                    cloacina_client::version::client_skew_warning(env!("CARGO_PKG_VERSION"), server)
+                {
+                    eprintln!("{warning}");
+                }
+            }));
         if let Some(tenant) = &ctx.tenant {
             builder = builder.tenant(tenant);
         }
@@ -101,6 +112,17 @@ impl CliClient {
     ) -> Result<T, CliError> {
         self.inner
             .put_json(path, body)
+            .await
+            .map_err(CliError::from)
+    }
+
+    pub async fn patch<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, CliError> {
+        self.inner
+            .patch_json(path, body)
             .await
             .map_err(CliError::from)
     }

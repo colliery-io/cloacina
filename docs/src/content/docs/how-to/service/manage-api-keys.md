@@ -14,7 +14,7 @@ REST endpoints). For the trust model behind keys, roles, and the bootstrap key, 
 
 - `cloacinactl` installed and a reachable server.
 - An **admin** key to authenticate with — on first startup the server writes a
-  bootstrap admin key once to `~/.cloacina/bootstrap-key` (see
+  bootstrap admin key to `~/.cloacina/bootstrap-key` (see
   [Deploy a Server](../../../tutorials/service/01-deploy-a-server/)).
 
 Either pass `--server`/`--api-key` on each command or save a profile (see
@@ -43,12 +43,20 @@ The API needs the role in the request: `POST /v1/auth/keys` and
 The full list of permissions by role is in the
 [Security Model](../../../explanation/service/security-model/#authorization-permissions-roles-and-the-route-table).
 
-**Tenant scope:** `key create` calls the global `POST /v1/auth/keys`
-endpoint, which is restricted to platform-admin (god-mode) keys and
-always mints keys scoped to the built-in **`public`** tenant. To mint a
-key for a **named** tenant, use the tenant-scoped endpoint (available
-to that tenant's admins as well as the platform admin) — the plaintext
-is in the `key` field of the response:
+**Tenant scope:** without `--tenant`, `key create` calls the global
+`POST /v1/auth/keys` endpoint, which is restricted to platform-admin
+(god-mode) keys and mints keys scoped to the built-in **`public`**
+tenant. With `--tenant acme`, it calls the tenant-scoped endpoint
+`POST /v1/tenants/acme/keys` (available to that tenant's admins as well
+as the platform admin) and the key belongs to `acme`:
+
+```bash
+cloacinactl key create acme-bot --role write --tenant acme \
+  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+```
+
+The same call over HTTP — the plaintext is in the `key` field of the
+response:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
@@ -56,6 +64,51 @@ curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
   -H "Content-Type: application/json" \
   -d '{"name": "acme-bot", "role": "write"}' | jq -r '.key'
 ```
+
+## Rotate a platform admin key
+
+A platform admin key (`is_admin = true`, no tenant) passes every route.
+The bootstrap key is one. To rotate it, make a new one, store it, then
+revoke the old one:
+
+```bash
+cloacinactl key create ops-admin --platform-admin \
+  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+cloacinactl key revoke <old-key-id> --force \
+  --server http://127.0.0.1:8080 --api-key "$NEW_ADMIN_KEY"
+```
+
+`--platform-admin` cannot be combined with `--role`: the key gets role
+`admin`, no tenant and no expiry unless `--expires-at` is given. Only a
+platform admin key can make one. The server refuses to revoke the last live
+platform admin key (`409`).
+
+## Keys that expire
+
+A key can have an expiry. Give `--expires-at` (or `"expires_at"` in the
+body) an RFC 3339 time in the future:
+
+```bash
+cloacinactl key create ci-bot --role write --expires-at 2027-01-31T00:00:00Z \
+  --server http://127.0.0.1:8080 --api-key "$ADMIN_KEY"
+
+curl -s -X POST http://127.0.0.1:8080/v1/tenants/acme/keys \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "acme-bot", "role": "write", "expires_at": "2027-01-31T00:00:00Z"}'
+```
+
+The answer and the key list show `expires_at`. A key created with no
+`expires_at` does not expire. A time in the past, or a value that is not an
+RFC 3339 time, is refused with `400` `invalid_expires_at`. After the expiry
+every route answers `401` with the code `key_expired`.
+
+**Agents.** The Kubernetes actuator gives its agents keys that expire after
+30 days and replaces them when 10 days are left; you do nothing. Docker
+actuator keys do not expire. An agent you start yourself logs its key's
+expiry when it registers (`the agent's API key expires`), and a warning when
+less than 10 days are left. Before the expiry, create a new key of role
+`agent`, restart the agent with it, and revoke the old key.
 
 ## List keys
 
@@ -82,10 +135,28 @@ The CLI is a thin wrapper over these endpoints (full details in the
 
 | Action | Method + path |
 |--------|---------------|
-| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ... }`; platform-admin only, always scoped to `public`) |
+| Create (public tenant) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": ..., "expires_at": ... }`, `expires_at` optional; platform-admin only, scoped to `public`) |
+| Create (platform admin) | `POST /v1/auth/keys` (body: `{ "name": ..., "role": "admin", "platform_admin": true }`; platform-admin only) |
 | Create (named tenant) | `POST /v1/tenants/{tenant_id}/keys` (same body; tenant-admin or platform-admin) |
 | List | `GET /v1/auth/keys` (platform-admin) or `GET /v1/tenants/{tenant_id}/keys` (tenant-admin) |
 | Revoke | `DELETE /v1/auth/keys/{key_id}` or `DELETE /v1/tenants/{tenant_id}/keys/{key_id}` |
+| Set the priority limit | `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` (body: `{ "max_priority": 0..10 }` or `{ "max_priority": null }`; tenant-admin or platform-admin) |
+
+## Give a key its own priority limit
+
+A key may carry the highest [priority](../../../explanation/priority/#a-limit-on-a-key)
+it may set, in place of its role's default (`write` 5, `admin` 0):
+
+```bash
+cloacinactl --tenant acme key create ops-bot --role write --max-priority 2
+cloacinactl --tenant acme key set-priority <key-id> --max-priority 0
+cloacinactl --tenant acme key set-priority <key-id> --clear
+```
+
+The limit is 0 to 10 and no better than your own. A `read` or `agent` key
+carries none. The packages a key published and the schedules it created are
+held to its limit at each of their runs, so a change applies to their next
+run with no new publish.
 
 ## See also
 

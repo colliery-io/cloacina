@@ -40,6 +40,7 @@ struct ApiKeyRow {
     pub is_admin: bool,
     pub expires_at: Option<chrono::NaiveDateTime>,
     pub issued_via: Option<String>,
+    pub max_priority: Option<i32>,
 }
 
 /// Diesel model for inserting api_keys rows.
@@ -52,6 +53,8 @@ struct NewApiKey {
     pub permissions: String,
     pub tenant_id: Option<String>,
     pub is_admin: bool,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub max_priority: Option<i32>,
 }
 
 fn to_info(row: ApiKeyRow) -> ApiKeyInfo {
@@ -65,9 +68,11 @@ fn to_info(row: ApiKeyRow) -> ApiKeyInfo {
         is_admin: row.is_admin,
         expires_at: row.expires_at.map(|t| t.and_utc()),
         issued_via: row.issued_via,
+        max_priority: row.max_priority.map(cloacina_api_types::clamp_priority),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_key(
     dal: &DAL,
     key_hash: &str,
@@ -75,6 +80,8 @@ pub async fn create_key(
     tenant_id: Option<&str>,
     is_admin: bool,
     role: &str,
+    expires_at: Option<chrono::DateTime<Utc>>,
+    max_priority: Option<u8>,
 ) -> Result<ApiKeyInfo, ValidationError> {
     super::check_key_scope(tenant_id, role)?;
     let conn = dal
@@ -91,6 +98,8 @@ pub async fn create_key(
         permissions: role.to_string(),
         tenant_id: tenant_id.map(|s| s.to_string()),
         is_admin,
+        expires_at: expires_at.map(|t| t.naive_utc()),
+        max_priority: max_priority.map(i32::from),
     };
 
     let row: ApiKeyRow = conn
@@ -117,6 +126,7 @@ struct MintApiKey {
     pub is_admin: bool,
     pub expires_at: Option<chrono::NaiveDateTime>,
     pub issued_via: Option<String>,
+    pub max_priority: Option<i32>,
 }
 
 /// CLOACI-T-0792: mint a short-TTL, provenance-tagged key (OIDC / local login).
@@ -133,6 +143,7 @@ pub async fn mint_key(
     role: &str,
     expires_at: chrono::DateTime<Utc>,
     issued_via: &str,
+    max_priority: Option<u8>,
 ) -> Result<ApiKeyInfo, ValidationError> {
     super::check_key_scope(tenant_id, role)?;
     let conn = dal
@@ -150,6 +161,7 @@ pub async fn mint_key(
         is_admin: false,
         expires_at: Some(expires_at.naive_utc()),
         issued_via: Some(issued_via.to_string()),
+        max_priority: max_priority.map(i32::from),
     };
 
     let row: ApiKeyRow = conn
@@ -194,6 +206,31 @@ pub async fn validate_hash(
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
     Ok(result.map(to_info))
+}
+
+/// CLOACINA-T-1083: a key that is not revoked and whose expiry has passed.
+pub async fn is_expired_hash(dal: &DAL, key_hash: &str) -> Result<bool, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let hash = key_hash.to_string();
+    let now = Utc::now().naive_utc();
+    let result: Option<ApiKeyRow> = conn
+        .interact(move |conn| {
+            api_keys::table
+                .filter(api_keys::key_hash.eq(&hash))
+                .filter(api_keys::revoked_at.is_null())
+                .filter(api_keys::expires_at.le(now))
+                .first(conn)
+                .optional()
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(result.is_some())
 }
 
 pub async fn has_any_keys(dal: &DAL) -> Result<bool, ValidationError> {
@@ -308,6 +345,88 @@ pub async fn revoke_keys_for_tenant(dal: &DAL, tenant_id: &str) -> Result<usize,
     Ok(rows)
 }
 
+/// CLOACINA-T-1065: true when a live platform admin key exists (unrevoked,
+/// unexpired, `is_admin`). The bootstrap runs when none does.
+pub async fn has_live_platform_admin_key(dal: &DAL) -> Result<bool, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let now = Utc::now().naive_utc();
+    let found: Option<Uuid> = conn
+        .interact(move |conn| {
+            api_keys::table
+                .filter(api_keys::is_admin.eq(true))
+                .filter(api_keys::revoked_at.is_null())
+                .filter(
+                    api_keys::expires_at
+                        .is_null()
+                        .or(api_keys::expires_at.gt(now)),
+                )
+                .select(api_keys::id)
+                .first(conn)
+                .optional()
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(found.is_some())
+}
+
+/// CLOACINA-T-1065: revoke a key, but never the last live platform admin
+/// key. One transaction locks the live platform admin rows, so two revokes
+/// at once cannot remove the last two.
+pub async fn revoke_key_keeping_platform_admin(
+    dal: &DAL,
+    id: Uuid,
+) -> Result<super::RevokeOutcome, ValidationError> {
+    use super::RevokeOutcome;
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let now = Utc::now().naive_utc();
+    let outcome = conn
+        .interact(move |conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let live_admins: Vec<Uuid> = api_keys::table
+                    .filter(api_keys::is_admin.eq(true))
+                    .filter(api_keys::revoked_at.is_null())
+                    .filter(
+                        api_keys::expires_at
+                            .is_null()
+                            .or(api_keys::expires_at.gt(now)),
+                    )
+                    .select(api_keys::id)
+                    .for_update()
+                    .load(conn)?;
+                if live_admins == [id] {
+                    return Ok(RevokeOutcome::LastPlatformAdmin);
+                }
+                let rows = diesel::update(
+                    api_keys::table
+                        .find(id)
+                        .filter(api_keys::revoked_at.is_null()),
+                )
+                .set(api_keys::revoked_at.eq(Some(now)))
+                .execute(conn)?;
+                Ok(if rows > 0 {
+                    RevokeOutcome::Revoked
+                } else {
+                    RevokeOutcome::NotFound
+                })
+            })
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(outcome)
+}
+
 pub async fn revoke_key(dal: &DAL, id: Uuid) -> Result<bool, ValidationError> {
     let conn = dal
         .database
@@ -330,4 +449,60 @@ pub async fn revoke_key(dal: &DAL, id: Uuid) -> Result<bool, ValidationError> {
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
     Ok(rows > 0)
+}
+
+/// CLOACINA-T-1123: set or clear the highest priority a key may set. Returns
+/// false when no key that is not revoked has the id.
+pub async fn set_max_priority(
+    dal: &DAL,
+    id: Uuid,
+    max_priority: Option<u8>,
+) -> Result<bool, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let value = max_priority.map(i32::from);
+    let rows: usize = conn
+        .interact(move |conn| {
+            diesel::update(
+                api_keys::table
+                    .find(id)
+                    .filter(api_keys::revoked_at.is_null()),
+            )
+            .set(api_keys::max_priority.eq(value))
+            .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(rows > 0)
+}
+
+/// CLOACINA-T-1123: the keys minted for one login identity (`issued_via`,
+/// e.g. `oidc:<issuer>:<sub>`), revoked ones too, newest first.
+pub async fn keys_issued_via(
+    dal: &DAL,
+    issued_via: &str,
+) -> Result<Vec<ApiKeyInfo>, ValidationError> {
+    let conn = dal
+        .database
+        .get_postgres_connection()
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+    let issued_via = issued_via.to_string();
+    let rows: Vec<ApiKeyRow> = conn
+        .interact(move |conn| {
+            api_keys::table
+                .filter(api_keys::issued_via.eq(issued_via))
+                .order(api_keys::created_at.desc())
+                .load(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+    Ok(rows.into_iter().map(to_info).collect())
 }

@@ -83,10 +83,13 @@ fn parse_scopes(raw: Option<&str>) -> Vec<String> {
 }
 
 /// A validated set of identity claims extracted from an OIDC ID token by the
-/// relying party (T-0790). Provider-neutral within OIDC.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// relying party (T-0790). Provider-neutral within OIDC. Stored as JSON on
+/// the login session (CLOACINA-T-1082), so each refresh can run the current
+/// map on them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IdentityClaims {
     /// The stable subject identifier (`sub`).
+    #[serde(rename = "sub")]
     pub subject: String,
     /// The email, if the IdP released one. It is proven only when
     /// `email_verified` is `Some(true)`.
@@ -95,7 +98,38 @@ pub struct IdentityClaims {
     /// rule needs `Some(true)` (CLOACINA-T-1066).
     pub email_verified: Option<bool>,
     /// Group/role memberships from the IdP (e.g. Keycloak `groups`, GitHub orgs).
+    #[serde(default)]
     pub groups: Vec<String>,
+}
+
+/// The answer of the IdP at a group check (CLOACINA-T-1082).
+#[derive(Debug)]
+pub enum ClaimsCheck {
+    /// The IdP answered with the identity's current claims, and a new refresh
+    /// token when it rotated the old one.
+    Current {
+        claims: IdentityClaims,
+        refresh_token: Option<String>,
+    },
+    /// The IdP refused the refresh token (`invalid_grant`): the login is over.
+    Refused(String),
+    /// The IdP could not be reached, or its answer could not be read.
+    Unreachable(String),
+}
+
+/// Spend a stored refresh token at the IdP and read the identity's claims
+/// again (CLOACINA-T-1082). [`OidcProvider`] is the real one; tests use a
+/// mock.
+#[async_trait::async_trait]
+pub trait IdpClaimsCheck: Send + Sync {
+    async fn check(&self, refresh_token: &str) -> ClaimsCheck;
+}
+
+/// The output of [`OidcProvider::complete_login`]: the claims, and the IdP
+/// refresh token when the token response had one. Never logged.
+pub struct CompletedLogin {
+    pub claims: IdentityClaims,
+    pub refresh_token: Option<String>,
 }
 
 /// What an allowlist rule matches an identity on.
@@ -118,6 +152,9 @@ pub struct MappingRule {
     pub tenant: Option<String>,
     /// Role within that tenant (`read` | `write` | `admin`).
     pub role: String,
+    /// The highest priority a login matched by this rule may set, 0 (the
+    /// highest) to 10 (CLOACINA-T-1123). `None`: the default of the role.
+    pub max_priority: Option<u8>,
 }
 
 impl MappingRule {
@@ -170,6 +207,7 @@ impl MappingPolicy {
                 tenant: r.tenant.clone(),
                 role: r.role.clone(),
                 provenance: format!("oidc:{issuer}:{}", claims.subject),
+                max_priority: r.max_priority,
             })
     }
 
@@ -187,6 +225,7 @@ impl MappingPolicy {
                     tenant: r.tenant.clone(),
                     role: r.role.clone(),
                     provenance: format!("oidc:{issuer}:{}", claims.subject),
+                    max_priority: r.max_priority,
                 });
             }
         }
@@ -203,6 +242,27 @@ impl MappingPolicy {
     /// with an unknown role would grant nothing, and to skip it would let a
     /// later rule win for the same identity (CLOACINA-T-1055).
     pub fn check(raw: &str) -> Result<(), String> {
+        // CLOACINA-T-1123: a third field that is not a priority from 0 to 10
+        // would drop the rule, and a later rule would win.
+        let bad_limits: Vec<String> = raw
+            .split(';')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter_map(|clause| {
+                let (_, grant) = clause.split_once('=')?;
+                let (_, role_and_limit) = grant.trim().split_once(':')?;
+                let (_, limit) = role_and_limit.split_once(':')?;
+                parse_rule_limit(limit)
+                    .is_none()
+                    .then(|| format!("{limit:?} in {clause:?}"))
+            })
+            .collect();
+        if !bad_limits.is_empty() {
+            return Err(format!(
+                "a rule's priority limit is not a whole number from 0 to 10: {}",
+                bad_limits.join(", ")
+            ));
+        }
         let bad: Vec<String> = MappingPolicy::parse(raw)
             .rules
             .iter()
@@ -221,11 +281,14 @@ impl MappingPolicy {
         }
     }
 
-    /// Parse a `;`-separated allowlist: each rule `<match>=<tenant>:<role>`,
-    /// where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and
-    /// `<tenant>` may be `_` for a global principal. A `domain:` rule matches
-    /// only an identity with `email_verified` true. Malformed clauses are
-    /// skipped. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`.
+    /// Parse a `;`-separated allowlist: each rule
+    /// `<match>=<tenant>:<role>[:<max_priority>]`, where `<match>` is
+    /// `group:NAME` / `domain:NAME` / `sub:NAME`, `<tenant>` may be `_` for a
+    /// global principal, and `<max_priority>` (CLOACINA-T-1123) is the
+    /// highest priority a matched login may set, 0 to 10. A `domain:` rule
+    /// matches only an identity with `email_verified` true. Malformed clauses
+    /// are skipped. Example:
+    /// `group:acme-admins=acme:admin;group:acme-ops=acme:write:2;domain:acme.com=acme:write`.
     pub fn parse(raw: &str) -> MappingPolicy {
         let mut rules = Vec::new();
         for clause in raw.split(';').map(str::trim).filter(|s| !s.is_empty()) {
@@ -245,14 +308,35 @@ impl MappingPolicy {
                 "_" | "" => None,
                 t => Some(t.to_string()),
             };
+            let (role, max_priority) = match role.split_once(':') {
+                Some((role, limit)) => match parse_rule_limit(limit) {
+                    Some(limit) => (role, Some(limit)),
+                    None => continue,
+                },
+                None => (role, None),
+            };
             rules.push(MappingRule {
                 claim,
                 tenant,
                 role: role.trim().to_string(),
+                max_priority,
             });
         }
         MappingPolicy::new(rules)
     }
+
+    /// The rules, in order.
+    pub fn rules(&self) -> &[MappingRule] {
+        &self.rules
+    }
+}
+
+/// The third field of a rule: a priority from 0 to 10 (CLOACINA-T-1123).
+fn parse_rule_limit(raw: &str) -> Option<u8> {
+    raw.trim()
+        .parse::<i64>()
+        .ok()
+        .and_then(|n| cloacina_api_types::validate_priority(n).ok())
 }
 
 // ---------------------------------------------------------------------------
@@ -269,8 +353,9 @@ use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetada
 // openidconnect 4 / oauth2 5 are on reqwest 0.12.
 use openidconnect::reqwest;
 use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, OAuth2TokenResponse,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
+    TokenResponse,
 };
 
 /// A discovered OIDC relying party. Holds the cached provider metadata (which
@@ -336,7 +421,7 @@ impl OidcProvider {
         code: String,
         nonce: String,
         pkce_verifier: String,
-    ) -> Result<IdentityClaims, String> {
+    ) -> Result<CompletedLogin, String> {
         let client = self.client()?;
         let token_response = client
             .exchange_code(AuthorizationCode::new(code))
@@ -345,6 +430,7 @@ impl OidcProvider {
             .request_async(&self.http)
             .await
             .map_err(|e| format!("token exchange failed: {e}"))?;
+        let refresh_token = token_response.refresh_token().map(|t| t.secret().clone());
 
         let id_token = token_response
             .id_token()
@@ -363,14 +449,102 @@ impl OidcProvider {
         // checked above) rather than fighting the typed additional-claims path.
         let groups = extract_groups(&id_token.to_string());
 
-        Ok(IdentityClaims {
-            subject,
-            email,
-            email_verified,
-            groups,
+        Ok(CompletedLogin {
+            claims: IdentityClaims {
+                subject,
+                email,
+                email_verified,
+                groups,
+            },
+            refresh_token,
         })
     }
 
+    /// Read the claims from the userinfo endpoint with an access token: the
+    /// answer of a refresh grant that has no ID token (CLOACINA-T-1082).
+    async fn userinfo_claims(&self, access_token: &str) -> Result<IdentityClaims, String> {
+        let url = self
+            .metadata
+            .userinfo_endpoint()
+            .ok_or_else(|| {
+                "no ID token in the refresh answer and no userinfo endpoint".to_string()
+            })?
+            .url()
+            .clone();
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|e| format!("userinfo request: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("userinfo answered {}", response.status()));
+        }
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| format!("userinfo body: {e}"))?;
+        serde_json::from_slice::<IdentityClaims>(&body)
+            .map_err(|e| format!("userinfo is not a JSON claims object: {e}"))
+    }
+}
+
+#[async_trait::async_trait]
+impl IdpClaimsCheck for OidcProvider {
+    /// Spend the refresh token at the token endpoint. The groups come from
+    /// the new ID token (signature, `iss`, `aud` and `exp` checked; a
+    /// refreshed ID token carries no login nonce), else from userinfo.
+    async fn check(&self, refresh_token: &str) -> ClaimsCheck {
+        let client = match self.client() {
+            Ok(c) => c,
+            Err(e) => return ClaimsCheck::Unreachable(e),
+        };
+        let token = RefreshToken::new(refresh_token.to_string());
+        let request = match client.exchange_refresh_token(&token) {
+            Ok(r) => r,
+            Err(e) => return ClaimsCheck::Unreachable(format!("no token endpoint: {e}")),
+        };
+        let response = match request.request_async(&self.http).await {
+            Ok(r) => r,
+            Err(RequestTokenError::ServerResponse(err))
+                if *err.error() == openidconnect::core::CoreErrorResponseType::InvalidGrant =>
+            {
+                return ClaimsCheck::Refused(format!("{err}"));
+            }
+            Err(e) => return ClaimsCheck::Unreachable(format!("refresh grant: {e}")),
+        };
+        let new_refresh = response.refresh_token().map(|t| t.secret().clone());
+        let claims = match response.id_token() {
+            Some(id_token) => {
+                let verifier = client.id_token_verifier();
+                match id_token.claims(&verifier, |_: Option<&Nonce>| Ok(())) {
+                    Ok(c) => IdentityClaims {
+                        subject: c.subject().as_str().to_string(),
+                        email: c.email().map(|e| e.as_str().to_string()),
+                        email_verified: c.email_verified(),
+                        groups: extract_groups(&id_token.to_string()),
+                    },
+                    Err(e) => {
+                        return ClaimsCheck::Unreachable(format!(
+                            "refreshed id_token validation failed: {e}"
+                        ));
+                    }
+                }
+            }
+            None => match self.userinfo_claims(response.access_token().secret()).await {
+                Ok(c) => c,
+                Err(e) => return ClaimsCheck::Unreachable(e),
+            },
+        };
+        ClaimsCheck::Current {
+            claims,
+            refresh_token: new_refresh,
+        }
+    }
+}
+
+impl OidcProvider {
     /// Build the `openidconnect` client from cached metadata. Inlined here
     /// because the v4 `CoreClient` is type-state generic and can't be named in
     /// a stored field or returned without leaking the full type — both callers
@@ -536,18 +710,48 @@ mod tests {
                 claim: ClaimMatch::Group("acme-admins".into()),
                 tenant: Some("acme".into()),
                 role: "admin".into(),
+                max_priority: None,
             },
             MappingRule {
                 claim: ClaimMatch::EmailDomain("acme.com".into()),
                 tenant: Some("acme".into()),
                 role: "write".into(),
+                max_priority: None,
             },
             MappingRule {
                 claim: ClaimMatch::Subject("sub-root".into()),
                 tenant: None,
                 role: "admin".into(),
+                max_priority: None,
             },
         ])
+    }
+
+    /// CLOACINA-T-1123: a rule's third field is the highest priority a
+    /// matched login may set; one that is not 0 to 10 stops the start.
+    #[test]
+    fn a_rule_may_carry_a_priority_limit() {
+        let policy = MappingPolicy::parse("group:ops=acme:write:2;group:dev=acme:write");
+        let rules = policy.rules();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].role, "write");
+        assert_eq!(rules[0].max_priority, Some(2));
+        assert_eq!(rules[1].max_priority, None);
+        let p = policy
+            .resolve(&claims("s", None, &["ops"]), "https://idp.example")
+            .expect("mapped");
+        assert_eq!(p.max_priority, Some(2));
+
+        assert!(MappingPolicy::check("group:ops=acme:write:2").is_ok());
+        let err = MappingPolicy::check("group:ops=acme:write:11").unwrap_err();
+        assert!(err.contains("priority limit"), "{err}");
+        assert!(MappingPolicy::check("group:ops=acme:write:x").is_err());
+        // A rule with a bad limit is not used.
+        assert!(
+            MappingPolicy::parse("group:ops=acme:write:11")
+                .rules()
+                .is_empty()
+        );
     }
 
     #[test]

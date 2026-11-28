@@ -343,6 +343,8 @@ pub async fn local_login(
         tenant: account.tenant_id.clone(),
         role: account.role.clone(),
         provenance: format!("local:{}", account.id),
+        // CLOACINA-T-1123: a local account has the default of its role.
+        max_priority: None,
     };
 
     match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {

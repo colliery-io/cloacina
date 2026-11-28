@@ -75,7 +75,7 @@ enum PackageVerb {
         /// Source language to scaffold.
         #[arg(long, value_enum, default_value_t = new::ScaffoldLang::Python)]
         lang: new::ScaffoldLang,
-        /// Package shape: workflow (default), graph, or cron (cron is Rust-only).
+        /// Package shape: workflow (default), graph, or cron.
         #[arg(long, value_enum, default_value_t = new::ScaffoldKind::Workflow)]
         kind: new::ScaffoldKind,
         /// Directory to create (default: ./<name>).

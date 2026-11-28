@@ -47,6 +47,8 @@ use crate::database::{AnyPool, BackendType, Database};
 pub mod agent_desired;
 #[cfg(feature = "postgres")]
 pub mod agent_limits;
+#[cfg(feature = "postgres")]
+pub mod agent_pool_scale;
 pub mod agent_pools;
 #[cfg(feature = "postgres")]
 pub mod api_keys;
@@ -65,6 +67,7 @@ pub mod models;
 pub mod oidc_login_flows;
 #[cfg(feature = "postgres")]
 pub mod oidc_sessions;
+pub mod priority_grants;
 pub mod reactor_owner_addresses;
 pub mod reactor_subscriptions;
 pub mod recovery_event;
@@ -83,6 +86,8 @@ pub mod ws_tickets;
 pub use agent_desired::AgentDesiredDAL;
 #[cfg(feature = "postgres")]
 pub use agent_limits::AgentLimitsDAL;
+#[cfg(feature = "postgres")]
+pub use agent_pool_scale::{AgentPoolScaleDAL, PoolScaleState};
 pub use agent_pools::AgentPoolsDAL;
 #[cfg(feature = "postgres")]
 pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
@@ -100,6 +105,7 @@ pub use login_throttle::{LoginThrottleDAL, ThrottlePolicy, ThrottleState};
 pub use oidc_login_flows::OidcLoginFlowDAL;
 #[cfg(feature = "postgres")]
 pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
+pub use priority_grants::{PriorityGrantDAL, PriorityGrantRow, PrioritySetter};
 pub use reactor_subscriptions::{
     PREDICATE_VARIABLES, ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL,
     compile_predicate, lint_predicate_variables, truncate_predicate_text,
@@ -185,6 +191,13 @@ impl DAL {
     #[cfg(feature = "postgres")]
     pub fn agent_desired(&self) -> AgentDesiredDAL<'_> {
         AgentDesiredDAL::new(self)
+    }
+
+    /// Returns the autoscaler's per-pool state DAL (Postgres only).
+    /// CLOACINA-T-1029.
+    #[cfg(feature = "postgres")]
+    pub fn agent_pool_scale(&self) -> AgentPoolScaleDAL<'_> {
+        AgentPoolScaleDAL::new(self)
     }
 
     /// Returns an API key DAL (Postgres only).
@@ -311,6 +324,12 @@ impl DAL {
     /// Returns a unified schedule execution DAL for schedule execution operations.
     pub fn schedule_execution(&self) -> ScheduleExecutionDAL<'_> {
         ScheduleExecutionDAL::new(self)
+    }
+
+    /// Returns the DAL of who set the priority of a package or a schedule
+    /// (CLOACINA-T-1123).
+    pub fn priority_grants(&self) -> PriorityGrantDAL<'_> {
+        PriorityGrantDAL::new(self)
     }
 
     /// Returns a workflow packages DAL for package operations.

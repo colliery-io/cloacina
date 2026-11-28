@@ -26,40 +26,34 @@
 //! - `oidc:<issuer>:<sub>` — refresh = re-mint inside the server-side login
 //!   session opened by the callback (CLOACI-T-0923; was a 501 before that).
 //!
-//! # Why a session record and not the IdP's refresh token (CLOACI-T-0923)
+//! # The OIDC session (CLOACI-T-0923, CLOACINA-T-1082)
 //!
-//! T-0793 built an encrypted store for the IdP refresh token, and the obvious
-//! implementation of refresh is to spend that token at the IdP's token endpoint
-//! and re-derive everything from the fresh ID token. We deliberately did not:
+//! The callback opens an `oidc_sessions` row per tenant the login maps to,
+//! whose `expires_at` is the session's **absolute** deadline
+//! (`CLOACINA_OIDC_SESSION_MAX_AGE_S`, default 8h). Refresh re-mints a fresh
+//! 15-minute key inside that window, rotates the session onto it, and revokes
+//! the old key.
 //!
-//! * **It needs the IdP to cooperate.** Refresh tokens require `offline_access`
-//!   (or an issuer-specific equivalent) and are not universally issued; the
-//!   token endpoint is only *recommended* to return a new `id_token` on the
-//!   refresh grant. A design that silently degrades to "no refresh" on half of
-//!   the IdPs it meets does not close UC2.
-//! * **It puts the IdP on the hot path.** Every session in the deployment
-//!   re-contacts the issuer at least every 15 minutes; an IdP outage becomes a
-//!   platform-wide forced logout.
-//! * **It buys custody of a long-lived credential** — precisely the thing the
-//!   short-TTL minted-key design exists to avoid — plus refresh-token rotation
-//!   bookkeeping. That is full token-lifecycle management, not "stay signed in".
+//! The rows of a login carry its claims. Each refresh runs the **current**
+//! allowlist on them: a lower role applies to the new key, and a tenant no
+//! longer mapped ends that row. The map is read at start, so a map change is a
+//! rolling restart, then live sessions follow at their next refresh.
 //!
-//! Instead the callback opens an `oidc_sessions` row whose `expires_at` is the
-//! session's **absolute** deadline. Refresh re-mints a fresh 15-minute key
-//! inside that window, rotates the session onto it, and revokes the old key.
-//! The one thing we give up — noticing that the IdP deactivated the user
-//! mid-session — is bounded by that deadline
-//! (`CLOACINA_OIDC_SESSION_MAX_AGE_S`, default 8h), after which a full re-auth
-//! re-checks the IdP *and* re-resolves the current allowlist. That is a
-//! deliberate, documented, tunable trade rather than an unbounded one.
+//! The IdP is not on every refresh. When the login gave a refresh token (and a
+//! KEK is set) the rows store it, bound to the login, and once per
+//! `CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S` (default 1h) one refresh of the login
+//! spends it and reads the groups again. An IdP that refuses the token ends
+//! the login; an IdP that cannot be reached leaves the session on its last
+//! claims until its deadline, with a warning. Rows opened before
+//! CLOACINA-T-1082 have no claims and keep their role to their deadline.
 //!
-//! # Scope preservation (both providers)
+//! # Scope
 //!
-//! The re-mint reads `tenant_id` + `permissions` from the **persisted key row**,
-//! which is the durable record of the original allowlist resolution — not from
-//! anything the caller sends. [`mint_for_principal`] has no `is_admin`
-//! parameter at all, so a refreshed key is structurally incapable of gaining
-//! god mode however the request is shaped.
+//! The tenant comes from the **persisted key row**; the role from the stored
+//! key row (local, and OIDC rows with no claims) or the current allowlist —
+//! never from anything the caller sends. [`mint_for_principal`] has no
+//! `is_admin` parameter at all, so a refreshed key is structurally incapable
+//! of gaining god mode however the request is shaped.
 
 use std::time::Duration;
 
@@ -91,6 +85,161 @@ pub fn oidc_session_max_age() -> Duration {
         .filter(|s| *s > 0)
         .map(Duration::from_secs)
         .unwrap_or(DEFAULT_OIDC_SESSION_MAX_AGE)
+}
+
+/// Default interval of the IdP group check of an OIDC login (CLOACINA-T-1082).
+pub const DEFAULT_OIDC_GROUP_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// How often a refresh reads the groups again at the IdP, from
+/// `CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S`.
+pub fn oidc_group_check_interval() -> Duration {
+    std::env::var("CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_OIDC_GROUP_CHECK_INTERVAL)
+}
+
+/// Seal an IdP refresh token for the rows of `login_id` with the server KEK
+/// (`CLOACINA_SECRET_KEK`), bound to the login. `None` when there is no
+/// token, no KEK or an encryption error: the groups are then read at login
+/// only. Never logs the token.
+pub(crate) fn seal_refresh_token(token: Option<&str>, login_id: uuid::Uuid) -> Option<Vec<u8>> {
+    use cloacina::dal::unified::oidc_sessions::{encrypt_token_bound, refresh_token_aad};
+    let token = token?;
+    let kek = match cloacina::security::SecretStoreResolver::kek_from_env() {
+        Ok(kek) => kek,
+        Err(_) => {
+            warn!(
+                "oidc: the IdP gave a refresh token but CLOACINA_SECRET_KEK is not set: it is not \
+                 stored, and this login's groups are read at login only"
+            );
+            return None;
+        }
+    };
+    match encrypt_token_bound(
+        token.as_bytes(),
+        &kek,
+        refresh_token_aad(login_id).as_bytes(),
+    ) {
+        Ok(sealed) => Some(sealed),
+        Err(e) => {
+            warn!("oidc: the IdP refresh token could not be encrypted, so it is not stored: {e}");
+            None
+        }
+    }
+}
+
+fn open_refresh_token(sealed: &[u8], login_id: uuid::Uuid) -> Result<String, String> {
+    use cloacina::dal::unified::oidc_sessions::{decrypt_token_bound, refresh_token_aad};
+    let kek = cloacina::security::SecretStoreResolver::kek_from_env().map_err(|e| e.to_string())?;
+    let plain = decrypt_token_bound(sealed, &kek, refresh_token_aad(login_id).as_bytes())
+        .map_err(|e| e.to_string())?;
+    String::from_utf8(plain).map_err(|e| e.to_string())
+}
+
+/// What a refresh of an OIDC session does (CLOACINA-T-1082).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OidcScope {
+    /// Mint the new key with this role and the highest priority it may set
+    /// (CLOACINA-T-1123; `None` is the role's default).
+    Role(String, Option<u8>),
+    /// End this row: the tenant is no longer mapped.
+    EndRow(&'static str),
+    /// End every row of the login: the IdP ended it.
+    EndLogin(&'static str),
+}
+
+/// The role of the next key of an OIDC session row: the current allowlist run
+/// on the login's claims, after the hourly IdP group check when it is due
+/// (CLOACINA-T-1082). A row with no claims keeps the role of its key.
+pub(crate) async fn oidc_scope_at_refresh(
+    state: &AppState,
+    checker: Option<&dyn crate::oidc::IdpClaimsCheck>,
+    session: &cloacina::dal::unified::oidc_sessions::LoginSession,
+    key: &cloacina::dal::unified::api_keys::ApiKeyInfo,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<OidcScope, ApiError> {
+    use crate::oidc::{ClaimsCheck, IdentityClaims};
+
+    // Opened before CLOACINA-T-1082: the role of the key, to the deadline.
+    let Some(raw) = session.claims.as_deref() else {
+        return Ok(OidcScope::Role(key.permissions.clone(), key.max_priority));
+    };
+    let mut claims: IdentityClaims = match serde_json::from_str(raw) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(key_id = %key.id, "oidc refresh: the stored login claims cannot be read: {e}");
+            return Ok(OidcScope::EndRow(
+                "the login session cannot be read — sign in again",
+            ));
+        }
+    };
+
+    if let (Some(login_id), Some(sealed), Some(checker)) =
+        (session.login_id, session.refresh_enc.as_deref(), checker)
+    {
+        let interval = chrono::Duration::from_std(oidc_group_check_interval())
+            .unwrap_or_else(|_| chrono::Duration::hours(1));
+        let due = session.checked_at.is_none_or(|t| now - t >= interval);
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        let taken = due
+            && dal
+                .oidc_sessions()
+                .claim_group_check(login_id, session.checked_at, now)
+                .await
+                .map_err(|e| ApiError::internal_logged("refresh failed", &e))?;
+        if taken {
+            match open_refresh_token(sealed, login_id) {
+                Err(e) => warn!(
+                    login_id = %login_id,
+                    "oidc refresh: the stored IdP refresh token cannot be decrypted, so the \
+                     groups are not checked at the IdP: {e}"
+                ),
+                Ok(token) => match checker.check(&token).await {
+                    ClaimsCheck::Current {
+                        claims: fresh,
+                        refresh_token,
+                    } => {
+                        if fresh.subject != claims.subject {
+                            warn!(login_id = %login_id, "oidc refresh: the IdP answered for another subject");
+                            return Ok(OidcScope::EndLogin(
+                                "the identity provider answered for another identity — sign in again",
+                            ));
+                        }
+                        claims = fresh;
+                        let stored = serde_json::to_string(&claims).unwrap_or_default();
+                        let resealed = seal_refresh_token(refresh_token.as_deref(), login_id);
+                        dal.oidc_sessions()
+                            .store_login_claims(login_id, &stored, resealed)
+                            .await
+                            .map_err(|e| ApiError::internal_logged("refresh failed", &e))?;
+                        info!(login_id = %login_id, "oidc refresh: groups checked at the IdP");
+                    }
+                    ClaimsCheck::Refused(reason) => {
+                        info!(login_id = %login_id, "oidc refresh: the IdP refused the refresh token: {reason}");
+                        return Ok(OidcScope::EndLogin(
+                            "the identity provider ended the login — sign in again",
+                        ));
+                    }
+                    ClaimsCheck::Unreachable(reason) => warn!(
+                        login_id = %login_id,
+                        "oidc refresh: the IdP could not be reached for the group check; the \
+                         session keeps its last groups until its deadline: {reason}"
+                    ),
+                },
+            }
+        }
+    }
+
+    let principals = state.oidc_policy.resolve_all(&claims, &session.provider);
+    match principals.into_iter().find(|p| p.tenant == key.tenant_id) {
+        Some(p) => Ok(OidcScope::Role(p.role, p.max_priority)),
+        None => Ok(OidcScope::EndRow(
+            "your identity is no longer mapped to this tenant — sign in again",
+        )),
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -151,6 +300,21 @@ pub async fn refresh(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
 ) -> impl IntoResponse {
+    let provider = state.oidc.clone();
+    let checker = provider
+        .as_deref()
+        .map(|p| p as &dyn crate::oidc::IdpClaimsCheck);
+    refresh_with(&state, auth, checker).await
+}
+
+/// The refresh, with the IdP group check given (CLOACINA-T-1082): the
+/// configured provider in the route, a mock in tests.
+pub(crate) async fn refresh_with(
+    state: &AppState,
+    auth: AuthenticatedKey,
+    checker: Option<&dyn crate::oidc::IdpClaimsCheck>,
+) -> axum::response::Response {
+    let state = state.clone();
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
     let info = match dal.api_keys().get_key(auth.key_id).await {
@@ -193,6 +357,7 @@ pub async fn refresh(
             tenant: info.tenant_id.clone(),
             role: info.permissions.clone(),
             provenance: provenance.clone(),
+            max_priority: info.max_priority,
         };
         return match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
             Ok((plaintext, new_info)) => {
@@ -217,34 +382,65 @@ pub async fn refresh(
         // The session row is the authority on "is this login still alive".
         // Absent (never opened, or logged out) or past its absolute deadline →
         // the user must go through the IdP again.
-        let session = match dal.oidc_sessions().get_session(auth.key_id).await {
+        let session = match dal.oidc_sessions().get_login_session(auth.key_id).await {
             Ok(s) => s,
             Err(e) => {
                 warn!("refresh: oidc session lookup failed: {}", e);
                 return ApiError::internal("refresh failed").into_response();
             }
         };
-        let still_open = matches!(
-            session,
-            Some((_, Some(deadline))) if deadline > chrono::Utc::now()
-        );
-        if !still_open {
-            // Session over: kill the key so the browser cannot keep using it
-            // for the remainder of its TTL, and force a full re-auth.
-            let _ = dal.api_keys().revoke_key(auth.key_id).await;
-            let _ = dal.oidc_sessions().delete(auth.key_id).await;
-            crate::routes::auth::announce_key_revocation_or_warn(&state).await;
-            return ApiError::unauthorized("login session has expired — sign in again")
-                .into_response();
-        }
+        let now = chrono::Utc::now();
+        let session = match session {
+            Some(s) if s.expires_at.is_some_and(|deadline| deadline > now) => s,
+            _ => {
+                // Session over: kill the key so the browser cannot keep using it
+                // for the remainder of its TTL, and force a full re-auth.
+                let _ = dal.api_keys().revoke_key(auth.key_id).await;
+                let _ = dal.oidc_sessions().delete(auth.key_id).await;
+                crate::routes::auth::announce_key_revocation_or_warn(&state).await;
+                return ApiError::unauthorized("login session has expired — sign in again")
+                    .into_response();
+            }
+        };
 
-        // Scope comes from the persisted key row (the stored result of the
-        // original allowlist mapping), never from the request. `is_admin` is
-        // not a parameter of the mint path at all.
+        // The tenant comes from the persisted key row; the role from the
+        // current allowlist run on the login's claims (CLOACINA-T-1082), never
+        // from the request. `is_admin` is not a parameter of the mint path.
+        let (role, max_priority) =
+            match oidc_scope_at_refresh(&state, checker, &session, &info, now).await {
+                Ok(OidcScope::Role(role, max_priority)) => (role, max_priority),
+                Ok(OidcScope::EndRow(reason)) => {
+                    let _ = dal.api_keys().revoke_key(auth.key_id).await;
+                    let _ = dal.oidc_sessions().delete(auth.key_id).await;
+                    crate::routes::auth::announce_key_revocation_or_warn(&state).await;
+                    info!(provenance = %provenance, "refresh: OIDC session ended: {reason}");
+                    return ApiError::unauthorized(reason).into_response();
+                }
+                Ok(OidcScope::EndLogin(reason)) => {
+                    let mut keys = vec![auth.key_id];
+                    if let Some(login_id) = session.login_id {
+                        keys.extend(
+                            dal.oidc_sessions()
+                                .delete_login(login_id)
+                                .await
+                                .unwrap_or_default(),
+                        );
+                    }
+                    let _ = dal.oidc_sessions().delete(auth.key_id).await;
+                    for key in keys {
+                        let _ = dal.api_keys().revoke_key(key).await;
+                    }
+                    crate::routes::auth::announce_key_revocation_or_warn(&state).await;
+                    info!(provenance = %provenance, "refresh: OIDC login ended: {reason}");
+                    return ApiError::unauthorized(reason).into_response();
+                }
+                Err(e) => return e.into_response(),
+            };
         let principal = ResolvedPrincipal {
             tenant: info.tenant_id.clone(),
-            role: info.permissions.clone(),
+            role,
             provenance: provenance.clone(),
+            max_priority,
         };
         return match mint_for_principal(&state, &principal, DEFAULT_MINTED_KEY_TTL).await {
             Ok((plaintext, new_info)) => {

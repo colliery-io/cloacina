@@ -206,7 +206,7 @@ cloacinactl server start ...
 - **The key file and the library-side signing API.** See [Package signing](../security/package-signing/).
 - **Key rotation.** A tenant can trust several keys. Add the new key (`cloacinactl trusted-key add`), move your signing pipeline to it, then revoke the old key (`cloacinactl trusted-key revoke`). See [Package signing](../security/package-signing/#rotate-signing-keys).
 - **Per-tenant signing requirements.** The trusted keys are per tenant; the requirement itself (`--require-signatures`) is server-wide. If some tenants must upload unsigned packages, run separate `cloacina-server` instances.
-- **Upload from the web UI.** The upload form of the web UI sends no signature. On a server with `--require-signatures` it is refused with `signature_required`: publish with `cloacinactl` or a client library.
+- **Upload from the web UI.** The upload form takes the package's `.sig` file beside the archive and sends it as the `signature` field. The UI does not sign: sign with `cloacinactl package pack --sign` first. See [Package signing](../security/package-signing/#upload-a-signed-package-in-the-web-ui).
 - **Compiler-side signing.** The `cloacina-compiler` build worker does not currently sign the artifacts it produces; signatures are applied by the package author before upload.
 
 ## See also

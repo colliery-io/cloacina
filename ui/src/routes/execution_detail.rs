@@ -53,6 +53,37 @@ fn local_id(name: &str) -> String {
     name.rsplit("::").next().unwrap_or(name).to_string()
 }
 
+/// The errors of the attempts before the task's current one, each with its
+/// attempt number (CLOACINA-T-1100). The current attempt's error is
+/// `last_error`. Nothing when no earlier attempt failed.
+fn earlier_attempt_errors(t: &cloacina_api_types::TaskExecutionDetail) -> impl IntoView + use<> {
+    let earlier: Vec<cloacina_api_types::TaskAttemptErrorDetail> = t
+        .attempt_errors
+        .iter()
+        .filter(|e| e.attempt < t.attempt)
+        .cloned()
+        .collect();
+    (!earlier.is_empty()).then(|| {
+        let count = earlier.len();
+        view! {
+            <details class="app-errdetails">
+                <summary>{format!("Earlier attempts ({count})")}</summary>
+                {earlier
+                    .into_iter()
+                    .map(|e| view! {
+                        <div>
+                            <div>{format!("Attempt {}: {}", e.attempt, e.message)}</div>
+                            {e.details.map(|details| view! {
+                                <pre class="app-errdetails__text">{details}</pre>
+                            })}
+                        </div>
+                    })
+                    .collect_view()}
+            </details>
+        }
+    })
+}
+
 /// A section title; while the run is live it carries a live marker.
 #[component]
 fn SectionHeader(#[prop(into)] title: String, live: Signal<bool>) -> impl IntoView {
@@ -105,6 +136,21 @@ pub fn ExecutionView(
             .unwrap_or_default()
     });
     let terminal = Signal::derive(move || status.get().is_empty() || is_terminal(&status.get()));
+    // CLOACINA-T-1123: the workflow priority asked and given.
+    let priority = Signal::derive(move || {
+        detail
+            .get()
+            .and_then(|r| r.ok())
+            .and_then(|d| d.priority)
+            .map(|p| {
+                if p.asked == p.given {
+                    p.given.to_string()
+                } else {
+                    format!("asked {}, given {}", p.asked, p.given)
+                }
+            })
+            .unwrap_or_else(|| "—".to_string())
+    });
 
     // Task rows: polled while live (they also drive start/duration + DAG colors).
     let tasks = poll_resource(move |c| {
@@ -389,6 +435,7 @@ pub fn ExecutionView(
                             {move || format_duration(started_at.get().as_deref(), ended_at.get().as_deref())}
                         </KeyValue>
                         <KeyValue label="Tasks">{move || completed_of.get()}</KeyValue>
+                        <KeyValue label="Priority">{move || priority.get()}</KeyValue>
                     </DetailList>
                 </div>
             </Show>
@@ -482,6 +529,9 @@ pub fn ExecutionView(
                                                             <pre class="app-errdetails__text">{details}</pre>
                                                         </details>
                                                     })}
+                                                    // The errors of the attempts before
+                                                    // this one (CLOACINA-T-1100).
+                                                    {earlier_attempt_errors(&t)}
                                                 </td>
                                                 {t.log_url.clone().map(|url| view! {
                                                     <td>

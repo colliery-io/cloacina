@@ -82,6 +82,9 @@ struct OidcSessionRow {
     #[allow(dead_code)]
     pub created_at: chrono::NaiveDateTime,
     pub expires_at: Option<chrono::NaiveDateTime>,
+    pub login_id: Option<Uuid>,
+    pub claims: Option<String>,
+    pub checked_at: Option<chrono::NaiveDateTime>,
 }
 
 #[cfg(feature = "postgres")]
@@ -93,6 +96,70 @@ struct NewOidcSession {
     pub provider: String,
     pub refresh_enc: Option<Vec<u8>>,
     pub expires_at: Option<chrono::NaiveDateTime>,
+}
+
+#[cfg(feature = "postgres")]
+#[derive(Insertable)]
+#[diesel(table_name = crate::database::schema::postgres::oidc_sessions)]
+struct NewLoginSession {
+    pub id: Uuid,
+    pub key_id: Uuid,
+    pub provider: String,
+    pub refresh_enc: Option<Vec<u8>>,
+    pub expires_at: Option<chrono::NaiveDateTime>,
+    pub login_id: Option<Uuid>,
+    pub claims: Option<String>,
+    pub checked_at: Option<chrono::NaiveDateTime>,
+}
+
+/// The associated data of a stored IdP refresh token: it binds the
+/// ciphertext to its login (CLOACINA-T-1082), so a token copied to another
+/// login's rows does not decrypt.
+pub fn refresh_token_aad(login_id: uuid::Uuid) -> String {
+    format!("cloacina:oidc-refresh:v1:{login_id}")
+}
+
+/// Encrypt an IdP refresh token with the 32-byte server key, AES-256-GCM with
+/// associated data (`nonce || ciphertext || tag`), through the bound helper of
+/// the secrets store (CLOACINA-T-1071).
+pub fn encrypt_token_bound(
+    plaintext: &[u8],
+    enc_key: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, ValidationError> {
+    crate::crypto::encrypt_bytes_bound(plaintext, enc_key, aad)
+        .map_err(|e| ValidationError::ConnectionPool(format!("refresh-token encryption: {e}")))
+}
+
+/// Decrypt a refresh token sealed by [`encrypt_token_bound`] with the same
+/// associated data.
+pub fn decrypt_token_bound(
+    ciphertext: &[u8],
+    enc_key: &[u8],
+    aad: &[u8],
+) -> Result<Vec<u8>, ValidationError> {
+    crate::crypto::decrypt_bytes_bound(ciphertext, enc_key, aad)
+        .map_err(|e| ValidationError::ConnectionPool(format!("refresh-token decryption: {e}")))
+}
+
+/// One OIDC login session row as the refresh path reads it
+/// (CLOACINA-T-1082). Never logged: `refresh_enc` is a credential.
+#[derive(Clone)]
+pub struct LoginSession {
+    /// The issuer of the login.
+    pub provider: String,
+    /// The absolute deadline.
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The rows of one login share it. `None` on a row opened before
+    /// CLOACINA-T-1082.
+    pub login_id: Option<uuid::Uuid>,
+    /// JSON of the login's claims. `None` on a row opened before
+    /// CLOACINA-T-1082: it keeps its role until its deadline.
+    pub claims: Option<String>,
+    /// The IdP refresh token, encrypted and bound to `login_id`.
+    pub refresh_enc: Option<Vec<u8>>,
+    /// When the IdP last answered for this login.
+    pub checked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// DAL for the encrypted refresh-token store. Postgres only.
@@ -278,6 +345,213 @@ impl<'a> OidcSessionDAL<'a> {
         Ok(n > 0)
     }
 
+    /// Open one row of a login session with the login's claims
+    /// (CLOACINA-T-1082). Every row of one login has the same `login_id`;
+    /// `refresh_enc` is the IdP refresh token sealed by
+    /// [`encrypt_token_bound`], or `None`. The login is the first check, so
+    /// `checked_at` is now.
+    #[cfg(feature = "postgres")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_login_session(
+        &self,
+        key_id: Uuid,
+        provider: &str,
+        expires_at: DateTime<Utc>,
+        login_id: Uuid,
+        claims: &str,
+        refresh_enc: Option<Vec<u8>>,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let now = Utc::now().naive_utc();
+        let row = NewLoginSession {
+            id: Uuid::new_v4(),
+            key_id,
+            provider: provider.to_string(),
+            refresh_enc,
+            expires_at: Some(expires_at.naive_utc()),
+            login_id: Some(login_id),
+            claims: Some(claims.to_string()),
+            checked_at: Some(now),
+        };
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        conn.interact(move |conn| {
+            diesel::delete(oidc_sessions::table.filter(oidc_sessions::expires_at.lt(now)))
+                .execute(conn)?;
+            diesel::insert_into(oidc_sessions::table)
+                .values(&row)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(())
+    }
+
+    /// The login session a minted key belongs to, with its claims and its
+    /// stored token (CLOACINA-T-1082).
+    #[cfg(feature = "postgres")]
+    pub async fn get_login_session(
+        &self,
+        key_id: Uuid,
+    ) -> Result<Option<LoginSession>, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let row: Option<OidcSessionRow> = conn
+            .interact(move |conn| {
+                oidc_sessions::table
+                    .filter(oidc_sessions::key_id.eq(key_id))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(row.map(|r| LoginSession {
+            provider: r.provider,
+            expires_at: r.expires_at.map(|t| t.and_utc()),
+            login_id: r.login_id,
+            claims: r.claims,
+            refresh_enc: r.refresh_enc,
+            checked_at: r.checked_at.map(|t| t.and_utc()),
+        }))
+    }
+
+    /// The claims of the newest login session of any of `key_ids` that has
+    /// claims, with the issuer of that login (CLOACINA-T-1123): the last
+    /// known claims of a person, for the limit of a priority they set.
+    #[cfg(feature = "postgres")]
+    pub async fn latest_claims_for_keys(
+        &self,
+        key_ids: Vec<Uuid>,
+    ) -> Result<Option<(String, String)>, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        if key_ids.is_empty() {
+            return Ok(None);
+        }
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let row: Option<(String, Option<String>)> = conn
+            .interact(move |conn| {
+                oidc_sessions::table
+                    .filter(oidc_sessions::key_id.eq_any(key_ids))
+                    .filter(oidc_sessions::claims.is_not_null())
+                    .order(oidc_sessions::created_at.desc())
+                    .select((oidc_sessions::provider, oidc_sessions::claims))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(row.and_then(|(provider, claims)| claims.map(|c| (provider, c))))
+    }
+
+    /// Take the group check of a login: set `checked_at` to `now` on every
+    /// row of the login, if it is still `seen` (CLOACINA-T-1082). Returns
+    /// true for the one caller that took it, so two refreshes of one login
+    /// (one per tenant) do not spend the IdP refresh token twice.
+    #[cfg(feature = "postgres")]
+    pub async fn claim_group_check(
+        &self,
+        login_id: Uuid,
+        seen: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+    ) -> Result<bool, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let seen = seen.map(|t| t.naive_utc());
+        let now = now.naive_utc();
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let n: usize = conn
+            .interact(move |conn| {
+                diesel::update(
+                    oidc_sessions::table
+                        .filter(oidc_sessions::login_id.eq(login_id))
+                        .filter(oidc_sessions::checked_at.is_not_distinct_from(seen)),
+                )
+                .set(oidc_sessions::checked_at.eq(Some(now)))
+                .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(n > 0)
+    }
+
+    /// Store the claims the IdP gave at a group check on every row of the
+    /// login, and the new refresh token when the IdP rotated it
+    /// (CLOACINA-T-1082).
+    #[cfg(feature = "postgres")]
+    pub async fn store_login_claims(
+        &self,
+        login_id: Uuid,
+        claims: &str,
+        refresh_enc: Option<Vec<u8>>,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let claims = claims.to_string();
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        conn.interact(move |conn| {
+            let rows = oidc_sessions::table.filter(oidc_sessions::login_id.eq(login_id));
+            match refresh_enc {
+                Some(enc) => diesel::update(rows)
+                    .set((
+                        oidc_sessions::claims.eq(Some(claims)),
+                        oidc_sessions::refresh_enc.eq(Some(enc)),
+                    ))
+                    .execute(conn),
+                None => diesel::update(rows)
+                    .set(oidc_sessions::claims.eq(Some(claims)))
+                    .execute(conn),
+            }
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(())
+    }
+
+    /// End every row of a login (the IdP refused its refresh token): delete
+    /// them and return their keys, for the caller to revoke
+    /// (CLOACINA-T-1082).
+    #[cfg(feature = "postgres")]
+    pub async fn delete_login(&self, login_id: Uuid) -> Result<Vec<Uuid>, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let keys: Vec<Uuid> = conn
+            .interact(move |conn| {
+                diesel::delete(oidc_sessions::table.filter(oidc_sessions::login_id.eq(login_id)))
+                    .returning(oidc_sessions::key_id)
+                    .get_results(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(keys)
+    }
+
     /// Forget a minted key's refresh session (logout). Returns true if removed.
     #[cfg(feature = "postgres")]
     pub async fn delete(&self, key_id: Uuid) -> Result<bool, ValidationError> {
@@ -343,8 +617,45 @@ mod tests {
         assert!(decrypt_token(&enc, &[0x22u8; 32]).is_err());
     }
 
+    /// CLOACINA-T-1082: a stored refresh token decrypts only with the
+    /// associated data of its own login.
+    #[test]
+    fn a_bound_token_decrypts_only_for_its_login() {
+        let key = [0x33u8; 32];
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+        let enc = encrypt_token_bound(b"rt", &key, refresh_token_aad(a).as_bytes()).unwrap();
+        assert_eq!(
+            decrypt_token_bound(&enc, &key, refresh_token_aad(a).as_bytes()).unwrap(),
+            b"rt"
+        );
+        assert!(decrypt_token_bound(&enc, &key, refresh_token_aad(b).as_bytes()).is_err());
+        assert!(decrypt_token(&enc, &key).is_err());
+        assert!(decrypt_token_bound(&enc, &[0x44u8; 32], refresh_token_aad(a).as_bytes()).is_err());
+    }
+
     #[test]
     fn bad_key_length_errors() {
         assert!(encrypt_token(b"x", &[0u8; 16]).is_err());
+        assert!(encrypt_token_bound(b"x", &[0u8; 16], b"aad").is_err());
+    }
+
+    /// CLOACINA-T-1071, CLOACINA-T-1082: the refresh-token helpers are the
+    /// bound helpers of `crypto`, with the login's associated data.
+    #[test]
+    fn the_token_helpers_use_the_crypto_bound_helpers() {
+        let key = [0x55u8; 32];
+        let login = uuid::Uuid::new_v4();
+        let aad = refresh_token_aad(login);
+        let sealed = crate::crypto::encrypt_bytes_bound(b"rt", &key, aad.as_bytes()).unwrap();
+        assert_eq!(
+            decrypt_token_bound(&sealed, &key, aad.as_bytes()).unwrap(),
+            b"rt"
+        );
+        let enc = encrypt_token_bound(b"rt", &key, aad.as_bytes()).unwrap();
+        assert_eq!(
+            crate::crypto::decrypt_bytes_bound(&enc, &key, aad.as_bytes()).unwrap(),
+            b"rt"
+        );
     }
 }

@@ -65,7 +65,8 @@ compiler needs:
 - A database role with the rights of a build, **nothing more**: in the
   schema it serves, `SELECT, UPDATE` on `workflow_packages`, `SELECT` on
   `workflow_registry`, `SELECT, INSERT, DELETE` on `package_providers` and
-  `package_artifacts`, and `USAGE` on the schema. The server makes such a
+  `package_artifacts`, `SELECT` on `__diesel_schema_migrations` and
+  `cloacina_schema_release`, and `USAGE` on the schema. The server makes such a
   role for each tenant and for `public`: `<tenant>$build` and
   `public$build`, with no password (see
   [The build role](#the-build-role-of-a-tenant)). For a compiler you run by
@@ -75,8 +76,7 @@ compiler needs:
   the compiler's UID: on Linux it can read the compiler's command line and
   environment through `/proc`, and with the admin role it would gain admin
   DB access to every tenant. A compiler with a build role runs with
-  `--tenant-schema <tenant>` (`--tenant-schema public` for `public`): a
-  build role cannot run the migrations a compiler without it runs at start.
+  `--tenant-schema <tenant>` (`--tenant-schema public` for `public`).
 
 ### 2. No outbound network beyond the vendor dir
 
@@ -187,6 +187,22 @@ packages can resolve under `--offline`. Curate it explicitly.
 4. **Adding an in-house crate.** Vendor it into a sibling source
    tree, then re-run `cargo vendor` against the union, and replace
    the compiler's vendor dir. Restart the compiler.
+
+## The schema check at start
+
+The compiler runs no migration, with or without `--tenant-schema`: only the
+server migrates. At start the compiler reads its schema:
+
+- The schema has each migration of the compiler's binary: it starts.
+- The schema lacks some (the server has not migrated it yet, or the server is
+  older): it waits, logs `waiting for the server to migrate the schema` with
+  both releases every 30 seconds, and exits with an error after 10 minutes.
+  A compiler started before the server, or upgraded before it, changes no
+  schema.
+- The schema was last migrated by a release more than one minor ahead of the
+  compiler: it exits at once, and the error names both releases.
+
+See [Schema versions](../production-deployment/#schema-versions).
 
 ## How many compilers a deployment runs
 
@@ -346,10 +362,13 @@ makes it, and it has these rights and no other:
 | `workflow_registry` | `SELECT` |
 | `package_providers` | `SELECT`, `INSERT`, `DELETE` |
 | `package_artifacts` | `SELECT`, `INSERT`, `DELETE` |
+| `__diesel_schema_migrations` | `SELECT` |
+| `cloacina_schema_release` | `SELECT` |
 
-plus `USAGE` on the schema. No right on another schema, on any table of
+plus `USAGE` on the schema. The last two are for the compiler's schema check
+at start. No right on another schema, on any table of
 `public`, or to create a table. A table the tenant schema lacks is refused,
-not read from `public`. `public$build` has the four tables of `public` and
+not read from `public`. `public$build` has these tables of `public` and
 nothing else there.
 
 - **When it is made.** At tenant create; for every tenant at each server

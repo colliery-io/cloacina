@@ -55,7 +55,7 @@ use crate::AppState;
 use crate::routes::audit::{self as audit_record, AuditEvent};
 use crate::routes::auth::AuthenticatedKey;
 use crate::routes::error::ApiError;
-use crate::routes::executions::validate_declared_params;
+use crate::routes::executions::{refuse_undeclared_bindings, validate_declared_params};
 
 const DEFAULT_INSTANCES_LIMIT: i64 = 100;
 const MAX_INSTANCES_LIMIT: i64 = 1000;
@@ -127,7 +127,25 @@ fn to_summary(s: Schedule) -> WorkflowInstanceSummary {
         next_run_at: s.next_run_at.map(|t| t.0.to_rfc3339()),
         last_run_at: s.last_run_at.map(|t| t.0.to_rfc3339()),
         created_at: s.created_at.0.to_rfc3339(),
+        priority: None,
+        priority_notice: None,
     }
+}
+
+/// [`to_summary`] with the priority of the schedule (CLOACINA-T-1123).
+async fn to_summary_with_priority(
+    state: &AppState,
+    tenant_id: &str,
+    dal: &cloacina::dal::DAL,
+    s: Schedule,
+) -> WorkflowInstanceSummary {
+    let id = s.id.0;
+    let mut summary = to_summary(s);
+    let (priority, notice) =
+        crate::priority_authority::schedule_priority(state, tenant_id, dal, id).await;
+    summary.priority = priority;
+    summary.priority_notice = notice;
+    summary
 }
 
 /// POST /tenants/:tenant_id/workflows/:name/instances — create a named instance.
@@ -161,7 +179,7 @@ fn to_summary(s: Schedule) -> WorkflowInstanceSummary {
 )]
 pub async fn create_instance(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthenticatedKey>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<CreateInstanceRequest>,
 ) -> impl IntoResponse {
@@ -171,6 +189,13 @@ pub async fn create_instance(
             "instance_name must not be empty".to_string(),
         )
         .into_response();
+    }
+    // CLOACINA-T-1123: a priority outside the scale is a bad request. One
+    // inside it is never refused: each fire is held to the creator's limit.
+    if let Some(asked) = body.priority
+        && let Err(message) = cloacina_api_types::validate_priority(i64::from(asked))
+    {
+        return ApiError::bad_request("invalid_priority", message).into_response();
     }
 
     let tenant_db = match state
@@ -232,6 +257,16 @@ pub async fn create_instance(
                 }
                 Ok(_) => {}
                 Err(e) => warn!("declared-params lookup failed for '{}': {}", name, e),
+            }
+
+            // CLOACINA-T-1134: a binding of a secret the package does not
+            // declare is refused here, before the schedule row is made. The
+            // check reads the version active now; each fire pins the version
+            // active at that time.
+            if let Some(refused) =
+                refuse_undeclared_bindings(&tenant_db, &registry, &name, provided).await
+            {
+                return refused;
             }
         }
     }
@@ -333,14 +368,35 @@ pub async fn create_instance(
                 name,
                 tenant_id
             );
+            // CLOACINA-T-1123: the instance keeps its priority and its
+            // creator, before the scheduler is woken for its first fire.
+            if let Some(asked) = body.priority {
+                crate::priority_authority::record_schedule_priority(
+                    &state,
+                    &tenant_id,
+                    &dal,
+                    schedule.id.0,
+                    asked,
+                    &auth,
+                )
+                .await;
+            }
             // Re-arm the scheduler, or a scheduled instance sits there never
             // firing (CLOACI-T-0927).
             wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
-            let detail =
-                serde_json::json!({ "workflow": name, "schedule_id": schedule.id.0.to_string() });
+            let summary = to_summary_with_priority(&state, &tenant_id, &dal, schedule).await;
+            let mut detail =
+                serde_json::json!({ "workflow": name, "schedule_id": summary.id.clone() });
+            if let Some(grant) = summary.priority {
+                detail["priority_asked"] = grant.asked.into();
+                detail["priority_given"] = grant.given.into();
+                if grant.is_held() {
+                    detail["priority_lowered"] = true.into();
+                }
+            }
             let event = AuditEvent::ok(audit_record::actions::INSTANCE_CREATE, &body.instance_name);
             audit_record::note(Some(&tenant_id), event.detail(detail));
-            Json(to_summary(schedule)).into_response()
+            Json(summary).into_response()
         }
         Err(e) => {
             // The unique index on (workflow_name, instance_name) is the real
@@ -423,13 +479,16 @@ pub async fn list_instances(
 
     match dal.schedule().find_by_workflow(&name).await {
         Ok(schedules) => {
-            let items: Vec<WorkflowInstanceSummary> = schedules
+            let page: Vec<Schedule> = schedules
                 .into_iter()
                 .filter(|s| s.instance_name.is_some())
                 .skip(offset as usize)
                 .take(limit as usize)
-                .map(to_summary)
                 .collect();
+            let mut items: Vec<WorkflowInstanceSummary> = Vec::with_capacity(page.len());
+            for s in page {
+                items.push(to_summary_with_priority(&state, &tenant_id, &dal, s).await);
+            }
             Json(TenantListResponse::new(tenant_id, items)).into_response()
         }
         Err(e) => {
@@ -479,7 +538,9 @@ pub async fn get_instance(
     let dal = cloacina::dal::DAL::new(tenant_db);
 
     match dal.schedule().find_by_instance_name(&name, &instance).await {
-        Ok(Some(s)) => Json(to_summary(s)).into_response(),
+        Ok(Some(s)) => {
+            Json(to_summary_with_priority(&state, &tenant_id, &dal, s).await).into_response()
+        }
         Ok(None) => ApiError::not_found(
             "instance_not_found",
             format!("instance '{}' of workflow '{}' not found", instance, name),
@@ -549,6 +610,17 @@ pub async fn delete_instance(
                 name,
                 tenant_id
             );
+            // CLOACINA-T-1123: its priority record goes with it.
+            if let Err(e) = dal
+                .priority_grants()
+                .delete(
+                    cloacina::dal::unified::priority_grants::KIND_SCHEDULE,
+                    &schedule.id.0.to_string(),
+                )
+                .await
+            {
+                warn!(tenant = %tenant_id, error = %e, "the priority record of the deleted instance was not removed");
+            }
             // Re-arm against the REMAINING schedules (CLOACI-T-0927).
             wake_cron_scheduler(&state, &tenant_id, tenant_db).await;
             audit_record::note(

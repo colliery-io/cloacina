@@ -1230,6 +1230,185 @@ mod tests {
             );
             assert!(line.contains(&ids), "{line}");
         }
+
+        // -----------------------------------------------------------------------
+        // CLOACINA-T-1137: an in-process execution and an upload
+        // -----------------------------------------------------------------------
+
+        /// A task that records which version of its package ran it.
+        struct VersionedTask {
+            id: &'static str,
+            version: &'static str,
+            ran: Arc<std::sync::Mutex<Vec<String>>>,
+        }
+
+        #[async_trait]
+        impl Task for VersionedTask {
+            async fn execute(
+                &self,
+                context: Context<serde_json::Value>,
+            ) -> Result<Context<serde_json::Value>, crate::error::TaskError> {
+                self.ran
+                    .lock()
+                    .unwrap()
+                    .push(format!("{}@{}", self.id, self.version));
+                Ok(context)
+            }
+            fn id(&self) -> &str {
+                self.id
+            }
+            fn dependencies(&self) -> &[crate::task::TaskNamespace] {
+                &[]
+            }
+        }
+
+        /// A built row of package `inproc` at `version`.
+        async fn built_row(dal: &DAL, version: &str, digest: &str) -> uuid::Uuid {
+            use crate::database::schema::unified::workflow_packages;
+            use diesel::prelude::*;
+            let metadata = serde_json::from_value(serde_json::json!({
+                "package_name": "inproc",
+                "workflow_name": "inproc_wf",
+                "version": version,
+                "description": null,
+                "author": null,
+                "tasks": [],
+                "graph_data": null,
+                "architecture": "any",
+                "symbols": [],
+            }))
+            .unwrap();
+            let id = dal
+                .workflow_packages()
+                .store_package_metadata(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &metadata,
+                    crate::models::workflow_packages::StorageType::Database,
+                    None,
+                )
+                .await
+                .unwrap();
+            let (pid, digest) = (UniversalUuid(id), digest.to_string());
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(workflow_packages::table.find(pid))
+                    .set((
+                        workflow_packages::build_status.eq("success"),
+                        workflow_packages::content_hash.eq(digest),
+                    ))
+                    .execute(conn)
+            })
+            .unwrap();
+            id
+        }
+
+        /// The defect: an execution whose first task ran on version 1.0.0
+        /// runs its next task on version 2.0.0 after an upload, because the
+        /// runtime holds one loaded version per package. Ignored until the
+        /// in-process rule is decided (see the notes of CLOACINA-T-1137); on
+        /// the code of today it fails with `["first@1.0.0", "second@2.0.0"]`.
+        #[tokio::test]
+        #[ignore = "CLOACINA-T-1137: the in-process pinning rule is not decided"]
+        async fn an_in_process_execution_does_not_run_a_task_of_a_newer_version() {
+            use crate::database::schema::unified::workflow_packages;
+            use crate::database::universal_types::UniversalBool;
+            use crate::models::task_execution::NewTaskExecution;
+            use crate::models::workflow_execution::NewWorkflowExecution;
+            use diesel::prelude::*;
+
+            let url = format!(
+                "file:executor_pin_{}?mode=memory&cache=shared",
+                uuid::Uuid::new_v4()
+            );
+            let db = Database::new(&url, "", 5);
+            db.run_migrations().await.expect("migrations");
+            let dal = DAL::new(db.clone());
+            let v1 = built_row(&dal, "1.0.0", "digest-1").await;
+
+            let first = "public::inproc::inproc_wf::first";
+            let second = "public::inproc::inproc_wf::second";
+            let ran = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let runtime = Arc::new(Runtime::empty());
+            let register = |name: &str, id: &'static str, version: &'static str| {
+                let ran = ran.clone();
+                runtime.register_task(parse_namespace(name).unwrap(), move || {
+                    Arc::new(VersionedTask {
+                        id,
+                        version,
+                        ran: ran.clone(),
+                    })
+                });
+            };
+            register(first, "first", "1.0.0");
+            register(second, "second", "1.0.0");
+            let exec = ThreadTaskExecutor::with_runtime_and_registry(
+                db,
+                Arc::new(TaskRegistry::new()),
+                runtime.clone(),
+                ExecutorConfig {
+                    enable_claiming: false,
+                    ..ExecutorConfig::default()
+                },
+            );
+
+            let run = dal
+                .workflow_execution()
+                .create(NewWorkflowExecution {
+                    workflow_name: "inproc_wf".into(),
+                    workflow_version: "1.0.0".into(),
+                    status: "Running".into(),
+                    context_id: None,
+                })
+                .await
+                .unwrap();
+            let ready = |name: &str| NewTaskExecution {
+                workflow_execution_id: run.id,
+                task_name: name.into(),
+                status: "Ready".into(),
+                attempt: 1,
+                max_attempts: 1,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            };
+
+            // The first task runs on version 1.0.0.
+            let task = dal.task_execution().create(ready(first)).await.unwrap();
+            TaskExecutor::execute(
+                &exec,
+                TaskReadyEvent::new(task.id, run.id, first.to_string(), 1),
+            )
+            .await
+            .unwrap();
+
+            // Version 2.0.0 is uploaded and built; the reconciler swaps the
+            // loaded tasks.
+            let pid = UniversalUuid(v1);
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(workflow_packages::table.find(pid))
+                    .set(workflow_packages::superseded.eq(UniversalBool(true)))
+                    .execute(conn)
+            })
+            .unwrap();
+            built_row(&dal, "2.0.0", "digest-2").await;
+            runtime.unregister_task(&parse_namespace(first).unwrap());
+            runtime.unregister_task(&parse_namespace(second).unwrap());
+            register(first, "first", "2.0.0");
+            register(second, "second", "2.0.0");
+
+            // The second task of the same execution.
+            let task = dal.task_execution().create(ready(second)).await.unwrap();
+            TaskExecutor::execute(
+                &exec,
+                TaskReadyEvent::new(task.id, run.id, second.to_string(), 1),
+            )
+            .await
+            .unwrap();
+
+            let ran = ran.lock().unwrap().clone();
+            assert!(
+                !ran.contains(&"second@2.0.0".to_string()),
+                "the execution started on 1.0.0 ran a task of 2.0.0: {ran:?}"
+            );
+        }
     } // mod sqlite_tests
 
     // -----------------------------------------------------------------------

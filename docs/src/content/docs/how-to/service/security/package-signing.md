@@ -81,6 +81,33 @@ The Rust, Python and TypeScript clients send a signature too:
 `uploadWorkflow(pkg, tenant, signature)`. The signature is the text of the
 `.sig` file.
 
+## Upload a signed package in the web UI
+
+The web UI does not sign: sign with `cloacinactl package pack --sign` first,
+so that the archive and its `.sig` file lie side by side.
+
+1. Open **Workflows**, then **Upload package**.
+2. Choose the `.cloacina` archive.
+3. Choose its signature file, `<archive>.sig`.
+4. Select **Upload**.
+
+The form sends the text of the signature file as the `signature` field of the
+upload. With no signature file, the form sends the archive only; a server that
+requires signatures refuses that upload. **Remove the signature file** clears
+the choice.
+
+A refused upload shows `Upload refused:` and the code, what to do, and the
+server's message:
+
+| Code | What to do |
+|---|---|
+| `signature_required` | The server requires signed packages. Choose the package's `.sig` file. |
+| `malformed_signature` | The file is not a detached signature. Choose the `.sig` file that `pack --sign` wrote. |
+| `package_tampered` | The signature was made for other bytes. Choose the `.sig` file of this archive, or sign it again. |
+| `untrusted_signer` | The tenant does not trust the key. A tenant admin adds it with `cloacinactl trusted-key add`. |
+| `signer_revoked` | The key was revoked. Sign with a live trusted key. |
+| `invalid_signature` | The signature does not verify. Sign again with the key the tenant trusts. |
+
 ## Manage a tenant's trusted keys on a server
 
 A trusted key is an Ed25519 public key. An upload to a tenant passes the

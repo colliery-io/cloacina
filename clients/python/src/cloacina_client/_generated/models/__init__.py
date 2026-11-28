@@ -105,6 +105,7 @@ from .rotate_secret_request import RotateSecretRequest
 from .rotate_secret_request_fields import RotateSecretRequestFields
 from .secret_deleted_response import SecretDeletedResponse
 from .secret_metadata_response import SecretMetadataResponse
+from .task_attempt_error_detail import TaskAttemptErrorDetail
 from .task_execution_detail import TaskExecutionDetail
 from .tenant_created_response import TenantCreatedResponse
 from .tenant_list_response_backfill_summary import TenantListResponseBackfillSummary
@@ -146,6 +147,7 @@ from .trigger_schedule_info import TriggerScheduleInfo
 from .trigger_schedule_summary import TriggerScheduleSummary
 from .trusted_key_revoked_response import TrustedKeyRevokedResponse
 from .trusted_key_summary import TrustedKeySummary
+from .update_key_request import UpdateKeyRequest
 from .whoami_response import WhoamiResponse
 from .workflow_deleted_response import WorkflowDeletedResponse
 from .workflow_detail import WorkflowDetail
@@ -256,6 +258,7 @@ __all__ = (
     "RotateSecretRequestFields",
     "SecretDeletedResponse",
     "SecretMetadataResponse",
+    "TaskAttemptErrorDetail",
     "TaskExecutionDetail",
     "TenantCreatedResponse",
     "TenantListResponseBackfillSummary",
@@ -279,6 +282,7 @@ __all__ = (
     "TriggerScheduleSummary",
     "TrustedKeyRevokedResponse",
     "TrustedKeySummary",
+    "UpdateKeyRequest",
     "WhoamiResponse",
     "WorkflowDeletedResponse",
     "WorkflowDetail",

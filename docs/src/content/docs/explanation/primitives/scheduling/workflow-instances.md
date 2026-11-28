@@ -98,7 +98,10 @@ cloacinactl instance delete sync_file sync_prod
 of per-instance tweaks. `--timezone` sets the cron timezone (default `UTC`),
 `--catchup run_all` makes the schedule run each fire time it missed (default
 `skip`), `--max-active-runs N` limits how many runs of the schedule are active
-at once, and `--disabled` creates the schedule switched off.
+at once, `--priority N` (0 to 10) gives each fire that workflow
+[priority](../../../priority/#give-a-schedule-a-priority), held to the limit of
+whoever created the instance at the time of the fire, and `--disabled`
+creates the schedule switched off.
 
 Values are validated against the workflow's declared `params(...)` **when the
 instance is created**, with the same check that validates a per-run context — a

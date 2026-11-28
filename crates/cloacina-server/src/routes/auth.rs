@@ -40,6 +40,9 @@ pub struct AuthenticatedKey {
     pub permissions: String,
     pub tenant_id: Option<String>,
     pub is_admin: bool,
+    /// The highest priority the key may set (CLOACINA-T-1123). `None`: the
+    /// default of its role.
+    pub max_priority: Option<u8>,
 }
 
 /// A cached entry with TTL tracking.
@@ -71,11 +74,18 @@ impl KeyCache {
         Self::new(256, Duration::from_secs(30))
     }
 
-    /// Look up a key hash. Returns None if not cached or expired.
+    /// Look up a key hash. Returns None if not cached, if the entry is older
+    /// than the TTL, or if the key's own `expires_at` has passed
+    /// (CLOACINA-T-1083): an expired key is dropped and read again from the
+    /// database, which refuses it.
     pub async fn get(&self, hash: &str) -> Option<ApiKeyInfo> {
         let mut cache = self.cache.lock().await;
         if let Some(entry) = cache.get(hash) {
-            if entry.inserted_at.elapsed() < self.ttl {
+            let key_expired = entry
+                .info
+                .expires_at
+                .is_some_and(|at| at <= chrono::Utc::now());
+            if entry.inserted_at.elapsed() < self.ttl && !key_expired {
                 return Some(entry.info.clone());
             }
             // Expired — lazy eviction
@@ -120,10 +130,18 @@ pub const KEY_REVOKED_CHANNEL: &str = "cloacina_api_keys_revoked";
 /// Call it after keys were revoked. An error means the notice was not sent:
 /// the other servers then refuse the keys after at most the cache TTL.
 pub async fn announce_key_revocation(state: &AppState) -> Result<(), String> {
+    announce_key_revocation_with(&state.database, &state.key_cache).await
+}
+
+/// [`announce_key_revocation`] for code that holds the database and the key
+/// cache but no [`AppState`]: the fleet actuator (CLOACINA-T-1083).
+pub async fn announce_key_revocation_with(
+    database: &cloacina::database::Database,
+    key_cache: &KeyCache,
+) -> Result<(), String> {
     use diesel::RunQueryDsl;
-    state.key_cache.clear().await;
-    let conn = state
-        .database
+    key_cache.clear().await;
+    let conn = database
         .get_postgres_connection()
         .await
         .map_err(|e| format!("connection: {e}"))?;
@@ -145,6 +163,36 @@ pub async fn announce_key_revocation(state: &AppState) -> Result<(), String> {
 pub async fn announce_key_revocation_or_warn(state: &AppState) {
     if let Err(e) = announce_key_revocation(state).await {
         warn!(error = %e, "key revocation notice not sent; other servers refuse the key within the cache TTL");
+    }
+}
+
+/// The key revocation notice of the fleet actuator (CLOACINA-T-1083): sent
+/// after it revokes agent keys. A notice that fails to send is logged; the
+/// keys are revoked in the database, and other servers refuse them after at
+/// most the cache TTL.
+pub struct DbKeyRevocationNotice {
+    database: cloacina::database::Database,
+    key_cache: std::sync::Arc<KeyCache>,
+}
+
+impl DbKeyRevocationNotice {
+    pub fn new(
+        database: cloacina::database::Database,
+        key_cache: std::sync::Arc<KeyCache>,
+    ) -> Self {
+        Self {
+            database,
+            key_cache,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::actuator::KeyRevocationNotice for DbKeyRevocationNotice {
+    async fn announce(&self) {
+        if let Err(e) = announce_key_revocation_with(&self.database, &self.key_cache).await {
+            warn!(error = %e, "agent key revocation notice not sent; other servers refuse the key within the cache TTL");
+        }
     }
 }
 
@@ -179,6 +227,18 @@ pub fn spawn_key_revocation_listener(
     });
 }
 
+/// The error code of a key whose expiry has passed (CLOACINA-T-1083).
+pub const KEY_EXPIRED_CODE: &str = "key_expired";
+
+/// 401 for a key whose expiry has passed.
+pub fn key_expired_response() -> ApiError {
+    ApiError::new(
+        axum::http::StatusCode::UNAUTHORIZED,
+        KEY_EXPIRED_CODE,
+        "the API key has expired",
+    )
+}
+
 /// Validate a bearer token and return the authenticated key info.
 ///
 /// Shared logic used by both the HTTP middleware and WebSocket handlers.
@@ -194,6 +254,7 @@ pub async fn validate_token(state: &AppState, token: &str) -> Result<Authenticat
             permissions: info.permissions,
             tenant_id: info.tenant_id,
             is_admin: info.is_admin,
+            max_priority: info.max_priority,
         });
     }
 
@@ -207,11 +268,18 @@ pub async fn validate_token(state: &AppState, token: &str) -> Result<Authenticat
                 permissions: info.permissions.clone(),
                 tenant_id: info.tenant_id.clone(),
                 is_admin: info.is_admin,
+                max_priority: info.max_priority,
             };
             state.key_cache.insert(hash, info).await;
             Ok(auth)
         }
         Ok(None) => {
+            // CLOACINA-T-1083: a key past its expiry gets its own code, so
+            // its holder knows to get a new key.
+            if matches!(dal.api_keys().is_expired_hash(&hash).await, Ok(true)) {
+                warn!("API key validation failed — expired key");
+                return Err(key_expired_response());
+            }
             warn!("API key validation failed — unknown or revoked key");
             // CLOACI-T-0595 / API-06: canonical ApiError envelope.
             Err(ApiError::unauthorized("invalid or revoked API key"))
@@ -428,6 +496,8 @@ impl WsTicketStore {
                     permissions: auth.permissions,
                     tenant_id: auth.tenant_id,
                     is_admin: auth.is_admin,
+                    // A ticket opens a stream; a stream sets no priority.
+                    max_priority: None,
                 }),
                 Ok(None) => None,
                 Err(e) => {
@@ -458,7 +528,58 @@ mod tests {
             permissions: "read".to_string(),
             tenant_id: None,
             is_admin: false,
+            max_priority: None,
         }
+    }
+
+    fn cached_key(expires_at: Option<chrono::DateTime<chrono::Utc>>) -> ApiKeyInfo {
+        ApiKeyInfo {
+            id: uuid::Uuid::new_v4(),
+            name: "k".to_string(),
+            permissions: "agent".to_string(),
+            created_at: chrono::Utc::now(),
+            revoked: false,
+            tenant_id: Some("acme".to_string()),
+            is_admin: false,
+            expires_at,
+            issued_via: None,
+            max_priority: None,
+        }
+    }
+
+    /// CLOACINA-T-1083: the key cache drops a key whose expiry has passed,
+    /// even inside its 30 s, so the next request reads the database, which
+    /// refuses it.
+    #[tokio::test]
+    async fn the_key_cache_drops_an_expired_key() {
+        let cache = KeyCache::default_cache();
+        let now = chrono::Utc::now();
+        cache
+            .insert(
+                "expired".to_string(),
+                cached_key(Some(now - chrono::Duration::seconds(1))),
+            )
+            .await;
+        cache
+            .insert(
+                "valid".to_string(),
+                cached_key(Some(now + chrono::Duration::days(1))),
+            )
+            .await;
+        cache.insert("forever".to_string(), cached_key(None)).await;
+        assert!(cache.get("expired").await.is_none());
+        assert!(cache.get("valid").await.is_some());
+        assert!(cache.get("forever").await.is_some());
+        // Dropped, not only hidden.
+        assert!(cache.cache.lock().await.peek("expired").is_none());
+    }
+
+    /// The answer to an expired key: 401 with the code `key_expired`.
+    #[test]
+    fn an_expired_key_is_answered_401_key_expired() {
+        let e = key_expired_response();
+        assert_eq!(e.status, axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(e.code, "key_expired");
     }
 
     #[tokio::test]
@@ -603,6 +724,7 @@ mod tests {
             permissions: permissions.to_string(),
             tenant_id: tenant.map(str::to_string),
             is_admin,
+            max_priority: None,
         }
     }
 

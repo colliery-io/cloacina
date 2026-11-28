@@ -76,8 +76,8 @@ cloacina_task_duration_seconds_bucket{le}
 ```text
 cloacina_active_workflows{tenant}
 cloacina_active_tasks{tenant}
-cloacina_waiting_tasks{tenant, pool}
-cloacina_oldest_waiting_task_age_seconds{tenant, pool}
+cloacina_waiting_tasks{tenant, pool, priority}
+cloacina_oldest_waiting_task_age_seconds{tenant, pool, priority}
 cloacina_schedule_lag_seconds{tenant}
 ```
 

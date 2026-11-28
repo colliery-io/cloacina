@@ -23,7 +23,7 @@
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "Server process is alive — `{\"status\": \"ok\"}`"
+            "description": "Server process is alive — `{\"status\": \"ok\", \"version\": \"<release>\"}`"
           }
         }
       }
@@ -285,7 +285,7 @@
           "keys"
         ],
         "summary": "POST /auth/keys — create a new API key.",
-        "description": "Requires admin role. Non-admin keys cannot create keys with higher\npermissions than their own (prevents privilege escalation).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
+        "description": "Platform admin only (the route table). Without `platform_admin` the key\nbelongs to the tenant `public`. With `platform_admin: true` it is a\nplatform admin key: no tenant, role `admin`, the flag (CLOACINA-T-1065).\nReturns the plaintext key exactly once. It cannot be retrieved again.",
         "operationId": "create_key",
         "requestBody": {
           "content": {
@@ -309,7 +309,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin` with a role other than admin, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -329,7 +329,7 @@
             }
           },
           "403": {
-            "description": "Admin role required",
+            "description": "Platform admin key required",
             "content": {
               "application/json": {
                 "schema": {
@@ -417,6 +417,16 @@
           },
           "404": {
             "description": "Key not found or already revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The key is the last live platform admin key",
             "content": {
               "application/json": {
                 "schema": {
@@ -1357,7 +1367,7 @@
             }
           },
           "409": {
-            "description": "A tenant of this name exists (`tenant_exists`)",
+            "description": "A tenant of this name exists (`tenant_exists`), or a tenant of another name has its Kubernetes namespace (`tenant_namespace_taken`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2393,7 +2403,7 @@
             }
           },
           "400": {
-            "description": "No role, an unknown role, or a body that is not a key request",
+            "description": "No role, an unknown role, `platform_admin: true`, an expires_at that is not a future RFC 3339 timestamp, or a body that is not a key request",
             "content": {
               "application/json": {
                 "schema": {
@@ -2510,6 +2520,100 @@
           },
           "404": {
             "description": "Key not found in this tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "PATCH /tenants/:tenant_id/keys/:key_id — set or clear the highest priority\na key of the tenant may set (CLOACINA-T-1123). Needs `keys.manage` in the\ntenant. The new limit applies to the key's next request, on every replica,\nand to the next run of each package and schedule the key set a priority\nfor.",
+        "operationId": "update_tenant_key",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "description": "Tenant identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "Key UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The key, with its new limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid key ID, a priority outside 0 to 10, a `read` or `agent` key, or a body that is not a key update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant access or admin role denied, or a limit above the caller's own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found in this tenant, or revoked",
             "content": {
               "application/json": {
                 "schema": {
@@ -6173,7 +6277,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). A pool other\nthan `default` runs exactly this many agents.",
+            "description": "Most agents of the pool. Not for the pool `default` (its max is the\ntenant's agent limit, `/v1/tenants/{tenant_id}/limits`). Required for\nanother pool.",
             "minimum": 0
           },
           "max_concurrency": {
@@ -6205,7 +6309,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Fewest agents of the pool. Not for the pool `default` (its floor is\nthe server-wide `CLOACINA_AUTOSCALE_FLOOR`). A pool other than\n`default` is not autoscaled yet: set it equal to `max_agents`.",
+            "description": "Fewest agents of the pool, at most `max_agents`. The pool scales\nbetween the two on the work that waits for it, and goes back to this\ncount when it is idle; `0` lets it scale to zero. Absent: the pool\nkeeps `max_agents` agents. Not for the pool `default` (its floor is the\nserver-wide `CLOACINA_AUTOSCALE_FLOOR`).",
             "minimum": 0
           },
           "pod_annotations": {
@@ -6499,6 +6603,24 @@
           "params": {
             "description": "Parameter values for each run, as stored."
           },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The priority the backfill asks for and the one its runs get now,\nheld to the creator's limit at this time (CLOACINA-T-1123). Absent\nfor a backfill created with no priority."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when `given` is lower than `asked`: what was asked, what is\ngiven, and why."
+          },
           "progress": {
             "$ref": "#/components/schemas/BackfillProgress"
           },
@@ -6626,6 +6748,16 @@
           "params": {
             "description": "Parameter values for each run, validated against the workflow's\ndeclared `params(...)` slots."
           },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The workflow priority of each run, 0 (the highest) to 10\n(CLOACINA-T-1123). Each run is held to the creator's limit when it\nstarts; a priority above the limit is not refused. Not set: the\npriority the workflow declares.",
+            "maximum": 10,
+            "minimum": 0
+          },
           "start": {
             "type": "string",
             "description": "Start of the range, an RFC 3339 timestamp. The backfill takes each\nfire time `F` of the expression with `start <= F <= end`."
@@ -6683,6 +6815,16 @@
           "params": {
             "description": "Parameter values bound to this instance, validated against the\nworkflow's declared `params(...)` slots."
           },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The workflow priority of each fire, 0 (the highest) to 10\n(CLOACINA-T-1123). Each fire is held to the creator's limit at the\ntime of the fire; a priority above the limit is not refused. Not set:\nthe priority the workflow declares.",
+            "maximum": 10,
+            "minimum": 0
+          },
           "timezone": {
             "type": [
               "string",
@@ -6700,8 +6842,28 @@
           "role"
         ],
         "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional. When the key expires, as an RFC 3339 timestamp in the\nfuture (for example `2027-01-31T00:00:00Z`). After it the key is\nrefused with 401 `key_expired`. Not set: the key does not expire."
+          },
+          "max_priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Optional. The highest priority the key may set, 0 (the highest) to 10\n(CLOACINA-T-1123). Not set: the default of its role (`write` 5,\n`admin` 0). Not better than the caller's own limit (403); refused on a\n`read` or `agent` key (400).",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
+          },
+          "platform_admin": {
+            "type": "boolean",
+            "description": "`POST /auth/keys` only: make a platform admin key (no tenant, role\n`admin`, the platform admin flag). Needs `role: admin`. The tenant\nroute refuses `true` with 400 (CLOACINA-T-1065)."
           },
           "role": {
             "$ref": "#/components/schemas/KeyRole",
@@ -7395,17 +7557,33 @@
             "type": "string",
             "description": "RFC 3339 timestamp."
           },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the key expires (RFC 3339); `null`: it does not expire."
+          },
           "id": {
             "type": "string",
             "description": "Key UUID."
           },
           "is_admin": {
             "type": "boolean",
-            "description": "God-mode flag — never granted via the create endpoints."
+            "description": "Platform admin flag. Set only by `POST /auth/keys` with\n`platform_admin: true`, and by the bootstrap."
           },
           "key": {
             "type": "string",
             "description": "One-time plaintext API key."
+          },
+          "max_priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The highest priority the key may set; `null`: the default of its\nrole (CLOACINA-T-1123).",
+            "minimum": 0
           },
           "name": {
             "type": "string"
@@ -7439,12 +7617,28 @@
             "type": "string",
             "description": "RFC 3339 timestamp."
           },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the key expires (RFC 3339); `null`: it does not expire. The\nkeys the Kubernetes actuator mints for agents expire."
+          },
           "id": {
             "type": "string",
             "description": "Key UUID."
           },
           "is_admin": {
             "type": "boolean"
+          },
+          "max_priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The highest priority the key may set; `null`: the default of its\nrole (CLOACINA-T-1123).",
+            "minimum": 0
           },
           "name": {
             "type": "string"
@@ -7891,12 +8085,28 @@
                   "type": "string",
                   "description": "RFC 3339 timestamp."
                 },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "When the key expires (RFC 3339); `null`: it does not expire. The\nkeys the Kubernetes actuator mints for agents expire."
+                },
                 "id": {
                   "type": "string",
                   "description": "Key UUID."
                 },
                 "is_admin": {
                   "type": "boolean"
+                },
+                "max_priority": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "description": "The highest priority the key may set; `null`: the default of its\nrole (CLOACINA-T-1123).",
+                  "minimum": 0
                 },
                 "name": {
                   "type": "string"
@@ -8543,6 +8753,37 @@
           }
         }
       },
+      "TaskAttemptErrorDetail": {
+        "type": "object",
+        "description": "The error of one failed attempt of a task (CLOACINA-T-1100).",
+        "required": [
+          "attempt",
+          "message",
+          "failed_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The attempt that failed, from 1."
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The details of the failure (a Python traceback), at most 16 KiB; a\ncut keeps the end."
+          },
+          "failed_at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp of the failure."
+          },
+          "message": {
+            "type": "string",
+            "description": "The error message of the attempt."
+          }
+        }
+      },
       "TaskExecutionDetail": {
         "type": "object",
         "description": "One per-task row of an execution (CLOACI-I-0124 / WS-1).",
@@ -8559,6 +8800,13 @@
           "attempt": {
             "type": "integer",
             "format": "int32"
+          },
+          "attempt_errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskAttemptErrorDetail"
+            },
+            "description": "The error of each failed attempt, oldest first; empty when no attempt\nfailed (CLOACINA-T-1100). The last entry of a failed task is the\nerror in `last_error` and `error_details`."
           },
           "completed_at": {
             "type": [
@@ -8707,6 +8955,24 @@
                 },
                 "params": {
                   "description": "Parameter values for each run, as stored."
+                },
+                "priority": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PriorityGrant",
+                      "description": "The priority the backfill asks for and the one its runs get now,\nheld to the creator's limit at this time (CLOACINA-T-1123). Absent\nfor a backfill created with no priority."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "priority_notice": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Set when `given` is lower than `asked`: what was asked, what is\ngiven, and why."
                 },
                 "progress": {
                   "$ref": "#/components/schemas/BackfillProgress"
@@ -9004,6 +9270,24 @@
                 "paused": {
                   "type": "boolean",
                   "description": "Whether the schedule is paused (distinct from `enabled`)."
+                },
+                "priority": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/PriorityGrant",
+                      "description": "The priority the instance asks for and the one its fires get now,\nheld to the creator's limit at this time (CLOACINA-T-1123). Absent\nfor an instance created with no priority."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "priority_notice": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Set when `given` is lower than `asked`: what was asked, what is\ngiven, and why."
                 },
                 "timezone": {
                   "type": [
@@ -9533,6 +9817,21 @@
           }
         }
       },
+      "UpdateKeyRequest": {
+        "type": "object",
+        "description": "Request body for `PATCH /tenants/{tenant_id}/keys/{key_id}`\n(CLOACINA-T-1123): the highest priority the key may set.",
+        "properties": {
+          "max_priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "0 (the highest) to 10; `null` clears it, and the key has the default\nof its role again. Not better than the caller's own limit (403);\nrefused on a `read` or `agent` key (400).",
+            "minimum": 0
+          }
+        }
+      },
       "WhoamiResponse": {
         "type": "object",
         "description": "The caller's own identity + role (CLOACI-T-0803) — lets the UI gate\nwrite/admin controls to the key's role instead of offering actions that\nwould 403.",
@@ -9649,6 +9948,24 @@
             "type": "boolean",
             "description": "Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse\nnew executions until resumed."
           },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The workflow priority its code declares (`asked`, 5 when it declares\nnone) and the one its runs get now (`given`): the asked one held to\nthe limit of the publisher at this time (CLOACINA-T-1123). Absent for\na package that is not built yet."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when `given` is lower than `asked`: what was asked, what is\ngiven, and why."
+          },
           "task_graph": {
             "type": "array",
             "items": {
@@ -9749,6 +10066,24 @@
           "paused": {
             "type": "boolean",
             "description": "Whether the schedule is paused (distinct from `enabled`)."
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PriorityGrant",
+                "description": "The priority the instance asks for and the one its fires get now,\nheld to the creator's limit at this time (CLOACINA-T-1123). Absent\nfor an instance created with no priority."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when `given` is lower than `asked`: what was asked, what is\ngiven, and why."
           },
           "timezone": {
             "type": [
@@ -9965,6 +10300,22 @@
           "package_id": {
             "type": "string",
             "description": "UUID of the registered package."
+          },
+          "priority_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The highest priority the runs of this package may get, as its\npublisher may set now (CLOACINA-T-1123). A workflow or task that\ndeclares a higher priority (a smaller number) in its code runs at\nthis one. Absent in an answer from an older server.",
+            "minimum": 0
+          },
+          "priority_notice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the limit is below the highest priority: one sentence that\nsays the limit and why. `cloacinactl` prints it as a warning."
           },
           "tenant_id": {
             "type": "string"

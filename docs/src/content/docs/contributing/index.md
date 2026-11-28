@@ -65,7 +65,12 @@ Cloacina provides several tools and resources to help you get started and mainta
      [Metrics Catalog](../reference/metrics-catalog/)
      — add a row describing the metric, its labels, and one example PromQL
      query. The `angreal test metrics-format` CI job validates exposition
-     format but does not validate the docs are up to date.
+     format; the [release gate](release-gate/) fails when a metric or a
+     label in the code is missing from the catalog, or a catalog row has no
+     code.
+   - **Changing the HTTP API, a chart value, a metric, a version constant, a
+     migration or a server flag?** See the [release gate](release-gate/):
+     a break needs a `CHANGELOG.md` entry that names it.
    - We're happy to help guide you through the documentation process, but we won't merge PRs until documentation meets our standards
    - Keep documentation clear, concise, and up-to-date
    - For detailed documentation guidelines, including API documentation and cross-linking, see our [Documentation Guidelines](documentation/)

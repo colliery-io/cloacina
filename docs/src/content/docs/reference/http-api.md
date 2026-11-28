@@ -56,6 +56,15 @@ only identifier that ties a client-observed failure to the server's
 logs. If the client supplies an inbound `x-request-id` header the
 middleware honours it (enables end-to-end trace propagation).
 
+### Server release: `x-cloacina-version`
+
+Every response carries the header `x-cloacina-version` with the server's
+release (`0.14.1`). `cloacinactl` reads it from its first answer and prints one
+warning on stderr when its own minor differs; the call goes on. The server
+refuses no client by version. The Rust client exposes the value as
+`Client::server_version()` and sends `user-agent: cloacina-client/<version>`
+(`cloacinactl/<version>` from `cloacinactl`).
+
 ### Live event streaming (WebSocket)
 
 Live execution-event streaming is delivered over the WebSocket delivery
@@ -92,6 +101,7 @@ Authorization: Bearer clk_a1b2c3d4e5f6...
 |---|---|---|
 | `401` | `{"error": "missing or malformed Authorization header"}` | No `Authorization` header or not `Bearer` scheme |
 | `401` | `{"error": "invalid or revoked API key"}` | Key not found or has been revoked |
+| `401` | `{"error": "the API key has expired", "code": "key_expired"}` | The key's `expires_at` has passed |
 | `500` | `{"error": "internal error during authentication"}` | Database error during validation |
 
 ## Public Endpoints
@@ -100,12 +110,12 @@ These endpoints require no authentication.
 
 ### GET /health
 
-Liveness check. Always returns 200.
+Liveness check. Always returns 200. `version` is the server's release.
 
 **Response:** `200 OK`
 
 ```json
-{"status": "ok"}
+{"status": "ok", "version": "0.14.1"}
 ```
 
 ### GET /ready
@@ -200,14 +210,17 @@ for the identity-provider setup and claim-mapping policy.
 
 ### POST /v1/auth/keys
 
-Create a new API key. The plaintext key is returned exactly once and cannot be retrieved again. Requires admin role.
+Create a new API key. The plaintext key is returned exactly once and cannot be retrieved again. Requires a platform admin key.
+
+Without `platform_admin`, the key belongs to the tenant `public`. With `"platform_admin": true`, the key has no tenant, role `admin` and `is_admin = true`, like the bootstrap key, and no expiry. Use it to rotate the bootstrap key: make a new platform admin key, store it, revoke the old one.
 
 **Request:**
 
 ```json
 {
-  "name": "ci-deploy",
-  "role": "admin"
+  "name": "ops-admin",
+  "role": "admin",
+  "platform_admin": true
 }
 ```
 
@@ -215,6 +228,8 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
 | `role` | string | yes | Key role. Lowercase string: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. |
+| `platform_admin` | boolean | no | Default `false`. `true` makes a platform admin key; `role` must then be `"admin"`, else `400`. |
+| `expires_at` | string | no | When the key expires: an RFC 3339 time in the future. After it the key is answered `401` `key_expired`. Not set: the key does not expire. A past time or a value that is not RFC 3339 answers `400` `invalid_expires_at`. The response and the key lists carry `expires_at` (`null` for none). Also on `POST /v1/tenants/{tenant_id}/keys`. |
 
 > **Naming note:** the request field is `role`; the response field
 > is `permissions`. They carry the same value (e.g., `"admin"`).
@@ -227,21 +242,25 @@ Create a new API key. The plaintext key is returned exactly once and cannot be r
 ```json
 {
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "name": "ci-deploy",
+  "name": "ops-admin",
   "key": "clk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
   "permissions": "admin",
   "tenant_id": null,
-  "is_admin": false,
-  "created_at": "2026-04-02T14:30:00+00:00"
+  "is_admin": true,
+  "created_at": "2026-04-02T14:30:00+00:00",
+  "expires_at": null
 }
 ```
+
+The audit row of the call (`key.create`) names the caller and the new key's id; its detail carries `platform_admin`.
 
 **Errors:**
 
 | Status | Body | Cause |
 |---|---|---|
 | `400` | `{"error": "a key request needs a name and a role ...", "code": "invalid_request"}` | No `role`, an unknown role, or a body that is not a key request |
-| `403` | `{"error": "insufficient permissions"}` | Caller does not have admin role |
+| `400` | `{"code": "invalid_request"}` | `platform_admin` with a role other than `admin` |
+| `403` | `{"error": "insufficient permissions"}` | Caller is not a platform admin key |
 | `500` | `{"error": "failed to create API key"}` | Database error |
 
 ### POST /v1/auth/ws-ticket
@@ -322,6 +341,7 @@ Revoke an API key. The key is invalidated at once on every replica (each one cle
 |---|---|---|
 | `400` | `{"error": "invalid key ID format"}` | `key_id` is not a valid UUID |
 | `404` | `{"error": "key not found or already revoked"}` | Key does not exist or was already revoked |
+| `409` | `{"code": "last_platform_admin_key"}` | The key is the last live platform admin key. Make another one first. |
 | `500` | `{"error": "failed to revoke API key"}` | Database error |
 
 ### POST /v1/tenants/{tenant_id}/keys
@@ -347,6 +367,7 @@ Create an API key scoped to a specific tenant. Only `is_admin` (god-mode) keys c
 |---|---|---|---|
 | `name` | string | yes | Human-readable name for the key |
 | `role` | string | yes | Key role: `"admin"`, `"write"`, `"read"` or `"agent"`. A request with no `role`, or an unknown one, answers `400`. Give `"agent"` to the key of an execution agent. |
+| `platform_admin` | boolean | no | Must be absent or `false`: a tenant key is never a platform admin key. `true` answers `400`. |
 
 **Response:** `201 Created`
 
@@ -389,6 +410,38 @@ List the API keys scoped to a tenant. **Tenant-admin** — a caller with the
 |---|---|---|
 | `403` | `{"error": "insufficient permissions"}` | Caller is not a tenant-admin for `{tenant_id}` (and not god-mode) |
 | `500` | `{"error": "failed to list API keys"}` | Database error |
+
+### PATCH /v1/tenants/{tenant_id}/keys/{key_id}
+
+Set or clear the highest [priority](../../explanation/priority/#a-limit-on-a-key)
+a key of the tenant may set (CLOACINA-T-1123). **Tenant-admin.** The key must
+belong to `{tenant_id}` and not be revoked.
+
+**Request body:**
+
+```json
+{ "max_priority": 2 }
+```
+
+`max_priority` is 0 (the highest) to 10, or `null` to clear it: the key then
+has the default of its role. The new limit applies to the key's next request
+on every server, and to the next run of each package and schedule the key set
+a priority for.
+
+**Response:** `200 OK` — the key, in the shape of one row of the key list,
+with its new `max_priority`.
+
+**Errors:**
+
+| Status | Code | Cause |
+|---|---|---|
+| `400` | `invalid_priority` | `max_priority` above 10 |
+| `400` | `invalid_request` | A `read` or `agent` key, or a body that is not a key update |
+| `403` | `priority_above_limit` | A limit better than the caller's own |
+| `404` | `key_not_found` | No such live key in this tenant |
+
+`POST /v1/auth/keys` and `POST /v1/tenants/{tenant_id}/keys` take the same
+`max_priority` field, with the same checks.
 
 ### DELETE /v1/tenants/{tenant_id}/keys/{key_id}
 
@@ -485,6 +538,7 @@ Create a new tenant. **Admin-only** (requires an `is_admin` key).
 | `400` | `tenant_creation_failed` | The name is not a valid tenant name. The message says why. |
 | `403` | `admin_required` | Caller is not an `is_admin` key. |
 | `409` | `tenant_exists` | A tenant of this name exists. The message is `tenant '<name>' already exists`. |
+| `409` | `tenant_namespace_taken` | A tenant of another name has this name's Kubernetes namespace (`cloacina-tenant-<t>`): the two names differ only in case, in `_` runs at the ends or inside, or after the 47th character. The message names the other tenant and the namespace. |
 | `500` | `internal_error` | The database refused or failed the create. The body holds a fixed text; the cause is in the server log under the response's `x-request-id`. |
 
 ### GET /v1/tenants
@@ -1128,7 +1182,7 @@ detail page and `cloacinactl instance` drives the same endpoints.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip", "max_active_runs": 1}` — `params`, `cron`, `timezone`, `enabled`, `catchup_policy` and `max_active_runs` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`. `max_active_runs` is the most runs of the schedule active at once, 1 or more; omitted, a `run_all` schedule runs one fire time at a time and a `skip` schedule has no limit. A wrong value, or either option with no `cron`, is a `400` (`invalid_schedule_options`). Returns `201` with the instance summary. |
+| `POST /v1/tenants/{tenant_id}/workflows/{name}/instances` | Create an instance. Body: `{"instance_name": "...", "params": {...}, "cron": "0 2 * * *", "timezone": "UTC", "enabled": true, "catchup_policy": "skip", "max_active_runs": 1}` — `params`, `cron`, `timezone`, `enabled`, `catchup_policy` and `max_active_runs` are optional (no `cron` = unscheduled binding). `catchup_policy` is `skip` (default) or `run_all`. `max_active_runs` is the most runs of the schedule active at once, 1 or more; omitted, a `run_all` schedule runs one fire time at a time and a `skip` schedule has no limit. A wrong value, or either option with no `cron`, is a `400` (`invalid_schedule_options`). A `params` entry that binds a secret (`{"$secret": "<stored>"}`) under a name the workflow's package does not declare is a `400` (`secret_not_declared`), and no instance is made. Returns `201` with the instance summary. |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances` | List instances (`{items, total}` envelope; `limit`/`offset` paging). |
 | `GET /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | One instance's summary. |
 | `DELETE /v1/tenants/{tenant_id}/workflows/{name}/instances/{instance}` | Delete the instance (and its schedule). Returns `{"deleted": true, ...}`. |
@@ -1289,6 +1343,7 @@ Execute a workflow. Returns immediately with a scheduled execution ID.
 |---|---|---|
 | `400` | `workflow_input_invalid` | The submitted `context` failed validation against the workflow's `declared_params`. Undeclared workflows accept free-form context and never raise this. |
 | `400` | `invalid_interval` | The `context` sets `interval_start` or `interval_end` and they are not two RFC 3339 timestamps with `interval_end` after `interval_start`. A context with neither key is not checked. |
+| `400` | `secret_not_declared` | The `context` binds a secret (`{"$secret": "<stored>"}`) under a name the workflow's package does not declare, in the stored metadata document of its active version. A package with no stored document declares nothing. No run is made. |
 | `400` | (other) | Generic execution failure (`{"error": "<detail>"}`). |
 | `409` | `workflow_paused` | The workflow is paused; resume it before executing. |
 
@@ -1415,6 +1470,12 @@ skipped or abandoned task; `null` when there is none) and `log_url` (the URL
 of the attempt's logs in your log stack; `null` unless the server has
 `--task-log-url-template`). See
 [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/).
+
+`attempt_errors` lists the error of each failed attempt of the task, oldest
+first, also for a task that was retried and then succeeded. Each entry has
+`attempt` (from 1), `message`, `details` (the traceback, at most 16 KiB, or
+`null`) and `failed_at` (RFC 3339). It is empty when no attempt failed. For a
+failed task the last entry is the error in `last_error` and `error_details`.
 
 **Errors:**
 
@@ -2002,7 +2063,7 @@ The tenant's pools, `default` first. Tenant-scoped read.
 |---|---|---|
 | `pool` | string | Pool name. |
 | `settings` | object | The pool's settings as stored (see `PUT`). A field that is absent means the server-wide default. |
-| `desired_agents` | integer | How many agents the server keeps for the pool: the tenant's `desired_count` for `default`, the pool's `max_agents` for another pool. |
+| `desired_agents` | integer | How many agents the server keeps for the pool now: the tenant's `desired_count` for `default`; for another pool the count the autoscaler set, within its `min_agents` and `max_agents` (with no `min_agents`, its `max_agents`). |
 | `live_agents` | integer | Agents of the pool that are registered and alive now. |
 
 **Errors:** `401`; `403 tenant_access_denied`; `500`.
@@ -2050,8 +2111,8 @@ The pool name is lowercase letters, digits and `-`, 40 characters at most.
 | `pod_annotations` | object | Annotations added to the pool's pods. Keys must be valid annotation keys. 32 at most. |
 | `automount_service_account_token` | boolean | The pod's `automountServiceAccountToken`. Absent: left out of the pod, the cluster default applies. |
 | `extra_egress` | array | Egress rules added to the default (DNS and the server only). Each has `cidr` (IPv4 or IPv6 block, no host bits set) and optional `ports` (`port` 1 to 65535; `protocol` `TCP` (default), `UDP` or `SCTP`). No ports: every port. 64 rules at most. |
-| `max_agents` | integer | For a pool other than `default`: the number of agents the pool runs (needed; 0 to 1000). Refused for `default`, whose max is the tenant's agent limit. |
-| `min_agents` | integer | For a pool other than `default`: must equal `max_agents` (such a pool is not autoscaled yet). Refused for `default`. |
+| `max_agents` | integer | For a pool other than `default`: the most agents the pool runs (needed; 0 to 1000). Refused for `default`, whose max is the tenant's agent limit. |
+| `min_agents` | integer | For a pool other than `default`: the fewest agents, at most `max_agents`. The pool scales between the two on its waiting work and goes back to this count when idle; `0` lets it scale to zero. Absent: the pool keeps `max_agents` agents. Refused for `default`. |
 
 **Response:** `200 OK` — the pool, in the shape of a list item. The actuator
 applies the settings on its next tick; a changed setting rolls the pool's agents.
@@ -2060,7 +2121,7 @@ applies the settings on its next tick; a changed setting rolls the pool's agents
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed. The message names the field. |
+| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed, a `min_agents` above `max_agents`. The message names the field. |
 | `401` | (auth) | Missing or invalid API key. |
 | `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
 | `422` | | The body is not the JSON object above (for example an unknown field). |
@@ -2314,14 +2375,18 @@ been removed.
 
 ### Bootstrap key
 
-- On first startup with no API keys in the database, the server
-  generates an admin key (or uses `--bootstrap-key` /
-  `CLOACINA_BOOTSTRAP_KEY` if supplied) and writes the plaintext to
-  `~/.cloacina/bootstrap-key` with mode `0600`. **The plaintext is
-  written exactly once and never logged.** Capture it from the file;
-  there is no way to retrieve it later.
-- On subsequent startups, the bootstrap path is skipped if any keys
-  exist. There is no automatic re-bootstrap.
+- At a start with no live platform admin key (unrevoked, unexpired,
+  `is_admin = true`) in the database, the server makes a platform
+  admin key (or uses `--bootstrap-key` / `CLOACINA_BOOTSTRAP_KEY` if
+  supplied) and writes the plaintext to `~/.cloacina/bootstrap-key`
+  with mode `0600`, over an older file. **The plaintext is never
+  logged.** Capture it from the file; there is no way to retrieve it
+  later.
+- While a live platform admin key exists, the bootstrap path is
+  skipped. Tenant keys do not count.
+- Rotate the bootstrap key with `POST /v1/auth/keys` and
+  `"platform_admin": true`, then revoke it. The server refuses to
+  revoke the last live platform admin key (`409`).
 
 ### Signature verification
 

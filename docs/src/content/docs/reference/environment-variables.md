@@ -37,7 +37,7 @@ If none of these are set, the command exits with an error message listing all th
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_BOOTSTRAP_KEY` | Pre-defined API key used as the initial admin key on first server startup. If set and no API keys exist in the database, this value is registered as the admin key instead of auto-generating one. | None (auto-generated) | `sk-my-secret-bootstrap-key-abc123` | Server | No |
+| `CLOACINA_BOOTSTRAP_KEY` | Pre-defined API key used as the initial admin key on first server startup. If set and no live platform admin key exists in the database, this value is registered as the platform admin key instead of auto-generating one. A value that was used before cannot be used again: drop or change it after the first start. | None (auto-generated) | `sk-my-secret-bootstrap-key-abc123` | Server | No |
 | `CLOACINA_REQUIRE_SIGNATURES` | When set (any value), the server enforces package signature verification at upload time. The signer must be a trusted key of the tenant, or of `CLOACINA_VERIFICATION_ORG_ID` if it is set. | `false` (off) | `true` | Server | No |
 | `CLOACINA_VERIFICATION_ORG_ID` | Optional server-wide trusted organization UUID. A key trusted in it is accepted for every tenant, after the tenant's own keys. With none, each tenant trusts only its own keys. | None | `12345678-1234-1234-1234-123456789abc` | Server | No |
 | `CLOACINA_SECRET_KEK` | Server key-encryption key (KEK) for the [tenant secrets](../../explanation/service/secrets/) store. Base64 or hex encoding of **exactly 32 bytes** (AES-256). It wraps each tenant's data key (envelope encryption at rest); keep it stable and backed up — losing it makes existing secrets unrecoverable, changing it invalidates them. When unset or malformed, secret routes return `503` and workflow secret resolution fails closed. Generate with `openssl rand -base64 32` or `openssl rand -hex 32`. | None (secrets disabled) | `openssl rand -base64 32` output | Server | No |
@@ -83,6 +83,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_FLEET_GRAPH_FIRINGS` | `--fleet-graph-firings` | `inline` | Where an agent runs a computation-graph firing: `inline` (in the agent process) or `worker` (a worker process with the limits, time limit and cancel of a task). Any other value stops the server at start. |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `--fleet-artifact-fetch-wait-s` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The time counts from the first refused fetch of the attempt. The task is dispatched again after a delay of 2 s that grows to 30 s, and uses no retry attempt. After the limit the attempt fails with an error that names the artifact fetch, and the task's retry policy decides what follows. `0`: the first failed fetch fails the attempt. |
 | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `--fleet-poll-timeout-s` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent (CLOACINA-T-1077). The server waits this plus 10 s for the answer; with no answer it records the poll as missed in the trigger's `last_poll_error` and fires nothing. |
+| `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | `--priority-aging-interval-s` | `120` | The ageing interval of waiting work, in whole seconds. For each interval a task has waited, its [priority](../../explanation/priority/) in the order of waiting work improves by one, never past 0. `0` switches ageing off. A value that is not a whole number stops the server at start. |
 | `CLOACINA_CONTEXT_WARN_BYTES` | `--context-warn-bytes` | `1048576` (1 MiB) | Size in bytes above which a task context (the one a task returns, or the one built for a task) is logged as a warning with the task, the size and the largest keys, and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. |
 | `CLOACINA_CONTEXT_MAX_BYTES` | `--context-max-bytes` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. The context is not saved. One setting for the whole server. `0` turns the limit off. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
@@ -141,7 +142,9 @@ The server can federate login to an external OpenID Connect identity provider (s
 | `CLOACINA_OIDC_CLIENT_SECRET` | Relying-party client secret. Empty when the IdP treats the client as public (PKCE). | Empty | Server | No |
 | `CLOACINA_OIDC_REDIRECT_URI` | Callback URL the IdP redirects to after login. Must match the server's `/v1/auth/callback` route as registered with the IdP. | None | Server | Conditional |
 | `CLOACINA_OIDC_SCOPES` | Comma-separated scopes requested at login. | `openid,email,profile,groups` | Server | No |
-| `CLOACINA_OIDC_MAP` | God-owned allowlist mapping IdP claims to `{tenant, role}`. `;`-separated rules `<match>=<tenant>:<role>`, where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME` and `<tenant>` may be `_` for a global principal. A `domain:` rule matches only an identity whose ID token carries `email_verified: true`. First matching rule wins; an unmatched identity is denied. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`. | Empty (all identities denied) | Server | No (but empty = no OIDC access granted) |
+| `CLOACINA_OIDC_MAP` | God-owned allowlist mapping IdP claims to `{tenant, role}`. `;`-separated rules `<match>=<tenant>:<role>[:<max_priority>]`, where `<match>` is `group:NAME` / `domain:NAME` / `sub:NAME`, `<tenant>` may be `_` for a global principal, and the optional `<max_priority>` (0 to 10) is the highest priority a matched login may set (CLOACINA-T-1123; a value outside 0 to 10 stops the start). A `domain:` rule matches only an identity whose ID token carries `email_verified: true`. First matching rule wins; an unmatched identity is denied. Example: `group:acme-admins=acme:admin;domain:acme.com=acme:write`. Read at start; each refresh runs it on the claims stored at login, so a change applies by a rolling restart, then live sessions follow at their next refresh. | Empty (all identities denied) | Server | No (but empty = no OIDC access granted) |
+| `CLOACINA_OIDC_SESSION_MAX_AGE_S` | Absolute lifetime of an OIDC login session, in seconds. Past it, refresh fails and the user signs in again. | `28800` (8 hours) | Server | No |
+| `CLOACINA_OIDC_GROUP_CHECK_INTERVAL_S` | How often, in seconds, a refresh reads the groups again at the IdP with the stored IdP refresh token. Needs a refresh token from the IdP and `CLOACINA_SECRET_KEK`. | `3600` (1 hour) | Server | No |
 | `CLOACINA_OIDC_SUCCESS_REDIRECT` | When set, the browser login flow redirects here on success, handing the minted membership set to the SPA via the URL fragment. Unset = the callback returns the memberships as JSON. | None (JSON response) | Server | No |
 
 ---
@@ -155,9 +158,11 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_SERVER` | Base URL of the `cloacina-server` the agent registers with (used for both REST and the WebSocket ticket mint). Equivalent to `--server`. | None | `http://cloacina-server:8080` | Agent | Yes |
 | `CLOACINA_API_KEY` | API key the agent authenticates with. Its tenant scope determines which tenants' work the agent may receive (REQ-008 tenant isolation). Equivalent to `--api-key`. The agent removes it from its environment at start. | None | `sk-...` | Agent | Yes, or `CLOACINA_API_KEY_FILE` |
 | `CLOACINA_API_KEY_FILE` | Path of a file that holds the agent's API key (surrounding whitespace is ignored). Use it in place of `CLOACINA_API_KEY`; setting both is an error. The agent does not delete the file. Equivalent to `--api-key-file`. | None | `/run/secrets/cloacina/api-key` | Agent | No |
+| `CLOACINA_AGENT_CA_FILE` | PEM file of CA certificates the agent trusts for an `https://` server, in addition to the system roots (CLOACINA-T-1069). A file that cannot be read or holds no certificate stops the agent at start. Equivalent to `--ca-file`. | None | `/etc/cloacina/ca/ca.crt` | Agent | No |
 | `CLOACINA_AGENT_CACHE_DIR` | Directory used to cache fetched workflow cdylibs by digest, so a cache hit skips the REST fetch. Equivalent to `--cache-dir`. | `<TMPDIR>/cloacina-agent-cache` | `/var/lib/cloacina-agent/cache` | Agent | No |
 | `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package or provider archive may unpack to. The agent refuses to load a larger one. Equivalent to `--max-unpacked-bytes`. Use the value of the server. The fleet actuator sets it to the server's value when that is not the default. | `524288000` | `629145600` | Agent | No |
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | How many work packets the agent runs at the same time. Equivalent to `--max-concurrency`. The fleet actuator sets it from the pool's `max_concurrency` setting. | `4` | `1` | Agent | No |
+| `CLOACINA_AGENT_DRAIN_SECONDS` | On SIGTERM, how long the agent lets the work it runs finish before it hands the rest back to the server and exits. It takes no new work from the signal on. Keep it under the pod's termination grace period. Equivalent to `--drain-seconds`. The Kubernetes actuator sets it from `CLOACINA_AGENT_DRAIN_S`. | `25` | `900` | Agent | No |
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
 | `CLOACINA_AGENT_MEMORY` | Total memory of the agent, a Kubernetes quantity above zero. Equivalent to `--memory`. The agent reports it less `CLOACINA_AGENT_RESERVED_MEMORY` and holds each task to a memory limit from it. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
@@ -203,13 +208,12 @@ These are read by the **Kubernetes actuator** and applied to every `cloacina-age
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
 | `CLOACINA_AGENT_CPU_REQUEST` | CPU request on each agent pod. | `250m` | `500m` | Server (k8s actuator) | No |
-| `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | The ageing interval of waiting work, in whole seconds. For each interval a task has waited, its [priority](../../explanation/priority/) in the order of waiting work improves by one, never past 0. `0` switches ageing off. | `120` | `300` | Server | No |
 | `CLOACINA_AGENT_MEMORY_REQUEST` | Memory request on each agent pod. | `256Mi` | `512Mi` | Server (k8s actuator) | No |
 | `CLOACINA_AGENT_CPU_LIMIT` | CPU limit on each agent pod. | `1` | `2` | Server (k8s actuator) | No |
 | `CLOACINA_AGENT_MEMORY_LIMIT` | Memory limit on each agent pod. The agent embeds a CPython interpreter (PyO3) and unpacks a `workflow/`+`vendor/` tree, so the default is generous to avoid OOM-killing Python workflows. | `1Gi` | `2Gi` | Server (k8s actuator) | No |
 | `CLOACINA_FLEET_NETWORK_POLICY` | Install a per-tenant agent `NetworkPolicy` (REQ-007 defense-in-depth): default-deny ingress, egress to DNS + the server only. Off-values (`false`/`0`/`no`/`off`) disable it. **Defense-in-depth only** — the server-side ABAC (NFR-004) remains the real tenant boundary. | `true` | `false` | Server (k8s actuator) | No |
-| `CLOACINA_SERVER_NAMESPACE` | Namespace the `cloacina-server` runs in. The NetworkPolicy egress allow targets this namespace. Required for the policy; if unset, the actuator **skips** the policy (fail-open) so a missing knob never strands the fleet. | None | `cloacina-system` | Server (k8s actuator) | No |
-| `CLOACINA_SERVER_POD_SELECTOR` | Server pod label selector (`k=v,k=v`) the NetworkPolicy egress allow targets. The chart renders the server's `selectorLabels`. Required for the policy (see above). | None | `app.kubernetes.io/name=cloacina-server,app.kubernetes.io/instance=rel` | Server (k8s actuator) | No |
+| `CLOACINA_SERVER_NAMESPACE` | Namespace the `cloacina-server` runs in. The NetworkPolicy egress allow targets this namespace. Required for the policy: with `CLOACINA_FLEET_NETWORK_POLICY` on and this or `CLOACINA_SERVER_POD_SELECTOR` unset, the server does not start (CLOACINA-T-1069). It does not start either when its RBAC lacks `create`, `patch` or `delete` on `networkpolicies`. | None | `cloacina-system` | Server (k8s actuator) | With the policy on |
+| `CLOACINA_SERVER_POD_SELECTOR` | Server pod label selector (`k=v,k=v`) the NetworkPolicy egress allow targets. The chart renders the server's `selectorLabels`. Required for the policy (see above). | None | `app.kubernetes.io/name=cloacina-server,app.kubernetes.io/instance=rel` | Server (k8s actuator) | With the policy on |
 | `CLOACINA_SERVER_PORT` | Server pod port the NetworkPolicy egress allow opens. | `8080` | `8080` | Server (k8s actuator) | No |
 | `CLOACINA_FLEET_DNS_NAMESPACE` | Namespace the cluster DNS service runs in; the NetworkPolicy allows UDP+TCP 53 egress there so agents can resolve the server FQDN. | `kube-system` | `kube-system` | Server (k8s actuator) | No |
 
@@ -256,16 +260,18 @@ The compiler pods' NetworkPolicy is written when `CLOACINA_FLEET_NETWORK_POLICY`
 
 ### Autoscaler
 
-The autoscaler is a single leader-gated control loop (one replica drives the fleet via a Postgres advisory lock). Each tick it computes per-tenant utilization (Σ `in_flight` / Σ `max_concurrency` over the tenant's live agents) and nudges `desired_count` by ±1 within `[floor, effective_limit]`, then reconciles actual → desired through the actuator.
+The autoscaler is a single leader-gated control loop (one replica drives the fleet via a Postgres advisory lock). Each tick it sets the agent count of each [agent pool](../../explanation/service/execution-agent-fleet/#how-a-pool-scales) of each tenant from the waiting work that does not fit on the pool's live agents, packed by the tasks' CPU and memory requests, within the pool's min and max; a pool that has been idle for `CLOACINA_AUTOSCALE_IDLE_S` goes back to its min. Then it reconciles actual → desired through the actuator.
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze `desired_count` so operators drive it by hand (provision API); reconciliation keeps running. Defaults **on** whenever an actuator is active. | on (when actuator ≠ `none`) | `false` | Server | No |
-| `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Scale **up** by one when a tenant's utilization is strictly greater than this. | `0.8` | `0.75` | Server | No |
-| `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Scale **down** by one when utilization is strictly less than this. The gap to the up-threshold is the hysteresis band that prevents thrash. | `0.2` | `0.1` | Server | No |
-| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Minimum wall-clock seconds between consecutive scale changes for a tenant. | `60` | `120` | Server | No |
-| `CLOACINA_AUTOSCALE_FLOOR` | Lower bound on a tenant's `desired_count`; scale-down never goes below it. | `0` | `1` | Server | No |
+| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze the counts so operators drive them by hand (provision API, pool `min_agents`); reconciliation keeps running. Defaults **on** whenever an actuator is active. | on (when actuator ≠ `none`) | `false` | Server | No |
+| `CLOACINA_AUTOSCALE_IDLE_S` | Seconds a pool must be idle (no task in flight, none waiting) before it goes back to its min. | `300` | `900` | Server | No |
+| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Least wall-clock seconds between two scale-downs of a pool. A scale-up does not wait. | `60` | `120` | Server | No |
+| `CLOACINA_AUTOSCALE_FLOOR` | The min of the pool `default` of each tenant. A tenant with an active poll trigger keeps at least 1. | `0` | `1` | Server | No |
 | `CLOACINA_AUTOSCALE_INTERVAL_S` | How often the control loop ticks (both the autoscale and reconcile steps). Values ≤ 0 fall back to the default. | `30` | `15` | Server | No |
+| `CLOACINA_AGENT_DRAIN_S` | **Kubernetes actuator.** How long a managed agent drains on SIGTERM: given to each agent as `CLOACINA_AGENT_DRAIN_SECONDS`, and the agent pods' `terminationGracePeriodSeconds` is this plus 15. Unset: the agent's own default (25 s) and the Kubernetes default grace period (30 s). Setting it rolls the agent pods once. | None | `900` | Server (k8s actuator) | No |
+
+`CLOACINA_AUTOSCALE_UP_THRESHOLD` and `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` no longer apply: the autoscaler does not scale on utilization.
 
 > The unified control loop ticks at `CLOACINA_AUTOSCALE_INTERVAL_S`. (An earlier `CLOACINA_RECONCILE_INTERVAL_S` proposal was superseded — there is no separate reconcile-interval variable.)
 
@@ -570,15 +576,16 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_SERVER_PORT` | Server (k8s actuator) | Server pod port opened by the NetworkPolicy egress (default `8080`) |
 | `CLOACINA_FLEET_DNS_NAMESPACE` | Server (k8s actuator) | DNS namespace allowed for port-53 egress (default `kube-system`) |
 | `CLOACINA_AUTOSCALE` | Server | Kill-switch for the autoscale step (default on when an actuator is active) |
-| `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Server | Utilization above which a tenant scales up (default `0.8`) |
-| `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Server | Utilization below which a tenant scales down (default `0.2`) |
-| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Server | Min seconds between scale changes per tenant (default `60`) |
-| `CLOACINA_AUTOSCALE_FLOOR` | Server | Lower bound on `desired_count` (default `0`) |
+| `CLOACINA_AUTOSCALE_IDLE_S` | Server | Seconds a pool must be idle before it goes back to its min (default `300`) |
+| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Server | Min seconds between two scale-downs of a pool (default `60`) |
+| `CLOACINA_AUTOSCALE_FLOOR` | Server | The min of each tenant's pool `default` (default `0`) |
 | `CLOACINA_AUTOSCALE_INTERVAL_S` | Server | Control-loop tick interval (default `30`) |
+| `CLOACINA_AGENT_DRAIN_S` | Server (k8s actuator) | Drain time of managed agents on SIGTERM; sets the pods' grace period (unset: agent default 25 s) |
 | `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
 | `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
 | `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | Agent | Work packets the agent runs at the same time (default `4`) |
+| `CLOACINA_AGENT_DRAIN_SECONDS` | Agent | Drain time on SIGTERM before the rest is handed back (default `25`) |
 | `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_AGENT_CPU` | Agent | Total CPU the agent reports for task placement (unset: none) |
 | `CLOACINA_AGENT_MEMORY` | Agent | Total memory of the agent, for task placement and task memory limits (unset: none) |

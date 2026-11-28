@@ -45,7 +45,9 @@ the top of the order after twenty.
 Ageing changes the order only. The priority stored with the execution and
 its tasks does not change, and the API shows the stored one.
 
-On a server the interval is `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`
+On a server the interval is the flag `--priority-aging-interval-s`, the
+`[server]` key `priority_aging_interval_s` of `cloacinactl server start`, or
+the environment variable `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS`
 (default `120`; `0` switches ageing off). In an embedded program it is
 `DefaultRunnerConfig::builder().priority_aging_interval(..)`.
 
@@ -117,16 +119,68 @@ The answer has the priority that was asked for and the one that was given:
 The executions list and the execution detail show the same `priority`
 object for each execution.
 
+## Give a schedule a priority
+
+A named instance and a backfill can be created with a workflow priority.
+Each of their runs gets it, held to the limit of whoever created the
+schedule, as that limit is when the run starts:
+
+```bash
+cloacinactl instance create orders nightly --cron "0 2 * * *" --priority 2
+cloacinactl backfill create history_load --start 2026-01-01T00:00:00Z \
+  --end 2026-06-30T23:00:00Z --priority 9
+```
+
+`priority` in the body of `POST .../instances` and `POST .../backfills` does
+the same. The answer, the instance and backfill lists and their detail show
+`priority` (asked and given now) and a `priority_notice` when the two
+differ. `cloacinactl` prints the notice as a warning. A schedule created with
+no priority gives its runs the priority the workflow declares. A backfill
+retry keeps the priority of the backfill it retries.
+
 ## Who may set which priority
 
 A principal has a limit: the highest priority it may set. The limit comes
-from its role.
+from its role, unless its key or its OIDC mapping rule carries its own.
 
-| Role | May set |
+| Role | May set by default |
 |---|---|
 | `admin` | 0 to 10 |
 | `write` | 5 to 10 |
 | `read`, `agent` | none |
+
+### A limit on a key
+
+A tenant admin sets a key's own limit when it makes the key, or later:
+
+```bash
+cloacinactl --tenant acme key create ops-bot --role write --max-priority 2
+cloacinactl --tenant acme key set-priority <key-id> --max-priority 0
+cloacinactl --tenant acme key set-priority <key-id> --clear
+```
+
+The routes are `POST /v1/tenants/{tenant_id}/keys` with `max_priority`, and
+`PATCH /v1/tenants/{tenant_id}/keys/{key_id}` with `{"max_priority": N}` or
+`{"max_priority": null}`. The limit is 0 to 10 and no better than the
+caller's own limit (else 403 `priority_above_limit`). A `read` or `agent`
+key sets no priority, so it cannot carry a limit (400). A change applies to
+the key's next request on every server, and to the next run of each package
+and schedule the key set a priority for. The key list shows `max_priority`.
+
+### A limit on an OIDC mapping rule
+
+A rule of `CLOACINA_OIDC_MAP` takes a third field after the role: the highest
+priority a login that the rule matches may set.
+
+```bash
+CLOACINA_OIDC_MAP="group:acme-ops=acme:write:2;domain:acme.com=acme:write"
+```
+
+A member of `acme-ops` may set 2 to 10; any other person of the domain has
+the default of `write`. A third field that is not a whole number from 0 to
+10 stops the server at start. A local account has the default of its role.
+
+### Held, not refused
 
 A run that asks for a priority above the limit of its key is not refused.
 It runs at the limit, and the server says so:
@@ -139,13 +193,46 @@ It runs at the limit, and the server says so:
   `priority_given` and `priority_lowered`.
 - `cloacina_priority_held_total{tenant}` counts the run.
 
-A package declares its priorities in its code. On a server, a priority that a
-package declares is held to what a `write` principal may set when each run
-starts: a package that declares priority 2 runs at 5. The execution shows
-asked 2 and given 5, the counter counts each such run, and the server logs a
-warning when the given priority of a workflow changes. A run that asks for a
-priority itself is held to the limit of its key instead, so an `admin` key
-can run any workflow at 0 to 10.
+### The limit of a publisher and of a creator
+
+A package declares its priorities in its code, and a schedule is created
+with one. Their runs start later, with no principal in the request. So the
+server keeps who published the package and who created the schedule, with
+their role, and at each run start holds the declared or asked priority to
+that principal's limit as it is then:
+
+- A key: its own limit, else its role's. A platform admin key may set 0. A
+  key that is revoked or expired has the default of the role it had.
+- A person who signs in with OIDC: the current mapping rules, run on the
+  groups and email of their newest login session in the tenant. With no
+  session, or when no rule maps them to the tenant any more, the default of
+  the role they had.
+- A local account: the default of its role now; a disabled or deleted
+  account, the default of the role it had.
+
+So a package published by a key limited to 5 that declares priority 2 runs at
+5. When the key's limit is raised to 0, its next run is at 2, with no new
+publish; when it is lowered again, the next run is held to it. A package an
+admin published runs at what it declares. A package published before the
+server kept its publisher is held to the default of `write`.
+
+The upload answer gives `priority_limit`, the limit its runs are held to now,
+and a `priority_notice` when that is not 0; `cloacinactl package upload` and
+`package publish` print the notice as a warning. The package's priority as
+its code declares it is known once it is built: the workflow detail
+(`GET .../workflows/{name}`, and the package view of the UI) then shows
+`priority` with `asked` (what the code declares) and `given` (what its runs
+get now), and a `priority_notice` when they differ.
+
+A run that was held writes a warning to the log and the audit event
+`priority.held` (target kind `package` or `schedule`; detail `workflow`,
+`set_by`, `set_by_role`, `priority_asked`, `priority_given`,
+`priority_lowered`) when its given priority changes, not at each run. The
+last given priority is kept in the database, so a restart or a second server
+writes no repeat. `cloacina_priority_held_total{tenant}` counts each held run.
+
+A run that asks for a priority itself is held to the limit of its key
+instead, so an `admin` key can run any workflow at 0 to 10.
 
 An embedded program has no principals. A priority it declares or asks for is
 given as asked.
@@ -163,6 +250,18 @@ are not dispatched: the room that frees next is for the better task. A worse
 task is held back only until it has aged level with the better one. Tasks
 that were given the same priorities never hold each other back, so work that
 sets no priority packs onto agents as it did before priorities.
+
+## Watch the queue
+
+The waiting-task gauges `cloacina_waiting_tasks` and
+`cloacina_oldest_waiting_task_age_seconds` carry a `priority` label: the
+workflow priority stored on the task, `0` to `10`. Ageing does not change
+it. So `sum by (tenant, priority) (cloacina_waiting_tasks)` shows how much
+work of each priority waits.
+
+A task row keeps two task priorities: the one its task declares
+(`task_priority_asked`, empty when it declares none) and the one it was
+given (`task_priority`).
 
 ## History loads
 

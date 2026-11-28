@@ -69,7 +69,7 @@ or an execution context. A secret action records the secret's name only.
 
 | Action | Route | `target` | `detail` |
 |---|---|---|---|
-| `package.upload` | `POST /v1/tenants/{t}/workflows` | package id | `package_name`, `version`, `content_hash` (SHA-256), `size_bytes` |
+| `package.upload` | `POST /v1/tenants/{t}/workflows` | package id | `package_name`, `version`, `content_hash` (SHA-256), `size_bytes`, `published_by`, `priority_limit` |
 | `package.delete` | `DELETE /v1/tenants/{t}/workflows/{name}/{version}` | package name | `version` |
 | `package.activate` | `POST /v1/tenants/{t}/workflows/{name}/versions/{version}/activate` | package name | `version`, `package_id` |
 | `workflow.pause` | `POST /v1/tenants/{t}/workflows/{name}/pause` | name as given | `package_id` |
@@ -78,13 +78,14 @@ or an execution context. A secret action records the secret's name only.
 | `trigger.pause` | `POST /v1/tenants/{t}/triggers/{name}/pause` | name as given | `schedule_id` |
 | `trigger.resume` | `POST /v1/tenants/{t}/triggers/{name}/resume` | name as given | `schedule_id` |
 | `trigger.fire` | `POST /v1/tenants/{t}/triggers/{name}/fire` | trigger name | `execution_ids` |
-| `instance.create` | `POST /v1/tenants/{t}/workflows/{name}/instances` | instance name | `workflow`, `schedule_id` |
+| `instance.create` | `POST /v1/tenants/{t}/workflows/{name}/instances` | instance name | `workflow`, `schedule_id`; with a priority, `priority_asked`, `priority_given`, and `priority_lowered` when it was held |
 | `instance.delete` | `DELETE /v1/tenants/{t}/workflows/{name}/instances/{instance}` | instance name | `workflow` |
-| `backfill.create` | `POST /v1/tenants/{t}/workflows/{name}/backfills` | backfill id | `workflow`, `start`, `end`, `intervals` |
+| `backfill.create` | `POST /v1/tenants/{t}/workflows/{name}/backfills` | backfill id | `workflow`, `start`, `end`, `intervals`; with a priority, as `instance.create` |
 | `backfill.cancel` | `POST /v1/tenants/{t}/workflows/{name}/backfills/{id}/cancel` | backfill id | `workflow`, `was_enabled`, `remaining` |
 | `backfill.retry` | `POST /v1/tenants/{t}/workflows/{name}/backfills/{id}/retry` | id of the backfill that is retried | `workflow`, `new_backfill_id`, `intervals` |
-| `key.create` | `POST /v1/auth/keys`, `POST /v1/tenants/{t}/keys` | key id | `name`, `role` |
+| `key.create` | `POST /v1/auth/keys`, `POST /v1/tenants/{t}/keys` | key id | `name`, `role`, and `expires_at`, `max_priority` when set |
 | `key.revoke` | `DELETE /v1/auth/keys/{id}`, `DELETE /v1/tenants/{t}/keys/{id}` | key id | — |
+| `key.update` | `PATCH /v1/tenants/{t}/keys/{id}` | key id | `max_priority` (`null` when cleared) |
 | `tenant.create` | `POST /v1/tenants` | tenant name | — |
 | `tenant.delete` | `DELETE /v1/tenants/{name}` | tenant name | `revoked_keys` |
 | `tenant.removed` | written by the delete itself, in the transaction that drops the schema | tenant name | — |
@@ -121,6 +122,17 @@ secret to a task, it writes a row with no route behind it:
 The row names the secret, never its value. A name a task asks for on an agent,
 and that the work packet does not carry, is refused by the agent; that refusal
 is in the task's error and the agent's log, not in the audit record.
+
+### Held priorities
+
+A run of a package or a schedule whose given priority changed since its last
+run writes a row with no route behind it (CLOACINA-T-1123). It is written
+once for each change, by the run start that changed the stored value, on any
+server:
+
+| Action | `actor_key_id`, `actor_key_name` | `actor_identity` | `target_kind`, `target` | `outcome` | `detail` |
+|---|---|---|---|---|---|
+| `priority.held` | `server` | who published the package or created the schedule (`key:<id>`, `oidc:<issuer>:<sub>`, `local:<account_id>`) | `package` and the package name, or `schedule` and the schedule id | `ok` | `workflow`, `set_by`, `set_by_role`, `priority_asked`, `priority_given`, `priority_lowered` |
 
 ### Denied requests
 

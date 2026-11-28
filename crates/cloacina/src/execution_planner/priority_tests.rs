@@ -352,6 +352,240 @@ async fn a_declared_priority_is_held_to_the_publishers_limit_as_it_is_when_the_r
     assert_eq!((grant.asked, grant.given), (2, 7));
 }
 
+/// The limit of each principal, by `set_by`, as a server reads it at the
+/// run start; the changes it is told of.
+#[derive(Default)]
+struct ByPrincipal {
+    limits: Mutex<std::collections::HashMap<String, u8>>,
+    changes: Mutex<Vec<super::PriorityChange>>,
+}
+
+impl ByPrincipal {
+    fn set(&self, by: &str, limit: u8) {
+        self.limits.lock().unwrap().insert(by.to_string(), limit);
+    }
+    fn changes(&self) -> Vec<(String, u8, u8)> {
+        self.changes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| (c.kind.clone(), c.grant.asked, c.grant.given))
+            .collect()
+    }
+}
+
+#[async_trait]
+impl PriorityAuthority for ByPrincipal {
+    async fn declared_limit(&self, _workflow_name: &str) -> Option<u8> {
+        Some(5)
+    }
+    async fn limit_of(&self, setter: &crate::dal::unified::PrioritySetter) -> Option<u8> {
+        self.limits.lock().unwrap().get(&setter.by).copied()
+    }
+    async fn given_changed(&self, change: &super::PriorityChange) {
+        self.changes.lock().unwrap().push(change.clone());
+    }
+}
+
+impl Tenant {
+    /// Register `name` as the workflow of the package `package`.
+    fn register_packaged(&self, name: &str, package: &str, workflow_priority: u8) {
+        let (workflow_name, task_name, package) =
+            (name.to_string(), name.to_string(), package.to_string());
+        self.runtime
+            .register_workflow(workflow_name.clone(), move || {
+                let mut workflow = Workflow::builder(&workflow_name)
+                    .priority(workflow_priority)
+                    .add_task(stub(&task_name, None))
+                    .expect("add task")
+                    .build()
+                    .expect("build");
+                workflow.set_package(&package);
+                workflow
+            });
+    }
+
+    async fn start(&self, name: &str, run: RunPriority) -> PriorityGrant {
+        self.scheduler
+            .schedule_workflow_execution_with_priority(name, Context::new(), run)
+            .await
+            .expect("schedule")
+            .1
+    }
+}
+
+/// CLOACINA-T-1123: a package keeps who published it. At each run start its
+/// declared priority is held to that publisher's limit as it is then; the
+/// change of the given priority is told once, not at each run.
+#[tokio::test]
+async fn a_package_run_is_held_to_its_publishers_limit_now_and_a_change_is_told_once() {
+    use crate::dal::unified::PrioritySetter;
+    use crate::dal::unified::priority_grants::KIND_PACKAGE;
+
+    let tenant = Tenant::new().await;
+    let authority = Arc::new(ByPrincipal::default());
+    tenant.scheduler.set_priority_authority(authority.clone());
+    tenant.register_packaged("orders", "orders-pkg", 2);
+    let dal = DAL::new(tenant.database.clone());
+
+    // No record of the publisher (a package from before): the old default.
+    assert_eq!(
+        tenant.start("orders", RunPriority::default()).await.given,
+        5
+    );
+    assert!(
+        authority.changes().is_empty(),
+        "nothing is recorded to change"
+    );
+
+    // Published by a key limited to 5: asks 2, runs at 5.
+    dal.priority_grants()
+        .record(
+            KIND_PACKAGE,
+            "orders-pkg",
+            &PrioritySetter {
+                by: "key:k1".into(),
+                role: "write".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    authority.set("key:k1", 5);
+    let grant = tenant.start("orders", RunPriority::default()).await;
+    assert_eq!((grant.asked, grant.given), (2, 5));
+    assert_eq!(authority.changes(), vec![("package".to_string(), 2, 5)]);
+    // The same again: no second report.
+    tenant.start("orders", RunPriority::default()).await;
+    assert_eq!(authority.changes().len(), 1);
+
+    // The limit is raised to 0: the next run is at 2, with no new publish.
+    authority.set("key:k1", 0);
+    assert_eq!(
+        tenant.start("orders", RunPriority::default()).await.given,
+        2
+    );
+    // Lowered again: held to it.
+    authority.set("key:k1", 7);
+    assert_eq!(
+        tenant.start("orders", RunPriority::default()).await.given,
+        7
+    );
+    assert_eq!(
+        authority.changes(),
+        vec![
+            ("package".to_string(), 2, 5),
+            ("package".to_string(), 2, 2),
+            ("package".to_string(), 2, 7)
+        ]
+    );
+    let row = dal
+        .priority_grants()
+        .get(KIND_PACKAGE, "orders-pkg")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.last_given(), Some(7), "the state is in the database");
+
+    // A run that asks for a priority itself is held to who asked.
+    let grant = tenant
+        .start("orders", RunPriority::asked_by(1, Some(0)))
+        .await;
+    assert_eq!(grant.given, 1);
+    assert_eq!(authority.changes().len(), 3, "a request is not tracked");
+}
+
+/// CLOACINA-T-1123: a schedule created with a priority gives each fire that
+/// priority, held to its creator's limit at the fire.
+#[tokio::test]
+async fn a_schedule_fire_is_held_to_its_creators_limit_now() {
+    use crate::dal::unified::PrioritySetter;
+    use crate::dal::unified::priority_grants::KIND_SCHEDULE;
+
+    let tenant = Tenant::new().await;
+    let authority = Arc::new(ByPrincipal::default());
+    tenant.scheduler.set_priority_authority(authority.clone());
+    tenant.register_packaged("nightly", "nightly-pkg", 8);
+    let dal = DAL::new(tenant.database.clone());
+    let schedule = uuid::Uuid::new_v4();
+
+    // A schedule with no record fires at what the workflow declares.
+    let grant = tenant
+        .start("nightly", RunPriority::fired_by(schedule))
+        .await;
+    assert_eq!((grant.asked, grant.given), (8, 8));
+
+    dal.priority_grants()
+        .record(
+            KIND_SCHEDULE,
+            &schedule.to_string(),
+            &PrioritySetter {
+                by: "local:u1".into(),
+                role: "write".into(),
+            },
+            Some(1),
+        )
+        .await
+        .unwrap();
+    authority.set("local:u1", 5);
+    let grant = tenant
+        .start("nightly", RunPriority::fired_by(schedule))
+        .await;
+    assert_eq!((grant.asked, grant.given), (1, 5));
+    authority.set("local:u1", 0);
+    let grant = tenant
+        .start("nightly", RunPriority::fired_by(schedule))
+        .await;
+    assert_eq!((grant.asked, grant.given), (1, 1));
+    assert_eq!(
+        authority.changes(),
+        vec![
+            ("schedule".to_string(), 1, 5),
+            ("schedule".to_string(), 1, 1)
+        ]
+    );
+
+    // With no authority (the embedded use) a schedule's record is not read.
+    let embedded = Tenant::new().await;
+    embedded.register_packaged("nightly", "nightly-pkg", 8);
+    assert_eq!(
+        embedded
+            .start("nightly", RunPriority::fired_by(schedule))
+            .await
+            .given,
+        8
+    );
+}
+
+/// CLOACINA-T-1123: the task row keeps the priority its task asked for
+/// beside the one it was given; a task that declares none asks nothing.
+#[tokio::test]
+async fn the_task_row_keeps_the_asked_task_priority_beside_the_given_one() {
+    let tenant = Tenant::new().await;
+    tenant
+        .scheduler
+        .set_priority_authority(Arc::new(PublisherLimitedTo(
+            std::sync::atomic::AtomicU8::new(5),
+            Mutex::new(Vec::new()),
+        )));
+
+    tenant.run("held", Some(8), Some(1)).await;
+    let row = tenant.task_row("held").await;
+    assert_eq!(
+        (row.task_priority_asked, row.task_priority),
+        (Some(1), 5),
+        "asked 1, held to the publisher's 5"
+    );
+
+    tenant.run("lower", Some(8), Some(9)).await;
+    let row = tenant.task_row("lower").await;
+    assert_eq!((row.task_priority_asked, row.task_priority), (Some(9), 9));
+
+    tenant.run("inherits", Some(8), None).await;
+    let row = tenant.task_row("inherits").await;
+    assert_eq!((row.task_priority_asked, row.task_priority), (None, 8));
+}
+
 #[tokio::test]
 async fn one_tenant_dispatches_by_workflow_priority_then_task_priority_then_time_waited() {
     let tenant = Tenant::new().await;

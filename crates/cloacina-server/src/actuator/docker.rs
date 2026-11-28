@@ -267,16 +267,46 @@ pub trait KeyMinter: Send + Sync {
 ///
 /// The Docker actuator mints one key for each container and revokes it when
 /// the container is stopped. The Kubernetes actuator keeps one key for each
-/// tenant. A revoked key can still pass for up to 30 seconds on a replica
-/// that has it in its key cache.
+/// tenant, with an expiry ([`DalKeyMinter::with_expiry`], CLOACINA-T-1083).
+/// Wrapped in a [`NotifyingMinter`], a revoke reaches every replica's key
+/// cache at once.
 pub struct DalKeyMinter {
     database: Database,
+    expiry: Option<super::AgentKeyExpiry>,
 }
 
 impl DalKeyMinter {
+    /// A minter whose keys do not expire (the Docker actuator).
     pub fn new(database: Database) -> Self {
-        Self { database }
+        Self {
+            database,
+            expiry: None,
+        }
     }
+
+    /// Keys expire and are rotated by `expiry` (the Kubernetes actuator).
+    pub fn with_expiry(mut self, expiry: super::AgentKeyExpiry) -> Self {
+        self.expiry = Some(expiry);
+        self
+    }
+}
+
+/// Whether a stored key can stay the key of the tenant's agents: a key of the
+/// tenant, of role `agent`, not revoked, not expired, and, under an expiry
+/// rule, with an expiry and not due for rotation (CLOACINA-T-1083). A key
+/// with no expiry under a rule is one from before the rule: the first
+/// reconcile replaces it.
+pub fn agent_key_is_live(
+    key: &cloacina::dal::unified::api_keys::ApiKeyInfo,
+    tenant_id: &str,
+    expiry: Option<super::AgentKeyExpiry>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    !key.revoked
+        && key.permissions == AGENT_KEY_ROLE
+        && key.tenant_id.as_deref() == Some(tenant_id)
+        && key.expires_at.is_none_or(|at| at > now)
+        && !expiry.is_some_and(|e| key.expires_at.is_none() || e.is_due(key.expires_at, now))
 }
 
 #[async_trait]
@@ -285,9 +315,17 @@ impl KeyMinter for DalKeyMinter {
         let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
         let name = format!("{}{}", agent_key_name_prefix(tenant_id), Uuid::new_v4());
         let dal = cloacina::dal::DAL::new(self.database.clone());
+        let expires_at = self.expiry.map(|e| e.expires_at(chrono::Utc::now()));
         let info = dal
             .api_keys()
-            .create_key(&hash, &name, Some(tenant_id), false, AGENT_KEY_ROLE)
+            .create_key_expiring(
+                &hash,
+                &name,
+                Some(tenant_id),
+                false,
+                AGENT_KEY_ROLE,
+                expires_at,
+            )
             .await
             .map_err(|e| ActuatorError::KeyMint(e.to_string()))?;
         Ok(MintedKey {
@@ -310,11 +348,8 @@ impl KeyMinter for DalKeyMinter {
             .get_key(id)
             .await
             .map_err(|e| ActuatorError::KeyMint(e.to_string()))?;
-        Ok(info.is_some_and(|k| {
-            !k.revoked
-                && k.permissions == AGENT_KEY_ROLE
-                && k.tenant_id.as_deref() == Some(tenant_id)
-        }))
+        let now = chrono::Utc::now();
+        Ok(info.is_some_and(|k| agent_key_is_live(&k, tenant_id, self.expiry, now)))
     }
 
     async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
@@ -350,6 +385,61 @@ impl KeyMinter for DalKeyMinter {
             revoked += 1;
         }
         Ok(revoked)
+    }
+}
+
+/// A [`KeyMinter`] that sends the key revocation notice after each revoke
+/// (CLOACINA-T-1083), so every server clears its key cache and refuses the
+/// revoked key at once, not after the cache's 30 s.
+pub struct NotifyingMinter {
+    inner: Arc<dyn KeyMinter>,
+    notice: Arc<dyn super::KeyRevocationNotice>,
+}
+
+impl NotifyingMinter {
+    pub fn new(inner: Arc<dyn KeyMinter>, notice: Arc<dyn super::KeyRevocationNotice>) -> Self {
+        Self { inner, notice }
+    }
+}
+
+#[async_trait]
+impl KeyMinter for NotifyingMinter {
+    async fn mint(&self, tenant_id: &str) -> Result<MintedKey, ActuatorError> {
+        self.inner.mint(tenant_id).await
+    }
+
+    async fn is_live_agent_key(
+        &self,
+        tenant_id: &str,
+        key_id: &str,
+    ) -> Result<bool, ActuatorError> {
+        self.inner.is_live_agent_key(tenant_id, key_id).await
+    }
+
+    async fn revoke(&self, key_id: &str) -> Result<(), ActuatorError> {
+        self.inner.revoke(key_id).await?;
+        self.notice.announce().await;
+        Ok(())
+    }
+
+    async fn revoke_others(&self, tenant_id: &str, keep: &[String]) -> Result<u32, ActuatorError> {
+        let revoked = self.inner.revoke_others(tenant_id, keep).await?;
+        if revoked > 0 {
+            self.notice.announce().await;
+        }
+        Ok(revoked)
+    }
+}
+
+/// The minter of an actuator: `inner`, with the revocation notice when the
+/// server gives one.
+pub fn minter_with_notice(
+    inner: Arc<dyn KeyMinter>,
+    notice: Option<Arc<dyn super::KeyRevocationNotice>>,
+) -> Arc<dyn KeyMinter> {
+    match notice {
+        Some(notice) => Arc::new(NotifyingMinter::new(inner, notice)),
+        None => inner,
     }
 }
 
@@ -411,6 +501,7 @@ impl DockerActuator {
         database: Database,
         compilers: Option<super::compiler::CompilerSettings>,
         agent_log_format: cloacina::task_logs::LogFormat,
+        notice: Option<Arc<dyn super::KeyRevocationNotice>>,
     ) -> Result<Self, ActuatorError> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| ActuatorError::Substrate(format!("docker connect failed: {e}")))?;
@@ -424,7 +515,9 @@ impl DockerActuator {
         ));
         let actuator = Self {
             ops: ops.clone(),
-            minter: Arc::new(DalKeyMinter::new(database.clone())),
+            // No expiry on Docker keys (CLOACINA-T-1083): one key per
+            // container, revoked when it stops; the actuator is single user.
+            minter: minter_with_notice(Arc::new(DalKeyMinter::new(database.clone())), notice),
             pools: Arc::new(DalPoolSource::new(database)),
             config,
             compilers: None,
@@ -473,11 +566,17 @@ impl FleetActuator for DockerActuator {
             total.stopped += 1;
         }
 
+        // CLOACINA-T-1029: the counts the autoscaler stored for the pools
+        // other than `default`.
+        let stored_counts = self.pools.stored_counts(tenant_id).await?;
         for (pool, settings) in &pools {
             let desired = if pool == DEFAULT_AGENT_POOL {
                 desired
             } else {
-                fixed_agent_count(settings)
+                match stored_counts.get(pool) {
+                    Some(stored) => super::settings::pool_agent_count(settings, Some(*stored)),
+                    None => fixed_agent_count(settings),
+                }
             };
             let applied = DockerPoolSettings::from_pool(settings)?;
             if settings.cpu_request.is_some()

@@ -74,7 +74,7 @@ distinguish failure modes:
 | Variable | Used By | Description |
 |---|---|---|
 | `DATABASE_URL` | `server start`, `compiler start`, `admin cleanup-events` | PostgreSQL or SQLite connection URL. Overridden by the corresponding `--database-url` flag where applicable. |
-| `CLOACINA_BOOTSTRAP_KEY` | `server start` | Pre-supplied bootstrap admin key. If unset and no keys exist, one is generated. Overridden by `--bootstrap-key`. |
+| `CLOACINA_BOOTSTRAP_KEY` | `server start` | Pre-supplied bootstrap admin key. If unset and no live platform admin key exists, one is generated. Overridden by `--bootstrap-key`. |
 | `CLOACINA_METRICS_BIND` | `server start` | Address of a separate listener for `/metrics`. Overridden by `--metrics-bind`. |
 | `CLOACINA_REQUIRE_SIGNATURES` | `server start` | If `true`, the server enforces package signature verification at upload. Overridden by `--require-signatures`. |
 | `RUST_LOG` | All commands | Log filter directive (e.g., `info`, `debug`, `cloacina=debug`). Overridden by `-v` / `--verbose`. |
@@ -209,6 +209,8 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--cors-allowed-headers <LIST>]
                         [--max-package-bytes <N>]
                         [--max-unpacked-bytes <N>]
+                        [--agent-key-lifetime-days <N>]
+                        [--agent-key-rotate-days <N>]
 ```
 
 | Flag | Env Var | Default | Description |
@@ -217,7 +219,7 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
 | `--metrics-bind <ADDR>` | `CLOACINA_METRICS_BIND` | (none) | Address of a separate listener for `/metrics`. When set, `/metrics` is served only there and `--bind` answers 404 for it. When not set, `/metrics` is on `--bind`. |
 | `--task-log-url-template <URL>` | `CLOACINA_TASK_LOG_URL_TEMPLATE` | (none) | URL of a task's logs in your log stack, with the placeholders `{tenant}`, `{execution_id}`, `{task}` and `{attempt}`. The web UI shows it as a link on each task. Not set: no link. See [Task logs](#task-logs-cloacina-server). |
 | `--database-url <URL>` | `DATABASE_URL` | (required) | Database connection URL. Examples: `sqlite:///path/to/cloacina.db`, `postgres://user:pass@host/dbname`. |
-| `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied admin key for first startup. If a key is generated, the plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms exactly once. |
+| `--bootstrap-key <KEY>` | `CLOACINA_BOOTSTRAP_KEY` | (auto-generated) | Pre-supplied platform admin key, used at a start with no live platform admin key. The plaintext is written to `~/.cloacina/bootstrap-key` with `0600` perms at each bootstrap, over an older file. A value that was used before cannot be used again. |
 | `--require-signatures` | `CLOACINA_REQUIRE_SIGNATURES` | `false` | Enforce package signature verification at upload time. The signer must be a trusted key of the tenant (see [`trusted-key`](#trusted-key)), or of `--verification-org-id` if one is set. |
 | `--verification-org-id <UUID>` | `CLOACINA_VERIFICATION_ORG_ID` | (none) | Optional server-wide trusted organization UUID. A key trusted in it is accepted for every tenant, after the tenant's own keys. With none, each tenant trusts only its own keys. |
 | `--reconcile-interval-s <N>` | | (runtime default) | Interval (seconds) between reconciler passes that sync the in-runner workflow registry with the DB. Increase for quiet prod; decrease for fast e2e tests. |
@@ -243,7 +245,7 @@ See
 `server start` has every flag of `cloacina-server`. Each setting below
 `--default-executor` in the tables of this section (from
 `--verification-org-id` and `--reconcile-interval-s` to
-`--max-unpacked-bytes`) is taken in three ways: a flag, the env var of the
+`--agent-key-rotate-days`) is taken in three ways: a flag, the env var of the
 setting, or a key of `[server]` in `config.toml` with the flag's name in
 snake case (for example `fleet_task_timeout_s = 600`,
 `cors_allowed_origins = ["https://ops.example.com"]`). The order is flag, env
@@ -309,8 +311,11 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--fleet-graph-firings <inline\|worker>` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` in the agent process, `worker` in a worker process with the limits, time limit and cancel of a task. Any other value stops the server at start. CLOACINA-T-1125. |
 | `--fleet-artifact-fetch-wait-s <N>` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The task is dispatched again after a delay (2 s, growing to 30 s) and uses no retry attempt. After the limit the attempt fails. `0`: the first failed fetch fails the attempt. CLOACINA-T-1064. |
 | `--fleet-poll-timeout-s <N>` | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent. The server waits this plus 10 s for the answer; with no answer it records the poll as missed and fires nothing. `0` stops the start. CLOACINA-T-1077. |
+| `--priority-aging-interval-s <N>` | `CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS` | `120` | The ageing interval of waiting work, in whole seconds. For each interval a task has waited, its [priority](../../explanation/priority/) in the order of waiting work improves by one, never past 0. `0` switches ageing off. A value that is not a whole number stops the start. CLOACINA-T-1123. |
 | `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
 | `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |
+| `--agent-key-lifetime-days <N>` | `CLOACINA_AGENT_KEY_LIFETIME_DAYS` | `30` | Days an agent key that the Kubernetes actuator mints stays valid. After it the key is refused with `401` `key_expired`. Docker actuator keys do not expire. CLOACINA-T-1083. |
+| `--agent-key-rotate-days <N>` | `CLOACINA_AGENT_KEY_ROTATE_DAYS` | `10` | Days left on an agent key at which the Kubernetes actuator replaces it: a new key in the Secret, and every pool's pods roll onto it. The old key is revoked when every pool's rollout is complete. At least `1` and less than `--agent-key-lifetime-days`, or the server does not start. See [Key expiry](../../explanation/service/security-model/#key-expiry). CLOACINA-T-1083. |
 
 ### Alert webhook (`cloacina-server`)
 
@@ -361,6 +366,18 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
                           [--python-uv-cache-dir <DIR>]
                           [--python-offline]
                           [--uv <PATH>]
+                          [--tenant-schema <SCHEMA>]
+                          [--build-target <TRIPLE>]
+                          [--build-target-package <NAME>]
+                          [--cargo-flag <FLAG>]... | [--cargo-flags-replace <FLAG>]...
+                          [--cargo-target-dir <DIR>]
+                          [--vendor-dir <DIR>]
+                          [--dev-workspace <DIR>]
+                          [--build-rlimit-cpu <SECONDS>]
+                          [--build-rlimit-mem <SIZE>]
+                          [--build-rlimit-files <N>]
+                          [--build-rlimit-procs <N>]
+                          [--log-retention-days <DAYS>]
 ```
 
 | Flag | Default | Description |
@@ -380,23 +397,42 @@ cloacinactl compiler start [--bind <ADDR>] [--metrics-bind <ADDR>]
 | `--python-uv-cache-dir <DIR>` | `uv`'s own | The cache folder of `uv` (env `CLOACINA_COMPILER_PYTHON_UV_CACHE_DIR`). |
 | `--python-offline` | off | Vendor with no network (env `CLOACINA_COMPILER_PYTHON_OFFLINE`). |
 | `--uv <PATH>` | `uv` on `PATH` | The `uv` program (env `CLOACINA_UV`). |
+| `--tenant-schema <SCHEMA>` | (none: `public`) | Build only this tenant's packages; run one compiler per tenant (env `CLOACINA_TENANT_SCHEMA`). |
+| `--build-target <TRIPLE>` | (none: the primary compiler) | Run as a per-target compiler that builds for this triple (env `CLOACINA_BUILD_TARGET`). |
+| `--build-target-package <NAME>` | (none) | With `--build-target`: build only this package (env `CLOACINA_BUILD_TARGET_PACKAGE`). |
+| `--cargo-flag <FLAG>` | (none) | A cargo flag added to the default list; repeat it. Write a value that starts with `-` as `--cargo-flag=<value>`. Not with `--cargo-flags-replace`. |
+| `--cargo-flags-replace <FLAG>` | (none) | The whole cargo flag list, defaults replaced, starting with the subcommand (usually `build`); repeat it. |
+| `--cargo-target-dir <DIR>` | the package's own `target/` | A shared cargo target folder for package builds. |
+| `--vendor-dir <DIR>` | `~/.cargo` | `CARGO_HOME` of the cargo build: a vendored cargo home (env `CLOACINA_COMPILER_VENDOR_DIR`). |
+| `--dev-workspace <DIR>` | (none) | Dev only: a local cloacina workspace that builds patch to (env `CLOACINA_COMPILER_DEV_WORKSPACE`). |
+| `--build-rlimit-cpu <SECONDS>` | (none) | `RLIMIT_CPU` of the cargo build, Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_CPU`). |
+| `--build-rlimit-mem <SIZE>` | `4G` | `RLIMIT_AS` of the cargo build: bytes, or a size with `K`, `M` or `G`; Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_MEM`). |
+| `--build-rlimit-files <N>` | `1024` | `RLIMIT_NOFILE` of the cargo build, Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_FILES`). |
+| `--build-rlimit-procs <N>` | `256` | `RLIMIT_NPROC` of the cargo build, Linux (env `CLOACINA_COMPILER_BUILD_RLIMIT_PROCS`). |
+| `--log-retention-days <DAYS>` | `14` | Daily log files to keep; `0` keeps all. |
 
-The unpack limit and the Python settings are taken in three ways: a flag,
-the env var, or a key of `[compiler]` in `config.toml` (`max_unpacked_bytes`,
-`python_platforms`, `python_version`, `python_index_url`, `python_wheel_dir`,
-`python_uv_cache_dir`, `python_offline`, `uv`). The order is flag, env var,
-`config.toml`; a setting that none of them gives is not forwarded. See
+Each of these settings, but `--bind`, `--metrics-bind`, `--database-url` and
+the four intervals, is taken in three ways: a flag, the env var where the
+compiler has one, or a key of `[compiler]` in `config.toml`
+(`max_unpacked_bytes`, `python_platforms`, `python_version`,
+`python_index_url`, `python_wheel_dir`, `python_uv_cache_dir`,
+`python_offline`, `uv`, `tenant_schema`, `build_target`,
+`build_target_package`, `cargo_flags`, `cargo_flags_replace`,
+`cargo_target_dir`, `vendor_dir`, `dev_workspace`, `build_rlimit_cpu`,
+`build_rlimit_mem`, `build_rlimit_files`, `build_rlimit_procs`,
+`log_retention_days`). The order is flag, env var, `config.toml`; a setting
+that none of them gives is not forwarded, and `cloacina-compiler` uses its
+default. Cargo flag additions and a replacement cannot both be given, by
+flags or by keys: `compiler start` stops with a message that names both. See
 [Run cloacina-compiler in Production](../../how-to/service/running-the-compiler/)
-for what each Python setting does.
+for what each setting does.
 
-The other flags of `cloacina-compiler` are not flags of `compiler start`:
-`--tenant-schema`, `--build-target`, `--build-target-package`,
-`--cargo-flag`, `--cargo-flags-replace`, `--cargo-target-dir`,
-`--build-timeout-s`, `--describe-timeout-s`, `--vendor-dir`, `--dev-workspace`, the four
-`--build-rlimit-*` flags and `--log-retention-days`. Set the ones that have
-an env var through the environment, which `cloacina-compiler` inherits, or
-run `cloacina-compiler` itself. A test of `cloacinactl` holds this list: a new
-flag of `cloacina-compiler` must be added to `compiler start` or to it.
+Two flags of `cloacina-compiler` are not flags of `compiler start`: its time
+limits `--build-timeout-s` and `--describe-timeout-s`. Set them through
+their env vars (`CLOACINA_COMPILER_BUILD_TIMEOUT_S`,
+`CLOACINA_COMPILER_DESCRIBE_TIMEOUT_S`), which `cloacina-compiler` inherits,
+or run `cloacina-compiler` itself. A test of `cloacinactl` holds this list: a
+new flag of `cloacina-compiler` must be added to `compiler start` or to it.
 
 `cloacina-compiler` vendors the dependencies of a Python package that is
 published with a `requirements.lock` and no `vendor/` folder. Its settings
@@ -444,6 +480,7 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--server <URL>` | `CLOACINA_SERVER` | (required) | Base URL of the server to register with (REST + WS ticket mint). |
 | `--api-key <KEY>` | `CLOACINA_API_KEY` | (required, or `--api-key-file`) | API key for REST + WS auth. Its tenant scope determines which tenants' work the agent may receive (REQ-008). The agent removes the variable from its environment at start. |
 | `--api-key-file <PATH>` | `CLOACINA_API_KEY_FILE` | | File that holds the API key, in place of `--api-key`. Giving both is an error. |
+| `--ca-file <PATH>` | `CLOACINA_AGENT_CA_FILE` | | PEM file of CA certificates the agent trusts for an `https://` server, in addition to the system roots: for a mesh or gateway whose certificate a private CA signs. A file that cannot be read or holds no certificate stops the agent at start. See [Transport Security](../../how-to/service/transport-security/). |
 | `--agent-id <ID>` | | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. |
 | `--max-concurrency <N>` | `CLOACINA_AGENT_MAX_CONCURRENCY` | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
 | `--pool <NAME>` | `CLOACINA_AGENT_POOL` | (none) | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in. Registered as the capability `pool:<name>`. Not set: the server counts the agent in `default`. A task goes only to agents of its own pool; a task with no pool goes to `default`. |
@@ -615,6 +652,12 @@ The version that is in service stays active until the build of the
 uploaded one succeeds. A failed build leaves it in service; see
 `package versions`.
 
+The server keeps who uploaded the package. Its runs are held to that
+principal's [priority](../../explanation/priority/#the-limit-of-a-publisher-and-of-a-creator)
+limit at each run start. When the limit is not 0 the answer has a
+`priority_notice`, and `package upload` and `package publish` print it on
+stderr as `warning: …`.
+
 ### `package list [--filter <SUBSTRING>]`
 
 `GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
@@ -738,7 +781,7 @@ Requires an admin-role key.
 | `tenant list` | `GET /v1/tenants` | Lists tenant schema names. |
 | `tenant pool list <TENANT>` | `GET /v1/tenants/<tenant>/pools` | Lists the tenant's [agent pools](../../explanation/service/execution-agent-fleet/#agent-pools). Every tenant has `default`. |
 | `tenant pool get <TENANT> <POOL>` | `GET /v1/tenants/<tenant>/pools/<pool>` | One pool: its settings, the agent count the server keeps, and the live agents. |
-| `tenant pool set <TENANT> <POOL> [--cpu-request <Q>] [--memory-request <Q>] [--cpu-limit <Q>] [--memory-limit <Q>] [--max-concurrency <N>] [--image <IMAGE>] [--service-account <NAME>] [--service-account-annotation <KEY=VALUE>]... [--pod-label <KEY=VALUE>]... [--pod-annotation <KEY=VALUE>]... [--automount-service-account-token <BOOL>] [--egress <CIDR[=PORTS]>]... [--agents <N>]` | `PUT /v1/tenants/<tenant>/pools/<pool>` | Creates the pool or replaces its settings with exactly what is given; a setting not given goes back to the server-wide default. `--egress` is `CIDR` or `CIDR=PORT[/PROTOCOL][,PORT...]` (`198.51.100.0/24=443,53/UDP`). `--agents` is the fixed agent count of a pool other than `default` (needed there, refused for `default`). `--file <PATH>` (`-` for stdin) sends a JSON object instead of the flags. |
+| `tenant pool set <TENANT> <POOL> [--cpu-request <Q>] [--memory-request <Q>] [--cpu-limit <Q>] [--memory-limit <Q>] [--max-concurrency <N>] [--image <IMAGE>] [--service-account <NAME>] [--service-account-annotation <KEY=VALUE>]... [--pod-label <KEY=VALUE>]... [--pod-annotation <KEY=VALUE>]... [--automount-service-account-token <BOOL>] [--egress <CIDR[=PORTS]>]... [--agents <N>] [--min-agents <N>]` | `PUT /v1/tenants/<tenant>/pools/<pool>` | Creates the pool or replaces its settings with exactly what is given; a setting not given goes back to the server-wide default. `--egress` is `CIDR` or `CIDR=PORT[/PROTOCOL][,PORT...]` (`198.51.100.0/24=443,53/UDP`). `--agents` is the most agents of a pool other than `default` (`max_agents`; needed there, refused for `default`). `--min-agents` is its fewest (`min_agents`, at most `--agents`): the pool scales between the two on its waiting work, and `0` lets it scale to zero; not given, the pool keeps `--agents` agents. `--file <PATH>` (`-` for stdin) sends a JSON object instead of the flags. |
 | `tenant pool delete <TENANT> <POOL> [--force]` | `DELETE /v1/tenants/<tenant>/pools/<pool>` | Removes the pool. The server refuses while the pool has agents: run `set --agents 0` first and wait. For `default` it clears the settings. Confirmation unless `--force`. |
 | `tenant delete <NAME> [--force]` | `DELETE /v1/tenants/<name>` | Triggers the 4-step teardown orchestration (revoke keys → evict runner cache → evict DB cache → drop schema). Each step emits an audit event. The drain step is bounded by `--tenant-deletion-drain-timeout-s` (server flag, default 30s); past that, the runner is hard-evicted. Interactive confirmation unless `--force`. CLOACI-T-0581. |
 
@@ -756,15 +799,18 @@ what, when, in which tenant.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `key create <NAME> [--role <ROLE>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
-| `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
-| `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. |
+| `key create <NAME> [--role <ROLE> \| --platform-admin] [--expires-at <TIME>] [--max-priority <N>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. `--expires-at` is an RFC 3339 time in the future after which the key is refused; not set, the key does not expire. `--max-priority` (0 to 10) is the highest [priority](../../explanation/priority/#a-limit-on-a-key) the key may set; not set, the default of its role; not on a `read` or `agent` key. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
+| `key set-priority <ID> (--max-priority <N> \| --clear)` | `PATCH /v1/tenants/<tenant>/keys/<id>` | Sets (0 to 10) or clears the highest priority a key of the tenant may set. Needs an `admin` key of the tenant or a platform admin key; the limit may not be better than the caller's own (`403`). Without `--tenant` the tenant is `public`. |
+| `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at, max_priority). No hashes, no plaintext. |
+| `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. The last live platform admin key is refused (`409`). |
 
-The `key` noun always uses the **global** `/v1/auth/keys` surface,
-which is restricted to platform-admin (god-mode) keys since
-CLOACI-T-0784. Tenant admins mint tenant-scoped keys via the HTTP API
-directly (`POST /v1/tenants/{tenant}/keys`) — there is no cloacinactl
-verb for that surface today.
+`key create --tenant <TENANT> <NAME> [--role <ROLE>]` calls
+`POST /v1/tenants/<tenant>/keys` and makes a key of that tenant, with
+the same body and roles. A platform admin key or an `admin` key of the
+tenant can call it. Without `--tenant`, `key create` calls the
+**global** `/v1/auth/keys` surface, which is restricted to
+platform-admin (god-mode) keys and makes a key of `public`. `key list`
+and `key revoke` always use the global surface.
 
 ## `trigger`
 
@@ -781,7 +827,7 @@ start to an end, oldest first. See
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. Prints the backfill with its id. |
+| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>] [--priority <N>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. `--priority` (0 to 10) is the workflow [priority](../../explanation/priority/#give-a-schedule-a-priority) of each run, held to your limit when the run starts; a priority above your limit is printed as a warning. Prints the backfill with its id. |
 | `backfill create <WORKFLOW> --interval <TIME> […]` | same | One interval: `--interval` is its fire time. The same as `--start` and `--end` with that value. |
 | `backfill list <WORKFLOW> [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills?limit=…&offset=…` | Newest first, each with its progress. Default limit: 100, max 1000. |
 | `backfill inspect <WORKFLOW> <ID>` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills/<id>` | Status, progress (`total`, `completed`, `failed`, `running`, `remaining`, position) and the failed intervals. |
@@ -938,6 +984,17 @@ local_addr = "127.0.0.1:9000"
 # python_uv_cache_dir = "/var/cache/uv"
 # python_offline = false
 # uv = "uv"
+# tenant_schema = "team_a"
+# build_target = "x86_64-linux"
+# build_target_package = "etl"
+# cargo_flags = ["--locked"]                # or cargo_flags_replace, not both
+# cargo_target_dir = "/var/cache/cargo-target"
+# vendor_dir = "/opt/cargo-home"
+# build_rlimit_cpu = 600
+# build_rlimit_mem = "4G"
+# build_rlimit_files = 1024
+# build_rlimit_procs = 256
+# log_retention_days = 14
 
 # Additional package directories for the daemon (~ expansion supported).
 [watch]
@@ -971,6 +1028,7 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 # fleet_artifact_fetch_wait_s = 300
 # fleet_graph_firings = "inline"
 # fleet_poll_timeout_s = 30
+# priority_aging_interval_s = 120
 # context_warn_bytes = 1048576
 # context_max_bytes = 16777216
 # cors_allowed_origins = ["https://ops.example.com"]
@@ -978,6 +1036,8 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 # cors_allowed_headers = ["authorization", "content-type"]
 # max_package_bytes = 104857600
 # max_unpacked_bytes = 524288000
+# agent_key_lifetime_days = 30
+# agent_key_rotate_days = 10
 ```
 
 ## Profile Resolution

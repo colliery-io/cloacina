@@ -240,6 +240,7 @@ pub async fn upload_workflow(
         signature_detail = Some((result.signer_fingerprint, trusted_by));
     }
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let grants_db = tenant_db.clone();
     let mut registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
         Err(e) => {
@@ -261,6 +262,32 @@ pub async fn upload_workflow(
                 detail["signer_fingerprint"] = fingerprint.as_str().into();
                 detail["signer_trusted_by_org"] = trusted_by.to_string().into();
             }
+            // CLOACINA-T-1123: the package keeps who published it. Each of
+            // its runs is held to that principal's limit at the run start.
+            let setter = crate::priority_authority::setter_of(&state.database, &_auth).await;
+            let lookup = crate::priority_authority::PrincipalLookup {
+                admin: state.database.clone(),
+                oidc_policy: state.oidc_policy.clone(),
+            };
+            let priority_limit =
+                crate::priority_authority::limit_now(&lookup, &tenant_id, &setter).await;
+            if let Some(package_name) = detail["package_name"].as_str() {
+                if let Err(e) = cloacina::dal::DAL::new(grants_db)
+                    .priority_grants()
+                    .record(
+                        cloacina::dal::unified::priority_grants::KIND_PACKAGE,
+                        package_name,
+                        &setter,
+                        None,
+                    )
+                    .await
+                {
+                    warn!(tenant = %tenant_id, package = %package_name, error = %e, "the publisher of the package was not recorded; its runs are held to the default of `write`");
+                }
+            }
+            detail["published_by"] = setter.by.clone().into();
+            detail["priority_limit"] = priority_limit.into();
+            let priority_notice = crate::priority_authority::upload_notice(priority_limit);
             audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(
@@ -288,6 +315,8 @@ pub async fn upload_workflow(
                 Json(WorkflowUploadedResponse {
                     package_id: package_id.to_string(),
                     tenant_id,
+                    priority_limit: Some(priority_limit),
+                    priority_notice,
                 }),
             )
                 .into_response()
@@ -376,6 +405,73 @@ pub async fn list_workflows(
     }
 }
 
+/// The workflow priority of a package: what its code declares and what its
+/// runs get now, held to the limit of its publisher (CLOACINA-T-1123). `None`
+/// when the workflow is not loaded (not built yet, or refused).
+async fn package_priority(
+    state: &AppState,
+    tenant_id: &str,
+    package_name: &str,
+    workflow_name: &str,
+) -> (Option<cloacina_api_types::PriorityGrant>, Option<String>) {
+    let runtime = if tenant_id == "public" {
+        state.runner.runtime()
+    } else {
+        std::sync::Arc::new(
+            state
+                .tenant_runners
+                .shared_runtime()
+                .scoped_to_tenant(tenant_id),
+        )
+    };
+    let Some(workflow) = runtime.get_workflow(workflow_name) else {
+        return (None, None);
+    };
+    let asked = workflow
+        .priority()
+        .unwrap_or(cloacina_api_types::DEFAULT_PRIORITY);
+    let limit = match state
+        .tenant_databases
+        .resolve(tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => match cloacina::dal::DAL::new(db)
+            .priority_grants()
+            .get(
+                cloacina::dal::unified::priority_grants::KIND_PACKAGE,
+                package_name,
+            )
+            .await
+        {
+            Ok(Some(row)) => {
+                let lookup = crate::priority_authority::PrincipalLookup {
+                    admin: state.database.clone(),
+                    oidc_policy: state.oidc_policy.clone(),
+                };
+                Some(crate::priority_authority::limit_now(&lookup, tenant_id, &row.setter()).await)
+            }
+            Ok(None) => crate::priority_authority::declared_priority_limit(),
+            Err(e) => {
+                warn!(tenant = %tenant_id, package = %package_name, error = %e, "the publisher of the package was not read");
+                crate::priority_authority::declared_priority_limit()
+            }
+        },
+        Err(e) => {
+            warn!(tenant = %tenant_id, error = %e, "tenant database not resolved for the package priority");
+            crate::priority_authority::declared_priority_limit()
+        }
+    };
+    let grant = cloacina_api_types::PriorityGrant::held_to(asked, limit);
+    let notice = grant.is_held().then(|| {
+        format!(
+            "the workflow declares priority {} and its runs get priority {}: {} is the highest \
+             priority its publisher may set now",
+            grant.asked, grant.given, grant.given
+        )
+    });
+    (Some(grant), notice)
+}
+
 /// Why a built package is not loaded by a server that loads packages from
 /// their metadata only (CLOACINA-T-1075): it has no metadata document yet, or
 /// its compiler could not describe it. `None` with single trust, for a
@@ -460,7 +556,16 @@ pub async fn get_workflow(
             Ok(Some(ins)) => {
                 let not_loaded_reason =
                     not_loaded_reason(&state, &registry, ins.metadata.id, &ins.build_status).await;
+                let (priority, priority_notice) = package_priority(
+                    &state,
+                    &tenant_id,
+                    &ins.metadata.package_name,
+                    &ins.metadata.workflow_name,
+                )
+                .await;
                 return Json(WorkflowDetail {
+                    priority,
+                    priority_notice,
                     not_loaded_reason,
                     uploaded_by: audit_record::package_uploader(
                         &state,
@@ -519,47 +624,58 @@ pub async fn get_workflow(
                     // real build state (pending/building/failed in
                     // addition to success).
                     match registry.inspect_package_by_id(w.id).await {
-                        Ok(Some(ins)) => Json(WorkflowDetail {
-                            not_loaded_reason: not_loaded_reason(
-                                &state,
-                                &registry,
-                                ins.metadata.id,
-                                &ins.build_status,
-                            )
-                            .await,
-                            uploaded_by: audit_record::package_uploader(
+                        Ok(Some(ins)) => {
+                            let (priority, priority_notice) = package_priority(
                                 &state,
                                 &tenant_id,
-                                ins.metadata.id.to_string(),
+                                &ins.metadata.package_name,
+                                &ins.metadata.workflow_name,
                             )
-                            .await,
-                            tenant_id,
-                            id: ins.metadata.id.to_string(),
-                            package_name: ins.metadata.package_name,
-                            workflow_name: ins.metadata.workflow_name,
-                            version: ins.metadata.version,
-                            description: ins.metadata.description,
-                            tasks: ins.metadata.tasks,
-                            task_graph: ins
-                                .metadata
-                                .task_graph
-                                .into_iter()
-                                .map(|n| WorkflowTaskNode {
-                                    id: n.id,
-                                    dependencies: n.dependencies,
-                                    description: n.description,
-                                    doc_what: n.doc_what,
-                                    doc_why: n.doc_why,
-                                })
-                                .collect(),
-                            created_at: ins.metadata.created_at.to_rfc3339(),
-                            build_status: ins.build_status,
-                            build_error: ins.build_error,
-                            describe_error: ins.describe_error,
-                            paused: ins.metadata.paused,
-                            declared_params: ins.metadata.declared_params.clone(),
-                        })
-                        .into_response(),
+                            .await;
+                            Json(WorkflowDetail {
+                                priority,
+                                priority_notice,
+                                not_loaded_reason: not_loaded_reason(
+                                    &state,
+                                    &registry,
+                                    ins.metadata.id,
+                                    &ins.build_status,
+                                )
+                                .await,
+                                uploaded_by: audit_record::package_uploader(
+                                    &state,
+                                    &tenant_id,
+                                    ins.metadata.id.to_string(),
+                                )
+                                .await,
+                                tenant_id,
+                                id: ins.metadata.id.to_string(),
+                                package_name: ins.metadata.package_name,
+                                workflow_name: ins.metadata.workflow_name,
+                                version: ins.metadata.version,
+                                description: ins.metadata.description,
+                                tasks: ins.metadata.tasks,
+                                task_graph: ins
+                                    .metadata
+                                    .task_graph
+                                    .into_iter()
+                                    .map(|n| WorkflowTaskNode {
+                                        id: n.id,
+                                        dependencies: n.dependencies,
+                                        description: n.description,
+                                        doc_what: n.doc_what,
+                                        doc_why: n.doc_why,
+                                    })
+                                    .collect(),
+                                created_at: ins.metadata.created_at.to_rfc3339(),
+                                build_status: ins.build_status,
+                                build_error: ins.build_error,
+                                describe_error: ins.describe_error,
+                                paused: ins.metadata.paused,
+                                declared_params: ins.metadata.declared_params.clone(),
+                            })
+                            .into_response()
+                        }
                         Ok(None) => ApiError::not_found(
                             "workflow_not_found",
                             format!("workflow '{}' not found", name),
