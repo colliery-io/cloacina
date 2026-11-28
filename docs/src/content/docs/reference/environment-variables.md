@@ -78,6 +78,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
 | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `--outbox-acked-retention-s` | `0` (off) | Seconds to keep a `delivery_outbox` row after its ack. `0` keeps acked rows for ever: `delivery_outbox` grows until a period is set. |
 | `CLOACINA_RETENTION_INTERVAL_S` | `--retention-interval-s` | `300` | Seconds between passes of the retention job. |
+| `CLOACINA_TASK_OUTPUT_MAX_BYTES` | `--task-output-max-bytes` | `262144` (256 KiB) | Bytes of the end of each fleet task attempt's output (stdout and stderr, one stream) that the agent keeps and the server stores with the result. Longer output is cut at its start. `0` keeps none. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output). |
+| `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `--task-output-retention-days` | `30` | Days to keep the stored output of a task attempt. The retention job deletes it after that, whether `CLOACINA_RUN_HISTORY_RETENTION_DAYS` is set or not. `0` keeps it for ever. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `--fleet-task-timeout-s` | `300` | Time limit (seconds) of a fleet task that sets none of its own (`#[task(timeout_seconds = N)]`, `@task(timeout_seconds=N)`). The agent enforces it; the server waits for the result that long plus 30 seconds. A graph firing sent to an agent gets this limit too. |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
 | `CLOACINA_FLEET_GRAPH_FIRINGS` | `--fleet-graph-firings` | `inline` | Where an agent runs a computation-graph firing: `inline` (in the agent process) or `worker` (a worker process with the limits, time limit and cancel of a task). Any other value stops the server at start. |
@@ -109,7 +111,9 @@ The Helm chart `cloacina-server` sets these variables from its values:
 | `CLOACINA_DATABASE_WAIT_TIMEOUT_S` | `server.databaseWaitTimeoutSeconds` | `60` |
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `retention.runHistoryDays` | `0` |
 | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `retention.outboxAckedSeconds` | `0` |
+| `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `retention.taskOutputDays` | `30` |
 | `CLOACINA_RETENTION_INTERVAL_S` | `retention.intervalSeconds` | `300` |
+| `CLOACINA_TASK_OUTPUT_MAX_BYTES` | `taskOutput.maxBytes` | `262144` |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | `fleetTaskTimeLimits.defaultSeconds` | `300` |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `fleetTaskTimeLimits.maxSeconds` | `86400` |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `fleetTaskTimeLimits.artifactFetchWaitSeconds` | `300` |
@@ -173,6 +177,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | The most jobs one worker process runs. Equivalent to `--warm-worker-max-jobs`. The fleet actuator does not set it. | `100` | `1000` | Agent | No |
 | `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | A worker that holds more than this share of its jobs' memory limit after a job is ended. Equivalent to `--warm-worker-max-memory-percent`. The fleet actuator does not set it. | `50` | `30` | Agent | No |
 | `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator sets it to `json` on the agents it starts when the server's own `CLOACINA_AGENT_LOG_FORMAT` is `json` (see [Actuator selection](#actuator-selection)). See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
+| `CLOACINA_AGENT_TASK_OUTPUT_MASKING` | Replace the exact values of a task's own secrets by `***` in its output, in the agent's log and in the output kept with the result. Exact values only: see [What masking covers](../../how-to/service/find-a-tasks-logs/#what-masking-covers). Equivalent to `--task-output-masking`. The fleet actuator does not set it. | `true` | `false` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
 
@@ -562,6 +567,8 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_FLEET_POLL_TIMEOUT_S` | Server | Time limit of one poll of a poll trigger on an agent (default `30`) |
 | `CLOACINA_CONTEXT_WARN_BYTES` | Server | Size above which a task context is logged and counted (default `1048576`; `0` = off) |
 | `CLOACINA_CONTEXT_MAX_BYTES` | Server | Largest size of a task context; a larger one fails its task (default `16777216`; `0` = off) |
+| `CLOACINA_TASK_OUTPUT_MAX_BYTES` | Server | Bytes of the end of each fleet task attempt's output that are kept (default `262144`; `0` = none) |
+| `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | Server | Days to keep the stored output of a task attempt (default `30`; `0` = for ever) |
 | `CLOACINA_DEFAULT_MAX_AGENTS` | Server | Platform-wide default per-tenant agent limit (default `4`) |
 | `CLOACINA_INITIAL_AGENTS` | Server | Agents auto-provisioned on tenant create (default `1`; `0` disables) |
 | `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` (one user only) / `kubernetes` (default `none`) |
@@ -596,6 +603,7 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | Agent | Most jobs of one worker process (default `100`) |
 | `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | Agent | Memory a warm worker may hold after a job, as a share of its limit (default `50`) |
 | `CLOACINA_AGENT_LOG_FORMAT` | Agent; Server (actuator) | Format of the agent's log lines: `text` (default) or `json`. On the server: the format of the agents the actuator starts |
+| `CLOACINA_AGENT_TASK_OUTPUT_MASKING` | Agent | Replace the exact values of a task's own secrets by `***` in its output (default `true`) |
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |
 | `CLOACINA_COMPILER_BUILD_TIMEOUT_S` | Compiler | Per-build wall-clock cap (default `600`) |

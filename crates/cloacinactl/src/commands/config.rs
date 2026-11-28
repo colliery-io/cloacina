@@ -264,6 +264,14 @@ pub struct ServerSection {
     /// Seconds between passes of the retention job (`--retention-interval-s`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retention_interval_s: Option<u64>,
+    /// Bytes of the end of each fleet task attempt's output that are kept;
+    /// `0` keeps none (`--task-output-max-bytes`). CLOACINA-T-1091.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_output_max_bytes: Option<u64>,
+    /// Days to keep the stored output of a task attempt; `0` keeps it for
+    /// ever (`--task-output-retention-days`). CLOACINA-T-1091.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_output_retention_days: Option<u64>,
     /// Time limit (seconds) of a fleet task that sets none, and of a graph
     /// firing on the fleet (`--fleet-task-timeout-s`).
     #[serde(skip_serializing_if = "Option::is_none")]

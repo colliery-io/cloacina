@@ -413,9 +413,12 @@ pub async fn replenish_keys(
 pub async fn report_result(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedKey>,
-    Json(req): Json<AgentResultRequest>,
+    Json(mut req): Json<AgentResultRequest>,
 ) -> Result<Json<AgentResultResponse>, ApiError> {
     require_protocol_version(req.protocol_version)?;
+    // CLOACINA-T-1091: the output is held to the server's cap here, before
+    // the report can be stored in the result inbox.
+    req.output = crate::task_output::cap(req.output.take(), crate::task_output::max_bytes());
     let agent_row = require_agent_owner(&state, &auth, &req.agent_id).await?;
 
     // CLOACI-T-0780: a refusal is an EXPECTED fail-closed outcome — and now rare,
@@ -966,6 +969,11 @@ mod tests {
             dispatch_id: None,
             duration_ms: 41,
             outcome,
+            output: Some(cloacina::fleet::AttemptOutput {
+                text: "line-from-the-task-output".into(),
+                total_bytes: 25,
+                cut: false,
+            }),
         }
     }
 
@@ -1092,5 +1100,23 @@ mod tests {
         assert!(logged(tracing::Level::TRACE, &failure()).contains("text-from-the-task-error"));
         assert!(logged(tracing::Level::TRACE, &long_failure()).contains("END-OF-THE-ERROR"));
         assert!(logged(tracing::Level::TRACE, &refusal()).contains("text-from-the-refusal"));
+    }
+
+    /// CLOACINA-T-1091: no level, trace included, holds the task's output.
+    #[test]
+    fn no_log_level_holds_the_output() {
+        for level in [
+            tracing::Level::INFO,
+            tracing::Level::DEBUG,
+            tracing::Level::TRACE,
+        ] {
+            for req in [success(), failure(), refusal()] {
+                let out = logged(level, &req);
+                assert!(
+                    !out.contains("line-from-the-task-output"),
+                    "{level} holds the output: {out}"
+                );
+            }
+        }
     }
 }

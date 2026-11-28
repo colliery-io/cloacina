@@ -191,6 +191,8 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--run-history-retention-days <N>]
                         [--outbox-acked-retention-s <N>]
                         [--retention-interval-s <N>]
+                        [--task-output-max-bytes <N>]
+                        [--task-output-retention-days <N>]
                         [--fleet-task-timeout-s <N>]
                         [--fleet-task-timeout-max-s <N>]
                         [--alert-webhook-url <URL>]
@@ -241,6 +243,14 @@ Retention of run history in the database has three settings:
 `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S` (default `300`).
 See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
+
+The stored output of task attempts has two settings:
+`--task-output-max-bytes` / `CLOACINA_TASK_OUTPUT_MAX_BYTES` (default
+`262144`, 256 KiB per attempt; `0` keeps none) and
+`--task-output-retention-days` / `CLOACINA_TASK_OUTPUT_RETENTION_DAYS`
+(default `30`; `0` keeps it for ever). The retention job deletes stored output
+by its own period, whether run-history retention is on or not. See
+[The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output).
 
 `server start` has every flag of `cloacina-server`. Each setting below
 `--default-executor` in the tables of this section (from
@@ -497,6 +507,7 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
 | `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package or provider archive may unpack to (500 MiB). The agent refuses to load a larger one. Use the value of the server. |
 | `--log-format <text\|json>` | `CLOACINA_AGENT_LOG_FORMAT` | `text` | Format of the agent's log lines on stdout. `json` writes one JSON object per line; a line written while a task runs has the task's ids under `span`. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). |
+| `--task-output-masking <true\|false>` | `CLOACINA_AGENT_TASK_OUTPUT_MASKING` | `true` | Replace the exact values of a task's own secrets by `***` in the output of its worker process: in the agent's log and in the output sent with the result. Exact values only; see [What masking covers](../../how-to/service/find-a-tasks-logs/#what-masking-covers). |
 
 The agent exposes no HTTP surface of its own — observe it via its logs and the
 server's fleet metrics (`cloacina_fleet_*`). See the how-to guide
@@ -727,6 +738,7 @@ cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
 | `execution list [--workflow <F>] [--status <S>] [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/executions?status=…&workflow=…&limit=…&offset=…` | Default limit: 50, server cap 1000; default offset 0. `--status` and `--workflow` map to the server query params of the same names (CLOACI-T-0594 / API-02). |
 | `execution status <ID>` | `GET /v1/tenants/<tenant>/executions/<id>` | Returns Pending / Running / Completed / Failed / Cancelled / Paused. |
 | `execution events <ID> [--since <DURATION>] [--follow]` | `GET /v1/tenants/<tenant>/executions/<id>/events?since=<dur>` | `--follow` streams live events over the server's WebSocket delivery substrate (CLOACI-I-0115) until interrupted. `--since` cannot be combined with `--follow` (cursor support is future work); use `--since` on a non-follow call for the historical snapshot. |
+| `execution output <ID> <TASK_ID> [--attempt <N>]` | `GET /v1/tenants/<tenant>/executions/<id>/tasks/<task_id>/output?attempt=<n>` | The end of what each attempt of the task wrote on stdout and stderr, kept for tasks that ran in an agent's worker process (CLOACINA-T-1091). `TASK_ID` is the `id` of the task in the execution's task list. The table format prints a header line per attempt and the text as it is; `-o json` gives the answer of the route. See [The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output). |
 
 ## `graph`
 

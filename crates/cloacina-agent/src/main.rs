@@ -40,6 +40,7 @@
 
 mod drain;
 mod memory;
+mod output;
 mod tls;
 mod worker;
 
@@ -185,6 +186,17 @@ struct Args {
         default_value_t = worker::DEFAULT_WARM_MAX_MEMORY_PERCENT
     )]
     warm_worker_max_memory_percent: u64,
+    /// Replace the exact values of a task's own secrets by `***` in the
+    /// output the agent logs and sends with the result (CLOACINA-T-1091).
+    /// Only exact values: an encoded, cut or joined value, a secret the task
+    /// fetched itself, and context values are not found. Default `true`.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_TASK_OUTPUT_MASKING",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    task_output_masking: bool,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -544,6 +556,7 @@ fn worker_settings_from(
         log_format: args.log_format,
         max_unpacked_bytes: args.max_unpacked_bytes,
         warm: worker::WarmPool::new(warm),
+        mask_task_output: args.task_output_masking,
         // Agents on one host can share a cache directory: each has its own
         // worker directories.
         ..worker::WorkerSettings::unlimited(cache_dir.join(format!("work-{}", std::process::id())))
@@ -1654,6 +1667,13 @@ fn spawn_packet_worker(
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
+        // CLOACINA-T-1091: the end of the attempt's output, when it ran in a
+        // worker. Taken here whether a report goes or not.
+        let output = output::take_output(&output::output_key(
+            &packet.task_execution_id,
+            packet.attempt,
+            packet.dispatch_id.as_deref(),
+        ));
         // CLOACINA-T-1029: a worker the agent stopped at the end of its drain
         // is reported as handed back.
         match drain::report_of(end, packet.dispatch_id.as_deref()) {
@@ -1666,6 +1686,7 @@ fn spawn_packet_worker(
                     dispatch_id: packet.dispatch_id.clone(),
                     duration_ms,
                     outcome,
+                    output,
                 };
                 // CLOACINA-T-1015: the ack waits for the report (see
                 // `report_outcome`).
@@ -1956,6 +1977,7 @@ fn graph_report(
         dispatch_id: None,
         duration_ms,
         outcome,
+        output: None,
     }
 }
 
@@ -1985,6 +2007,7 @@ fn spawn_graph_refusal(
                 reason: RefusalReason::Shutdown,
                 message,
             },
+            output: None,
         };
         let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
         report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
@@ -2023,6 +2046,7 @@ fn spawn_poll_report(
             dispatch_id: None,
             duration_ms,
             outcome,
+            output: None,
         };
         let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
         report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
@@ -2496,6 +2520,7 @@ fn spawn_refusal(
             dispatch_id: packet.dispatch_id.clone(),
             duration_ms: 0,
             outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
+            output: None,
         };
         let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
         report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
@@ -3339,6 +3364,8 @@ async fn process_work_packet(
         work_dir: cache_dir.join(format!("pysrc-{digest}")),
         log_format: settings.log_format.to_string(),
         max_unpacked_bytes: settings.max_unpacked_bytes,
+        // Set by the agent when the job goes to a worker (CLOACINA-T-1091).
+        output_end: None,
         #[cfg(test)]
         test_action: None,
     };
@@ -3763,6 +3790,7 @@ mod tests {
             outcome: cloacina::fleet::AgentOutcome::Success {
                 context: serde_json::json!({}),
             },
+            output: None,
         }
     }
 
@@ -4356,6 +4384,7 @@ mod tests {
             cpu_millis: None,
             memory_bytes: None,
             inline: false,
+            output_max_bytes: None,
         }
     }
 

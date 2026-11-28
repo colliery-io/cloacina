@@ -1,14 +1,15 @@
 ---
 title: "Find a Task's Logs"
-description: "Read the traceback of a failed Python task, find a task's lines in the agent's log by its ids, and link the task view to your log stack."
+description: "Read the end of a task's output and the traceback of a failed Python task, find a task's lines in the agent's log by its ids, and link the task view to your log stack."
 sidebar:
   order: 84
 ---
 
-Cloacina stores the result of a task, not its output. What a task prints is in
+Cloacina keeps the result of a task and, for a task that runs on an
+execution agent, the end of what each attempt printed. The whole output is in
 the log of the process that ran it. This page shows what Cloacina keeps for a
-failed task, how to find a task's lines in the process log, and how to link
-the web UI to your log stack.
+task, how to find a task's lines in the process log, and how to link the web
+UI to your log stack.
 
 ## What Cloacina keeps for a task
 
@@ -54,11 +55,84 @@ the process log by its `attempt`.
 A Rust task has no traceback. Its failure is the message of the error it
 returns.
 
+## The end of a task's output
+
+An execution agent runs each task in a worker process. It reads the worker's
+stdout and stderr as one stream, and keeps the last 256 KiB of each attempt.
+The server stores it with the result, one row per attempt, for an attempt
+that succeeded and for one that failed. A worker that the agent stops at the
+task's memory or time limit leaves what it wrote before the stop.
+
+Read it when the attempt has ended:
+
+| Where | How |
+|-------|-----|
+| Web UI | **Output** in the task table of a run: each attempt, with its number and size. |
+| `cloacinactl` | `cloacinactl execution output <execution id> <task id> [--attempt N]` |
+| HTTP | `GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output[?attempt=N]` |
+| Rust client | `Client::get_task_output(exec_id, task_id, attempt, tenant)` |
+| Python client | `client.get_task_output(exec_id, task_id, attempt=None, tenant=None)` |
+| TypeScript client | `client.getTaskOutput(execId, taskId, { attempt, tenant })` |
+
+The task id is the `id` of the task in
+`GET /v1/tenants/{tenant_id}/executions/{exec_id}/tasks`. A key that may read
+the run may read its output (the `read` role of the tenant). The answer has,
+for each attempt: `output` (the kept text), `total_bytes` (what the attempt
+wrote in all), `cut` (`true` when the start was dropped) and `recorded_at`.
+A task with no stored output gives an empty list.
+
+Longer output is cut at its start: the end stays.
+A task never fails because of its output. Bytes that are not UTF-8 are
+replaced by U+FFFD.
+
+| Setting | Env var | Default | Purpose |
+|---------|---------|---------|---------|
+| `cloacina-server --task-output-max-bytes` | `CLOACINA_TASK_OUTPUT_MAX_BYTES` | `262144` (256 KiB) | Bytes kept per attempt. The server sends it to the agent with each task, and cuts again to it. `0` keeps none. |
+| `cloacina-server --task-output-retention-days` | `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `30` | Days a stored output is kept. The retention job deletes it after that, whether run-history retention is on or not. `0` keeps it for ever. |
+| `cloacina-agent --task-output-masking` | `CLOACINA_AGENT_TASK_OUTPUT_MASKING` | `true` | Replace the exact values of the task's own secrets by `***`. |
+
+`cloacinactl server start` takes the two server settings as flags, env vars
+and the `[server]` keys `task_output_max_bytes` and
+`task_output_retention_days`. In the Helm chart `cloacina-server` they are
+`taskOutput.maxBytes` and `retention.taskOutputDays`. Run-history retention
+deletes a run's output with the run.
+
+### What masking covers
+
+The agent replaces, line by line, the exact value of each field of each
+secret that it unwrapped for that attempt, before the line goes to its log or
+into the kept output. It does not find:
+
+- a value that the task encoded (base64, URL encoding, JSON escapes), cut,
+  or joined into a longer string with no change;
+- a value split over two lines;
+- a secret that the task fetched itself, a value in the task's context, or
+  personal data;
+- the secrets of a graph firing or a poll (they have none).
+
+Stored output is tenant data. Treat it like the task's own logs.
+
+### What keeps no output
+
+These run the task with no worker process, so their stdout and stderr belong
+to the process, not to the task. No output is stored, and the output route
+gives an empty list:
+
+- a task marked `inline = true`, and any task on an agent on a system with no
+  worker processes (not Unix);
+- the server's in-process executor (`--default-executor default`);
+- the embedded runner and `cloacinactl daemon`;
+- graph firings and polls of poll triggers.
+
+There is no view of the output while the attempt runs. An agent that dies
+loses the tail of the attempts it ran; the pod log still has the lines.
+
 ## Where the output of a task goes
 
 | Task runs in | Output goes to |
 |--------------|----------------|
-| An execution agent (`cloacina-agent`) | The agent's stdout and stderr: the pod or container log. |
+| An execution agent (`cloacina-agent`), in a worker process | The agent's log (stdout: the pod or container log), one line per line of output, with the task's ids. The end is stored with the result (above). |
+| An execution agent, `inline = true` | The agent's stdout and stderr, as the task wrote them. |
 | The server's in-process executor | The server's stderr, and for log lines also the JSON log file under `--home`. |
 | The embedded runner, `cloacinactl daemon` | The host program's stdout and its own logger. |
 
@@ -109,13 +183,22 @@ lines it lets through.
   `tracing` macros or the `log` crate. They carry the ids of the poll, the
   fields of a span named `poll`: `tenant`, `package`, `trigger` and
   `poll_id`.
+- Every line a task in an agent's worker process writes on stdout or stderr:
+  `print`, Python's `logging` module, `println!` / `eprintln!`, and native
+  libraries. The agent writes each line to its log at info, with the target
+  `task_output`, in the span of the task.
 
 These lines do not carry the ids:
 
-- `print` in a Python task and `println!` / `eprintln!` in a Rust task. They
-  go to the stdout or stderr of the process as the task wrote them.
-- Python's `logging` module. Its handlers write on their own, to stderr
-  unless the task sets them up.
+- `print` in a Python task and `println!` / `eprintln!` in a Rust task that
+  does not run in an agent's worker process (`inline = true`, the server's
+  in-process executor, the embedded runner). They go to the stdout or stderr
+  of the process as the task wrote them.
+- Python's `logging` module outside an agent's worker process. Its handlers
+  write on their own, to stderr unless the task sets them up.
+- Lines a worker process writes while no task runs on it (its start, a graph
+  firing, a poll). The agent writes them with the target `worker_output` and
+  the worker's `pid`.
 - `tracing` and `log` lines of a packaged Rust task that come from a thread
   or a tokio task that the task starts itself. They are written, with no ids.
 - `tracing` and `log` lines of a package built against

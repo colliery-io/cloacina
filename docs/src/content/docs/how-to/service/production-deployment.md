@@ -179,18 +179,20 @@ started it, and per task one `task_executions` row, one
 JSON. Each state change adds an `execution_events` row and a `delivery_outbox`
 row. A run of a packaged workflow adds one `workflow_execution_package_pins`
 row per package, the version it runs on. Each failed task attempt adds one
-`task_attempt_errors` row. The server can remove them with a background retention job, once you set a period. Both periods are off by default; with both off the job does not start.
+`task_attempt_errors` row. Each attempt of a task that ran in an agent's worker process adds one `task_attempt_outputs` row, the end of its output (at most `--task-output-max-bytes`, 256 KiB by default). The server can remove them with a background retention job. The run-history and outbox periods are off by default; the task output period is on, at 30 days. With every period off the job does not start.
 
 | Setting | Env var | Default | What it does |
 |---|---|---|---|
-| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, the errors of their failed attempts, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
+| `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` (off) | A run that finished (Completed, Failed or Cancelled) longer ago than this is deleted, with its task executions, the errors of their failed attempts, the output of their attempts, task metadata, contexts, execution events, recovery events, schedule executions, package version pins and any event push still waiting in `delivery_outbox`. `0` = off. |
 | `--outbox-acked-retention-s` | `CLOACINA_OUTBOX_ACKED_RETENTION_S` | `0` (off) | A `delivery_outbox` row is deleted this long after its ack. `0` = off: acked rows are kept for ever. |
+| `--task-output-retention-days` | `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `30` | The stored output of a task attempt is deleted this long after it was stored, whether `--run-history-retention-days` is set or not. `0` = off. |
 | `--retention-interval-s` | `CLOACINA_RETENTION_INTERVAL_S` | `300` | Seconds between passes. The first pass runs one interval after start. |
 
 Where to set them:
 
 - **Helm chart `cloacina-server`:** the values `retention.runHistoryDays`,
-  `retention.outboxAckedSeconds` and `retention.intervalSeconds`. The chart
+  `retention.outboxAckedSeconds`, `retention.taskOutputDays` and
+  `retention.intervalSeconds`. The chart
   defaults are the server's (`0`, `3600`, `300`), so an install keeps run
   history for ever until you set `retention.runHistoryDays`.
 
@@ -200,8 +202,9 @@ Where to set them:
   ```
 
 - **`cloacinactl server start`:** the same flags, the env vars, or the keys
-  `run_history_retention_days`, `outbox_acked_retention_s` and
-  `retention_interval_s` of `[server]` in `config.toml`.
+  `run_history_retention_days`, `outbox_acked_retention_s`,
+  `task_output_retention_days` and `retention_interval_s` of `[server]` in
+  `config.toml`.
 
 What to know:
 
@@ -211,7 +214,8 @@ What to know:
 - **Acked outbox rows are kept until you set a period.** `--outbox-acked-retention-s` is `0` by default, so no acked `delivery_outbox` row is deleted and the table grows by one row for each message that its recipient acked: an execution event pushed to a subscriber, an alert, and on an agent fleet each task dispatch, whose row holds the task's context. These rows are queue records, not history. `3600` deletes each one an hour after its ack.
 - **Per tenant.** Each pass covers the admin (`public`) schema and every tenant schema, with the same periods.
 - **One replica at a time.** Each pass is gated on a Postgres advisory lock, so replicas do not work in parallel.
-- **Bounded work.** A pass removes at most 5,000 runs and 100,000 acked outbox rows per schema; a backlog drains over the next passes. Postgres reuses the freed space after autovacuum; the files on disk do not shrink without `VACUUM FULL`.
+- **Task output goes after 30 days by default.** At 256 KiB per attempt, 1,000 attempts a day store at most 250 MiB a day. Set `--task-output-retention-days 0` to keep it, or `--task-output-max-bytes 0` to keep none. See [The end of a task's output](../find-a-tasks-logs/#the-end-of-a-tasks-output).
+- **Bounded work.** A pass removes at most 5,000 runs, 100,000 acked outbox rows and 10,000 task output rows per schema; a backlog drains over the next passes. Postgres reuses the freed space after autovacuum; the files on disk do not shrink without `VACUUM FULL`.
 - **Watch it.** `cloacina_retention_rows_deleted_total{table}` counts removed rows; `cloacina_retention_errors_total` counts failed passes. See the [metrics catalog](../../../reference/metrics-catalog/).
 - **Separate from logs.** `--log-retention-days` limits log files on disk and nothing else.
 

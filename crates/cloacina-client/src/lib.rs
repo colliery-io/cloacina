@@ -68,12 +68,12 @@ use cloacina_api_types::{
     FireTriggerResponse, GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse,
     KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, ReactorFire,
     ReactorFireTimeseries, ReactorStatus, RetryBackfillRequest, RotateSecretRequest,
-    SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerPauseResponse,
-    TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary, WorkflowDeletedResponse,
-    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse,
-    WorkflowSummary, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
-    WorkflowVersionSummary, WsTicketResponse,
+    SecretDeletedResponse, SecretMetadataResponse, TaskOutputResponse, TenantCreatedResponse,
+    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
+    TriggerPauseResponse, TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse,
+    WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
+    WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
 };
 
 /// The release rules between a server and its clients (CLOACINA-T-1086).
@@ -1152,6 +1152,24 @@ impl Client {
             "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks"
         ))
         .await
+    }
+
+    /// The end of what each attempt of a task wrote on stdout and stderr
+    /// (CLOACINA-T-1091), in attempt order; with `attempt`, of that attempt
+    /// only. Empty for a task whose output was not kept.
+    pub async fn get_task_output(
+        &self,
+        exec_id: &str,
+        task_id: &str,
+        attempt: Option<i32>,
+        tenant: Option<&str>,
+    ) -> Result<TaskOutputResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        let mut path = format!("/v1/tenants/{t}/executions/{exec_id}/tasks/{task_id}/output");
+        if let Some(attempt) = attempt {
+            path.push_str(&format!("?attempt={attempt}"));
+        }
+        self.get_json(&path).await
     }
 
     // ---- computation-graph health ----
