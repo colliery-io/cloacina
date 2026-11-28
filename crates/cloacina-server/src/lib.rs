@@ -3334,6 +3334,10 @@ mod tests {
     /// OIDC sessions follow the group map and the IdP (CLOACINA-T-1082).
     mod oidc_group_changes;
 
+    /// The execute and instance routes refuse an undeclared secret binding
+    /// (CLOACINA-T-1134).
+    mod secret_binding_routes;
+
     const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.
