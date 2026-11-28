@@ -1716,6 +1716,10 @@ pub(crate) mod tests {
     }
 
     const CHILD_ENV: &str = "CLOACINA_AGENT_TEST_WORKER";
+    /// A file the test worker writes its stdout and stderr to, in place of
+    /// the agent's, which a worker inherits (CLOACINA-T-1158). The test reads
+    /// it as the host log.
+    const CHILD_LOG_ENV: &str = "CLOACINA_AGENT_TEST_WORKER_LOG";
 
     /// The worker of the tests: the test binary runs this one test again as
     /// a child, and the test turns into a worker.
@@ -1723,6 +1727,19 @@ pub(crate) mod tests {
     #[test]
     fn worker_child_entry() {
         if std::env::var_os(CHILD_ENV).is_some() {
+            if let Some(path) = std::env::var_os(CHILD_LOG_ENV) {
+                use std::os::fd::AsRawFd;
+                let log = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .expect("open the host log of the test");
+                // SAFETY: `dup2` onto this process's own stdout and stderr.
+                unsafe {
+                    libc::dup2(log.as_raw_fd(), 1);
+                    libc::dup2(log.as_raw_fd(), 2);
+                }
+            }
             worker_main();
         }
     }
@@ -2973,6 +2990,106 @@ pub(crate) mod tests {
             }
             PacketEnd::Cancelled => panic!("the poll was cancelled"),
         }
+    }
+
+    /// Build the fixture `examples/fixtures/task-logs-rust` once per test
+    /// process and give the path of its library. It is built under
+    /// `CARGO_TARGET_DIR` when the test has one.
+    fn task_logs_library() -> &'static std::path::Path {
+        static LIBRARY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        LIBRARY.get_or_init(|| {
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../examples/fixtures/task-logs-rust");
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(|d| PathBuf::from(d).join("fixture-task-logs-rust"))
+                .unwrap_or_else(|| dir.join("target"));
+            let status = std::process::Command::new(env!("CARGO"))
+                .arg("build")
+                .current_dir(&dir)
+                .env("CARGO_TARGET_DIR", &target)
+                .status()
+                .expect("start cargo build of the task-logs-rust fixture");
+            assert!(status.success(), "the task-logs-rust fixture builds");
+            let ext = if cfg!(target_os = "macos") {
+                "dylib"
+            } else {
+                "so"
+            };
+            let path = target
+                .join("debug")
+                .join(format!("libtask_logs_rust.{ext}"));
+            assert!(path.exists(), "built library at {}", path.display());
+            path
+        })
+    }
+
+    /// Text with its ANSI colour codes taken out.
+    fn without_ansi(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                // `ESC [ ... <letter>`
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// CLOACINA-T-1158: a Rust poll trigger's `tracing` line reaches the
+    /// host log when the poll runs in a worker process, inside the span
+    /// `poll` with the poll's ids. The worker inherits the agent's stdout and
+    /// stderr; here the test worker writes them to a file, the host log.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_rust_poll_triggers_log_line_reaches_the_host_log_from_a_worker() {
+        let mut settings = test_settings("poll-log", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let host_log = settings.work_root.join("host.log");
+        settings
+            .env
+            .push((CHILD_LOG_ENV.to_string(), host_log.display().to_string()));
+        // A copy at its own path, as a build the agent fetched.
+        let library = settings.work_root.join(
+            task_logs_library()
+                .file_name()
+                .expect("the library has a file name"),
+        );
+        std::fs::copy(task_logs_library(), &library).unwrap();
+
+        let mut one = poll_job("t1158", None);
+        one.packet.poll_id = "p-1158".into();
+        one.packet.trigger_name = "task_logs_poll".into();
+        one.packet.package_name = "task-logs-rust".into();
+        one.packet.workflow_name = "task_logs_workflow".into();
+        one.packet.tenant_id = Some("acme".into());
+        one.package.digest = format!("t1158-{}", std::process::id());
+        one.package.library = Some(library);
+
+        let answer = poll_answer(run_poll_in_worker(one, &settings).await);
+        assert!(!answer.should_fire(), "the fixture skips");
+
+        let log = without_ansi(&std::fs::read_to_string(&host_log).unwrap_or_default());
+        let line = log
+            .lines()
+            .find(|line| line.contains("packaged poll line"))
+            .unwrap_or_else(|| panic!("the poll's tracing line is in the host log:\n{log}"))
+            .to_string();
+        println!("{line}");
+        assert!(line.contains(" INFO "), "level kept: {line}");
+        assert!(line.contains("task_logs::poll"), "target kept: {line}");
+        assert!(
+            line.contains(
+                "poll{tenant=acme package=task-logs-rust trigger=task_logs_poll poll_id=p-1158}"
+            ),
+            "the poll's ids: {line}"
+        );
     }
 
     /// A poll has no memory request: it is held to the share of the agent.
