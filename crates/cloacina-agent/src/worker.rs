@@ -320,6 +320,8 @@ impl WorkerInput {
                     work_dir: job.work_dir.clone(),
                     log_format: job.log_format.clone(),
                     max_unpacked_bytes: job.max_unpacked_bytes,
+                    // No capture: a load-only job has no attempt.
+                    output_end: None,
                     warm_up: true,
                     #[cfg(test)]
                     test_action: job.test_action.clone(),
@@ -1510,7 +1512,7 @@ mod spawn {
 
     /// Open the capture of a task's output on the worker, before the job goes
     /// in. Returns the key of the attempt and where its output comes. `None`
-    /// for a graph firing and a poll.
+    /// for a graph firing, a poll and a load-only job.
     fn begin_capture(
         worker: &mut Worker,
         input: &mut WorkerInput,
@@ -1519,6 +1521,11 @@ mod spawn {
         let WorkerInput::Task(job) = input else {
             return None;
         };
+        // CLOACINA-T-1159: a load-only job has no attempt; its lines go to
+        // the agent's log with no task ids, as a worker's start does.
+        if job.warm_up {
+            return None;
+        }
         let packet = &job.packet;
         let max_bytes = packet
             .output_max_bytes
@@ -3155,10 +3162,13 @@ pub(crate) mod tests {
             [("password".to_string(), VALUE.to_string())].into(),
         );
         task.packet.context = serde_json::json!({ "input": VALUE });
+        task.output_end = Some(format!("end-line-{VALUE}"));
         let mut graph = graph_job("w_graph", None);
         graph.packet.cache.insert("src".into(), VALUE.into());
         for input in [WorkerInput::Task(task), WorkerInput::Graph(graph)] {
             let warm = input.warm_up().expect("a load-only job");
+            // No capture of its output: it has no attempt (CLOACINA-T-1091).
+            assert_eq!(warm.output_end(), None);
             let line = serde_json::to_string(&warm).unwrap();
             assert!(!line.contains(VALUE), "{line}");
             assert!(!line.contains("task-w-task") && !line.contains("dispatch-w-task"));
