@@ -55,6 +55,18 @@ pub struct ServerSettingArgs {
     #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S")]
     pub retention_interval_s: Option<u64>,
 
+    /// Bytes of the end of each fleet task attempt's output that are kept;
+    /// `0` keeps none. Overrides `[server].task_output_max_bytes`.
+    /// CLOACINA-T-1091.
+    #[arg(long, env = "CLOACINA_TASK_OUTPUT_MAX_BYTES")]
+    pub task_output_max_bytes: Option<u64>,
+
+    /// Days to keep the stored output of a task attempt; `0` keeps it for
+    /// ever. Overrides `[server].task_output_retention_days`.
+    /// CLOACINA-T-1091.
+    #[arg(long, env = "CLOACINA_TASK_OUTPUT_RETENTION_DAYS")]
+    pub task_output_retention_days: Option<u64>,
+
     /// Time limit (seconds) of a fleet task that sets none of its own, and of
     /// a graph firing on the fleet. Overrides `[server].fleet_task_timeout_s`.
     #[arg(long, env = "CLOACINA_FLEET_TASK_TIMEOUT_S")]
@@ -256,6 +268,18 @@ pub(crate) fn forwarded_settings(
     arg(
         "--retention-interval-s",
         number(cli.retention_interval_s, config.retention_interval_s),
+    );
+    // CLOACINA-T-1091: the output of task attempts.
+    arg(
+        "--task-output-max-bytes",
+        number(cli.task_output_max_bytes, config.task_output_max_bytes),
+    );
+    arg(
+        "--task-output-retention-days",
+        number(
+            cli.task_output_retention_days,
+            config.task_output_retention_days,
+        ),
     );
     arg(
         "--fleet-task-timeout-s",
@@ -551,6 +575,8 @@ database_wait_timeout_s = 120
 run_history_retention_days = 30
 outbox_acked_retention_s = 600
 retention_interval_s = 60
+task_output_max_bytes = 131072
+task_output_retention_days = 7
 fleet_task_timeout_s = 900
 fleet_task_timeout_max_s = 7200
 alert_webhook_url = "https://alerts.example.com/hook"
@@ -653,6 +679,10 @@ agent_key_rotate_days = 20
                 "600",
                 "--retention-interval-s",
                 "60",
+                "--task-output-max-bytes",
+                "131072",
+                "--task-output-retention-days",
+                "7",
                 "--fleet-task-timeout-s",
                 "900",
                 "--fleet-task-timeout-max-s",
@@ -846,13 +876,14 @@ agent_key_rotate_days = 20
         let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
         let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
         assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
-        assert_eq!(flags.len(), 38);
+        assert_eq!(flags.len(), 40);
         assert_eq!(flags[0], "--home");
         assert_eq!(flags[6], "--require-signatures");
         assert_eq!(flags[7], "--database-wait-timeout-s");
-        assert_eq!(flags[17], "--verification-org-id");
-        assert_eq!(flags[35], "--max-unpacked-bytes");
-        assert_eq!(flags[37], "--agent-key-rotate-days");
+        assert_eq!(flags[11], "--task-output-max-bytes");
+        assert_eq!(flags[19], "--verification-org-id");
+        assert_eq!(flags[37], "--max-unpacked-bytes");
+        assert_eq!(flags[39], "--agent-key-rotate-days");
     }
 
     /// CLOACINA-T-1106: each flag of [`ServerSettingArgs`] is forwarded under

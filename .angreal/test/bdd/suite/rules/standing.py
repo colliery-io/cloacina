@@ -13,10 +13,11 @@ from . import _shared
 
 CHAPTER = "standing"
 
-# Agents that sent a heartbeat in the last two minutes, for each tenant.
+# Agents that sent a heartbeat in the last two minutes, for each tenant. A
+# global table, in the schema `cloacina_global` (CLOACINA-T-1080).
 AGENTS_SQL = (
     "SELECT tenant_id, count(*) AS agents, max(last_heartbeat_at) AS last_heartbeat "
-    "FROM public.fleet_agents "
+    "FROM cloacina_global.fleet_agents "
     "WHERE last_heartbeat_at > now() - interval '2 minutes' "
     "GROUP BY tenant_id"
 )

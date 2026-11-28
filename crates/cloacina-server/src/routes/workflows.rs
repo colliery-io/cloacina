@@ -29,9 +29,10 @@ use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::{PackageVersionDelete, WorkflowRegistryImpl};
 use cloacina::security::audit;
 use cloacina_api_types::{
-    TenantListResponse, WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse,
-    WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode,
-    WorkflowUploadedResponse, WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    ListResponse, PackageNeedingNewBuild, TenantListResponse, WorkflowDeletedResponse,
+    WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse,
+    WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
+    WorkflowVersionSummary,
 };
 
 use crate::AppState;
@@ -240,6 +241,7 @@ pub async fn upload_workflow(
         signature_detail = Some((result.signer_fingerprint, trusted_by));
     }
     let storage = UnifiedRegistryStorage::new(tenant_db.clone());
+    let grants_db = tenant_db.clone();
     let mut registry = match WorkflowRegistryImpl::new(storage, tenant_db) {
         Ok(r) => r,
         Err(e) => {
@@ -261,6 +263,32 @@ pub async fn upload_workflow(
                 detail["signer_fingerprint"] = fingerprint.as_str().into();
                 detail["signer_trusted_by_org"] = trusted_by.to_string().into();
             }
+            // CLOACINA-T-1123: the package keeps who published it. Each of
+            // its runs is held to that principal's limit at the run start.
+            let setter = crate::priority_authority::setter_of(&state.database, &_auth).await;
+            let lookup = crate::priority_authority::PrincipalLookup {
+                admin: state.database.clone(),
+                oidc_policy: state.oidc_policy.clone(),
+            };
+            let priority_limit =
+                crate::priority_authority::limit_now(&lookup, &tenant_id, &setter).await;
+            if let Some(package_name) = detail["package_name"].as_str() {
+                if let Err(e) = cloacina::dal::DAL::new(grants_db)
+                    .priority_grants()
+                    .record(
+                        cloacina::dal::unified::priority_grants::KIND_PACKAGE,
+                        package_name,
+                        &setter,
+                        None,
+                    )
+                    .await
+                {
+                    warn!(tenant = %tenant_id, package = %package_name, error = %e, "the publisher of the package was not recorded; its runs are held to the default of `write`");
+                }
+            }
+            detail["published_by"] = setter.by.clone().into();
+            detail["priority_limit"] = priority_limit.into();
+            let priority_notice = crate::priority_authority::upload_notice(priority_limit);
             audit_record::note(
                 Some(&tenant_id),
                 AuditEvent::ok(
@@ -288,6 +316,8 @@ pub async fn upload_workflow(
                 Json(WorkflowUploadedResponse {
                     package_id: package_id.to_string(),
                     tenant_id,
+                    priority_limit: Some(priority_limit),
+                    priority_notice,
                 }),
             )
                 .into_response()
@@ -352,18 +382,32 @@ pub async fn list_workflows(
         Ok(workflows) => {
             let ids = workflows.iter().map(|w| w.id.to_string()).collect();
             let uploaders = audit_record::package_uploaders(&state, &tenant_id, ids).await;
+            // CLOACINA-T-1085: the plugin interface of each build.
+            let interfaces = match registry.interface_statuses().await {
+                Ok(statuses) => statuses,
+                Err(e) => {
+                    warn!(tenant = %tenant_id, error = %e, "could not read the package interfaces");
+                    Default::default()
+                }
+            };
             let items: Vec<WorkflowSummary> = workflows
                 .into_iter()
-                .map(|w| WorkflowSummary {
-                    uploaded_by: uploaders.get(&w.id.to_string()).cloned(),
-                    id: w.id.to_string(),
-                    package_name: w.package_name,
-                    workflow_name: w.workflow_name,
-                    version: w.version,
-                    description: w.description,
-                    tasks: w.tasks,
-                    created_at: w.created_at.to_rfc3339(),
-                    paused: w.paused,
+                .map(|w| {
+                    let (plugin_interface_version, needs_new_build) =
+                        interface_fields(interfaces.get(&w.id));
+                    WorkflowSummary {
+                        plugin_interface_version,
+                        needs_new_build,
+                        uploaded_by: uploaders.get(&w.id.to_string()).cloned(),
+                        id: w.id.to_string(),
+                        package_name: w.package_name,
+                        workflow_name: w.workflow_name,
+                        version: w.version,
+                        description: w.description,
+                        tasks: w.tasks,
+                        created_at: w.created_at.to_rfc3339(),
+                        paused: w.paused,
+                    }
                 })
                 .collect();
             // CLOACI-T-0594 / API-03: unified `{items, total}` envelope.
@@ -374,6 +418,178 @@ pub async fn list_workflows(
             ApiError::internal_logged("list workflows failed", &e).into_response()
         }
     }
+}
+
+/// GET /packages/needs-new-build — the packages of every tenant that need a
+/// new publish (CLOACINA-T-1085).
+///
+/// After a minor release that changes the plugin interface, each Rust package
+/// built for the old interface gets one rebuild from its kept source. A
+/// package that pins the old minor rebuilds with the old interface again and
+/// is listed here, with its tenant, name, version, both interface versions
+/// and the step. A platform admin reads it during an upgrade.
+#[utoipa::path(
+    get,
+    path = "/v1/packages/needs-new-build",
+    tag = "workflows",
+    responses(
+        (status = 200, description = "Packages in service that need a new publish, across tenants", body = ListResponse<PackageNeedingNewBuild>),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Platform admin required", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn list_packages_needing_new_build(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    let mut tenants: Vec<String> = vec!["public".to_string()];
+    match cloacina::database::DatabaseAdmin::new(state.database.clone())
+        .list_tenant_schemas()
+        .await
+    {
+        Ok(schemas) => tenants.extend(schemas.into_iter().filter(|s| s != "public")),
+        Err(e) => {
+            return ApiError::internal_logged("list tenant schemas failed", &e).into_response();
+        }
+    }
+    let current = cloacina::fleet::PLUGIN_INTERFACE_VERSION;
+    let mut items: Vec<PackageNeedingNewBuild> = Vec::new();
+    for tenant_id in tenants {
+        let db = match state
+            .tenant_databases
+            .resolve(&tenant_id, &state.database)
+            .await
+        {
+            Ok(db) => db,
+            Err(e) => {
+                return ApiError::internal_logged("tenant database error", &e).into_response();
+            }
+        };
+        let storage = UnifiedRegistryStorage::new(db.clone());
+        let registry = match WorkflowRegistryImpl::new(storage, db) {
+            Ok(r) => r,
+            Err(e) => {
+                return ApiError::internal_logged("list packages failed", &e).into_response();
+            }
+        };
+        match registry.list_packages_needing_new_build().await {
+            Ok(rows) => items.extend(rows.into_iter().map(|p| PackageNeedingNewBuild {
+                tenant_id: tenant_id.clone(),
+                id: p.id.to_string(),
+                package_name: p.package_name,
+                version: p.version,
+                built_for: p.built_for,
+                current,
+                reason: p.reason,
+            })),
+            Err(e) => {
+                return ApiError::internal_logged("list packages failed", &e).into_response();
+            }
+        }
+    }
+    Json(ListResponse::new(items)).into_response()
+}
+
+/// The API fields of a row's plugin interface (CLOACINA-T-1085): its version,
+/// and the mark of a package that needs a new publish.
+fn interface_fields(
+    status: Option<&cloacina::registry::workflow_registry::InterfaceStatus>,
+) -> (Option<u32>, Option<cloacina_api_types::NeedsNewBuild>) {
+    let Some(status) = status else {
+        return (None, None);
+    };
+    let needs = status
+        .needs_new_build
+        .clone()
+        .map(|reason| cloacina_api_types::NeedsNewBuild {
+            reason,
+            built_for: status.plugin_interface_version,
+            current: cloacina::fleet::PLUGIN_INTERFACE_VERSION,
+        });
+    (status.plugin_interface_version, needs)
+}
+
+/// The interface fields of one row, read for the detail route.
+async fn interface_fields_of(
+    registry: &WorkflowRegistryImpl<UnifiedRegistryStorage>,
+    package_id: uuid::Uuid,
+) -> (Option<u32>, Option<cloacina_api_types::NeedsNewBuild>) {
+    match registry.interface_status(package_id).await {
+        Ok(status) => interface_fields(status.as_ref()),
+        Err(e) => {
+            warn!(package = %package_id, error = %e, "could not read the package interface");
+            (None, None)
+        }
+    }
+}
+
+/// The workflow priority of a package: what its code declares and what its
+/// runs get now, held to the limit of its publisher (CLOACINA-T-1123). `None`
+/// when the workflow is not loaded (not built yet, or refused).
+async fn package_priority(
+    state: &AppState,
+    tenant_id: &str,
+    package_name: &str,
+    workflow_name: &str,
+) -> (Option<cloacina_api_types::PriorityGrant>, Option<String>) {
+    let runtime = if tenant_id == "public" {
+        state.runner.runtime()
+    } else {
+        std::sync::Arc::new(
+            state
+                .tenant_runners
+                .shared_runtime()
+                .scoped_to_tenant(tenant_id),
+        )
+    };
+    let Some(workflow) = runtime.get_workflow(workflow_name) else {
+        return (None, None);
+    };
+    let asked = workflow
+        .priority()
+        .unwrap_or(cloacina_api_types::DEFAULT_PRIORITY);
+    let limit = match state
+        .tenant_databases
+        .resolve(tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => match cloacina::dal::DAL::new(db)
+            .priority_grants()
+            .get(
+                cloacina::dal::unified::priority_grants::KIND_PACKAGE,
+                package_name,
+            )
+            .await
+        {
+            Ok(Some(row)) => {
+                let lookup = crate::priority_authority::PrincipalLookup {
+                    admin: state.database.clone(),
+                    oidc_policy: state.oidc_policy.clone(),
+                };
+                Some(crate::priority_authority::limit_now(&lookup, tenant_id, &row.setter()).await)
+            }
+            Ok(None) => crate::priority_authority::declared_priority_limit(),
+            Err(e) => {
+                warn!(tenant = %tenant_id, package = %package_name, error = %e, "the publisher of the package was not read");
+                crate::priority_authority::declared_priority_limit()
+            }
+        },
+        Err(e) => {
+            warn!(tenant = %tenant_id, error = %e, "tenant database not resolved for the package priority");
+            crate::priority_authority::declared_priority_limit()
+        }
+    };
+    let grant = cloacina_api_types::PriorityGrant::held_to(asked, limit);
+    let notice = grant.is_held().then(|| {
+        format!(
+            "the workflow declares priority {} and its runs get priority {}: {} is the highest \
+             priority its publisher may set now",
+            grant.asked, grant.given, grant.given
+        )
+    });
+    (Some(grant), notice)
 }
 
 /// Why a built package is not loaded by a server that loads packages from
@@ -460,7 +676,20 @@ pub async fn get_workflow(
             Ok(Some(ins)) => {
                 let not_loaded_reason =
                     not_loaded_reason(&state, &registry, ins.metadata.id, &ins.build_status).await;
+                let (plugin_interface_version, needs_new_build) =
+                    interface_fields_of(&registry, ins.metadata.id).await;
+                let (priority, priority_notice) = package_priority(
+                    &state,
+                    &tenant_id,
+                    &ins.metadata.package_name,
+                    &ins.metadata.workflow_name,
+                )
+                .await;
                 return Json(WorkflowDetail {
+                    plugin_interface_version,
+                    needs_new_build,
+                    priority,
+                    priority_notice,
                     not_loaded_reason,
                     uploaded_by: audit_record::package_uploader(
                         &state,
@@ -518,48 +747,63 @@ pub async fn get_workflow(
                     // UUID-lookup path uses so the response reflects
                     // real build state (pending/building/failed in
                     // addition to success).
+                    let (plugin_interface_version, needs_new_build) =
+                        interface_fields_of(&registry, w.id).await;
                     match registry.inspect_package_by_id(w.id).await {
-                        Ok(Some(ins)) => Json(WorkflowDetail {
-                            not_loaded_reason: not_loaded_reason(
-                                &state,
-                                &registry,
-                                ins.metadata.id,
-                                &ins.build_status,
-                            )
-                            .await,
-                            uploaded_by: audit_record::package_uploader(
+                        Ok(Some(ins)) => {
+                            let (priority, priority_notice) = package_priority(
                                 &state,
                                 &tenant_id,
-                                ins.metadata.id.to_string(),
+                                &ins.metadata.package_name,
+                                &ins.metadata.workflow_name,
                             )
-                            .await,
-                            tenant_id,
-                            id: ins.metadata.id.to_string(),
-                            package_name: ins.metadata.package_name,
-                            workflow_name: ins.metadata.workflow_name,
-                            version: ins.metadata.version,
-                            description: ins.metadata.description,
-                            tasks: ins.metadata.tasks,
-                            task_graph: ins
-                                .metadata
-                                .task_graph
-                                .into_iter()
-                                .map(|n| WorkflowTaskNode {
-                                    id: n.id,
-                                    dependencies: n.dependencies,
-                                    description: n.description,
-                                    doc_what: n.doc_what,
-                                    doc_why: n.doc_why,
-                                })
-                                .collect(),
-                            created_at: ins.metadata.created_at.to_rfc3339(),
-                            build_status: ins.build_status,
-                            build_error: ins.build_error,
-                            describe_error: ins.describe_error,
-                            paused: ins.metadata.paused,
-                            declared_params: ins.metadata.declared_params.clone(),
-                        })
-                        .into_response(),
+                            .await;
+                            Json(WorkflowDetail {
+                                plugin_interface_version,
+                                needs_new_build,
+                                priority,
+                                priority_notice,
+                                not_loaded_reason: not_loaded_reason(
+                                    &state,
+                                    &registry,
+                                    ins.metadata.id,
+                                    &ins.build_status,
+                                )
+                                .await,
+                                uploaded_by: audit_record::package_uploader(
+                                    &state,
+                                    &tenant_id,
+                                    ins.metadata.id.to_string(),
+                                )
+                                .await,
+                                tenant_id,
+                                id: ins.metadata.id.to_string(),
+                                package_name: ins.metadata.package_name,
+                                workflow_name: ins.metadata.workflow_name,
+                                version: ins.metadata.version,
+                                description: ins.metadata.description,
+                                tasks: ins.metadata.tasks,
+                                task_graph: ins
+                                    .metadata
+                                    .task_graph
+                                    .into_iter()
+                                    .map(|n| WorkflowTaskNode {
+                                        id: n.id,
+                                        dependencies: n.dependencies,
+                                        description: n.description,
+                                        doc_what: n.doc_what,
+                                        doc_why: n.doc_why,
+                                    })
+                                    .collect(),
+                                created_at: ins.metadata.created_at.to_rfc3339(),
+                                build_status: ins.build_status,
+                                build_error: ins.build_error,
+                                describe_error: ins.describe_error,
+                                paused: ins.metadata.paused,
+                                declared_params: ins.metadata.declared_params.clone(),
+                            })
+                            .into_response()
+                        }
                         Ok(None) => ApiError::not_found(
                             "workflow_not_found",
                             format!("workflow '{}' not found", name),

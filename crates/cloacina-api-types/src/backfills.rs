@@ -53,6 +53,13 @@ pub struct CreateBackfillRequest {
     /// declared `params(...)` slots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Value>,
+    /// The workflow priority of each run, 0 (the highest) to 10
+    /// (CLOACINA-T-1123). Each run is held to the creator's limit when it
+    /// starts; a priority above the limit is not refused. Not set: the
+    /// priority the workflow declares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(minimum = 0, maximum = 10))]
+    pub priority: Option<u8>,
 }
 
 /// Body for `POST /tenants/{tenant_id}/workflows/{name}/backfills/{id}/retry`.
@@ -121,6 +128,15 @@ pub struct BackfillSummary {
     pub retry_of: Option<String>,
     /// RFC 3339 timestamp.
     pub created_at: String,
+    /// The priority the backfill asks for and the one its runs get now,
+    /// held to the creator's limit at this time (CLOACINA-T-1123). Absent
+    /// for a backfill created with no priority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::priority::PriorityGrant>,
+    /// Set when `given` is lower than `asked`: what was asked, what is
+    /// given, and why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_notice: Option<String>,
 }
 
 /// One failed interval of a backfill.

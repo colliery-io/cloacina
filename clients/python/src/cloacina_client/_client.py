@@ -45,6 +45,7 @@ from ._generated.api.executions import (
     get_execution,
     get_execution_events,
     get_execution_tasks,
+    get_task_output,
     list_executions,
 )
 from ._generated.api.fleet import (
@@ -80,6 +81,7 @@ from ._generated.api.keys import (
     list_tenant_keys,
     revoke_key,
     revoke_tenant_key,
+    update_tenant_key,
 )
 from ._generated.api.operational import health, ready
 from ._generated.api.secrets import (
@@ -108,6 +110,7 @@ from ._generated.api.workflows import (
     delete_workflow,
     get_workflow,
     get_workflow_source,
+    list_packages_needing_new_build,
     list_workflow_versions,
     list_workflows,
     pause_workflow,
@@ -133,6 +136,7 @@ from ._generated.models import (
     RetryBackfillRequest,
     RotateSecretRequest,
     RotateSecretRequestFields,
+    UpdateKeyRequest,
 )
 from ._generated.types import UNSET, File, Response, Unset
 
@@ -256,6 +260,18 @@ class Client(_Base):
         return _unwrap(
             revoke_tenant_key.sync_detailed(
                 self.tenant_segment(tenant), key_id, client=self._gen
+            )
+        )
+
+    def update_tenant_key(
+        self, key_id: str, max_priority: int | None, tenant: str | None = None
+    ):
+        """Set (0 to 10) or clear (`None`) the highest priority a key of the
+        tenant may set (tenant-admin, CLOACINA-T-1123)."""
+        body = UpdateKeyRequest(max_priority=max_priority)
+        return _unwrap(
+            update_tenant_key.sync_detailed(
+                self.tenant_segment(tenant), key_id, client=self._gen, body=body
             )
         )
 
@@ -829,6 +845,26 @@ class Client(_Base):
             get_execution_tasks.sync_detailed(tenant_id, exec_id, client=self._gen)
         )
 
+    def get_task_output(
+        self,
+        exec_id: str,
+        task_id: str,
+        attempt: int | None = None,
+        tenant: str | None = None,
+    ):
+        """The end of what each attempt of a task wrote on stdout and stderr
+        (CLOACINA-T-1091), in attempt order; with ``attempt``, of that
+        attempt only. Empty for a task whose output was not kept."""
+        return _unwrap(
+            get_task_output.sync_detailed(
+                self.tenant_segment(tenant),
+                exec_id,
+                task_id,
+                client=self._gen,
+                attempt=UNSET if attempt is None else attempt,
+            )
+        )
+
     # ---- computation-graph health ----
 
     def list_accumulators(self):
@@ -957,6 +993,10 @@ class Client(_Base):
 
     def compiler_status(self):
         return _unwrap(compiler_status.sync_detailed(client=self._gen))
+
+    def list_packages_needing_new_build(self):
+        """The packages of every tenant that need a new publish (platform admin)."""
+        return _unwrap(list_packages_needing_new_build.sync_detailed(client=self._gen))
 
 
 class AsyncClient(_Base):
@@ -1122,6 +1162,26 @@ class AsyncClient(_Base):
             )
         )
 
+    async def get_task_output(
+        self,
+        exec_id: str,
+        task_id: str,
+        attempt: int | None = None,
+        tenant: str | None = None,
+    ):
+        """The end of what each attempt of a task wrote on stdout and stderr
+        (CLOACINA-T-1091), in attempt order; with ``attempt``, of that
+        attempt only. Empty for a task whose output was not kept."""
+        return _unwrap(
+            await get_task_output.asyncio_detailed(
+                self.tenant_segment(tenant),
+                exec_id,
+                task_id,
+                client=self._gen,
+                attempt=UNSET if attempt is None else attempt,
+            )
+        )
+
     # ---- computation-graph health ----
 
     async def list_reactors(self):
@@ -1182,6 +1242,12 @@ class AsyncClient(_Base):
 
     async def compiler_status(self):
         return _unwrap(await compiler_status.asyncio_detailed(client=self._gen))
+
+    async def list_packages_needing_new_build(self):
+        """The packages of every tenant that need a new publish (platform admin)."""
+        return _unwrap(
+            await list_packages_needing_new_build.asyncio_detailed(client=self._gen)
+        )
 
     # ---- WebSocket (substrate delivery) ----
 

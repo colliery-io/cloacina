@@ -574,6 +574,20 @@ pub struct ComputationGraphScheduler {
     graph_topologies: Arc<RwLock<HashMap<TenantKey, String>>>,
     /// DAL handle for persistence. None in embedded/test mode.
     dal: Option<crate::dal::unified::DAL>,
+    /// The DAL of each tenant's own schema (CLOACINA-T-1080). With it, a
+    /// tenant's reactors and accumulators keep their state, firings and
+    /// recovery events in that tenant's schema; `dal` is then used for a
+    /// graph with no tenant only.
+    tenant_dals: Option<Arc<dyn TenantDals>>,
+}
+
+/// Gives the DAL of a tenant's own schema (CLOACINA-T-1080). A server sets
+/// one on its graph scheduler, so the reactive state of each tenant is in
+/// the tenant's schema, not in the schema of the scheduler's DAL.
+#[async_trait::async_trait]
+pub trait TenantDals: Send + Sync {
+    /// The DAL of `tenant`'s schema, or why it cannot be opened.
+    async fn dal_for(&self, tenant: &str) -> Result<crate::dal::unified::DAL, String>;
 }
 
 impl ComputationGraphScheduler {
@@ -587,6 +601,7 @@ impl ComputationGraphScheduler {
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: None,
+            tenant_dals: None,
             ownership: None,
             foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
             foreign_accumulators: Arc::new(RwLock::new(HashMap::new())),
@@ -605,10 +620,42 @@ impl ComputationGraphScheduler {
             graph_to_reactor: Arc::new(RwLock::new(HashMap::new())),
             graph_topologies: Arc::new(RwLock::new(HashMap::new())),
             dal: Some(dal),
+            tenant_dals: None,
             ownership: None,
             foreign_reactors: Arc::new(RwLock::new(std::collections::HashSet::new())),
             foreign_accumulators: Arc::new(RwLock::new(HashMap::new())),
             foreign_pending: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// This scheduler, with the reactive state of each tenant's graphs in
+    /// that tenant's own schema (CLOACINA-T-1080). Set before the first
+    /// graph loads.
+    pub fn with_tenant_dals(mut self, dals: Arc<dyn TenantDals>) -> Self {
+        self.tenant_dals = Some(dals);
+        self
+    }
+
+    /// The DAL that keeps the state, firings and recovery events of a graph
+    /// of `tenant` (CLOACINA-T-1080): the tenant's own DAL when this
+    /// scheduler has [`TenantDals`], else the scheduler's DAL. A tenant DAL
+    /// that cannot be opened gives `None`: the graph runs, and its state is
+    /// not kept, rather than kept in another schema.
+    pub async fn state_dal_for(&self, tenant: Option<&str>) -> Option<crate::dal::unified::DAL> {
+        match (&self.tenant_dals, tenant) {
+            (Some(dals), Some(tenant)) => match dals.dal_for(tenant).await {
+                Ok(dal) => Some(dal),
+                Err(e) => {
+                    warn!(
+                        tenant = %tenant,
+                        error = %e,
+                        "the tenant's database could not be opened; the graph runs and its \
+                         state, firings and recovery events are not kept (CLOACINA-T-1080)"
+                    );
+                    None
+                }
+            },
+            _ => self.dal.clone(),
         }
     }
 
@@ -850,6 +897,9 @@ impl ComputationGraphScheduler {
         provider_root: Option<std::path::PathBuf>,
     ) -> Result<(), String> {
         let reactor_key = TenantKey::new(tenant_id.as_deref(), &reactor_name);
+        // CLOACINA-T-1080: the reactor and its accumulators keep their state
+        // in the tenant's own schema.
+        let state_dal = self.state_dal_for(tenant_id.as_deref()).await;
 
         // CLOACI-T-0830: resolve the reactor-constructor reference (if any) into a
         // live firing decider BEFORE we spawn anything, so a bad constructor ref
@@ -894,7 +944,7 @@ impl ComputationGraphScheduler {
 
             let freshness = super::accumulator::FreshnessHandle::new();
             let spawn_config = AccumulatorSpawnConfig {
-                dal: self.dal.clone(),
+                dal: state_dal.clone(),
                 health_tx: Some(health_tx),
                 graph_name: reactor_name.clone(),
                 freshness: freshness.clone(),
@@ -980,7 +1030,7 @@ impl ComputationGraphScheduler {
             reactor = reactor.with_evaluator(ev.clone());
         }
 
-        if let Some(ref dal) = self.dal {
+        if let Some(ref dal) = state_dal {
             reactor = reactor.with_dal(dal.clone());
         }
 
@@ -2054,8 +2104,13 @@ impl ComputationGraphScheduler {
                 } => {
                     // Non-blocking: the handle already finished in phase 1.
                     let reason = classify_join_result(dead.await);
-                    self.record_recovery_event(&component_key, attempt, backoff_secs)
-                        .await;
+                    self.record_recovery_event(
+                        reactor_key.tenant_id.as_deref(),
+                        &component_key,
+                        attempt,
+                        backoff_secs,
+                    )
+                    .await;
                     tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                     if self
                         .restart_reactor_after_backoff(&reactor_key, reason, now)
@@ -2073,8 +2128,13 @@ impl ComputationGraphScheduler {
                     dead,
                 } => {
                     let reason = classify_join_result(dead.await);
-                    self.record_recovery_event(&component_key, attempt, backoff_secs)
-                        .await;
+                    self.record_recovery_event(
+                        reactor_key.tenant_id.as_deref(),
+                        &component_key,
+                        attempt,
+                        backoff_secs,
+                    )
+                    .await;
                     tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                     if self
                         .restart_accumulator_after_backoff(&reactor_key, &acc_name, reason, now)
@@ -2103,6 +2163,8 @@ impl ComputationGraphScheduler {
     ) -> bool {
         // Labels/log fields stay bare names; the lookup uses the full key.
         let reactor_name = reactor_key.name.as_str();
+        // CLOACINA-T-1080: opened before the lock is taken.
+        let state_dal = self.state_dal_for(reactor_key.tenant_id.as_deref()).await;
         let mut graphs = self.reactors.write().await;
         let Some(running) = graphs.get_mut(reactor_key) else {
             info!(
@@ -2148,7 +2210,7 @@ impl ComputationGraphScheduler {
             restart_acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
             let freshness = super::accumulator::FreshnessHandle::new();
             let spawn_config = AccumulatorSpawnConfig {
-                dal: self.dal.clone(),
+                dal: state_dal.clone(),
                 health_tx: Some(health_tx),
                 graph_name: reactor_name.to_string(),
                 freshness: freshness.clone(),
@@ -2221,7 +2283,7 @@ impl ComputationGraphScheduler {
         if let Some(ref ev) = running.evaluator {
             reactor = reactor.with_evaluator(ev.clone());
         }
-        if let Some(ref dal) = self.dal {
+        if let Some(ref dal) = state_dal {
             reactor = reactor.with_dal(dal.clone());
         }
         let reactor_shared = reactor.handle();
@@ -2309,6 +2371,8 @@ impl ComputationGraphScheduler {
         now: std::time::Instant,
     ) -> bool {
         let reactor_name = reactor_key.name.as_str();
+        // CLOACINA-T-1080: opened before the lock is taken.
+        let state_dal = self.state_dal_for(reactor_key.tenant_id.as_deref()).await;
         let mut graphs = self.reactors.write().await;
         let Some(running) = graphs.get_mut(reactor_key) else {
             info!(
@@ -2358,7 +2422,7 @@ impl ComputationGraphScheduler {
         let (health_tx, health_rx) = health_channel();
         let freshness = super::accumulator::FreshnessHandle::new();
         let spawn_config = AccumulatorSpawnConfig {
-            dal: self.dal.clone(),
+            dal: state_dal,
             health_tx: Some(health_tx),
             graph_name: reactor_name.to_string(),
             freshness: freshness.clone(),
@@ -2502,8 +2566,15 @@ impl ComputationGraphScheduler {
     }
 
     /// Record a recovery event in the DAL (best-effort, logs on failure).
-    async fn record_recovery_event(&self, component: &str, attempt: u32, backoff_secs: u64) {
-        let dal = match &self.dal {
+    async fn record_recovery_event(
+        &self,
+        tenant: Option<&str>,
+        component: &str,
+        attempt: u32,
+        backoff_secs: u64,
+    ) {
+        // CLOACINA-T-1080: in the schema of the graph's tenant.
+        let dal = match self.state_dal_for(tenant).await {
             Some(d) => d,
             None => return,
         };

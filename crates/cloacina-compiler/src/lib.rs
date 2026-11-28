@@ -31,7 +31,7 @@ pub use build::{BuildOutcome, execute_build};
 pub use cloacina_workflow_plugin::python_vendor::WheelSource;
 pub use config::{BuildRlimits, CompilerConfig, DEFAULT_DESCRIBE_TIMEOUT_S};
 pub use describe::{DESCRIBE_MODE, run_child as run_describe_child};
-pub use loopp::describe_pass;
+pub use loopp::{describe_pass, interface_pass};
 pub use python::PythonVendorConfig;
 
 use std::sync::Arc;
@@ -195,6 +195,13 @@ fn register_compiler_metrics() {
         "Describes of packages that were built before the metadata document \
          existed, from their stored build. `status` ∈ `ok`, `failed`. A \
          failed describe is recorded on the package (`describe_error`)."
+    );
+    metrics::describe_counter!(
+        "cloacina_compiler_interface_checks_total",
+        "Rust packages in service built for another plugin interface \
+         (CLOACINA-T-1085). `status` ∈ `rebuilt` (the rebuild from kept \
+         source has this interface), `needs_new_build` (the package is \
+         marked: its team publishes again)."
     );
     metrics::describe_counter!(
         "cloacina_compiler_heartbeat_failures_total",

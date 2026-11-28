@@ -1,0 +1,220 @@
+---
+name: "Images"
+
+# Builds the three container images of a release: cloacina-server,
+# cloacina-agent and cloacina-compiler (CLOACINA-T-1088).
+#
+#   - Called by unified_release.yml with `publish: true`: each image is built
+#     natively per architecture, pushed to ghcr.io by digest, and stitched
+#     into one multi-arch manifest tagged <semver>, <major>.<minor>, latest.
+#   - On a pull request that touches a Dockerfile or this file: the same
+#     builds run with no registry login and no push. Each image is loaded
+#     into the runner's Docker and answers `--version`.
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: "Push the images and the manifests to ghcr.io. Needs a tag ref."
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - '.github/workflows/images.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker/Dockerfile.agent'
+      - 'deploy/docker/compiler.Dockerfile'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Per-arch NATIVE builds (T-0940): arm64 under QEMU compiled the whole
+  # workspace in emulation. The server's per-arch gha cache scopes are shared
+  # with the nightly image job, so a release build that follows validation is
+  # nearly a pure cache replay. The agent and compiler images have no nightly
+  # build that warms a cache, so they read no cache and write none.
+  build:
+    name: ${{ matrix.image.name }} (${{ matrix.target.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: cloacina-server
+            file: Dockerfile
+            cache: server-image
+          - name: cloacina-agent
+            file: docker/Dockerfile.agent
+            cache: ''
+          - name: cloacina-compiler
+            file: deploy/docker/compiler.Dockerfile
+            cache: ''
+        target:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.target.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image name
+        id: img
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ matrix.image.name }}
+        run: |
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner_lc}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        if: inputs.publish
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # With `publish`: push by digest, for the manifest job. Without: load the
+      # image into the runner's Docker; nothing leaves the runner.
+      - name: Build (native ${{ matrix.target.platform }})
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.target.platform }}
+          outputs: ${{ inputs.publish && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', steps.img.outputs.image) || format('type=docker,name={0}:dry-run', steps.img.outputs.image) }}
+          provenance: false
+          cache-from: ${{ matrix.image.cache != '' && format('type=gha,scope={0}-{1}', matrix.image.cache, matrix.target.arch) || '' }}
+          # ignore-error: the GHA cache backend intermittently 404s on cache
+          # export AFTER the image has already been pushed — a lost cache is
+          # not worth a red release.
+          cache-to: ${{ inputs.publish && matrix.image.cache != '' && format('type=gha,mode=max,ignore-error=true,scope={0}-{1}', matrix.image.cache, matrix.target.arch) || '' }}
+
+      - name: Export digest
+        if: inputs.publish
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        if: inputs.publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-image-digest-${{ matrix.image.name }}-${{ matrix.target.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Smoke test the built image (--version)
+        if: ${{ !inputs.publish }}
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker run --rm "${IMAGE}:dry-run" --version
+          docker image inspect "${IMAGE}:dry-run" --format 'size: {{.Size}} bytes'
+
+      - name: Check the compiler image's toolchain
+        if: ${{ !inputs.publish && matrix.image.name == 'cloacina-compiler' }}
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+        run: |
+          set -euo pipefail
+          # The compiler shells out to cargo at runtime, and builds constructor
+          # providers for wasm32-wasip2.
+          docker run --rm --entrypoint sh "${IMAGE}:dry-run" -ec \
+            'cargo --version; cmake --version | head -n1; rustup target list --installed | grep -x wasm32-wasip2'
+
+  manifest:
+    name: ${{ matrix.image }} manifest
+    needs: [build]
+    if: inputs.publish
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [cloacina-server, cloacina-agent, cloacina-compiler]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Compute tags
+        id: tags
+        env:
+          TAG_REF: ${{ github.ref }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          case "${TAG_REF}" in
+            refs/tags/v*) ;;
+            *) echo "publish needs a v* tag ref, got ${TAG_REF}" >&2; exit 1 ;;
+          esac
+          tag="${TAG_REF#refs/tags/}"     # vX.Y.Z
+          version="${tag#v}"              # X.Y.Z
+          major_minor="${version%.*}"     # X.Y
+          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner_lc}/${IMAGE_NAME}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${major_minor}" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: release-image-digest-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create version + latest manifests
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+          VERSION: ${{ steps.tags.outputs.version }}
+          MAJOR_MINOR: ${{ steps.tags.outputs.major_minor }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:${MAJOR_MINOR}" \
+            -t "${IMAGE}:latest" \
+            $(printf -- "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+
+      - name: Smoke test (--version against linux/amd64)
+        env:
+          IMAGE: ${{ steps.tags.outputs.image }}
+          VERSION: ${{ steps.tags.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The amd64 manifest is the runner's native arch; pull and
+          # exercise --version. Verifies the entrypoint, the binary
+          # actually runs, and clap reports the build version.
+          docker run --rm "${IMAGE}:${VERSION}" --version

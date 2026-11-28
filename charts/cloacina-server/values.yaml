@@ -522,8 +522,23 @@ retention:
   # for ever: set a period to turn the deletes on.
   # CLOACINA_OUTBOX_ACKED_RETENTION_S.
   outboxAckedSeconds: 0
+  # Days to keep the stored output of a task attempt (CLOACINA-T-1091),
+  # whether runHistoryDays is set or not. 0 keeps it for ever.
+  # CLOACINA_TASK_OUTPUT_RETENTION_DAYS.
+  taskOutputDays: 30
   # Seconds between passes of the job. CLOACINA_RETENTION_INTERVAL_S.
   intervalSeconds: 300
+
+# ---------------------------------------------------------------------------
+# Task output (CLOACINA-T-1091)
+#
+# The end of what each fleet task attempt writes on stdout and stderr, kept
+# with its result. The default is the server's own.
+# ---------------------------------------------------------------------------
+taskOutput:
+  # Bytes kept per attempt; longer output is cut at its start. 0 keeps none.
+  # CLOACINA_TASK_OUTPUT_MAX_BYTES.
+  maxBytes: 262144
 
 # ---------------------------------------------------------------------------
 # Time limits of fleet tasks (CLOACINA-T-1014)

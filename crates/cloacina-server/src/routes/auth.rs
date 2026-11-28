@@ -40,6 +40,9 @@ pub struct AuthenticatedKey {
     pub permissions: String,
     pub tenant_id: Option<String>,
     pub is_admin: bool,
+    /// The highest priority the key may set (CLOACINA-T-1123). `None`: the
+    /// default of its role.
+    pub max_priority: Option<u8>,
 }
 
 /// A cached entry with TTL tracking.
@@ -251,6 +254,7 @@ pub async fn validate_token(state: &AppState, token: &str) -> Result<Authenticat
             permissions: info.permissions,
             tenant_id: info.tenant_id,
             is_admin: info.is_admin,
+            max_priority: info.max_priority,
         });
     }
 
@@ -264,6 +268,7 @@ pub async fn validate_token(state: &AppState, token: &str) -> Result<Authenticat
                 permissions: info.permissions.clone(),
                 tenant_id: info.tenant_id.clone(),
                 is_admin: info.is_admin,
+                max_priority: info.max_priority,
             };
             state.key_cache.insert(hash, info).await;
             Ok(auth)
@@ -491,6 +496,8 @@ impl WsTicketStore {
                     permissions: auth.permissions,
                     tenant_id: auth.tenant_id,
                     is_admin: auth.is_admin,
+                    // A ticket opens a stream; a stream sets no priority.
+                    max_priority: None,
                 }),
                 Ok(None) => None,
                 Err(e) => {
@@ -521,6 +528,7 @@ mod tests {
             permissions: "read".to_string(),
             tenant_id: None,
             is_admin: false,
+            max_priority: None,
         }
     }
 
@@ -535,6 +543,7 @@ mod tests {
             is_admin: false,
             expires_at,
             issued_via: None,
+            max_priority: None,
         }
     }
 
@@ -715,6 +724,7 @@ mod tests {
             permissions: permissions.to_string(),
             tenant_id: tenant.map(str::to_string),
             is_admin,
+            max_priority: None,
         }
     }
 

@@ -595,6 +595,7 @@ pub async fn fail_undecodable_packet(
             message,
             classification: FailureClassification::TaskError,
         },
+        output: None,
     };
     coordinator
         .accept(db, id, CheckedReport::new(agent, report))
@@ -728,6 +729,7 @@ mod tests {
                 outcome: AgentOutcome::Success {
                     context: serde_json::json!({}),
                 },
+                output: None,
             },
         }
     }

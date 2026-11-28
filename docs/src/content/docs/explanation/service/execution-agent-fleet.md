@@ -89,7 +89,9 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    placement of the task come from the task the server has loaded, which is
    the active version. The scheduler decides when a task is ready from the
    edges of the active version. A runner that executes tasks in its own
-   process (no fleet) holds one loaded version of a package and is not pinned.
+   process (no fleet) holds one loaded version of a package: it pins an
+   execution to that version too, and fails a later task of the execution
+   when another version is loaded, with an error that names both versions.
    Computation graph fires have no execution and always use the active
    version.
 4. **Inline the context.** It builds the merged dependency context with the same
@@ -635,9 +637,11 @@ line for each task. A secret is never in the worker's arguments or
 environment. The worker has the agent's environment (the agent takes its own
 key out of its environment at start), a temporary directory of its own
 (`TMPDIR`), which the agent empties after each task and removes when the
-worker ends, and the agent's stdout and stderr, so a task's log lines land in
-the agent's log. The worker has no API key and makes no request to the
-server.
+worker ends. Its stdout and stderr are one pipe that the agent reads: each
+line goes to the agent's log with the task's ids, and the last bytes of each
+attempt go to the server with its result (see
+[The end of a task's output](../../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output)).
+The worker has no API key and makes no request to the server.
 
 **The memory limit of a task** is its memory request. A task with no request
 gets a share of the agent: what the agent offers to tasks, divided by
@@ -728,7 +732,7 @@ workers, and the workers of the old version end at their idle time.
 
 | Shared | Not shared |
 |---|---|
-| The loaded package: a Rust package's statics, a Python package's modules and their module-level state (a cache, a client, a global), as in one process. | Files in `TMPDIR`: the agent empties the directory after each task. |
+| The loaded package: a Rust package's statics, a Python package's modules and their module-level state (a cache, a client, a global), as in one process. | Files in `TMPDIR`: after each task the agent checks the directory, before the worker can take another task. An empty directory is left as it is; anything else (a file in it, a link or a file in its place, a directory its owner cannot write) is removed and the directory made again. |
 | Threads a task left running. | The environment: a task that changes an environment variable ends its worker after it; the next task gets a new one. |
 | Files written outside `TMPDIR`, such as in the unpacked package. | Processes: a task that leaves a process running ends its worker after it, and the process is killed with the worker. |
 | Memory a task left allocated: it counts for the next task's memory limit. | Secrets: each task gets only its own; see the [security model](../security-model/). |
@@ -736,7 +740,15 @@ workers, and the workers of the old version end at their idle time.
 **When a warm worker ends.**
 
 - It was idle for `--warm-worker-idle-seconds` (default 60).
-- It ran `--warm-worker-max-jobs` tasks (default 100).
+- It ran `--warm-worker-max-jobs` tasks (default 100), and its replacement is
+  ready. At the cap the agent starts a new worker of the same key, which loads
+  the package with a load-only job (no secrets, no task data) and runs
+  nothing. Until the new worker has loaded, the old one takes the tasks of its
+  key; then the new one takes its place and the old one ends. So no task waits
+  for a load at the cap. A worker that is loading holds no slot; the watchdog
+  holds it to the key's memory limit, and it has the load allowance (20 s) to
+  load. If its load fails, the old worker ends after its next task. A poll's
+  worker ends at the cap with no replacement: the next poll starts a new one.
 - After a task it holds more than `--warm-worker-max-memory-percent` (default
   50) of the memory limit of its key. A Python process seldom gives memory
   back, so this keeps room for the next task.
@@ -978,8 +990,38 @@ each tenant:
    has been idle for `CLOACINA_AUTOSCALE_IDLE_S` (default 300 s), and its last
    scale-down is `CLOACINA_AUTOSCALE_COOLDOWN_S` (default 60 s) ago, it goes
    back to its min. The work is read again just before the write; a task
-   placed in between keeps the pool. A pool with work is never shrunk, so a
-   scale-down stops no agent with work in flight.
+   placed in between keeps the pool.
+5. **Step down.** A pool with work in flight has a spare agent when one of
+   its agents is idle (no task in flight, none placed) and nothing waits that
+   needs an agent. When it has had a spare agent for
+   `CLOACINA_AUTOSCALE_IDLE_S`, it loses one agent, and one more each
+   `CLOACINA_AUTOSCALE_COOLDOWN_S` while it stays so, down to its min. The
+   agent that goes is an idle one: of several, the one registered last. The
+   work is read again just before the write; if that agent got work, or work
+   waits, the pool keeps its count.
+
+**Which agent goes.** On each tick the autoscaler lists each pool's idle
+agents (the one registered last first) and its busy ones, and the actuator
+that lowers the count removes in that order: idle agents first, then agents
+not registered yet, busy agents last. A busy agent is never removed while an
+idle one exists.
+
+- **Kubernetes.** Each agent's id is its pod's name: the actuator starts the
+  agent with `CLOACINA_AGENT_ID` from the pod's `metadata.name`. Before it
+  lowers `replicas`, it sets `controller.kubernetes.io/pod-deletion-cost` on
+  the pool's pods: below -1000 on the pods of idle agents (lowest on the one
+  that goes first), 1000 on those of busy agents, none on a pod of no known
+  agent. The ReplicaSet deletes the pods of lowest cost first. This needs
+  `list` and `patch` on pods; if the costs cannot be written while an agent
+  of the pool is busy, the pool keeps its pods that tick.
+- **Docker.** Each container has an agent key of its own, so the agent that
+  registered with that key is the container's agent. The actuator stops the
+  idle agents' containers by id.
+
+The time a pool has had a spare agent is kept in the memory of the server
+replica that leads the tick. A replica that did not lead the last ticks starts
+it again, so a step-down can come later than `CLOACINA_AUTOSCALE_IDLE_S`,
+never sooner.
 
 So ten tasks that request 2 Gi on a pool of 8 Gi agents with a max of 3 take
 the pool from 0 to 3 agents in one tick: each agent offers 8 Gi less its own
@@ -1015,7 +1057,8 @@ count is a log line (tenant, pool, from, to) and
 
 The state of each pool (its count, since when it is idle, its last
 scale-down) is in the database, with the database clock, so the rules hold
-whichever server replica leads a tick.
+whichever server replica leads a tick. The time a pool has had a spare agent
+is the one part in a replica's memory (see step 5).
 
 ### Stopping an agent
 
@@ -1142,6 +1185,61 @@ the gauge `cloacina_fleet_poll_floor_tenants`.
 
 With `--single-trust` the server polls in its own process, as the daemon
 does; the scheduler's claim and the off-loop poll are the same.
+
+## Polling accumulators on agents
+
+A Python polling accumulator (`@cloaca.polling_accumulator(interval=...)`)
+calls its poll function at each interval and emits what it returns to its
+reactor. On a server its poll function runs on an agent of its tenant
+(CLOACINA-T-1156); the accumulator itself stays in the server:
+
+1. **Timer and owner.** The accumulator runs with its reactor, on the server
+   replica that owns the reactor, so one replica polls each accumulator. Its
+   timer, its last-output checkpoint and the send of each value to the
+   reactor stay there, as for any accumulator.
+2. **The poll.** At each interval the server picks a live agent of the
+   tenant, pool `default`, with a free slot and the capability
+   `job:accumulator_poll`, and sends a poll packet (kind `agent_poll`, with
+   the accumulator's name) on the delivery outbox. A poll takes one slot of
+   the agent while it runs.
+3. **On the agent.** A worker process imports the package, as for a poll
+   trigger, and calls the poll function. The agent answers its value (JSON)
+   or no change (the function returned `None`). The limits, the time limit
+   `--fleet-poll-timeout-s` and the warm workers are those of a poll trigger
+   above; the warm worker key is the same (kind `poll`).
+4. **On the server.** A value goes to the reactor and is the new checkpoint,
+   as a value polled in process was. No change sends nothing.
+
+**One poll at a time.** The next poll starts when the last one ended. An
+interval that passes while a poll is out is skipped, never queued, and
+counted in `cloacina_accumulator_polls_total{outcome="in_flight"}`.
+
+**A poll that gets no answer** (no live agent that can run it, no answer
+in time, a refusal, the poll function raised or returned a value that is not
+JSON) emits nothing that interval. The server logs the reason and counts it
+in `cloacina_fleet_polls_missed_total{reason}` or
+`cloacina_fleet_polls_total{answer="failed"}`, and the next interval polls
+again. An agent of a release before polling accumulators registers no
+`job:accumulator_poll` and is never sent one.
+
+**Keep one agent.** The fleet's floor of one agent counts poll triggers only.
+A tenant whose polling accumulators are its only polled code keeps its
+configured floor (`CLOACINA_AUTOSCALE_FLOOR`, 0 by default) and can scale to
+zero; then nothing is polled. Keep one agent running for such a tenant: a
+floor of 1, or an agent the operator runs.
+
+**State between polls.** Module globals of the poll function last as long as
+the worker that runs the polls of the build: the same rules as a poll
+trigger's state above. A count kept in a module global starts again in a new
+worker. Keep state that must last in a store outside the process.
+
+**Metrics.** `cloacina_accumulator_polls_total{outcome}` (`emit`, `skip`,
+`missed`, `in_flight`), as the accumulator sees its polls, and
+`cloacina_fleet_polls_total{answer}` (`emit`, `skip`, `failed`, `missed`)
+and `cloacina_fleet_polls_missed_total{reason}`, shared with poll triggers.
+
+With `--single-trust` the server imports the package and calls the poll
+function in its own process, as the daemon does.
 
 ## When to use the fleet
 

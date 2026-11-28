@@ -520,6 +520,52 @@ async fn the_pass_stops_a_runner_whose_schema_was_made_again() {
     clean_up(&[&other], &[&tenant]).await;
 }
 
+/// CLOACINA-T-1152: a tenant made again through another replica. This
+/// server stops the old runner, then drops its cached database. A request
+/// that comes between the two (an upload calls `ensure_runner`) makes the new
+/// runner on the cached database. The new runner's pool stays open after the
+/// pass: the old runner's stop closed it, and the tenant's schedules no
+/// longer ran on this replica.
+#[tokio::test]
+#[serial]
+async fn a_runner_made_while_the_old_one_stops_keeps_an_open_pool() {
+    use crate::tenant_runner_cache::{apply_tenant_list, ensure_runner, schema_oids};
+
+    let state = test_state().await;
+    let tenant = make_tenant(&state, "window").await;
+    let listed = [tenant.clone()];
+    assert_eq!(apply_tenant_list(&state, &[], &listed).await, (1, 0));
+    let old = runner_of(&state, &tenant).await;
+
+    remake_tenant(&state, &tenant).await;
+    let oid = schema_oids(&state.database, vec![tenant.clone()])
+        .await
+        .expect("oids")[&tenant];
+
+    // The steps of the pass, with a request between them.
+    let outcome = state
+        .tenant_runners
+        .evict_if_remade(&tenant, oid, state.tenant_deletion_drain_timeout)
+        .await;
+    assert!(outcome.was_present(), "{outcome:?}");
+    ensure_runner(&state, &tenant)
+        .await
+        .expect("a request makes the new runner");
+    state.tenant_databases.evict(&tenant).await;
+
+    let new = runner_of(&state, &tenant).await;
+    assert!(!Arc::ptr_eq(&old, &new));
+    new.dal()
+        .schedule()
+        .list(None, false, 10, 0)
+        .await
+        .expect("the new runner's pool is open");
+
+    drop(old);
+    drop(new);
+    clean_up(&[&state], &[&tenant]).await;
+}
+
 /// The tenant create route and the package upload route make the tenant's
 /// runner, so a new tenant and a publish need no other call.
 #[tokio::test]

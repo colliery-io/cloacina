@@ -35,7 +35,8 @@ class DryRunTest(unittest.TestCase):
 
     def test_the_chapters_are_found_by_their_files(self):
         found = {chapter.name: chapter for chapter in chapters.discover()}
-        self.assertEqual(sorted(found), ["publishing", "standing"])
+        self.assertEqual(sorted(found), ["capacity", "failure", "operations", "publishing", "run_once",
+                                         "schedules", "standing", "tenant_code"])
         self.assertEqual(found["standing"].steps_file, "standing_steps.py")
         self.assertTrue(found["standing"].has_rules)
         self.assertEqual(found["publishing"].features,

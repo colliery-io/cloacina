@@ -11,8 +11,18 @@ and a JSON file, served on localhost.
     {
       "server": "http://127.0.0.1:18100",
       "database_url": "postgres://user:password@127.0.0.1:15432/cloacina",
-      "keys": {"team_a": "...", "team_b": "...", "team_c": "..."}
+      "keys": {"team_a": "...", "team_b": "...", "team_c": "..."},
+      "kubeconfig": "/path/to/kubeconfig",
+      "namespace": "cloacina-bdd-standing",
+      "alerts_url": "http://127.0.0.1:18090/alerts",
+      "metrics_url": "http://127.0.0.1:19090/metrics"
     }
+
+`kubeconfig` and `namespace` are optional: with them the checker also reads
+the pods' output with `kubectl logs` (the marks the tasks print, and the
+server replicas' lines). `alerts_url` (the alert receiver, `alerts.py`) and
+`metrics_url` (the server's metrics listener) are optional: without them the
+rules that read alerts or metrics cannot judge.
 
 The server URL, the keys file and the database URL can also be given one by
 one: `--server`, `--keys` (a JSON file, tenant to key), and the environment
@@ -56,6 +66,15 @@ def parse_args(argv):
     parser.add_argument("--database-url",
                         help="postgres://… (or set CLOACINA_SUITE_DATABASE_URL)")
     parser.add_argument("--psql", help="path of the psql program")
+    parser.add_argument("--kubeconfig",
+                        help="kubeconfig of the cluster, to read the pods' output with kubectl "
+                             "(or `kubeconfig` in the config file)")
+    parser.add_argument("--namespace",
+                        help="namespace of the server replicas (or `namespace` in the config file)")
+    parser.add_argument("--alerts-url",
+                        help="the alert receiver's list, for example http://127.0.0.1:18090/alerts")
+    parser.add_argument("--metrics-url",
+                        help="the server's metrics, for example http://127.0.0.1:19090/metrics")
     parser.add_argument("--out", default=DEFAULT_OUT,
                         help=f"folder for the report, the state and the record (default {DEFAULT_OUT})")
     parser.add_argument("--disturbances",
@@ -116,6 +135,15 @@ def settings(args):
     return server, keys, database_url
 
 
+def channels(args):
+    """The alert receiver's URL and the metrics URL (CLOACINA-T-1115), from
+    the flags or the config file. Either can be absent: the rules that need
+    it then cannot judge."""
+    config = _read_json(args.config, "the config file") if args.config else {}
+    return (args.alerts_url or config.get("alerts_url"),
+            args.metrics_url or config.get("metrics_url"))
+
+
 def list_rules(registry):
     lines = []
     judged = set()
@@ -169,6 +197,7 @@ def main(argv=None):
         return 1 if made and made["red"] else 0
 
     server, keys, database_url = settings(args)
+    alerts_url, metrics_url = channels(args)
     api = sources.Api(server)
     database = sources.Psql(database_url, binary=args.psql) if database_url else None
     if database is None:
@@ -177,6 +206,15 @@ def main(argv=None):
     elif not database.binary:
         print("warning: no psql program found; give its path with --psql", file=sys.stderr)
     disturbances = args.disturbances or os.path.join(out, "disturbances.jsonl")
+    logs = None
+    config = _read_json(args.config, "the config file") if args.config else {}
+    kubeconfig = args.kubeconfig or config.get("kubeconfig")
+    if kubeconfig:
+        logs = sources.Logs(kubeconfig, args.namespace or config.get("namespace") or "default",
+                            os.path.join(out, "logs"))
+    elif registry.log_needs:
+        print("warning: no kubeconfig; the rules that read the pods' output cannot judge",
+              file=sys.stderr)
 
     served = None
     if args.port and not args.once:
@@ -188,7 +226,8 @@ def main(argv=None):
     try:
         while True:
             started = time.time()
-            data = sources.collect(registry, api, database, keys, disturbances_path=disturbances)
+            data = sources.collect(registry, api, database, keys, disturbances_path=disturbances,
+                                   logs=logs, alerts_url=alerts_url, metrics_url=metrics_url)
             if args.record:
                 sources.write_snapshot(os.path.join(out, "snapshots"), data)
             made = one_pass(registry, ledger, data, out, args.interval)

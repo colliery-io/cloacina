@@ -9,6 +9,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **Server: the global tables move to the schema `cloacina_global`, and each
+  tenant's pool takes the tenant's server role** (CLOACINA-T-1080).
+  - A connection of a tenant's pool, `public`'s included, is still the admin
+    user, and at each checkout runs `SET ROLE "<tenant>$server"`
+    (`public$server` for `public`). The role is `NOLOGIN`, with no password,
+    and reaches only the tenant tables of its own schema, so Postgres refuses
+    a query that leaves them. The global runner runs on `public`'s pool; the
+    admin pool reads the global tables, with the search path
+    `cloacina_global, public`.
+  - Each tenant's reactors and accumulators keep their state, firings and
+    recovery events in the tenant's own schema. Before, every tenant's were
+    in `public`, keyed by graph name only, so two tenants with a graph of the
+    same name shared one state row, and a named tenant's runner never saw its
+    reactors' firings.
+  - The schema name `cloacina_global` is reserved: tenant create refuses it.
+  - Embedded use and `cloacinactl daemon` are unchanged: nothing moves.
+- Upgrade notes for the above:
+  - 0.13.0 is a full stop: stop every server, then start 0.13.0. A 0.12
+    server does not work once the global tables have moved. The first start
+    moves them, once, under the migration lock. Rollback is the restore of
+    the pre-upgrade backup.
+  - Work packets and other global rows of `public.delivery_outbox` move with
+    their delivery state to `cloacina_global.delivery_outbox`; `public`'s
+    pending run-finished notices stay in `public.delivery_outbox` and are
+    sent after the start.
+  - Named tenants' reactors and accumulators start once with no saved state.
+    `public`'s keep theirs.
+  - A tenant named `cloacina_global` stops the start.
+  - The server makes each tenant's role, its grants and the admin user's
+    membership at start; no manual step. The admin user needs the `ADMIN`
+    option on each server role: on Postgres 16 and later the user that makes
+    a role with `CREATEROLE` has it. A role `<tenant>$server` made by another
+    user stops the start with `permission denied to grant role`; grant the
+    server's user that role `WITH ADMIN OPTION`, or drop the role. Tenant
+    delete drops the role. Connections: 2 per named tenant per replica, as
+    before; `public`'s pool has the global runner's pool size, in addition to
+    the admin pool.
+
+- **A package's priority is held to its publisher's limit, not to 5**
+  (CLOACINA-T-1123). The server keeps who uploaded a package and, at each run
+  start, holds the priority its code declares to that principal's limit as
+  it is then: the key's own `max_priority`, else its role's default; a
+  person's OIDC mapping rule; a local account's role. A package an admin
+  publishes now runs at the priority it declares. A package uploaded before
+  this change has no record of its publisher and stays held to 5 until it is
+  uploaded again. Migration 076 adds `api_keys.max_priority` and the tenant
+  table `priority_grants`.
+  - Keys take `max_priority` (0 to 10) on create, and
+    `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` changes it
+    (`cloacinactl key create --max-priority`, `key set-priority`).
+  - An OIDC mapping rule takes a third field, the limit of the logins it
+    matches: `group:ops=acme:write:2`. A third field that is not 0 to 10
+    stops the server at start.
+  - Named instances and backfills take `priority`; each run is held to the
+    creator's limit at the time of the run.
+  - The upload answer has `priority_limit` and `priority_notice`;
+    `cloacinactl package upload` and `package publish` print the notice as a
+    warning. The workflow, instance and backfill views show `priority`
+    (asked and given now).
+  - A held package or schedule run writes the audit event `priority.held`
+    once for each change of its given priority.
+- **The end of each task attempt's output is kept with its result**
+  (CLOACINA-T-1091). An agent reads the stdout and stderr of a task's worker
+  process as one stream. It writes each line to its own log at info, target
+  `task_output`, with the task's ids, in place of the raw line it passed on
+  before: a log rule that read a task's raw lines from the pod log reads them
+  from the message of these lines now. The agent keeps the last 256 KiB of
+  each attempt, success or failure, and sends it with the result; the server
+  stores one row per attempt in the tenant's schema (migration 078).
+  - Read it in the UI (**Output** on the task table), with `cloacinactl
+    execution output`, `GET .../executions/{exec_id}/tasks/{task_id}/output`,
+    and `get_task_output` / `getTaskOutput` in the Rust, Python and
+    TypeScript clients. The role that reads the run reads it.
+  - `--task-output-max-bytes` (default 256 KiB, `0` keeps none) and
+    `--task-output-retention-days` (default 30, `0` keeps it for ever) on the
+    server, `cloacinactl server start` and the chart
+    (`taskOutput.maxBytes`, `retention.taskOutputDays`). The retention job
+    now runs by default, for task output only, even with run-history
+    retention off.
+  - The agent replaces the exact values of the task's own secrets by `***`
+    (`--task-output-masking`, on by default). Exact values only.
+  - An `inline` task, the server's in-process executor, the embedded runner
+    and `cloacinactl daemon` keep no output.
+
 - **Agent keys of the Kubernetes actuator expire and are rotated**
   (CLOACINA-T-1083). A key the actuator mints for a tenant's agents expires
   after 30 days (`--agent-key-lifetime-days`). When 10 days are left
@@ -33,6 +117,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each task of the run was refused the secret. A client that sends bindings
   its package does not declare must drop them, or the package must declare
   them (`secrets(...)`, `@cloaca.workflow_secrets(...)`).
+- **`cloacina-api-types`: the pool answers carry open settings types**
+  (CLOACINA-T-1149). `AgentPoolInfo.settings` is now `AgentPoolSettingsInfo`
+  (with `AgentEgressRuleInfo` and `AgentEgressPortInfo`), which ignores a
+  field it does not know, so a client reads the answer of a newer server.
+  `AgentPoolSettings`, `AgentEgressRule` and `AgentEgressPort` stay the
+  request types and still refuse an unknown field. The JSON is the same. A
+  Rust caller that read `info.settings` as `AgentPoolSettings` converts it
+  with `AgentPoolSettings::from(info.settings)`. `PUT
+  /v1/tenants/{tenant_id}/pools/{pool}` answers a body it cannot read
+  (an unknown field, a wrong type) with `400 invalid_pool_settings`, as the
+  spec documents; it was `422`.
 - **`cloacina-client`: `ClientError::Auth` and `ClientError::InvalidRequest`
   keep the error code** (CLOACINA-T-1141). Each holds an `ApiErrorDetail`
   with the server's `message` and its `code`, in place of a `String`.
@@ -40,6 +135,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The error text is unchanged. A caller that read the `String` reads
   `detail.message` (or `detail.to_string()`); read the code to tell
   refusals apart.
+- **Signing: a revoke unloads the packages it signed, with no restart**
+  (CLOACINA-T-1119). With `--require-signatures`, each replica checks its
+  loaded packages again within one reconciler pass of a trusted key revoke of
+  the tenant's org or the server-wide org. A package with no valid signature
+  left starts no new run on any replica (about 10 seconds with the default
+  interval), its runs that had not ended are cancelled, its schedules go, and
+  that version's build status becomes `failed` with the key's fingerprint; one
+  `package.signer_revoked` audit row records it. Before, the package ran until
+  the next start of the server. Before you revoke a key, upload each package
+  it signed again signed by a live trusted key, or plan the outage. At the
+  first start after the upgrade, a loaded package whose signer was revoked
+  before is refused at load, as before.
+- **In-process executions are pinned to their package version**
+  (CLOACINA-T-1137). An execution run by the in-process executor runs all its
+  tasks on the version of the package its first task ran on, as on the agent
+  fleet. After a new version is loaded, a later task of an execution that
+  started on the old version fails, with an error that names both versions;
+  it no longer runs the code of the new version. Executions that start after
+  the swap run on the new version. Tasks not loaded from a package (macros,
+  embedded use) are not pinned.
+- **A graph's input strategy applies to its reactor, and a Python graph in
+  process applies it** (CLOACINA-T-1135). The `input_strategy` of a
+  package's `[metadata]` is now the strategy of its graph and of the reactor
+  of the same package that the graph binds to, on the in-process load and on
+  the load from the stored document, for Rust and Python packages. Before, a
+  Python graph loaded in process always ran `latest`, and a graph with a
+  `sequential` manifest bound to its own reactor was left unloaded with a
+  warning. A graph that binds to a reactor of another package with another
+  strategy now fails the package load, with an error that names the graph and
+  the reactor; before, it was a warning and the graph did not run.
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task
@@ -267,6 +392,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent NetworkPolicy. The agent takes `--ca-file` /
   `CLOACINA_AGENT_CA_FILE`.
 
+### Added
+
+- **A waiting task says why** (CLOACINA-T-1148). While the agent fleet puts
+  a task off, its row in `GET .../executions/{id}/tasks` has `wait_reason`,
+  a code and a message (for example `no_capacity`, `no_agent`,
+  `plugin_interface`); the UI shows it under the task's status. It is `null`
+  once the task is placed or starts. Migration 079 adds the columns.
+- **The compatibility promise** (CLOACINA-T-1046): a reference page on what a patch, a minor and a major may change, the schema rule, version skew, the upgrade order, and the full stop of the upgrade to 0.13.0.
+- **Agent and compiler images at each release** (CLOACINA-T-1088). A release
+  publishes `ghcr.io/colliery-io/cloacina-agent` (from
+  `docker/Dockerfile.agent`) and `ghcr.io/colliery-io/cloacina-compiler`
+  (from `deploy/docker/compiler.Dockerfile`) next to the server image, for
+  linux/amd64 and linux/arm64, tagged `X.Y.Z`, `X.Y` and `latest`.
+  `docker/Dockerfile.compiler` stays the dev and CI image and is not
+  published.
+- **Agent chart at each release** (CLOACINA-T-1088). A release publishes
+  `charts/cloacina-agent` to `oci://ghcr.io/colliery-io/charts/cloacina-agent`
+  next to the server chart, with the release version as its version and
+  `appVersion`.
+
+### Changed
+
+- **`cloacina-compiler --home` reads `CLOACINA_HOME`** (CLOACINA-T-1088). The
+  flag wins over the variable. The images set the variable, so a compiler in
+  the published image keeps its logs and build scratch in
+  `/var/lib/cloacina`, and one in the dev image in `/workspace/.cloacina`,
+  not in `$HOME/.cloacina`. A compiler started where `CLOACINA_HOME` is set
+  now uses that folder.
+- **Warm workers hand over faster and pay no cold start at the job cap**
+  (CLOACINA-T-1159). After a job the agent checks the worker's `TMPDIR` and
+  empties it only when the job left something there; before, it emptied and
+  made it again after every job. A worker at `--warm-worker-max-jobs` is no
+  longer retired at once: a new worker of its key loads the package in the
+  background (a load-only job, with no secrets and no job data), the old one
+  takes the jobs of its key until then, and the new one takes its place. A
+  poll's worker is still retired at the cap.
+- **A pool with work steps down one idle agent at a time** (CLOACINA-T-1145).
+  A pool with work in flight that has had an idle agent, and nothing waiting
+  that needs one, for `CLOACINA_AUTOSCALE_IDLE_S` loses one agent per
+  `CLOACINA_AUTOSCALE_COOLDOWN_S`, down to its min. An idle pool still goes
+  straight to its min. Whenever a count is lowered, the actuator removes idle
+  agents first, the one registered last first: the Kubernetes actuator sets
+  `controller.kubernetes.io/pod-deletion-cost` on the pool's pods, the Docker
+  actuator stops the idle agents' containers by id. A busy agent is never
+  removed while an idle one exists. The agent takes `CLOACINA_AGENT_ID` for
+  `--agent-id`.
+
 ### Fixed
 
 - **The `tracing` and `log` lines of a packaged Rust task are written**
@@ -287,15 +459,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   library without the `CloacinaLog` binding, so its lines were lost. Now they
   are written in the agent's log, in a span `poll` with the tenant, package,
   trigger and poll id.
+- **Stopping a tenant's runner leaves the tenant's connection pool open**
+  (CLOACINA-T-1152). Before, the stop closed the pool that the tenant's
+  routes use. During server shutdown, and while a replica replaced the runner
+  of a tenant deleted and made again through another replica, the tenant's
+  routes answered 500 (an upload: "store package signature failed"), and a
+  runner made in that window stayed on the closed pool, so the tenant's
+  schedules stopped on that replica. `DefaultRunner::shutdown_services()`
+  stops a runner and leaves its pool open; `shutdown()` still closes it.
+- **The `tracing` and `log` lines of a native constructor provider are
+  written** (CLOACINA-T-1150). Before, they were lost: the provider's library
+  has its own `tracing` and `log`, and `cloacina-constructor-contract` had no
+  `CloacinaLog` import. Now the contract has it (native targets only), the
+  native glue of `constructor_provider!` installs it, and the constructor
+  loader binds it when it opens the library. The process that loaded the
+  provider writes the lines in the span of the call. A provider gets this when
+  it is built again against this release's `cloacina-macros` and
+  `cloacina-constructor-contract`; a provider built before still loads and
+  runs, and its lines are still lost. The constructor interfaces keep their
+  versions.
 
 ### Upgrade notes
 
-- **Database migrations 051 to 075.** The server applies them at start:
+- **Every Kubernetes agent pod rolls once, and the server needs two pod
+  verbs** (CLOACINA-T-1145). The actuator now starts each agent with
+  `CLOACINA_AGENT_ID` set to its pod's name, so the pod template of every
+  pool changes on the first reconcile after the upgrade; the agents drain
+  and restart. The server's ClusterRole needs `list` and `patch` on `pods`;
+  the chart renders them. Without them a pool with a busy agent keeps its
+  pods, and a pool with no busy agent scales down as before.
+- **Database migrations 051 to 079.** The server applies them at start:
   `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
   `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,
-  `073`, `074`, `075` (Postgres and SQLite) and `071`, `072` (Postgres
-  only). Back up the database before the upgrade; there is no downgrade,
+  `073`, `074`, `075`, `076`, `077`, `078`, `079` (Postgres and SQLite) and
+  `071`, `072` (Postgres only). Back up the database before the upgrade; there
+  is no downgrade,
   restore the backup to go back.
+- **Database migration `077`** (CLOACINA-T-1085, Postgres and SQLite): two
+  nullable columns on `workflow_packages`, `interface_checked_for` and
+  `needs_new_build`.
+- **After a release that changes the plugin interface: change the pin,
+  publish again** (CLOACINA-T-1085). This release changes the plugin
+  interface from 7 (0.12) to 8. A Rust package built for the old interface
+  does not run on the new agents. The compiler rebuilds each such package once from its kept source;
+  a package whose pins allow the new minor runs with no publish. A package
+  that pins the old minor (`cloacina = "0.12"`, or its `Cargo.lock`) is
+  marked as needing a new publish: change the `cloacina` pin in its
+  `Cargo.toml` to the new minor, update `Cargo.lock`, and publish again.
+  `cloacinactl package list --needs-new-build` lists a tenant's marked
+  packages, `--all-tenants` every tenant's (platform admin,
+  `GET /v1/packages/needs-new-build`); the package list and detail carry
+  `plugin_interface_version` and `needs_new_build`. A marked package stays
+  in service: agents of the old release run it during the roll, and its tasks
+  fail at once with the reason when the live agents of its pool all load
+  another interface. Every Rust package of every tenant can be on the list
+  after this upgrade. A library whose descriptor names another plugin
+  interface is now refused at load, with both versions in the error; before,
+  it was opened.
 - **Upgrade order** (CLOACINA-T-1087, CLOACINA-T-1046): back up the
   database; scale the compilers to zero and pause package uploads; roll the
   server; start the compilers again; then the agents; then `cloacinactl` and
@@ -320,6 +540,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a package the newest that is not superseded and whose build succeeded.
   The servers of 0.12 read it as the newest that is not superseded; with no
   uploads during the roll the two read the same version.
+- **Python polling accumulators poll on agents** (CLOACINA-T-1156). A server
+  without single trust no longer refuses a Python package for a polling
+  accumulator: it keeps the accumulator's timer and checkpoint and sends each
+  poll to an agent of the tenant, which calls the poll function. Agents of
+  this release register `job:accumulator_poll`; an older agent is never sent
+  such a poll, and the poll emits nothing until an agent of this release runs.
+  The fleet's floor of one agent counts poll triggers only: keep one agent of
+  a tenant whose only polled code is a polling accumulator. A package the
+  previous release refused for its polling accumulator stays refused until a
+  new version is uploaded.
 - **Chart: `/metrics` moves off the API port** (CLOACINA-T-1025,
   CLOACINA-T-1032). `metrics.enabled` is `true` by default: the server serves
   `/metrics` on `metrics.port` (9090) through the Service

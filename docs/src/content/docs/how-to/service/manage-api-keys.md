@@ -140,6 +140,23 @@ The CLI is a thin wrapper over these endpoints (full details in the
 | Create (named tenant) | `POST /v1/tenants/{tenant_id}/keys` (same body; tenant-admin or platform-admin) |
 | List | `GET /v1/auth/keys` (platform-admin) or `GET /v1/tenants/{tenant_id}/keys` (tenant-admin) |
 | Revoke | `DELETE /v1/auth/keys/{key_id}` or `DELETE /v1/tenants/{tenant_id}/keys/{key_id}` |
+| Set the priority limit | `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` (body: `{ "max_priority": 0..10 }` or `{ "max_priority": null }`; tenant-admin or platform-admin) |
+
+## Give a key its own priority limit
+
+A key may carry the highest [priority](../../../explanation/priority/#a-limit-on-a-key)
+it may set, in place of its role's default (`write` 5, `admin` 0):
+
+```bash
+cloacinactl --tenant acme key create ops-bot --role write --max-priority 2
+cloacinactl --tenant acme key set-priority <key-id> --max-priority 0
+cloacinactl --tenant acme key set-priority <key-id> --clear
+```
+
+The limit is 0 to 10 and no better than your own. A `read` or `agent` key
+carries none. The packages a key published and the schedules it created are
+held to its limit at each of their runs, so a change applies to their next
+run with no new publish.
 
 ## See also
 

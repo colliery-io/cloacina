@@ -37,13 +37,17 @@
 //! - each poll trigger, as a [`DispatchedTrigger`] and its schedule row
 //!   (CLOACINA-T-1077): the scheduler polls it at the interval of the
 //!   document, and each poll runs on an agent of the tenant, which answers
-//!   fire or skip.
+//!   fire or skip;
+//! - each polling accumulator of a Python package, with no code
+//!   (CLOACINA-T-1156): the timer, the boundary send and the checkpoint stay
+//!   here, and each poll runs on an agent of the tenant, which answers a
+//!   value or no change.
 //!
 //! A package whose code would have to run in this process is refused, with
 //! the reason. For a document of format 2 the list is in
 //! [`crate::registry::in_process`]: a stream accumulator on a native
-//! provider, a Python polling or stream accumulator, and a Rust package's
-//! polling accumulator. A document of format 1 keeps the rule of
+//! provider, a Python stream accumulator, and a Rust package's polling
+//! accumulator. A document of format 1 keeps the rule of
 //! CLOACINA-T-1075, less the poll trigger: any bundled native provider, and
 //! any Python reactor, graph or accumulator.
 //!
@@ -328,14 +332,38 @@ impl RegistryReconciler {
 
         // Cron schedules: data.
         created_schedule_ids.extend(self.step_load_cron_triggers(metadata, &view).await?);
+        // CLOACINA-T-1156: a Python polling accumulator keeps its timer, its
+        // boundary send and its checkpoint here; each poll goes to an agent
+        // of the tenant through the runner's dispatcher.
+        let polls = (document.language == "python").then(|| {
+            crate::computation_graph::packaging_bridge::DispatchedPolls {
+                tenant_id: self.config.default_tenant_id.clone(),
+                package_name: metadata.package_name.clone(),
+                package_version: metadata.version.clone(),
+                dispatcher: self.poll_dispatcher.clone(),
+            }
+        });
         // Reactors: their accumulators are code of this crate.
-        self.step_load_reactors(metadata, &view, manifest, provider_root.as_deref())
-            .await?;
+        self.step_load_reactors_with_polls(
+            metadata,
+            &view,
+            manifest,
+            provider_root.as_deref(),
+            polls.as_ref(),
+        )
+        .await?;
         // The graph, with no code behind it: the graph executor sends each
         // firing to an agent. A Python graph reaches here only from a
         // document of format 2 (CLOACINA-T-1078); format 1 refused it above.
         let graph_name = self
-            .step_load_reactor_bound_cgs(metadata, &view, manifest, None, provider_root.as_deref())
+            .step_load_reactor_bound_cgs_with_polls(
+                metadata,
+                &view,
+                manifest,
+                None,
+                provider_root.as_deref(),
+                polls.as_ref(),
+            )
             .await?;
 
         // Tasks and the workflow.
@@ -428,6 +456,7 @@ impl RegistryReconciler {
             cron_schedule_ids: created_schedule_ids.clone(),
             triggerless_graph_names: Vec::new(),
         };
+        self.record_task_versions(&state);
         self.loaded_packages
             .write()
             .await
@@ -699,6 +728,12 @@ mod tests {
         stored: Mutex<Option<StoredDescription>>,
         refused: Mutex<Vec<(WorkflowPackageId, String)>>,
         task_graphs: Mutex<Vec<(WorkflowPackageId, TaskGraph)>>,
+        /// CLOACINA-T-1119: the revoke marker, and the answer of the check
+        /// after a revoke (`None`: a check that cannot run), with a count of
+        /// the checks.
+        revoke_marker: Mutex<Option<crate::registry::traits::SignerRevokeMarker>>,
+        recheck: Mutex<Option<&'static str>>,
+        rechecks: Mutex<usize>,
     }
 
     #[async_trait]
@@ -751,6 +786,110 @@ mod tests {
         ) -> Result<Option<StoredDescription>, RegistryError> {
             Ok(self.stored.lock().unwrap().clone())
         }
+        async fn signer_revoke_marker(
+            &self,
+            _org_ids: &[crate::UniversalUuid],
+            _trust_database: Option<&crate::Database>,
+        ) -> Result<Option<crate::registry::traits::SignerRevokeMarker>, RegistryError> {
+            Ok(self.revoke_marker.lock().unwrap().clone())
+        }
+        async fn recheck_package_signature(
+            &self,
+            package_hash: &str,
+            _org_ids: &[crate::UniversalUuid],
+            _trust_database: Option<&crate::Database>,
+        ) -> Result<
+            Result<
+                crate::registry::traits::LoadSignature,
+                crate::registry::traits::LoadSignatureRefusal,
+            >,
+            RegistryError,
+        > {
+            *self.rechecks.lock().unwrap() += 1;
+            match *self.recheck.lock().unwrap() {
+                None => Err(RegistryError::Internal("database down".to_string())),
+                Some("ok") => Ok(Ok(crate::registry::traits::LoadSignature {
+                    package_hash: package_hash.to_string(),
+                    signer_fingerprint: "fp-live".to_string(),
+                    trusted_by: crate::UniversalUuid::new_v4(),
+                })),
+                Some(code) => Ok(Err(crate::registry::traits::LoadSignatureRefusal {
+                    code,
+                    reason: format!("refused: {code}"),
+                })),
+            }
+        }
+    }
+
+    /// CLOACINA-T-1119: the check after a revoke. A check that cannot run
+    /// refuses nothing and runs again at the next pass; an unchanged marker
+    /// checks nothing; a code that is not a revoke leaves the package; a
+    /// revoked signer refuses it, with the fingerprint, and unloads it.
+    #[tokio::test]
+    async fn the_check_after_a_revoke_refuses_only_a_revoked_signer() {
+        use crate::registry::traits::{LoadSignature, SignerRevokeMarker};
+
+        let registry = Arc::new(DocumentRegistry::default());
+        let schedules = Arc::new(Schedules::default());
+        let mut reconciler = reconciler("acme", registry.clone(), schedules);
+        reconciler.config.require_signatures = true;
+        let meta = metadata("pkg");
+        *registry.stored.lock().unwrap() = Some(stored(document("rust", vec![task("only", &[])])));
+        load(&reconciler, &meta, "rust").await.expect("loads");
+        reconciler.loaded_signatures.write().await.insert(
+            meta.id,
+            LoadSignature {
+                package_hash: "hash-1".to_string(),
+                signer_fingerprint: "fp-old".to_string(),
+                trusted_by: crate::UniversalUuid::new_v4(),
+            },
+        );
+        let marker = |n| SignerRevokeMarker {
+            revoked_keys: n,
+            last_revoked_at: None,
+        };
+        let loaded = |r: &RegistryReconciler| {
+            let runtime = r.runtime.clone().unwrap();
+            runtime.get_workflow("wf").is_some()
+        };
+
+        // The first pass checks; the check cannot run: nothing is refused.
+        *registry.revoke_marker.lock().unwrap() = Some(marker(0));
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 1);
+        assert!(loaded(&reconciler));
+        // The marker was not taken, so the next pass checks again.
+        *registry.recheck.lock().unwrap() = Some("ok");
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 2);
+        // The same marker: no check.
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 2);
+
+        // A revoke; an answer that is not a revoke leaves the package.
+        *registry.revoke_marker.lock().unwrap() = Some(marker(1));
+        *registry.recheck.lock().unwrap() = Some("missing_signature");
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert!(loaded(&reconciler));
+        assert!(registry.refused.lock().unwrap().is_empty());
+
+        // Another revoke, of the signer: refused and unloaded.
+        *registry.revoke_marker.lock().unwrap() = Some(marker(2));
+        *registry.recheck.lock().unwrap() = Some("revoked_signer");
+        assert_eq!(reconciler.recheck_after_revoke().await, vec![meta.id]);
+        assert!(!loaded(&reconciler));
+        assert!(reconciler.loaded_packages.read().await.is_empty());
+        assert!(reconciler.loaded_signatures.read().await.is_empty());
+        let refused = registry.refused.lock().unwrap().clone();
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].0, meta.id);
+        assert!(refused[0].1.contains("fp-old"), "{}", refused[0].1);
+
+        // With signatures not required, nothing is read.
+        reconciler.config.require_signatures = false;
+        *registry.revoke_marker.lock().unwrap() = Some(marker(3));
+        assert!(reconciler.recheck_after_revoke().await.is_empty());
+        assert_eq!(*registry.rechecks.lock().unwrap(), 4);
     }
 
     /// A poll row as the registrar gets it: trigger, workflow, interval in
@@ -987,6 +1126,19 @@ mod tests {
         assert_eq!(state.task_namespaces.len(), 2);
         assert_eq!(state.workflow_name.as_deref(), Some("wf"));
         assert!(registry.refused.lock().unwrap().is_empty());
+        drop(loaded_packages);
+
+        // CLOACINA-T-1137: each task carries the version it was loaded from,
+        // until the package is unloaded.
+        assert_eq!(
+            runtime.task_version(&ns),
+            Some(crate::runtime::LoadedTaskVersion {
+                package_id: meta.id,
+                version: meta.version.clone(),
+            })
+        );
+        reconciler.unload_package(meta.id).await.expect("unload");
+        assert_eq!(runtime.task_version(&ns), None);
     }
 
     /// A package of `public` is loaded the same way as one of a named tenant.
@@ -1299,17 +1451,127 @@ mod tests {
         scheduler.shutdown_all().await;
     }
 
+    /// Records each firing's input, in place of the fleet graph executor.
+    #[derive(Default)]
+    struct Firings(Mutex<Vec<std::collections::HashMap<String, String>>>);
+
+    #[async_trait]
+    impl crate::computation_graph::graph_executor::GraphExecutor for Firings {
+        async fn execute(
+            &self,
+            fire: crate::computation_graph::graph_executor::GraphFireEvent,
+        ) -> cloacina_computation_graph::GraphResult {
+            let cache = crate::computation_graph::packaging_bridge::input_cache_to_ffi_cache(
+                &fire.snapshot,
+            )
+            .unwrap();
+            self.0.lock().unwrap().push(cache);
+            cloacina_computation_graph::GraphResult::completed(Vec::new())
+        }
+    }
+
+    /// Stands in for the fleet: each poll of a polling accumulator answers
+    /// the next value of a count, then no change.
+    #[derive(Default)]
+    struct AccumulatorPolls(Mutex<Vec<crate::trigger::AccumulatorPollRequest>>);
+
+    #[async_trait]
+    impl crate::trigger::PollDispatcher for AccumulatorPolls {
+        async fn poll(
+            &self,
+            _request: &crate::trigger::PollRequest,
+        ) -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {
+            Ok(cloacina_workflow::TriggerResult::Skip)
+        }
+        async fn poll_accumulator(
+            &self,
+            request: &crate::trigger::AccumulatorPollRequest,
+        ) -> Result<Option<serde_json::Value>, String> {
+            let mut seen = self.0.lock().unwrap();
+            seen.push(request.clone());
+            Ok((seen.len() == 1).then(|| serde_json::json!({"price": 42, "from": "agent"})))
+        }
+        fn wait(&self) -> Duration {
+            Duration::from_secs(5)
+        }
+    }
+
+    /// A Python polling accumulator loads from a format 2 document
+    /// (CLOACINA-T-1156): the server keeps its timer, each poll asks the
+    /// runner's dispatcher with the tenant, the package and the accumulator,
+    /// and the value answered reaches the graph's firing. "No change" fires
+    /// nothing.
+    #[tokio::test]
+    async fn a_python_polling_accumulator_polls_through_the_dispatcher_into_the_graph() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let (mut reconciler, scheduler) = reconciler_with_graphs(registry.clone());
+        let slot = crate::trigger::empty_poll_dispatcher_slot();
+        reconciler.set_poll_dispatcher_slot(slot.clone());
+        let polls = Arc::new(AccumulatorPolls::default());
+        *slot.write().unwrap() = Some(polls.clone());
+        let firings = Arc::new(Firings::default());
+        scheduler.set_graph_executor(firings.clone()).await;
+        let meta = metadata("pkg");
+        *registry.stored.lock().unwrap() = Some(stored(python_graph_document(vec![accumulator(
+            "ticks",
+            "polling",
+            &[("interval", "100ms")],
+        )])));
+
+        load(&reconciler, &meta, "python").await.expect("loads");
+        assert!(registry.refused.lock().unwrap().is_empty());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while firings.0.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // A few more intervals: each answers no change.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let fired = firings.0.lock().unwrap().clone();
+        assert_eq!(fired.len(), 1, "one value, one firing: {fired:?}");
+        let value: serde_json::Value = serde_json::from_str(&fired[0]["ticks"]).unwrap();
+        assert_eq!(value, serde_json::json!({"price": 42, "from": "agent"}));
+        let seen = polls.0.lock().unwrap().clone();
+        assert!(seen.len() >= 2, "{seen:?}");
+        assert_eq!(
+            seen[0],
+            crate::trigger::AccumulatorPollRequest {
+                tenant_id: "acme".to_string(),
+                package_name: "pkg".to_string(),
+                package_version: "1.0.0".to_string(),
+                accumulator_name: "ticks".to_string(),
+            }
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// With no dispatcher, a polling accumulator emits nothing: its poll
+    /// function never runs in this process.
+    #[tokio::test]
+    async fn with_no_dispatcher_a_python_polling_accumulator_emits_nothing() {
+        let registry = Arc::new(DocumentRegistry::default());
+        let (reconciler, scheduler) = reconciler_with_graphs(registry.clone());
+        let firings = Arc::new(Firings::default());
+        scheduler.set_graph_executor(firings.clone()).await;
+        *registry.stored.lock().unwrap() = Some(stored(python_graph_document(vec![accumulator(
+            "ticks",
+            "polling",
+            &[("interval", "100ms")],
+        )])));
+        load(&reconciler, &metadata("pkg"), "python")
+            .await
+            .expect("loads");
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(firings.0.lock().unwrap().is_empty());
+        scheduler.shutdown_all().await;
+    }
+
     /// Each kind that stays refused on a format 2 document is refused and
     /// recorded, with the kind and the names in the reason; nothing is
     /// loaded.
     #[tokio::test]
     async fn the_refused_kinds_of_a_format_2_document() {
         let cases: Vec<(&str, PackageDescription, &str)> = vec![
-            (
-                "python",
-                python_graph_document(vec![accumulator("ticks", "polling", &[("interval", "2s")])]),
-                "Python polling accumulator(s) 'ticks'",
-            ),
             (
                 "python",
                 python_graph_document(vec![accumulator(

@@ -21,9 +21,12 @@ HOLD_SECONDS = 360
 
 
 def _mark(context, task):
-    """One marked line for each start of a task body."""
+    """One marked line for each start of a task body. `schedule_id` and
+    `scheduled_time` name a scheduled run, `run_once_tag` a run by hand."""
     line = "STANDING_MARK " + json.dumps({
         "workflow": WORKFLOW, "task": task, "scheduled_time": context.get("scheduled_time", None),
+        "schedule_id": context.get("schedule_id", None),
+        "run_once_tag": context.get("run_once_tag", None),
         "host": socket.gethostname(), "pid": os.getpid(), "at": time.time()}, sort_keys=True)
     print(line, flush=True)
 

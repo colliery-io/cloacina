@@ -37,6 +37,22 @@ pub fn get_library_extension() -> &'static str {
     }
 }
 
+/// Refuse a workflow library whose descriptor names another plugin interface
+/// version than this build loads (CLOACINA-T-1085). fidius checks its own ABI
+/// at load, not the interface: the workflow loaders call this before the
+/// first method call. The error names both versions
+/// ([`crate::registry::plugin_interface::interface_mismatch`]).
+pub fn check_loaded_interface(
+    plugin: &fidius_host::loader::LoadedPlugin,
+    library_path: &Path,
+) -> Result<(), LoaderError> {
+    crate::registry::plugin_interface::check_plugin_interface(plugin.info.interface_version)
+        .map_err(|error| LoaderError::LibraryLoad {
+            path: library_path.to_string_lossy().to_string(),
+            error,
+        })
+}
+
 /// Metadata extracted from a workflow package.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageMetadata {
@@ -214,6 +230,17 @@ pub(crate) fn bind_engine_log(loaded: &fidius_host::loader::LoadedLibrary, libra
                  log lines are not written"
             );
         }
+        // The library was opened and bound before in this process (a native
+        // provider is opened once per member, CLOACINA-T-1150): the first bind
+        // stays in effect.
+        Err(fidius_host::LoadError::HostBindFailed { code, .. })
+            if code == fidius_core::host_ffi::BIND_ERR_ALREADY_BOUND =>
+        {
+            tracing::debug!(
+                library = %library_path.display(),
+                "CloacinaLog already bound for this library"
+            );
+        }
         Err(e) => {
             tracing::warn!(
                 library = %library_path.display(),
@@ -376,6 +403,8 @@ impl PackageLoader {
                 .ok_or_else(|| LoaderError::MetadataExtraction {
                     reason: "Plugin library contains no plugins".to_string(),
                 })?;
+        // CLOACINA-T-1085: no call into a library of another interface.
+        check_loaded_interface(&plugin, library_path)?;
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
@@ -840,6 +869,8 @@ impl PackageLoader {
                 .ok_or_else(|| LoaderError::MetadataExtraction {
                     reason: "Plugin library contains no plugins".to_string(),
                 })?;
+        // CLOACINA-T-1085: no call into a library of another interface.
+        check_loaded_interface(&plugin, library_path)?;
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
         let tasks: cloacina_workflow_plugin::PackageTasksMetadata = handle

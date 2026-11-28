@@ -39,14 +39,14 @@ class BuildTest(unittest.TestCase):
 
     def test_a_promise_with_no_rule_says_so_and_names_its_chapter_task(self):
         made = made_from(sources.read_snapshot(HEALTHY))
-        item = promise(made, "run_once.long_task")
+        item = promise(made, "upgrade.in_flight")
         self.assertEqual(item["status"], report.NO_RULE)
         self.assertEqual(item["rules"], [])
         self.assertIsNone(item["held_for"])
-        self.assertEqual(item["evidence_from"], ["standing_archive"])
-        row = next(row for row in made["rows"] if row["row"] == "Run once")
-        self.assertEqual(row["chapter_task"], "CLOACINA-T-1110")
-        self.assertEqual(made["summary"][report.NO_RULE], len(promises.PROMISES) - 6)
+        self.assertEqual(item["evidence_from"], ["standing_archive", "standing_hold"])
+        row = next(row for row in made["rows"] if row["row"] == "Upgrade")
+        self.assertEqual(row["chapter_task"], "CLOACINA-T-1046")
+        self.assertEqual(made["summary"][report.NO_RULE], len(promises.PROMISES) - 23)
 
     def test_a_promise_that_holds_shows_for_how_long(self):
         registry = rules.load()
@@ -62,7 +62,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(item["held_for_seconds"], 60)
         self.assertEqual(item["held_for"], "1 min")
         self.assertFalse(made["red"])
-        self.assertEqual(made["summary"][engine.SHOW_HOLDS], 6)
+        self.assertEqual(made["summary"][engine.SHOW_HOLDS], 23)
 
     def test_a_broken_promise_makes_the_report_red(self):
         data = sources.read_snapshot(HEALTHY)

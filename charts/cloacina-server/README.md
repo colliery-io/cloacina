@@ -101,7 +101,9 @@ start.
 | `server.databaseWaitTimeoutSeconds` | `60` | Seconds the server waits at start for the database, with retries; `0` = one try (`CLOACINA_DATABASE_WAIT_TIMEOUT_S`) |
 | `retention.runHistoryDays` | `0` | Days to keep a finished run; `0` keeps run history for ever (`CLOACINA_RUN_HISTORY_RETENTION_DAYS`) |
 | `retention.outboxAckedSeconds` | `0` | Seconds to keep an acked `delivery_outbox` row; `0` keeps the rows for ever (`CLOACINA_OUTBOX_ACKED_RETENTION_S`) |
+| `retention.taskOutputDays` | `30` | Days to keep the stored output of a task attempt, whether `retention.runHistoryDays` is set or not; `0` keeps it for ever (`CLOACINA_TASK_OUTPUT_RETENTION_DAYS`) |
 | `retention.intervalSeconds` | `300` | Seconds between passes of the retention job (`CLOACINA_RETENTION_INTERVAL_S`) |
+| `taskOutput.maxBytes` | `262144` | Bytes of the end of each fleet task attempt's output that are kept; `0` keeps none (`CLOACINA_TASK_OUTPUT_MAX_BYTES`) |
 | `fleetTaskTimeLimits.defaultSeconds` | `300` | Time limit of a fleet task that sets none, and of a graph firing on the fleet (`CLOACINA_FLEET_TASK_TIMEOUT_S`) |
 | `fleetTaskTimeLimits.maxSeconds` | `86400` | Longest time limit a fleet task can get (`CLOACINA_FLEET_TASK_TIMEOUT_MAX_S`) |
 | `fleetTaskTimeLimits.artifactFetchWaitSeconds` | `300` | Seconds a fleet task waits, per attempt, while agents cannot fetch its package artifact; `0` = the first failed fetch fails the attempt (`CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S`) |

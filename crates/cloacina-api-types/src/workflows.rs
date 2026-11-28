@@ -26,6 +26,16 @@ pub struct WorkflowUploadedResponse {
     /// UUID of the registered package.
     pub package_id: String,
     pub tenant_id: String,
+    /// The highest priority the runs of this package may get, as its
+    /// publisher may set now (CLOACINA-T-1123). A workflow or task that
+    /// declares a higher priority (a smaller number) in its code runs at
+    /// this one. Absent in an answer from an older server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_limit: Option<u8>,
+    /// Set when the limit is below the highest priority: one sentence that
+    /// says the limit and why. `cloacinactl` prints it as a warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_notice: Option<String>,
 }
 
 /// One row in the workflow list (`GET /tenants/{tenant_id}/workflows`).
@@ -55,6 +65,59 @@ pub struct WorkflowSummary {
     /// package uploaded before the audit record existed.
     #[serde(default)]
     pub uploaded_by: Option<String>,
+    /// The plugin interface version of the package's Rust build
+    /// (CLOACINA-T-1085). Absent for a Python package and for a build whose
+    /// interface is not recorded yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_interface_version: Option<u32>,
+    /// Set when the package needs a new publish: it was built for another
+    /// plugin interface than this release loads, and its rebuild from kept
+    /// source did not change that (CLOACINA-T-1085). Absent when it needs
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needs_new_build: Option<NeedsNewBuild>,
+}
+
+/// Why a package needs a new publish (CLOACINA-T-1085).
+///
+/// After a minor release that changes the plugin interface, a Rust package
+/// built for the old interface does not run on the new agents. The compiler
+/// rebuilds it once from its kept source; when the package pins the old
+/// minor (in Cargo.toml or Cargo.lock), the rebuild has the old interface
+/// again. The team changes the `cloacina` pin to the new minor and publishes
+/// again. The package stays in service until then: agents of the old
+/// interface still run it during a roll.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct NeedsNewBuild {
+    /// The reason and the step to take.
+    pub reason: String,
+    /// The plugin interface version the package was built for. Absent when
+    /// it is not known: a library of another fidius ABI does not open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_for: Option<u32>,
+    /// The plugin interface version this release loads.
+    pub current: u32,
+}
+
+/// One package that needs a new publish, in the list across tenants
+/// (`GET /v1/packages/needs-new-build`, platform admin, CLOACINA-T-1085).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PackageNeedingNewBuild {
+    pub tenant_id: String,
+    /// Package UUID.
+    pub id: String,
+    pub package_name: String,
+    pub version: String,
+    /// The plugin interface version the package was built for. Absent when
+    /// it is not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_for: Option<u32>,
+    /// The plugin interface version this release loads.
+    pub current: u32,
+    /// The reason and the step to take.
+    pub reason: String,
 }
 
 /// `DELETE /tenants/{tenant_id}/workflows/{name}/{version}` response.
@@ -180,6 +243,22 @@ pub struct WorkflowDetail {
     /// package uploaded before the audit record existed.
     #[serde(default)]
     pub uploaded_by: Option<String>,
+    /// As in [`WorkflowSummary::plugin_interface_version`] (CLOACINA-T-1085).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_interface_version: Option<u32>,
+    /// As in [`WorkflowSummary::needs_new_build`] (CLOACINA-T-1085).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needs_new_build: Option<NeedsNewBuild>,
+    /// The workflow priority its code declares (`asked`, 5 when it declares
+    /// none) and the one its runs get now (`given`): the asked one held to
+    /// the limit of the publisher at this time (CLOACINA-T-1123). Absent for
+    /// a package that is not built yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::priority::PriorityGrant>,
+    /// Set when `given` is lower than `asked`: what was asked, what is
+    /// given, and why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_notice: Option<String>,
 }
 
 /// `POST /tenants/{tenant_id}/workflows/{name}/pause` and `/resume` response

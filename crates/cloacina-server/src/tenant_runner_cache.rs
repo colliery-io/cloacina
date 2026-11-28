@@ -48,9 +48,14 @@
 //!   [`ensure_runner`], so a new tenant and a first publish do not wait for
 //!   the loop.
 //! - A runner is never stopped to make room. Stopping it stops the tenant's
-//!   schedules and its running work, and closes the connection pool that the
-//!   tenant's routes use. The size the cache is built with is a warning
-//!   limit only.
+//!   schedules and its running work. The size the cache is built with is a
+//!   warning limit only.
+//!
+//! A runner is made on the `Database` that `TenantDatabaseCache` gives the
+//! tenant's routes. That pool belongs to the database cache: stopping a
+//! runner leaves it open (CLOACINA-T-1152), so a route, or a runner made for
+//! the tenant while the old one stops, keeps a working pool. The pool is
+//! freed when the database cache drops it and its last clone goes.
 //!
 //! `Runtime` inventory (`TaskRegistry`, `WorkflowRegistry`,
 //! `TriggerRegistry`, `ReactorRegistry`, `GraphRegistry`) is shared by
@@ -58,8 +63,8 @@
 //! process start (post-T-0506) and have no per-tenant state.
 //!
 //! A runner leaves the cache when its tenant is deleted, when its schema is
-//! gone, and at server shutdown. Its `shutdown()` is awaited so background
-//! tasks join cleanly.
+//! gone, and at server shutdown. Its `shutdown_services()` is awaited so
+//! background tasks join cleanly.
 
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -160,8 +165,8 @@ pub async fn schema_oids(
 pub struct TenantRunnerCache {
     cache: Mutex<HashMap<String, Entry>>,
     /// Held while a runner is built, so two callers cannot build two runners
-    /// for one tenant. A runner that lost such a race could not be shut down:
-    /// its `shutdown()` closes the pool it shares with the winner.
+    /// for one tenant: the loser would run the tenant's schedules a second
+    /// time, with no handle to stop it.
     build_lock: Mutex<()>,
     /// The server warns when it holds more runners than this
     /// (`--tenant-runner-cache-size`). It stops none of them.
@@ -182,6 +187,10 @@ pub struct TenantRunnerCache {
     /// cross-tenant filtering at the health-endpoint layer still works
     /// even with a shared scheduler.
     graph_scheduler: Option<Arc<ComputationGraphScheduler>>,
+    /// CLOACINA-T-1123: where the limit of who published a package or
+    /// created a schedule is read from. `None`: the default of the role
+    /// recorded.
+    priority_lookup: Option<crate::priority_authority::PrincipalLookup>,
 }
 
 impl TenantRunnerCache {
@@ -198,7 +207,18 @@ impl TenantRunnerCache {
             base_config,
             graph_scheduler: None,
             fleet_registrar: None,
+            priority_lookup: None,
         }
+    }
+
+    /// CLOACINA-T-1123: read the limit of who published a package or created
+    /// a schedule from the keys, login sessions and accounts of `lookup`.
+    pub fn with_priority_lookup(
+        mut self,
+        lookup: crate::priority_authority::PrincipalLookup,
+    ) -> Self {
+        self.priority_lookup = Some(lookup);
+        self
     }
 
     /// CLOACI-T-0634: install a fleet-executor registrar. Every per-tenant
@@ -295,11 +315,16 @@ impl TenantRunnerCache {
         if let Some(registrar) = &self.fleet_registrar {
             registrar(&runner);
         }
-        // CLOACINA-T-1045: a priority that a package of this tenant declares
-        // in its code is held to the limit of the role that may publish.
-        runner.set_priority_authority(Arc::new(
-            crate::priority_authority::PublisherLimit::for_tenant(tenant_id),
-        ));
+        // CLOACINA-T-1045, CLOACINA-T-1123: a priority that a package of this
+        // tenant declares, or a schedule asks for, is held to the limit of
+        // who published or created it, at each run start.
+        let authority = match &self.priority_lookup {
+            Some(lookup) => {
+                crate::priority_authority::PublisherLimit::with_lookup(tenant_id, lookup.clone())
+            }
+            None => crate::priority_authority::PublisherLimit::for_tenant(tenant_id),
+        };
+        runner.set_priority_authority(Arc::new(authority));
         let runner = Arc::new(runner);
 
         let held = {
@@ -341,7 +366,7 @@ impl TenantRunnerCache {
                     tenant_id = %tenant_id,
                     "evicting tenant runner (explicit)"
                 );
-                r.shutdown().await?;
+                r.shutdown_services().await?;
                 Ok(true)
             }
             None => Ok(false),
@@ -351,7 +376,7 @@ impl TenantRunnerCache {
     /// CLOACI-T-0581: bounded-drain eviction. Returns an `EvictOutcome`
     /// distinguishing clean drain, timeout, shutdown error, and missing
     /// entry. On timeout the runner is already removed from the cache;
-    /// its `shutdown()` future continues unawaited in the background.
+    /// its `shutdown_services()` future continues unawaited in the background.
     pub async fn evict_with_timeout(
         &self,
         tenant_id: &str,
@@ -410,7 +435,7 @@ impl TenantRunnerCache {
             None => EvictOutcome::Missing,
             Some(r) => {
                 let tenant_owned = tenant_id.to_string();
-                match tokio::time::timeout(drain_timeout, r.shutdown()).await {
+                match tokio::time::timeout(drain_timeout, r.shutdown_services()).await {
                     Ok(Ok(())) => {
                         info!(
                             tenant_id = %tenant_owned,
@@ -449,7 +474,7 @@ impl TenantRunnerCache {
         };
         let mut results = HashMap::with_capacity(runners.len());
         for (tenant_id, runner) in runners {
-            let r = runner.shutdown().await.map_err(|e| e.to_string());
+            let r = runner.shutdown_services().await.map_err(|e| e.to_string());
             results.insert(tenant_id, r);
         }
         results

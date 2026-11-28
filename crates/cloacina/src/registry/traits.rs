@@ -47,6 +47,18 @@ pub struct LoadSignatureRefusal {
     pub reason: String,
 }
 
+/// What the reconciler reads on each pass to learn that a trusted key was
+/// revoked (CLOACINA-T-1119): the number of revoked trusted keys of the
+/// organizations whose keys count, and the latest `revoked_at` among them.
+/// Any revoke in one of them changes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignerRevokeMarker {
+    /// How many trusted keys of the organizations are revoked.
+    pub revoked_keys: usize,
+    /// The latest revoke among them.
+    pub last_revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// Main trait for workflow registry operations.
 ///
 /// The `WorkflowRegistry` trait defines the core operations for managing
@@ -323,6 +335,26 @@ pub trait WorkflowRegistry: Send + Sync {
         Ok(false)
     }
 
+    /// CLOACINA-T-1085: the one rebuild from kept source per package per
+    /// plugin interface version, recorded on the row. A library of another
+    /// interface (or fidius ABI) failed to load in this process. The first
+    /// time for this build's interface the row goes back to `pending` for the
+    /// compiler; after that it is marked as needing a new publish with
+    /// `reason`, and no rebuild is asked for. `built_for` is the interface
+    /// the library was built for, when the load error names it.
+    ///
+    /// Default impl: not supported (`Unchanged`), for registries with no
+    /// build pipeline.
+    async fn request_interface_rebuild(
+        &self,
+        package_id: WorkflowPackageId,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<crate::registry::workflow_registry::InterfaceRebuild, RegistryError> {
+        let _ = (package_id, built_for, reason);
+        Ok(crate::registry::workflow_registry::InterfaceRebuild::Unchanged)
+    }
+
     /// CLOACINA-T-1027: record that a built package is refused at load, with
     /// the reason, where the publisher reads a failed build: build status
     /// `failed` and `build_error`.
@@ -357,6 +389,63 @@ pub trait WorkflowRegistry: Send + Sync {
     ) -> Result<Option<crate::registry::workflow_registry::StoredDescription>, RegistryError> {
         let _ = package_id;
         Ok(None)
+    }
+
+    /// CLOACINA-T-1119: the revoke marker of the trusted keys of `org_ids`,
+    /// read from `trust_database` (`None`: the registry's own database).
+    /// `Ok(None)`: this registry stores no keys, and the reconciler checks
+    /// no loaded package again. Default impl: `Ok(None)`.
+    async fn signer_revoke_marker(
+        &self,
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<Option<SignerRevokeMarker>, RegistryError> {
+        let _ = (org_ids, trust_database);
+        Ok(None)
+    }
+
+    /// CLOACINA-T-1119: the check of a loaded package again, by the hash the
+    /// load check computed, after a key was revoked. The same rules as
+    /// [`Self::verify_package_signature`]. `Err` is a check that could not
+    /// run, and refuses nothing. Default impl: a check that cannot run.
+    async fn recheck_package_signature(
+        &self,
+        package_hash: &str,
+        org_ids: &[crate::UniversalUuid],
+        trust_database: Option<&crate::Database>,
+    ) -> Result<Result<LoadSignature, LoadSignatureRefusal>, RegistryError> {
+        let _ = (package_hash, org_ids, trust_database);
+        Err(RegistryError::Internal(
+            "this registry stores no signatures".to_string(),
+        ))
+    }
+
+    /// CLOACINA-T-1119: cancel the runs of a package version that have not
+    /// ended: the executions pinned to `(package_name, version)`, and the
+    /// executions of `workflow_name` not yet pinned to any version of the
+    /// package. Each ends `Cancelled` with `reason` as its error. Returns how
+    /// many were cancelled. Default impl: none.
+    async fn cancel_package_runs(
+        &self,
+        package_name: &str,
+        version: &str,
+        workflow_name: Option<&str>,
+        reason: &str,
+    ) -> Result<usize, RegistryError> {
+        let _ = (package_name, version, workflow_name, reason);
+        Ok(0)
+    }
+
+    /// CLOACINA-T-1119: append an audit row to the audit record in
+    /// `trust_database` (`None`: the registry's own database). Default impl:
+    /// no audit record.
+    async fn write_audit_event(
+        &self,
+        event: crate::dal::unified::audit_events::NewAuditEvent,
+        trust_database: Option<&crate::Database>,
+    ) -> Result<(), RegistryError> {
+        let _ = (event, trust_database);
+        Ok(())
     }
 }
 

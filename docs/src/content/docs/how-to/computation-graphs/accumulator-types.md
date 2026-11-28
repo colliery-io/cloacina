@@ -383,9 +383,27 @@ In a package, the server builds each accumulator from its type and its config (t
 |---|---|---|
 | `passthrough`, `batch`, `state` | loads | loads |
 | `stream` | loads, unless its `provider` is native | refused |
-| `polling` | refused: a package carries no poll code | refused: the poll function would run in the server |
+| `polling` | refused: a package carries no poll code | loads; the poll function runs on an agent of the tenant |
 
 The graph of a package that loads runs on an agent of the tenant at each firing. A refused package gets `build_status` `failed`, and `build_error` names the accumulators. With `--single-trust`, and in embedded use and the daemon, no type is refused.
+
+A Python `polling` accumulator keeps its timer, its last-output checkpoint and the send to its reactor in the server; at each interval the server sends the poll to an agent of the tenant, which calls the poll function and answers its value or no change ([polling accumulators on agents](../../../explanation/service/execution-agent-fleet/#polling-accumulators-on-agents)). So on a server:
+
+- each poll is one dispatch and needs a live agent of the tenant; a poll with no answer emits nothing that interval;
+- one poll runs at a time; an interval that passes while a poll is out is skipped;
+- module globals of the poll function last only as long as the agent's worker that runs the polls; keep state that must last outside the process.
+
+### Input strategy
+
+The `input_strategy` of `[metadata]` in `package.toml` (`latest` or `sequential`; `latest` when it is not set) is the strategy of the package's graph. The reactor of the same package that the graph binds to runs with it too. The rule is the same for a Rust and a Python package, for the load in process (single trust, embedded use, the daemon) and for the load from the stored document; the document the compiler stores says the same strategy.
+
+A reactor of another package keeps the strategy it was loaded with. A graph that binds to such a reactor with another strategy does not load: the package load fails, and its error names the graph, the reactor and `input strategy differs`. Give the graph the reactor's strategy in `package.toml`.
+
+```toml
+[metadata]
+graph_name = "orders_graph"
+input_strategy = "sequential"
+```
 
 ## Related
 

@@ -1,0 +1,16 @@
+# Fixture of the behaviour suite's "Capacity" chapter (CLOACINA-T-1114): one
+# task that names the agent pool `sized` and asks for 250m of CPU and 400Mi of
+# memory. An agent of that pool with 1Gi has room for two at once.
+[package]
+name = "capacity-sized-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "capacity_sized"
+language = "python"
+description = "capacity chapter: a task of the pool sized, 250m CPU, 400Mi"
+author = "behaviour-suite"
+entry_module = "capacity_sized.tasks"

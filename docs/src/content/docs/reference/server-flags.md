@@ -58,6 +58,8 @@ of the code. For the meaning of each setting, see
 | `--run-history-retention-days` | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `0` |
 | `--single-trust` | `CLOACINA_SINGLE_TRUST` | — |
 | `--task-log-url-template` | `CLOACINA_TASK_LOG_URL_TEMPLATE` | — |
+| `--task-output-max-bytes` | `CLOACINA_TASK_OUTPUT_MAX_BYTES` | `cloacina::fleet::DEFAULT_TASK_OUTPUT_MAX_BYTES` |
+| `--task-output-retention-days` | `CLOACINA_TASK_OUTPUT_RETENTION_DAYS` | `cloacina_server::retention::DEFAULT_TASK_OUTPUT_RETENTION_DAYS` |
 | `--tenant-deletion-drain-timeout-s` | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `30` |
 | `--tenant-runner-cache-size` | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `256` |
 | `--verbose`, `-v` | — | — |
@@ -76,6 +78,7 @@ compiler pods it starts.
 - `CLOACINA_AGENT_CPU_REQUEST`
 - `CLOACINA_AGENT_DRAIN_S`
 - `CLOACINA_AGENT_DRAIN_SECONDS`
+- `CLOACINA_AGENT_ID`
 - `CLOACINA_AGENT_IMAGE`
 - `CLOACINA_AGENT_LOG_FORMAT`
 - `CLOACINA_AGENT_MAX_CONCURRENCY`

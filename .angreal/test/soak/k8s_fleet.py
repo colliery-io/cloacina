@@ -301,7 +301,7 @@ def _psql(sql):
 
 def _api_key_count():
     try:
-        return int(_psql("SELECT count(*) FROM api_keys") or "0")
+        return int(_psql("SELECT count(*) FROM cloacina_global.api_keys") or "0")
     except ValueError:
         return -1
 

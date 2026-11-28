@@ -68,12 +68,12 @@ use cloacina_api_types::{
     FireTriggerResponse, GraphStatus, InjectAccumulatorRequest, InjectAccumulatorResponse,
     KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, ListResponse, ReactorFire,
     ReactorFireTimeseries, ReactorStatus, RetryBackfillRequest, RotateSecretRequest,
-    SecretDeletedResponse, SecretMetadataResponse, TenantCreatedResponse, TenantListResponse,
-    TenantRemovedResponse, TenantSummary, TriggerDetailResponse, TriggerPauseResponse,
-    TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary, WorkflowDeletedResponse,
-    WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse, WorkflowSourceResponse,
-    WorkflowSummary, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
-    WorkflowVersionSummary, WsTicketResponse,
+    SecretDeletedResponse, SecretMetadataResponse, TaskOutputResponse, TenantCreatedResponse,
+    TenantListResponse, TenantRemovedResponse, TenantSummary, TriggerDetailResponse,
+    TriggerPauseResponse, TriggerScheduleSummary, TrustedKeyRevokedResponse, TrustedKeySummary,
+    WorkflowDeletedResponse, WorkflowDetail, WorkflowInstanceSummary, WorkflowPauseResponse,
+    WorkflowSourceResponse, WorkflowSummary, WorkflowUploadedResponse,
+    WorkflowVersionActivatedResponse, WorkflowVersionSummary, WsTicketResponse,
 };
 
 /// The release rules between a server and its clients (CLOACINA-T-1086).
@@ -332,6 +332,22 @@ impl Client {
         Self::parse(response).await
     }
 
+    /// PATCH a JSON body to an arbitrary path (CLOACINA-T-1123).
+    pub async fn patch_json<B: serde::Serialize + ?Sized, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ClientError> {
+        let response = self
+            .request(Method::PATCH, path)
+            .json(body)
+            .send()
+            .await
+            .map(|r| self.observe(r))
+            .map_err(ClientError::from_reqwest)?;
+        Self::parse(response).await
+    }
+
     /// DELETE an arbitrary path, discarding any response body.
     pub async fn delete_path(&self, path: &str) -> Result<(), ClientError> {
         let response = self
@@ -385,6 +401,7 @@ impl Client {
                 role,
                 platform_admin: false,
                 expires_at: None,
+                max_priority: None,
             },
         )
         .await
@@ -403,6 +420,7 @@ impl Client {
                 role: KeyRole::Admin,
                 platform_admin: true,
                 expires_at: None,
+                max_priority: None,
             },
         )
         .await
@@ -428,6 +446,19 @@ impl Client {
         role: KeyRole,
         tenant: Option<&str>,
     ) -> Result<KeyCreatedResponse, ClientError> {
+        self.create_tenant_key_limited(name, role, tenant, None)
+            .await
+    }
+
+    /// [`Self::create_tenant_key`] with the highest priority the key may set
+    /// (CLOACINA-T-1123). `None`: the default of its role.
+    pub async fn create_tenant_key_limited(
+        &self,
+        name: &str,
+        role: KeyRole,
+        tenant: Option<&str>,
+        max_priority: Option<u8>,
+    ) -> Result<KeyCreatedResponse, ClientError> {
         let t = self.tenant_of(tenant);
         self.post_json(
             &format!("/v1/tenants/{t}/keys"),
@@ -436,7 +467,24 @@ impl Client {
                 role,
                 platform_admin: false,
                 expires_at: None,
+                max_priority,
             },
+        )
+        .await
+    }
+
+    /// Set or clear (`None`) the highest priority a key of one tenant may
+    /// set (CLOACINA-T-1123).
+    pub async fn update_tenant_key(
+        &self,
+        key_id: &str,
+        max_priority: Option<u8>,
+        tenant: Option<&str>,
+    ) -> Result<KeyInfo, ClientError> {
+        let t = self.tenant_of(tenant);
+        self.patch_json(
+            &format!("/v1/tenants/{t}/keys/{key_id}"),
+            &cloacina_api_types::UpdateKeyRequest { max_priority },
         )
         .await
     }
@@ -1154,6 +1202,24 @@ impl Client {
         .await
     }
 
+    /// The end of what each attempt of a task wrote on stdout and stderr
+    /// (CLOACINA-T-1091), in attempt order; with `attempt`, of that attempt
+    /// only. Empty for a task whose output was not kept.
+    pub async fn get_task_output(
+        &self,
+        exec_id: &str,
+        task_id: &str,
+        attempt: Option<i32>,
+        tenant: Option<&str>,
+    ) -> Result<TaskOutputResponse, ClientError> {
+        let t = self.tenant_of(tenant);
+        let mut path = format!("/v1/tenants/{t}/executions/{exec_id}/tasks/{task_id}/output");
+        if let Some(attempt) = attempt {
+            path.push_str(&format!("?attempt={attempt}"));
+        }
+        self.get_json(&path).await
+    }
+
     // ---- computation-graph health ----
 
     pub async fn list_accumulators(&self) -> Result<ListResponse<AccumulatorStatus>, ClientError> {
@@ -1315,6 +1381,14 @@ impl Client {
 
     pub async fn compiler_status(&self) -> Result<CompilerStatus, ClientError> {
         self.get_json("/v1/compiler/status").await
+    }
+
+    /// The packages of every tenant that need a new publish after a plugin
+    /// interface change (platform admin key).
+    pub async fn list_packages_needing_new_build(
+        &self,
+    ) -> Result<ListResponse<cloacina_api_types::PackageNeedingNewBuild>, ClientError> {
+        self.get_json("/v1/packages/needs-new-build").await
     }
 
     // ---- agent pools ----

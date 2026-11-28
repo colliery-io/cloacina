@@ -35,11 +35,16 @@ pub(super) async fn create(
     name: &str,
     role: &str,
     expires_at: Option<&str>,
+    max_priority: Option<u8>,
     output: OutputFormat,
 ) -> Result<(), CliError> {
     let mut body = serde_json::json!({ "name": name, "role": role });
     if let Some(at) = expires_at {
         body["expires_at"] = serde_json::Value::String(at.to_string());
+    }
+    // CLOACINA-T-1123: the highest priority the key may set.
+    if let Some(limit) = max_priority {
+        body["max_priority"] = limit.into();
     }
     let resp: serde_json::Value = client.post(&tenant_keys_path(tenant), &body).await?;
     if matches!(output, OutputFormat::Table) {
@@ -181,6 +186,48 @@ mod tests {
                 "expires_at": "2027-01-31T00:00:00Z"
             })
         );
+    }
+
+    /// CLOACINA-T-1123: `--max-priority` goes to the tenant route.
+    #[tokio::test]
+    async fn key_create_with_tenant_sends_the_priority_limit() {
+        let (line, body) = request_of(
+            &[
+                "key",
+                "create",
+                "acme-ops",
+                "--role",
+                "write",
+                "--max-priority",
+                "2",
+            ],
+            Some("acme"),
+        )
+        .await;
+        assert_eq!(line, "POST /v1/tenants/acme/keys HTTP/1.1");
+        assert_eq!(
+            body,
+            serde_json::json!({ "name": "acme-ops", "role": "write", "max_priority": 2 })
+        );
+    }
+
+    /// CLOACINA-T-1123: `key set-priority` patches the key in the tenant;
+    /// `--clear` sends null; a value outside 0 to 10 is refused by clap.
+    #[tokio::test]
+    async fn key_set_priority_patches_the_key() {
+        let (line, body) = request_of(
+            &["key", "set-priority", "k1", "--max-priority", "0"],
+            Some("acme"),
+        )
+        .await;
+        assert_eq!(line, "PATCH /v1/tenants/acme/keys/k1 HTTP/1.1");
+        assert_eq!(body, serde_json::json!({ "max_priority": 0 }));
+        let (_, body) = request_of(&["key", "set-priority", "k1", "--clear"], Some("acme")).await;
+        assert_eq!(body, serde_json::json!({ "max_priority": null }));
+        assert!(
+            Cli::try_parse_from(["key", "set-priority", "k1", "--max-priority", "11"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["key", "set-priority", "k1"]).is_err());
     }
 
     /// CLOACINA-T-1065, CLOACINA-T-1140: a platform admin key has no tenant,

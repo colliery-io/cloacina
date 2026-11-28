@@ -50,6 +50,8 @@ SHOW_UNKNOWN = "cannot judge"
 
 TASK_CODE = re.compile(r"^[A-Z][A-Z0-9]*-[A-Z]-\d+$")
 MAX_TRANSITIONS = 20
+# Where a log source reads: each tenant's agent pods, or the server replicas.
+LOG_PLACES = ("agents", "server")
 
 
 class Missing(Exception):
@@ -109,6 +111,30 @@ def parse_time(value):
     return parsed.timestamp()
 
 
+_SERIES = re.compile(r'^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{(.*)\})?\s+(\S+)(?:\s+\d+)?$')
+_LABEL = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
+
+
+def parse_metrics(text):
+    """The series of a Prometheus text page: [(name, labels, value)]. A line
+    that is not a series (a comment, a blank) is skipped."""
+    found = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _SERIES.match(line)
+        if not match:
+            continue
+        try:
+            value = float(match.group(3))
+        except ValueError:
+            continue
+        labels = dict(_LABEL.findall(match.group(2) or ""))
+        found.append((match.group(1), labels, value))
+    return found
+
+
 def format_time(epoch):
     if epoch is None:
         return None
@@ -118,13 +144,16 @@ def format_time(epoch):
 class Window:
     """One disturbance: something broken on purpose, on record."""
 
-    def __init__(self, kind, start, end=None, settle_until=None, target="", ident=""):
+    def __init__(self, kind, start, end=None, settle_until=None, target="", ident="", extra=None):
         self.kind = kind
         self.start = start
         self.end = end
         self.settle_until = settle_until
         self.target = target
         self.ident = ident
+        # The whole line, for the fields a rule of a chapter reads (the
+        # tenant, the mode of a kill).
+        self.extra = dict(extra or {})
 
     @classmethod
     def from_dict(cls, data):
@@ -133,7 +162,7 @@ class Window:
             return None
         return cls(str(data["kind"]), start, parse_time(data.get("end")),
                    parse_time(data.get("settle_until")), str(data.get("target") or ""),
-                   str(data.get("id") or ""))
+                   str(data.get("id") or ""), extra=data)
 
     @property
     def closes(self):
@@ -161,17 +190,43 @@ class Window:
         return f"{self.kind}{target}, {format_time(self.start)} to {end}"
 
 
+def merge_lines(entries):
+    """The lines of a disturbance record, one for each disturbance. The
+    runner writes a line when a disturbance starts and a second line with the
+    same `id` when it ends (CLOACINA-T-1109): the last line of an id wins, in
+    the place of its first line. A line with no id stands alone."""
+    merged = []
+    where = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ident = entry.get("id")
+        if ident and ident in where:
+            merged[where[ident]] = entry
+            continue
+        if ident:
+            where[ident] = len(merged)
+        merged.append(entry)
+    return merged
+
+
 def read_windows(lines):
     """Windows from the lines of a disturbance record (one JSON object each).
     A line that cannot be read is skipped: the record is written by another
     program and may be half written."""
-    found = []
+    entries = []
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         try:
-            window = Window.from_dict(json.loads(line))
+            entries.append(json.loads(line))
+        except ValueError:
+            continue
+    found = []
+    for entry in merge_lines(entries):
+        try:
+            window = Window.from_dict(entry)
         except (ValueError, AttributeError):
             window = None
         if window is not None:
@@ -186,7 +241,8 @@ class Snapshot:
         self.data = data
         self.now = parse_time(data.get("taken_at")) or 0.0
         self.tenants = list((data.get("tenants") or {}).keys())
-        self._windows = [w for w in (Window.from_dict(d) for d in data.get("disturbances") or [])
+        self._windows = [w for w in (Window.from_dict(d)
+                                     for d in merge_lines(data.get("disturbances") or []))
                          if w is not None]
 
     def _entry(self, scope, kind, name):
@@ -220,6 +276,39 @@ class Snapshot:
         """The rows of a database source of a tenant; `tenant=None` for a
         source of the whole deployment."""
         return self._entry(tenant, "db", name).get("rows") or []
+
+    def logs(self, tenant, name):
+        """The kept lines of a log source: `{"pod", "at", "text"}` each. A
+        tenant's source reads its agents; `tenant=None` reads the server."""
+        return self._entry(tenant, "logs", name).get("rows") or []
+
+    def log_pods(self, tenant, name):
+        """The pods a log source read in this pass."""
+        return self._entry(tenant, "logs", name).get("pods") or []
+
+    def alerts(self):
+        """What the alert receiver answered: `started_at` and `records`
+        (CLOACINA-T-1115)."""
+        entry = self.data.get("alerts")
+        if entry is None:
+            raise Missing("the alert receiver was not read")
+        if entry.get("error"):
+            raise Missing(f"the alert receiver is away: {entry['error']}")
+        body = entry.get("body")
+        if not isinstance(body, dict):
+            raise Missing("the alert receiver gave no list")
+        return body
+
+    def metrics(self, name):
+        """The series of one metric of the server: [(labels, value)]
+        (CLOACINA-T-1115)."""
+        entry = self.data.get("metrics")
+        if entry is None:
+            raise Missing("the metrics listener was not read")
+        if entry.get("error"):
+            raise Missing(f"the metrics listener is away: {entry['error']}")
+        return [(labels, value) for metric, labels, value in parse_metrics(entry.get("text") or "")
+                if metric == name]
 
     def windows(self, kind=None):
         return [w for w in self._windows if kind is None or w.kind == kind]
@@ -264,6 +353,7 @@ class Registry:
         self.api_needs = {}  # name -> path template, for each tenant
         self.db_needs = {}  # name -> SQL template, for each tenant
         self.admin_db_needs = {}  # name -> SQL, once for the deployment
+        self.log_needs = {}  # name -> (place, marker): the lines of pods that hold the marker
 
     def rule(self, ident, promise, chapter, gap=None, tolerates=(), about=""):
         def decorate(fn):
@@ -289,6 +379,14 @@ class Registry:
     def need_admin_db(self, name, sql):
         """A query that runs once, outside any tenant's schema."""
         self._need(self.admin_db_needs, name, sql)
+
+    def need_logs(self, name, place, marker):
+        """The lines that hold `marker` in the output of pods, read with
+        `kubectl logs` from outside the cluster. `place` is `agents` (each
+        tenant's agent pods) or `server` (the server replicas, once)."""
+        if place not in LOG_PLACES:
+            raise ValueError(f"a log source reads one of {LOG_PLACES}, not {place!r}")
+        self._need(self.log_needs, name, (place, marker))
 
     def problems(self):
         """What is wrong with the registered rules. Empty when sound."""

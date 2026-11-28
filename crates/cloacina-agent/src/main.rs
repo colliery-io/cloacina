@@ -40,6 +40,7 @@
 
 mod drain;
 mod memory;
+mod output;
 mod tls;
 mod worker;
 
@@ -103,8 +104,9 @@ struct Args {
     /// in place of `--api-key` / `CLOACINA_API_KEY`, not with them.
     #[arg(long, env = "CLOACINA_API_KEY_FILE")]
     api_key_file: Option<std::path::PathBuf>,
-    /// Optional caller-chosen agent id; server assigns one if omitted.
-    #[arg(long)]
+    /// Optional caller-chosen agent id; server assigns one if omitted. The
+    /// Kubernetes actuator sets it to the pod's name (CLOACINA-T-1145).
+    #[arg(long, env = "CLOACINA_AGENT_ID")]
     agent_id: Option<String>,
     /// Max concurrent work packets this agent will accept.
     #[arg(long, env = "CLOACINA_AGENT_MAX_CONCURRENCY", default_value_t = 4)]
@@ -169,8 +171,9 @@ struct Args {
         default_value_t = worker::DEFAULT_WARM_IDLE_SECONDS
     )]
     warm_worker_idle_seconds: u64,
-    /// The most jobs one worker process runs. The agent ends it after the
-    /// last one.
+    /// The jobs after which a worker process is replaced. A new worker of
+    /// its key loads the package in the background; the old one takes jobs
+    /// until the new one has loaded, then ends.
     #[arg(
         long,
         env = "CLOACINA_AGENT_WARM_WORKER_MAX_JOBS",
@@ -185,6 +188,17 @@ struct Args {
         default_value_t = worker::DEFAULT_WARM_MAX_MEMORY_PERCENT
     )]
     warm_worker_max_memory_percent: u64,
+    /// Replace the exact values of a task's own secrets by `***` in the
+    /// output the agent logs and sends with the result (CLOACINA-T-1091).
+    /// Only exact values: an encoded, cut or joined value, a secret the task
+    /// fetched itself, and context values are not found. Default `true`.
+    #[arg(
+        long,
+        env = "CLOACINA_AGENT_TASK_OUTPUT_MASKING",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    task_output_masking: bool,
     /// Override the host target triple the agent advertises (rarely needed —
     /// useful for testing the OQ-6 fail-closed path on a homogeneous host).
     #[arg(long)]
@@ -544,6 +558,7 @@ fn worker_settings_from(
         log_format: args.log_format,
         max_unpacked_bytes: args.max_unpacked_bytes,
         warm: worker::WarmPool::new(warm),
+        mask_task_output: args.task_output_masking,
         // Agents on one host can share a cache directory: each has its own
         // worker directories.
         ..worker::WorkerSettings::unlimited(cache_dir.join(format!("work-{}", std::process::id())))
@@ -713,6 +728,13 @@ async fn connect_and_serve(
     // only to an agent that says so.
     if !capabilities.iter().any(|c| c == POLL_JOB_CAPABILITY) {
         capabilities.push(POLL_JOB_CAPABILITY.to_string());
+    }
+    // CLOACINA-T-1156: and polls of Python polling accumulators.
+    if !capabilities
+        .iter()
+        .any(|c| c == cloacina::fleet::ACCUMULATOR_POLL_CAPABILITY)
+    {
+        capabilities.push(cloacina::fleet::ACCUMULATOR_POLL_CAPABILITY.to_string());
     }
     // CLOACINA-T-1027: the agent's total CPU and memory, when it was given
     // them. The server places tasks by their requests against these.
@@ -1654,6 +1676,13 @@ fn spawn_packet_worker(
         )
         .await;
         let duration_ms = start.elapsed().as_millis() as u64;
+        // CLOACINA-T-1091: the end of the attempt's output, when it ran in a
+        // worker. Taken here whether a report goes or not.
+        let output = output::take_output(&output::output_key(
+            &packet.task_execution_id,
+            packet.attempt,
+            packet.dispatch_id.as_deref(),
+        ));
         // CLOACINA-T-1029: a worker the agent stopped at the end of its drain
         // is reported as handed back.
         match drain::report_of(end, packet.dispatch_id.as_deref()) {
@@ -1666,6 +1695,7 @@ fn spawn_packet_worker(
                     dispatch_id: packet.dispatch_id.clone(),
                     duration_ms,
                     outcome,
+                    output,
                 };
                 // CLOACINA-T-1015: the ack waits for the report (see
                 // `report_outcome`).
@@ -1956,6 +1986,7 @@ fn graph_report(
         dispatch_id: None,
         duration_ms,
         outcome,
+        output: None,
     }
 }
 
@@ -1985,6 +2016,7 @@ fn spawn_graph_refusal(
                 reason: RefusalReason::Shutdown,
                 message,
             },
+            output: None,
         };
         let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
         report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
@@ -2023,6 +2055,7 @@ fn spawn_poll_report(
             dispatch_id: None,
             duration_ms,
             outcome,
+            output: None,
         };
         let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
         report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
@@ -2198,11 +2231,19 @@ pub(crate) async fn run_poll_job(
         "poll",
         tenant = %packet.tenant_id.as_deref().unwrap_or("public"),
         package = %packet.package_name,
-        trigger = %packet.trigger_name,
+        trigger = %packet.target_name(),
         poll_id = %packet.poll_id,
     );
     tracing::Instrument::instrument(
         async move {
+            // CLOACINA-T-1156: a poll of a polling accumulator.
+            if let Some(accumulator) = packet.accumulator_name.clone() {
+                if let Err(outcome) = load_poll_runtime(&packet, &package, &work_dir).await {
+                    return outcome;
+                }
+                started();
+                return poll::run_accumulator_poll(&packet, accumulator, time_limit).await;
+            }
             let trigger = match load_poll_trigger(&packet, &package, &work_dir).await {
                 Ok(trigger) => trigger,
                 Err(outcome) => return outcome,
@@ -2213,6 +2254,30 @@ pub(crate) async fn run_poll_job(
         span,
     )
     .await
+}
+
+/// The per-build runtime of the Python package of a poll: the import runs
+/// one time per build in this process, and a poll and a task of one build
+/// share it. A polling accumulator's poll function is registered by the
+/// import (CLOACINA-T-1156). A Rust build has none: refused.
+async fn load_poll_runtime(
+    packet: &PollWorkPacket,
+    package: &worker::PreparedPackage,
+    work_dir: &std::path::Path,
+) -> std::result::Result<Arc<cloacina::Runtime>, cloacina::fleet::AgentOutcome> {
+    if packet.language.as_deref() != Some("python") {
+        return Err(poll::not_a_python_package(packet));
+    }
+    let digest = package.digest.clone();
+    let load = poll::load_packet_for(packet);
+    let mut cache = loaded_runtimes().lock().await;
+    if let Some(rt) = cache.get(&digest) {
+        return Ok(rt.clone());
+    }
+    let rt = Arc::new(cloacina::Runtime::new());
+    load_python_package(&load, package, work_dir, &rt).await?;
+    cache.insert(digest, rt.clone());
+    Ok(rt)
 }
 
 /// The trigger of a poll. A Python package is imported into the per-build
@@ -2227,18 +2292,7 @@ async fn load_poll_trigger(
 {
     let digest = package.digest.clone();
     if packet.language.as_deref() == Some("python") {
-        let load = poll::load_packet_for(packet);
-        let runtime = {
-            let mut cache = loaded_runtimes().lock().await;
-            if let Some(rt) = cache.get(&digest) {
-                rt.clone()
-            } else {
-                let rt = Arc::new(cloacina::Runtime::new());
-                load_python_package(&load, package, work_dir, &rt).await?;
-                cache.insert(digest.clone(), rt.clone());
-                rt
-            }
-        };
+        let runtime = load_poll_runtime(packet, package, work_dir).await?;
         return runtime
             .get_trigger(&packet.trigger_name)
             .ok_or_else(|| poll::no_such_trigger(packet));
@@ -2322,6 +2376,7 @@ async fn process_graph_packet(
         package,
         log_format: settings.log_format.to_string(),
         max_unpacked_bytes: settings.max_unpacked_bytes,
+        warm_up: false,
         #[cfg(test)]
         test_action: None,
     };
@@ -2343,11 +2398,16 @@ pub(crate) async fn run_graph_job(
         packet,
         package,
         work_dir,
+        warm_up,
         #[cfg(test)]
         test_action,
         ..
     } = job;
 
+    #[cfg(test)]
+    if warm_up && test_action.is_some() {
+        return warmed_up();
+    }
     #[cfg(test)]
     if let Some(action) = test_action {
         started();
@@ -2368,6 +2428,9 @@ pub(crate) async fn run_graph_job(
             Err(out) => return out,
         }
     };
+    if warm_up {
+        return warmed_up();
+    }
     started();
     let fire = async {
         match plugin {
@@ -2496,6 +2559,7 @@ fn spawn_refusal(
             dispatch_id: packet.dispatch_id.clone(),
             duration_ms: 0,
             outcome: cloacina::fleet::AgentOutcome::Refused { reason, message },
+            output: None,
         };
         let server_gives_up_at = server_wait_end(Instant::now(), packet.timeout_seconds);
         report_outcome(&http, &server, &api_key, &req, server_gives_up_at).await;
@@ -3339,10 +3403,21 @@ async fn process_work_packet(
         work_dir: cache_dir.join(format!("pysrc-{digest}")),
         log_format: settings.log_format.to_string(),
         max_unpacked_bytes: settings.max_unpacked_bytes,
+        // Set by the agent when the job goes to a worker (CLOACINA-T-1091).
+        output_end: None,
+        warm_up: false,
         #[cfg(test)]
         test_action: None,
     };
     worker::run_here_or_in_worker(job, settings).await
+}
+
+/// The outcome of a load-only job (CLOACINA-T-1159): the package is loaded
+/// and nothing ran. The agent does not report it.
+fn warmed_up() -> cloacina::fleet::AgentOutcome {
+    cloacina::fleet::AgentOutcome::Success {
+        context: serde_json::Value::Null,
+    }
 }
 
 /// Load the job's package and run its one task (CLOACINA-T-1028): in a
@@ -3362,10 +3437,15 @@ pub(crate) async fn run_job(
         secrets,
         package,
         work_dir,
+        warm_up,
         #[cfg(test)]
         test_action,
         ..
     } = job;
+    #[cfg(test)]
+    if warm_up && test_action.is_some() {
+        return warmed_up();
+    }
     let packet = &packet;
     // CLOACINA-T-1081: the packet carries only the secrets the task's package
     // declares; any other name the task asks for is refused.
@@ -3409,6 +3489,9 @@ pub(crate) async fn run_job(
             rt
         }
     };
+    if warm_up {
+        return warmed_up();
+    }
 
     // 4. Resolve the task by namespace string.
     let namespace = match cloacina::parse_namespace(&packet.task_name) {
@@ -3763,6 +3846,7 @@ mod tests {
             outcome: cloacina::fleet::AgentOutcome::Success {
                 context: serde_json::json!({}),
             },
+            output: None,
         }
     }
 
@@ -4356,6 +4440,7 @@ mod tests {
             cpu_millis: None,
             memory_bytes: None,
             inline: false,
+            output_max_bytes: None,
         }
     }
 

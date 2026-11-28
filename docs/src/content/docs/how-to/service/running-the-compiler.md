@@ -449,10 +449,10 @@ JSON document in `workflow_packages.metadata_document`. The document holds:
 - each bundled provider with its runtime (`native` or `wasm`), read from its
   `provider.json`;
 - what of the package would run tenant code in the process that loads it: a
-  stream accumulator on a native provider, a Python polling or stream
-  accumulator, a polling accumulator in a Rust package. A server without
-  single trust refuses such a package at load. A poll trigger is not in the
-  list: its polls run on the tenant's agents;
+  stream accumulator on a native provider, a Python stream accumulator, a
+  polling accumulator in a Rust package. A server without single trust
+  refuses such a package at load. A poll trigger and a Python polling
+  accumulator are not in the list: their polls run on the tenant's agents;
 - declared params, declared secrets and declared surfaces;
 - for a Python package: the entry module, `requires_python` and the Python
   version that imported it;
@@ -782,7 +782,7 @@ All compiler flags accept env equivalents (`CLOACINA_COMPILER_*`).
 | `--tenant-schema` | `CLOACINA_TENANT_SCHEMA` | unset (public schema) |
 | `--build-target` | `CLOACINA_BUILD_TARGET` | unset (native host build) |
 | `--build-target-package` | `CLOACINA_BUILD_TARGET_PACKAGE` | unset (all packages) |
-| `--home` | — | `$HOME/.cloacina` |
+| `--home` | `CLOACINA_HOME` | `$HOME/.cloacina` |
 | `--database-url` | `DATABASE_URL` | required |
 
 **Tenant / target flags:**

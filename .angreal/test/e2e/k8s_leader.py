@@ -457,7 +457,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     # with every redirect dying as a connection error. The lock holder's
     # client_addr IS the owner's pod IP, so the assertion is a direct match.
     published = _psql(kubeconfig, target,
-                      f"SELECT address FROM reactor_owner_addresses "
+                      f"SELECT address FROM cloacina_global.reactor_owner_addresses "
                       f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{RX_TENANT}';")
     assert published, "owner claimed the lock but published no address row"
     assert owner_addr_ip in published, (
@@ -494,7 +494,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
         redirect_url])
     assert followed.strip() == "200", f"owner did not accept the redirected inject: {followed}"
     outbox = _psql(kubeconfig, target,
-                   "SELECT count(*) FROM delivery_outbox WHERE kind='reactor_event';")
+                   "SELECT count(*) FROM cloacina_global.delivery_outbox WHERE kind='reactor_event';")
     assert outbox.strip() == "0", (
         f"steady-state inject wrote {outbox} outbox rows — the hot path has "
         f"silently regressed to the durable fallback")
@@ -526,7 +526,7 @@ def _assert_reactor_ownership(kubeconfig, target, base, results, tag, skip_build
     new_published = ""
     for _ in range(30):
         new_published = _psql(kubeconfig, target,
-                              f"SELECT address FROM reactor_owner_addresses "
+                              f"SELECT address FROM cloacina_global.reactor_owner_addresses "
                               f"WHERE reactor_name='{RX_NAME}' AND tenant_id='{RX_TENANT}';")
         if new_ip in new_published:
             break

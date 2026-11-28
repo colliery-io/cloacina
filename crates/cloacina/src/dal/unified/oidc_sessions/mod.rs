@@ -424,6 +424,39 @@ impl<'a> OidcSessionDAL<'a> {
         }))
     }
 
+    /// The claims of the newest login session of any of `key_ids` that has
+    /// claims, with the issuer of that login (CLOACINA-T-1123): the last
+    /// known claims of a person, for the limit of a priority they set.
+    #[cfg(feature = "postgres")]
+    pub async fn latest_claims_for_keys(
+        &self,
+        key_ids: Vec<Uuid>,
+    ) -> Result<Option<(String, String)>, ValidationError> {
+        use crate::database::schema::postgres::oidc_sessions;
+        if key_ids.is_empty() {
+            return Ok(None);
+        }
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let row: Option<(String, Option<String>)> = conn
+            .interact(move |conn| {
+                oidc_sessions::table
+                    .filter(oidc_sessions::key_id.eq_any(key_ids))
+                    .filter(oidc_sessions::claims.is_not_null())
+                    .order(oidc_sessions::created_at.desc())
+                    .select((oidc_sessions::provider, oidc_sessions::claims))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        Ok(row.and_then(|(provider, claims)| claims.map(|c| (provider, c))))
+    }
+
     /// Take the group check of a login: set `checked_at` to `now` on every
     /// row of the login, if it is still `seen` (CLOACINA-T-1082). Returns
     /// true for the one caller that took it, so two refreshes of one login

@@ -394,11 +394,19 @@ pub struct Principal {
 impl Principal {
     pub fn from_key(key: &AuthenticatedKey) -> Principal {
         let role = Role::parse(&key.permissions);
-        let limits = if key.is_admin {
+        let mut limits = if key.is_admin {
             Role::Admin.default_limits()
         } else {
             role.map(Role::default_limits).unwrap_or_default()
         };
+        // CLOACINA-T-1123: a key may carry its own limit. Only a role that
+        // may set a priority at all gets one (the key routes refuse it on a
+        // `read` or `agent` key).
+        if let Some(own) = key.max_priority
+            && limits.max_priority.is_some()
+        {
+            limits.max_priority = Some(own);
+        }
         Principal {
             tenant: key.tenant_id.clone(),
             role,
@@ -794,6 +802,12 @@ pub fn build_authz_table() -> AuthzTable {
         Row::platform(P::CompilerRead),
     );
     t.add(get.clone(), "/v1/audit", Row::platform(P::AuditRead));
+    // CLOACINA-T-1085: the packages of every tenant that need a new publish.
+    t.add(
+        get.clone(),
+        "/v1/packages/needs-new-build",
+        Row::platform(P::WorkflowsRead),
+    );
     // The global key routes: a tenant admin uses the tenant routes below.
     t.add(
         post.clone(),
@@ -849,6 +863,12 @@ pub fn build_authz_table() -> AuthzTable {
         delete.clone(),
         "/v1/tenants/{tenant_id}/keys/{key_id}",
         Row::tenant(P::KeysManage).audit(a::KEY_REVOKE, Some("key_id")),
+    );
+    // CLOACINA-T-1123: the highest priority a key may set.
+    t.add(
+        Method::PATCH,
+        "/v1/tenants/{tenant_id}/keys/{key_id}",
+        Row::tenant(P::KeysManage).audit(a::KEY_UPDATE, Some("key_id")),
     );
     t.add(
         post.clone(),
@@ -974,6 +994,8 @@ pub fn build_authz_table() -> AuthzTable {
         "/v1/tenants/{tenant_id}/executions/{exec_id}",
         "/v1/tenants/{tenant_id}/executions/{exec_id}/events",
         "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks",
+        // CLOACINA-T-1091: the output of each attempt, read as the run is.
+        "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
     ] {
         t.add(get.clone(), path, Row::tenant(P::ExecutionsRead));
     }
@@ -1207,6 +1229,14 @@ impl<S: Clone + Send + Sync + 'static> RouteSet<S> {
         T: 'static,
     {
         self.add(Method::DELETE, path, axum::routing::delete(handler))
+    }
+
+    pub fn patch<H, T>(self, path: &str, handler: H) -> Self
+    where
+        H: Handler<T, S>,
+        T: 'static,
+    {
+        self.add(Method::PATCH, path, axum::routing::patch(handler))
     }
 
     /// The routes registered so far, with the prefix.
@@ -1652,7 +1682,29 @@ mod tests {
             permissions: role.into(),
             tenant_id: tenant.map(str::to_string),
             is_admin: platform_admin,
+            max_priority: None,
         })
+    }
+
+    /// CLOACINA-T-1123: a key's own limit replaces its role's, on a role
+    /// that may set a priority; a `read` or `agent` key sets none.
+    #[test]
+    fn a_key_may_carry_its_own_priority_limit() {
+        let key = |role: &str, own: Option<u8>| AuthenticatedKey {
+            key_id: uuid::Uuid::nil(),
+            name: "k".into(),
+            permissions: role.into(),
+            tenant_id: Some("acme".into()),
+            is_admin: false,
+            max_priority: own,
+        };
+        let limit = |k: &AuthenticatedKey| Principal::from_key(k).limits.max_priority;
+        assert_eq!(limit(&key("write", None)), Some(5));
+        assert_eq!(limit(&key("write", Some(2))), Some(2));
+        assert_eq!(limit(&key("write", Some(8))), Some(8));
+        assert_eq!(limit(&key("admin", Some(3))), Some(3));
+        assert_eq!(limit(&key("read", Some(2))), None);
+        assert_eq!(limit(&key("agent", Some(2))), None);
     }
 
     /// The scope of a row for a request whose path names the tenant `acme`.
@@ -2177,6 +2229,7 @@ mod tests {
             permissions: "agent".into(),
             tenant_id: Some("acme".into()),
             is_admin: false,
+            max_priority: None,
         };
         let reader = AuthenticatedKey {
             permissions: "read".into(),
@@ -2244,8 +2297,11 @@ mod tests {
         // CLOACINA-T-1020), `POST /v1/agent/keys`, three WebSockets and seven
         // public routes; the three trusted key routes of CLOACINA-T-1061;
         // `POST /v1/agent/undecodable` of CLOACINA-T-1058;
-        // `GET /v1/agent/python-vendor/{digest}` of CLOACINA-T-1073.
-        assert_eq!(table.len(), 97);
+        // `GET /v1/agent/python-vendor/{digest}` of CLOACINA-T-1073;
+        // `GET /v1/packages/needs-new-build` of CLOACINA-T-1085;
+        // `PATCH /v1/tenants/{tenant_id}/keys/{key_id}` of CLOACINA-T-1123;
+        // the task output route of CLOACINA-T-1091.
+        assert_eq!(table.len(), 100);
         for permission in Permission::ALL {
             let by_row = table
                 .rows()
@@ -2380,8 +2436,8 @@ mod tests {
         // retry); plus reactor fire, accumulator inject,
         // the accumulator connect, agent register, agent key top-up, the two
         // logins and logout; the add and the revoke of a trusted key
-        // (CLOACINA-T-1061).
-        assert_eq!(audited, 42);
+        // (CLOACINA-T-1061); the key update (CLOACINA-T-1123).
+        assert_eq!(audited, 43);
         unaudited.sort();
         assert_eq!(
             unaudited,

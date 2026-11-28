@@ -95,6 +95,8 @@ mod unified_schema {
             task_priority -> Integer,
             fleet_dispatch_claimed_by -> Nullable<DbUuid>,
             task_priority_asked -> Nullable<Integer>,
+            wait_reason -> Nullable<Text>,
+            wait_message -> Nullable<Text>,
         }
     }
 
@@ -374,6 +376,10 @@ mod unified_schema {
             describe_error -> Nullable<Text>,
             // CLOACINA-T-1086: the plugin interface version of a Rust build.
             plugin_interface_version -> Nullable<Integer>,
+            // CLOACINA-T-1085: the interface version the row was checked for,
+            // and why it needs a new publish.
+            interface_checked_for -> Nullable<Integer>,
+            needs_new_build -> Nullable<Text>,
         }
     }
 
@@ -409,6 +415,23 @@ mod unified_schema {
             message -> Text,
             details -> Nullable<Text>,
             failed_at -> DbTimestamp,
+        }
+    }
+
+    // CLOACINA-T-1091: the end of the output of each attempt of a task.
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool};
+
+        task_attempt_outputs (id) {
+            id -> DbUuid,
+            task_execution_id -> DbUuid,
+            workflow_execution_id -> DbUuid,
+            attempt -> Integer,
+            output -> Text,
+            total_bytes -> BigInt,
+            cut -> DbBool,
+            recorded_at -> DbTimestamp,
         }
     }
 
@@ -484,6 +507,22 @@ mod unified_schema {
             max_active_runs -> Nullable<Integer>,
             backfill -> Nullable<Text>,
             last_poll_error -> Nullable<Text>,
+        }
+    }
+
+    // CLOACINA-T-1123: who set the priority of a package or a schedule, and
+    // the priority its last run was given. `updated_at` is in the table and
+    // set by its default; the code does not read it.
+    diesel::table! {
+        use diesel::sql_types::*;
+
+        priority_grants (kind, target) {
+            kind -> Text,
+            target -> Text,
+            set_by -> Text,
+            set_by_role -> Text,
+            asked -> Nullable<Integer>,
+            last_given -> Nullable<Integer>,
         }
     }
 
@@ -675,6 +714,7 @@ mod unified_schema {
     diesel::joinable!(schedule_executions -> schedules (schedule_id));
     diesel::joinable!(schedule_executions -> workflow_executions (workflow_execution_id));
     diesel::joinable!(task_attempt_errors -> task_executions (task_execution_id));
+    diesel::joinable!(task_attempt_outputs -> task_executions (task_execution_id));
 
     diesel::table! {
         use diesel::sql_types::*;
@@ -745,6 +785,7 @@ mod unified_schema {
         signing_keys,
         state_accumulator_buffers,
         task_attempt_errors,
+        task_attempt_outputs,
         task_executions,
         task_execution_metadata,
         tenant_data_keys,
@@ -1088,6 +1129,9 @@ mod postgres_schema {
             is_admin -> Bool,
             expires_at -> Nullable<Timestamptz>,
             issued_via -> Nullable<Text>,
+            // CLOACINA-T-1123: the highest priority the key may set; NULL is
+            // the default of its role.
+            max_priority -> Nullable<Integer>,
         }
     }
 

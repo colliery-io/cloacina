@@ -466,147 +466,93 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   # -----------------------------------------------------------------------
-  # Step 5c: Build + push cloacina-server Docker image (CLOACI-I-0111 / T-0604)
+  # Step 5c: Build + push the container images (CLOACI-I-0111 / T-0604,
+  # CLOACINA-T-1088)
   #
-  # Multi-arch build via buildx, pushed to ghcr.io/<owner>/cloacina-server.
-  # Tags applied: <semver>, <major>.<minor>, latest.
+  # Three images, each multi-arch (linux/amd64 + linux/arm64), pushed to
+  # ghcr.io/<owner>/<name>:
+  #   cloacina-server    Dockerfile
+  #   cloacina-agent     docker/Dockerfile.agent
+  #   cloacina-compiler  deploy/docker/compiler.Dockerfile
+  # Tags applied to each: <semver>, <major>.<minor>, latest.
+  # The jobs live in images.yml, which also builds the same images, with no
+  # push, on a pull request that touches a Dockerfile.
   # -----------------------------------------------------------------------
 
-  # Per-arch NATIVE builds (T-0940): same pattern as nightly-docker — the
-  # arm64 half used to compile the whole workspace under QEMU. The per-arch
-  # gha cache scopes are shared with the nightly job, so a release build
-  # that follows validation is nearly a pure cache replay.
-  publish-docker:
-    name: Publish cloacina-server image
+  publish-images:
+    name: Publish images
     needs: [verify-version]
     if: startsWith(github.ref, 'refs/tags/')
-    strategy:
-      matrix:
-        include:
-          - platform: linux/amd64
-            arch: amd64
-            runner: ubuntu-latest
-          - platform: linux/arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    uses: ./.github/workflows/images.yml
+    with:
+      publish: true
+    # The caller's permissions are the ceiling for the called workflow.
     permissions:
       contents: read
       packages: write
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Compute image name
-        id: img
-        env:
-          REPO_OWNER: ${{ github.repository_owner }}
-        run: |
-          owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          echo "image=ghcr.io/${owner_lc}/cloacina-server" >> "$GITHUB_OUTPUT"
+  # -----------------------------------------------------------------------
+  # Step 5c-check: the charts' default images are in the registry
+  # (CLOACINA-T-1088)
+  #
+  # Pulls both published charts at the tag from ghcr.io, renders them with
+  # their default values and pulls each ghcr.io image they name, all with no
+  # registry login: the agent chart's image, the server image, the compiler
+  # image (compiler.enabled) and the fleet actuator's agent image
+  # (fleet.actuator=kubernetes).
+  # -----------------------------------------------------------------------
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build + push by digest (native ${{ matrix.platform }})
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ steps.img.outputs.image }},push-by-digest=true,name-canonical=true,push=true
-          provenance: false
-          cache-from: type=gha,scope=server-image-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,ignore-error=true,scope=server-image-${{ matrix.arch }}
-
-      - name: Export digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          mkdir -p /tmp/digests
-          touch "/tmp/digests/${DIGEST#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-image-digest-${{ matrix.arch }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  publish-docker-manifest:
-    name: Publish image manifest
-    needs: [publish-docker]
+  verify-chart-images:
+    name: Published charts and their default images pull
+    needs: [publish-images, publish-helm]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     steps:
-      - name: Compute tags
-        id: tags
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.0
+
+      - name: Pull the published charts without a login
         env:
           TAG_REF: ${{ github.ref }}
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-          tag="${TAG_REF#refs/tags/}"     # vX.Y.Z
-          version="${tag#v}"              # X.Y.Z
-          major_minor="${version%.*}"     # X.Y
+          tag="${TAG_REF#refs/tags/}"
+          version="${tag#v}"
           owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          image="ghcr.io/${owner_lc}/cloacina-server"
-          echo "image=${image}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "major_minor=${major_minor}" >> "$GITHUB_OUTPUT"
+          mkdir -p charts
+          for chart in cloacina-server cloacina-agent; do
+            helm pull "oci://ghcr.io/${owner_lc}/charts/${chart}" --version "${version}" --untar --untardir charts
+          done
 
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: release-image-digest-*
-          merge-multiple: true
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create version + latest manifests
-        working-directory: /tmp/digests
-        env:
-          IMAGE: ${{ steps.tags.outputs.image }}
-          VERSION: ${{ steps.tags.outputs.version }}
-          MAJOR_MINOR: ${{ steps.tags.outputs.major_minor }}
+      - name: Render the charts with their default images
         run: |
           set -euo pipefail
-          docker buildx imagetools create \
-            -t "${IMAGE}:${VERSION}" \
-            -t "${IMAGE}:${MAJOR_MINOR}" \
-            -t "${IMAGE}:latest" \
-            $(printf -- "${IMAGE}@sha256:%s " *)
-          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          helm template check charts/cloacina-agent \
+            --set server.url=http://cloacina-server:8080 \
+            --set apiKey=check > /tmp/rendered.yaml
+          helm template check charts/cloacina-server \
+            --set database.url=postgres://user:pass@db:5432/cloacina \
+            --set compiler.enabled=true \
+            --set fleet.actuator=kubernetes >> /tmp/rendered.yaml
+          grep -oE 'ghcr\.io/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+' /tmp/rendered.yaml | sort -u > /tmp/images.txt
+          cat /tmp/images.txt
+          for name in cloacina-server cloacina-agent cloacina-compiler; do
+            grep -q "/${name}:" /tmp/images.txt || { echo "the charts name no ${name} image" >&2; exit 1; }
+          done
 
-      - name: Smoke test (--version against linux/amd64)
-        env:
-          IMAGE: ${{ steps.tags.outputs.image }}
+      - name: Pull each image without a login
         run: |
           set -euo pipefail
-          # The amd64 manifest is the runner's native arch; pull and
-          # exercise --version. Verifies the entrypoint, the binary
-          # actually runs, and clap reports the build version.
-          docker run --rm "${IMAGE}:latest" --version
+          while read -r image; do
+            echo "::group::${image}"
+            docker pull "${image}"
+            echo "::endgroup::"
+          done < /tmp/images.txt
 
   # -----------------------------------------------------------------------
   # (Step 5c-ui removed, v0.10.0 postmortem: the standalone cloacina-ui image
@@ -619,14 +565,15 @@ jobs:
   # -----------------------------------------------------------------------
   # Step 5d: Publish Helm chart (CLOACI-I-0111 / T-0605)
   #
-  # Packages charts/cloacina-server and pushes it as an OCI artifact to
-  # ghcr.io/<owner>/charts/cloacina-server. Runs after publish-docker so
-  # the image referenced by the chart's appVersion is guaranteed present.
+  # Packages charts/cloacina-server and charts/cloacina-agent (CLOACINA-T-1088)
+  # and pushes each as an OCI artifact to ghcr.io/<owner>/charts/<chart>.
+  # Both charts take the tag as version and appVersion. Runs after
+  # publish-images so the images the charts' appVersion names are present.
   # -----------------------------------------------------------------------
 
   publish-helm:
     name: Publish Helm chart
-    needs: [verify-version, publish-docker-manifest]
+    needs: [verify-version, publish-images]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -650,9 +597,11 @@ jobs:
           # Sync chart's `version` and `appVersion` to the release tag.
           # Chart's own internal versioning resumes its independent path
           # on the next non-release commit.
-          sed -i -E "s/^version: .*/version: ${version}/" charts/cloacina-server/Chart.yaml
-          sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" charts/cloacina-server/Chart.yaml
-          grep -E "^(version|appVersion):" charts/cloacina-server/Chart.yaml
+          for chart in cloacina-server cloacina-agent; do
+            sed -i -E "s/^version: .*/version: ${version}/" "charts/${chart}/Chart.yaml"
+            sed -i -E "s/^appVersion: .*/appVersion: \"${version}\"/" "charts/${chart}/Chart.yaml"
+            grep -E "^(version|appVersion):" "charts/${chart}/Chart.yaml"
+          done
           # (charts/cloacina-ui retired with the standalone SPA image,
           # I-0130/I-0141 — the UI ships embedded in cloacina-server. T-0940
           # removed the chart: it defaulted to an image that no longer exists.)
@@ -667,11 +616,13 @@ jobs:
       - name: Lint charts
         run: |
           helm lint charts/cloacina-server
+          helm lint charts/cloacina-agent
 
       - name: Package charts
         run: |
           mkdir -p dist-charts
           helm package charts/cloacina-server --destination dist-charts
+          helm package charts/cloacina-agent --destination dist-charts
 
       - name: Push charts to ghcr.io
         env:
@@ -679,9 +630,11 @@ jobs:
         run: |
           set -euo pipefail
           owner_lc=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          chart_pkg=$(ls dist-charts/cloacina-server-*.tgz | head -n1)
-          [ -n "${chart_pkg}" ] || { echo "no cloacina-server chart package found" >&2; exit 1; }
-          helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
+          for chart in cloacina-server cloacina-agent; do
+            chart_pkg=$(ls dist-charts/${chart}-*.tgz | head -n1)
+            [ -n "${chart_pkg}" ] || { echo "no ${chart} chart package found" >&2; exit 1; }
+            helm push "${chart_pkg}" "oci://ghcr.io/${owner_lc}/charts"
+          done
 
   # -----------------------------------------------------------------------
   # Step 6: Cache hygiene
@@ -694,7 +647,7 @@ jobs:
 
   prune-tag-caches:
     name: Prune Tag-Scoped Caches
-    needs: [publish-cargo, publish-pypi, build-release-binaries, publish-docker-manifest, publish-helm]
+    needs: [publish-cargo, publish-pypi, build-release-binaries, publish-images, publish-helm]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

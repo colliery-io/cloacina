@@ -24,6 +24,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import workload
+from .engine import parse_time
+
 SCHEMA_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PSQL_NAMES = ("psql", "psql17", "psql16", "psql15")
 
@@ -91,6 +94,114 @@ class Psql:
             return {"error": "psql did not answer with JSON"}
 
 
+class Logs:
+    """Lines of pod output, read with `kubectl logs` from outside the cluster
+    (CLOACINA-T-1110).
+
+    A pod that a disturbance deletes takes its output with it. So each source
+    keeps the lines it has seen in a file of its own under `store`, for
+    `keep_s` seconds: a line read once stays in later snapshots after its pod
+    is gone. The first read of a source asks for `keep_s` of output; later
+    reads ask for the time since the last one, with a margin.
+    """
+
+    def __init__(self, kubeconfig, namespace, store, kubectl="kubectl", keep_s=3 * 3600,
+                 timeout_s=60):
+        self.env = dict(os.environ)
+        if kubeconfig:
+            self.env["KUBECONFIG"] = str(kubeconfig)
+        self.namespace = namespace
+        self.store = store
+        self.kubectl = kubectl
+        self.keep_s = keep_s
+        self.timeout_s = timeout_s
+
+    def _run(self, args):
+        try:
+            proc = subprocess.run([self.kubectl, *args], env=self.env, capture_output=True,
+                                  text=True, timeout=self.timeout_s, check=False)
+        except Exception as exc:
+            return None, f"{exc.__class__.__name__}: {exc}"
+        if proc.returncode != 0:
+            return None, (proc.stderr or proc.stdout).strip()[:500] or f"kubectl exited {proc.returncode}"
+        return proc.stdout, None
+
+    def where(self, place, tenant):
+        """(namespace, label selector) of a place."""
+        if place == "agents":
+            return workload.agent_namespace(tenant), workload.AGENT_SELECTOR
+        return self.namespace, workload.SERVER_SELECTOR
+
+    def _path(self, place, tenant, name):
+        return os.path.join(self.store, f"{place}-{tenant or 'deployment'}-{name}.json")
+
+    def _load(self, path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                kept = json.load(handle)
+        except (OSError, ValueError):
+            return {"read_at": None, "rows": []}
+        return kept if isinstance(kept, dict) else {"read_at": None, "rows": []}
+
+    def read(self, place, tenant, name, marker, now=None):
+        """One snapshot entry: the kept lines that hold `marker`, and the
+        ready pods of the place."""
+        now = time.time() if now is None else now
+        namespace, selector = self.where(place, tenant)
+        path = self._path(place, tenant, name)
+        kept = self._load(path)
+        last = kept.get("read_at")
+        since = self.keep_s if not last else int(min(self.keep_s, max(300, now - last + 120)))
+        listed, error = self._run(["get", "pods", "-n", namespace, "-l", selector, "-o",
+                                   "jsonpath={range .items[*]}{.metadata.name} "
+                                   "{.status.containerStatuses[0].ready}{\"\\n\"}{end}"])
+        if error:
+            return {"error": f"kubectl get pods in {namespace}: {error}"}
+        pods = sorted(line.split()[0] for line in listed.splitlines()
+                      if len(line.split()) == 2 and line.split()[1] == "true")
+        text, error = self._run(["logs", "-n", namespace, "-l", selector, "--all-containers=true",
+                                 "--prefix", "--timestamps", "--tail=-1", f"--since={since}s",
+                                 "--max-log-requests=20"])
+        if error:
+            return {"error": f"kubectl logs in {namespace}: {error}"}
+        rows = {(row.get("pod"), row.get("at"), row.get("text")): row
+                for row in kept.get("rows") or [] if isinstance(row, dict)}
+        for row in parse_log_lines(text, marker):
+            rows.setdefault((row["pod"], row["at"], row["text"]), row)
+        fresh = sorted((row for row in rows.values()
+                        if (parse_time(row.get("at")) or now) >= now - self.keep_s),
+                       key=lambda row: (str(row.get("at")), str(row.get("pod"))))
+        os.makedirs(self.store, exist_ok=True)
+        temporary = path + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump({"read_at": now, "rows": fresh}, handle)
+        os.replace(temporary, path)
+        return {"rows": fresh, "pods": pods}
+
+
+LOG_PREFIX = re.compile(r"^\[pod/([^/\]]+)/[^\]]*\]\s+")
+
+
+def parse_log_lines(text, marker):
+    """The lines of `kubectl logs --prefix --timestamps` output that hold
+    `marker`: `{"pod", "at", "text"}`, `text` the line with no prefix and no
+    time stamp."""
+    found = []
+    for line in (text or "").splitlines():
+        if marker not in line:
+            continue
+        pod = ""
+        match = LOG_PREFIX.match(line)
+        if match:
+            pod = match.group(1)
+            line = line[match.end():]
+        stamp, _, rest = line.partition(" ")
+        if parse_time(stamp) is None:
+            stamp, rest = None, line
+        found.append({"pod": pod, "at": stamp, "text": rest.strip()})
+    return found
+
+
 def find_psql():
     for name in PSQL_NAMES:
         found = shutil.which(name)
@@ -119,17 +230,57 @@ def read_disturbances(path):
     return found
 
 
-def collect(registry, api, database, keys, disturbances_path=None, now=None):
+def _log_entry(logs, place, tenant, name, marker):
+    if logs is None:
+        return {"error": "no kubeconfig was given; the pods' output is not read"}
+    if tenant is not None and not SCHEMA_NAME.match(tenant):
+        return {"error": f"{tenant!r} is not a tenant name"}
+    return logs.read(place, tenant, name, marker)
+
+
+def fetch(url, timeout_s=15, as_json=True):
+    """One GET with no key, for the channels of the harness (CLOACINA-T-1115):
+    the alert receiver (JSON) and the server's metrics listener (text).
+    Returns a snapshot entry: `{"body": ...}`, `{"text": ...}` or
+    `{"error": ...}`."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout_s) as response:
+            text = response.read().decode("utf-8", "replace")
+    except Exception as exc:
+        return {"error": f"{exc.__class__.__name__}: {exc}"}
+    if not as_json:
+        return {"text": text}
+    try:
+        return {"body": json.loads(text)}
+    except ValueError:
+        return {"error": "the answer is not JSON"}
+
+
+def collect(registry, api, database, keys, disturbances_path=None, now=None, logs=None,
+            alerts_url=None, metrics_url=None):
     """Take one snapshot: every source the registered rules need, for each
-    tenant that has a key."""
+    tenant that has a key. `logs` is a `Logs` reader, or None. With
+    `alerts_url` and `metrics_url`, also the alerts of the last three hours
+    and the server's metrics."""
     snapshot = {
         "taken_at": time.time() if now is None else now,
         "tenants": {},
-        "admin": {"db": {}},
+        "admin": {"db": {}, "logs": {}},
         "disturbances": read_disturbances(disturbances_path),
     }
+    for name, (place, marker) in sorted(registry.log_needs.items()):
+        if place == "server":
+            snapshot["admin"]["logs"][name] = _log_entry(logs, place, None, name, marker)
+    if alerts_url:
+        since = int(float(snapshot["taken_at"])) - 3 * 3600
+        snapshot["alerts"] = fetch(f"{alerts_url}?since={since}")
+    if metrics_url:
+        snapshot["metrics"] = fetch(metrics_url, as_json=False)
     for tenant in sorted(keys):
-        entry = {"api": {}, "db": {}}
+        entry = {"api": {}, "db": {}, "logs": {}}
+        for name, (place, marker) in sorted(registry.log_needs.items()):
+            if place == "agents":
+                entry["logs"][name] = _log_entry(logs, place, tenant, name, marker)
         for name, path in sorted(registry.api_needs.items()):
             entry["api"][name] = api.get(path.replace("{tenant}", tenant), keys[tenant])
         for name, sql in sorted(registry.db_needs.items()):

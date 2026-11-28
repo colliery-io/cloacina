@@ -31,8 +31,10 @@
 //! - **the result pipe** (its number is in [`RESULT_FD_ENV`]): the worker
 //!   writes [`WorkerEvent::Started`] when the package is loaded, then
 //!   [`WorkerEvent::Done`] with the outcome.
-//! - **stdout and stderr** are the agent's: a task's log lines land in the
-//!   agent's log.
+//! - **stdout and stderr** are one pipe that the agent reads
+//!   (CLOACINA-T-1091, [`crate::output`]): each line goes to the agent's log
+//!   with the task's ids, and the last bytes of a task's attempt go with its
+//!   result. After a job the worker writes the job's end line there.
 //!
 //! A secret is never in the worker's arguments or environment. The worker
 //! has no API key: the agent does every request to the server.
@@ -54,9 +56,11 @@
 //! kind, package version, tenant, language and memory limit. Each job is a
 //! line on stdin and gets its own `started` and `done`. The memory limit,
 //! the time limit and the cancel are per job; a kill ends the worker. The
-//! agent empties the worker's `TMPDIR` between jobs, and does not use a
-//! worker again whose job changed its environment or left a process
-//! running. See [`WarmPool`].
+//! agent leaves the worker's `TMPDIR` empty between jobs (it checks it, and
+//! empties it when a job wrote there), and does not use a worker again whose
+//! job changed its environment or left a process running. At its job cap a
+//! worker is replaced by one that loaded the package in the background
+//! (CLOACINA-T-1159). See [`WarmPool`].
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -140,6 +144,15 @@ pub(crate) struct WorkerJob {
     /// `text` or `json`: the format of the agent's log lines.
     pub log_format: String,
     pub max_unpacked_bytes: u64,
+    /// CLOACINA-T-1091: the line the worker writes on stdout when the job
+    /// ends, so the agent knows where the job's output stops. Set by the
+    /// agent for each job; a value the task cannot know.
+    #[serde(default)]
+    pub output_end: Option<String>,
+    /// Load the package and stop: the replacement of a warm worker at its
+    /// job cap (CLOACINA-T-1159). Such a job has no secrets and no data.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub warm_up: bool,
     /// Tests only: what the job does in place of a packaged task.
     #[cfg(test)]
     #[serde(default)]
@@ -158,6 +171,9 @@ pub(crate) struct GraphJob {
     /// `text` or `json`: the format of the agent's log lines.
     pub log_format: String,
     pub max_unpacked_bytes: u64,
+    /// Load the package and stop (CLOACINA-T-1159), as for a task.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub warm_up: bool,
     /// Tests only: what the job does in place of a packaged graph.
     #[cfg(test)]
     #[serde(default)]
@@ -225,7 +241,7 @@ impl WorkerInput {
                 stop_id: Some(job.packet.poll_id.clone()),
                 timeout_seconds: job.packet.timeout_seconds,
                 memory_request: None,
-                name: job.packet.trigger_name.clone(),
+                name: job.packet.target_name().to_string(),
                 noun: "poll",
             },
         }
@@ -269,6 +285,67 @@ impl WorkerInput {
             WorkerInput::Graph(job) => &job.log_format,
             WorkerInput::Poll(job) => &job.log_format,
         }
+    }
+
+    /// The end line of the job's output (CLOACINA-T-1091). Only a task's
+    /// output is kept.
+    fn output_end(&self) -> Option<&str> {
+        match self {
+            WorkerInput::Task(job) => job.output_end.as_deref(),
+            WorkerInput::Graph(_) | WorkerInput::Poll(_) => None,
+        }
+    }
+
+    /// A load-only copy of this job (CLOACINA-T-1159), for the worker that
+    /// replaces one at its job cap: the same package, key and settings, and
+    /// no secrets and no data of the job (no task context, no graph cache).
+    /// `None` for a poll: a poll's worker is retired at the cap and the next
+    /// poll starts a new one, as before. A poll waits for its interval, not
+    /// for a hand-over, and a poll job may consume what it reads.
+    fn warm_up(&self) -> Option<WorkerInput> {
+        Some(match self {
+            WorkerInput::Task(job) => {
+                let mut packet = job.packet.clone();
+                packet.context = serde_json::json!({});
+                packet.wrapped_secrets = Vec::new();
+                packet.secret_key_id = None;
+                // Not the ids of the job it follows: nothing of the load is
+                // taken for that job's attempt.
+                packet.task_execution_id = String::new();
+                packet.dispatch_id = None;
+                WorkerInput::Task(WorkerJob {
+                    packet,
+                    secrets: HashMap::new(),
+                    package: job.package.clone(),
+                    work_dir: job.work_dir.clone(),
+                    log_format: job.log_format.clone(),
+                    max_unpacked_bytes: job.max_unpacked_bytes,
+                    // No capture: a load-only job has no attempt.
+                    output_end: None,
+                    warm_up: true,
+                    #[cfg(test)]
+                    test_action: job.test_action.clone(),
+                })
+            }
+            WorkerInput::Graph(job) => {
+                let mut packet = job.packet.clone();
+                packet.cache = HashMap::new();
+                packet.wrapped_secrets = Vec::new();
+                packet.secret_key_id = None;
+                packet.firing_id = String::new();
+                WorkerInput::Graph(GraphJob {
+                    packet,
+                    package: job.package.clone(),
+                    work_dir: job.work_dir.clone(),
+                    log_format: job.log_format.clone(),
+                    max_unpacked_bytes: job.max_unpacked_bytes,
+                    warm_up: true,
+                    #[cfg(test)]
+                    test_action: job.test_action.clone(),
+                })
+            }
+            WorkerInput::Poll(_) => return None,
+        })
     }
 
     /// The jobs a warm worker of this job may take next (CLOACINA-T-1126):
@@ -331,7 +408,8 @@ pub(crate) struct WarmConfig {
     pub max_idle: usize,
     /// A warm worker idle for longer is ended.
     pub idle_timeout: Duration,
-    /// A worker that has run this many jobs is ended after the last one.
+    /// A worker that has run this many jobs is replaced: a new worker of
+    /// its key loads the package, then the old one ends (CLOACINA-T-1159).
     pub max_jobs: u32,
     /// A worker that holds more than this share of its jobs' memory limit
     /// after a job, in percent, is ended.
@@ -449,6 +527,7 @@ pub(crate) enum PacketEnd {
 
 /// How the agent starts and holds its workers. One per agent process; tests
 /// make their own.
+#[derive(Clone)]
 pub(crate) struct WorkerSettings {
     /// The agent binary.
     pub program: PathBuf,
@@ -466,6 +545,9 @@ pub(crate) struct WorkerSettings {
     pub work_root: PathBuf,
     /// The warm workers (CLOACINA-T-1126).
     pub warm: Arc<WarmPool>,
+    /// CLOACINA-T-1091: replace the exact values of a task's own secrets by
+    /// `***` in its output (`--task-output-masking`, on by default).
+    pub mask_task_output: bool,
 }
 
 impl WorkerSettings {
@@ -484,6 +566,7 @@ impl WorkerSettings {
                 cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES,
             work_root,
             warm: WarmPool::new(WarmConfig::off()),
+            mask_task_output: true,
         }
     }
 
@@ -765,11 +848,19 @@ mod spawn {
         key: Option<WarmKey>,
         /// The jobs it was given.
         jobs: u32,
+        /// It loaded its package with a load-only job, and has run no job
+        /// since (CLOACINA-T-1159).
+        loaded: bool,
+        /// Past its job cap: the worker that replaces it, as it loads.
+        replacement: Option<Arc<std::sync::atomic::AtomicU8>>,
         idle_since: Instant,
         /// While idle: the watch that counts its memory for the agent, and
         /// where the watchdog says it killed it.
         idle_watch: Option<crate::memory::WatchGuard>,
         idle_stop: Option<mpsc::UnboundedReceiver<StopReason>>,
+        /// CLOACINA-T-1091: where the reader of the worker's stdout and
+        /// stderr puts the lines of the job that runs now.
+        output: crate::output::CaptureSlot,
     }
 
     /// How one job on a worker ended.
@@ -842,7 +933,7 @@ mod spawn {
                         pool.count_retired("dirty");
                         retire(worker).await;
                     } else {
-                        pool.give_back(worker, memory_limit, &settings.watchdog)
+                        pool.give_back(worker, memory_limit, settings, input, info)
                             .await;
                     }
                     return PacketEnd::Report(outcome);
@@ -878,6 +969,49 @@ mod spawn {
         .ok()
         .flatten();
         used.is_some_and(|used| used.saturating_mul(100) > limit.saturating_mul(percent))
+    }
+
+    /// The states of the replacement of a worker at its job cap.
+    const REPLACEMENT_LOADING: u8 = 0;
+    const REPLACEMENT_READY: u8 = 1;
+    const REPLACEMENT_FAILED: u8 = 2;
+
+    /// Whether `tmp` is a directory of its own (not a link) that its owner
+    /// may use, with nothing in it: one `lstat` and one read of the
+    /// directory, on this thread (CLOACINA-T-1159).
+    pub(crate) fn tmp_is_clean(tmp: &std::path::Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::symlink_metadata(tmp)
+            .is_ok_and(|m| m.file_type().is_dir() && m.permissions().mode() & 0o700 == 0o700)
+            && std::fs::read_dir(tmp).is_ok_and(|mut entries| entries.next().is_none())
+    }
+
+    /// Leave a worker's `TMPDIR` an empty directory, for the next job
+    /// (CLOACINA-T-1126). A job that wrote nothing there costs one check: the
+    /// directory stays as it is. Anything else (a file in it, a link or a
+    /// file in its place, a directory the agent cannot read) is removed and
+    /// the directory made again. The path stays: Python keeps the one it
+    /// found. `false`: it could not be made empty; the worker must go.
+    pub(crate) async fn reset_tmp(tmp: &std::path::Path) -> bool {
+        if tmp_is_clean(tmp) {
+            return true;
+        }
+        let tmp = tmp.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            match std::fs::symlink_metadata(&tmp) {
+                Ok(meta) if meta.file_type().is_dir() => {
+                    let _ = std::fs::remove_dir_all(&tmp);
+                }
+                Ok(_) => {
+                    let _ = std::fs::remove_file(&tmp);
+                }
+                Err(_) => {}
+            }
+            let _ = std::fs::create_dir_all(&tmp);
+            tmp_is_clean(&tmp)
+        })
+        .await
+        .unwrap_or(false)
     }
 
     impl Worker {
@@ -949,46 +1083,199 @@ mod spawn {
 
         /// A worker whose job ended well and left it clean: keep it for the
         /// next job of its key, or retire it.
+        ///
+        /// At its job cap (CLOACINA-T-1159) a worker is not retired at once:
+        /// a new worker of its key loads the package in the background, and
+        /// the old one takes the jobs of its key until the new one is idle.
+        /// So no job of the key waits for a cold start. If the new worker
+        /// fails to load, the old one is retired on its next return.
         async fn give_back(
             self: &Arc<Self>,
             mut worker: Worker,
             memory_limit: Option<u64>,
-            watchdog: &Arc<Watchdog>,
+            settings: &WorkerSettings,
+            input: &WorkerInput,
+            info: &JobInfo,
         ) {
-            let reason = if worker.jobs >= self.config.max_jobs {
-                Some("max_jobs")
-            } else if over_memory(worker.pid, memory_limit, self.config.max_memory_percent).await {
-                Some("memory")
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                self.count_retired(reason);
+            if over_memory(worker.pid, memory_limit, self.config.max_memory_percent).await {
+                self.count_retired("memory");
                 retire(worker).await;
                 return;
             }
+            if worker.jobs >= self.config.max_jobs {
+                let state = worker
+                    .replacement
+                    .as_ref()
+                    .map(|s| s.load(std::sync::atomic::Ordering::SeqCst));
+                match state {
+                    None => match input.warm_up() {
+                        Some(job) => {
+                            worker.replacement = Some(self.start_replacement(
+                                settings,
+                                input,
+                                job,
+                                info,
+                                memory_limit,
+                                worker.pid,
+                            ));
+                        }
+                        // A poll: retired at the cap, as before.
+                        None => {
+                            self.count_retired("max_jobs");
+                            retire(worker).await;
+                            return;
+                        }
+                    },
+                    Some(REPLACEMENT_LOADING) => {}
+                    // Replaced, or the replacement failed: the old worker
+                    // goes. Its job is done and it runs nothing: the report
+                    // does not wait for its end.
+                    Some(_) => {
+                        self.count_retired("max_jobs");
+                        tokio::spawn(retire(worker));
+                        return;
+                    }
+                }
+            }
             // Nothing a job wrote to its temporary directory is there for
-            // the next one. The path stays: Python keeps the one it found.
-            let _ = tokio::fs::remove_dir_all(&worker.tmp_dir).await;
-            if tokio::fs::create_dir_all(&worker.tmp_dir).await.is_err() {
+            // the next one.
+            if !reset_tmp(&worker.tmp_dir).await {
                 self.count_retired("dirty");
                 retire(worker).await;
                 return;
             }
+            self.park(worker, &settings.watchdog, None).await;
+        }
+
+        /// Put a worker on the idle list, watched for the agent's memory.
+        /// `replaces`: the pid of an idle worker it takes the place of, and
+        /// the state to set to [`REPLACEMENT_READY`] in the same step.
+        async fn park(
+            self: &Arc<Self>,
+            mut worker: Worker,
+            watchdog: &Arc<Watchdog>,
+            replaces: Option<(u32, &std::sync::atomic::AtomicU8)>,
+        ) {
             let (stop_tx, stop_rx) = mpsc::unbounded_channel();
             worker.idle_watch = Some(watchdog.watch_idle(worker.pid, stop_tx));
             worker.idle_stop = Some(stop_rx);
             worker.idle_since = Instant::now();
-            let evicted = {
+            let (replaced, evicted) = {
                 let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+                let replaced = replaces.and_then(|(pid, state)| {
+                    state.store(REPLACEMENT_READY, std::sync::atomic::Ordering::SeqCst);
+                    idle.iter()
+                        .position(|w| w.pid == pid)
+                        .map(|at| idle.remove(at))
+                });
                 idle.push(worker);
-                (idle.len() > self.config.max_idle).then(|| idle.remove(0))
+                let evicted = (idle.len() > self.config.max_idle).then(|| idle.remove(0));
+                (replaced, evicted)
             };
+            if let Some(old) = replaced {
+                self.count_retired("max_jobs");
+                retire(old).await;
+            }
             if let Some(oldest) = evicted {
                 self.count_retired("pool_full");
                 retire(oldest).await;
             }
             self.start_sweeper();
+        }
+
+        /// Start the worker that replaces the worker `old_pid` at its job
+        /// cap (CLOACINA-T-1159): a new process of the same key loads the
+        /// package with a load-only job ([`WorkerInput::warm_up`]: no
+        /// secrets, no job data), then takes the old one's place on the idle
+        /// list. It holds no slot; while it loads, the watchdog holds it to
+        /// the key's memory limit, and the load allowance bounds its time.
+        fn start_replacement(
+            self: &Arc<Self>,
+            settings: &WorkerSettings,
+            input: &WorkerInput,
+            mut job: WorkerInput,
+            info: &JobInfo,
+            memory_limit: Option<u64>,
+            old_pid: u32,
+        ) -> Arc<std::sync::atomic::AtomicU8> {
+            let state = Arc::new(std::sync::atomic::AtomicU8::new(REPLACEMENT_LOADING));
+            let pool = self.clone();
+            let settings = settings.clone();
+            let info = JobInfo {
+                stop_id: None,
+                timeout_seconds: info.timeout_seconds,
+                memory_request: info.memory_request,
+                name: info.name.clone(),
+                noun: info.noun,
+            };
+            let key = input.warm_key(memory_limit);
+            let shared = state.clone();
+            tokio::spawn(async move {
+                let loaded = pool
+                    .load_replacement(
+                        &settings,
+                        &mut job,
+                        &info,
+                        memory_limit,
+                        key,
+                        old_pid,
+                        &shared,
+                    )
+                    .await;
+                if !loaded {
+                    shared.store(REPLACEMENT_FAILED, std::sync::atomic::Ordering::SeqCst);
+                }
+            });
+            state
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        async fn load_replacement(
+            self: &Arc<Self>,
+            settings: &WorkerSettings,
+            job: &mut WorkerInput,
+            info: &JobInfo,
+            memory_limit: Option<u64>,
+            key: WarmKey,
+            old_pid: u32,
+            state: &std::sync::atomic::AtomicU8,
+        ) -> bool {
+            let mut worker = match start_worker(info, settings, memory_limit, Some(key)).await {
+                Ok(worker) => worker,
+                Err(_) => return false,
+            };
+            let mut no_cancel = None;
+            let end = run_on(
+                &mut worker,
+                job,
+                info,
+                settings,
+                memory_limit,
+                &mut no_cancel,
+            )
+            .await;
+            let loaded = matches!(
+                end,
+                JobEnd::Done {
+                    outcome: AgentOutcome::Success { .. },
+                    reusable: true,
+                    stopped: false,
+                }
+            );
+            if !loaded || !reset_tmp(&worker.tmp_dir).await {
+                debug!(
+                    pid = worker.pid,
+                    job = %info.name,
+                    "the replacement of a warm worker did not load its package"
+                );
+                retire(worker).await;
+                return false;
+            }
+            worker.jobs = 0;
+            worker.loaded = true;
+            self.park(worker, &settings.watchdog, Some((old_pid, state)))
+                .await;
+            true
         }
 
         /// Retire idle workers past their idle time, and dead ones, on a
@@ -1063,6 +1350,26 @@ mod spawn {
             }
         };
         let result_fd = result_write.as_raw_fd();
+        // CLOACINA-T-1091: stdout and stderr are one pipe, read as one
+        // stream.
+        let (output_read, output_write) = match std::io::pipe() {
+            Ok(pipe) => pipe,
+            Err(e) => {
+                return Err(failure(
+                    FailureClassification::Transient,
+                    format!("open the output pipe of the worker: {e}"),
+                ));
+            }
+        };
+        let output_write_err = match output_write.try_clone() {
+            Ok(pipe) => pipe,
+            Err(e) => {
+                return Err(failure(
+                    FailureClassification::Transient,
+                    format!("open the output pipe of the worker: {e}"),
+                ));
+            }
+        };
         let mut rlimits = worker_rlimits(
             memory_limit,
             info.timeout_seconds,
@@ -1077,7 +1384,10 @@ mod spawn {
         let rlimits = rlimits.capped_at_own_limits();
         let mut policy = ChildPolicy::worker(rlimits)
             .env(RESULT_FD_ENV, result_fd.to_string())
-            .env("TMPDIR", &tmp_dir);
+            .env("TMPDIR", &tmp_dir)
+            // CLOACINA-T-1091: a Python task's lines reach the pipe as it
+            // writes them, so none is still in a buffer at the end line.
+            .env("PYTHONUNBUFFERED", "1");
         for (name, value) in &settings.env {
             policy = policy.env(name, value);
         }
@@ -1090,8 +1400,8 @@ mod spawn {
         let mut cmd = build_child_command(program, &policy, ChildStep::Build);
         cmd.args(&settings.args)
             .stdin(Stdio::piped())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+            .stdout(Stdio::from(output_write))
+            .stderr(Stdio::from(output_write_err));
         // SAFETY: the closure runs after fork and before exec. It calls only
         // `fcntl`, which is async-signal-safe, and does not allocate. It lets
         // the write end of the result pipe pass the exec, in this child only.
@@ -1118,7 +1428,11 @@ mod spawn {
             }
         };
         drop(result_write);
+        // The agent's copies of the write ends of the output pipe go with
+        // the command, so the pipe closes when the worker's group has exited.
+        drop(cmd);
         let pid = child.id().unwrap_or(0);
+        let output = crate::output::spawn_reader(output_read, pid);
         // The jobs go in on stdin. The pipe stays open for the life of the
         // worker: the worker reads its end to learn that the agent is gone.
         let stdin = child.stdin.take();
@@ -1145,15 +1459,111 @@ mod spawn {
             tmp_dir,
             key,
             jobs: 0,
+            loaded: false,
+            replacement: None,
             idle_since: Instant::now(),
             idle_watch: None,
             idle_stop: None,
+            output,
         })
+    }
+
+    /// How long the agent waits, after a job ended, for the rest of its
+    /// output to come through the pipe (CLOACINA-T-1091).
+    const OUTPUT_DRAIN: Duration = Duration::from_secs(2);
+
+    /// Run one job on a worker, and keep the end of a task's output for its
+    /// report (CLOACINA-T-1091).
+    async fn run_on(
+        worker: &mut Worker,
+        input: &mut WorkerInput,
+        info: &JobInfo,
+        settings: &WorkerSettings,
+        memory_limit: Option<u64>,
+        cancel: &mut Option<oneshot::Receiver<()>>,
+    ) -> JobEnd {
+        let captured = begin_capture(worker, input, settings);
+        let end = run_job_on(worker, input, info, settings, memory_limit, cancel).await;
+        if let Some((key, mut done)) = captured {
+            if matches!(end, JobEnd::NotTaken) {
+                // The job goes to another worker, with a capture of its own.
+                worker
+                    .output
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+            } else {
+                let output = match tokio::time::timeout(OUTPUT_DRAIN, &mut done).await {
+                    Ok(Ok(output)) => Some(output),
+                    // The end line did not come in time (a process the task
+                    // started still holds the pipe): close the capture here.
+                    _ => {
+                        crate::output::close(&worker.output);
+                        done.try_recv().ok()
+                    }
+                };
+                if let Some(output) = output {
+                    crate::output::keep_output(key, output);
+                }
+            }
+        }
+        end
+    }
+
+    /// Open the capture of a task's output on the worker, before the job goes
+    /// in. Returns the key of the attempt and where its output comes. `None`
+    /// for a graph firing, a poll and a load-only job.
+    fn begin_capture(
+        worker: &mut Worker,
+        input: &mut WorkerInput,
+        settings: &WorkerSettings,
+    ) -> Option<(String, oneshot::Receiver<cloacina::fleet::AttemptOutput>)> {
+        let WorkerInput::Task(job) = input else {
+            return None;
+        };
+        // CLOACINA-T-1159: a load-only job has no attempt; its lines go to
+        // the agent's log with no task ids, as a worker's start does.
+        if job.warm_up {
+            return None;
+        }
+        let packet = &job.packet;
+        let max_bytes = packet
+            .output_max_bytes
+            .unwrap_or(cloacina::fleet::DEFAULT_TASK_OUTPUT_MAX_BYTES);
+        let end_line = crate::output::new_end_line();
+        job.output_end = Some(end_line.clone());
+        let masker = if settings.mask_task_output {
+            crate::output::Masker::new(
+                job.secrets
+                    .values()
+                    .flat_map(|fields| fields.values().cloned()),
+            )
+        } else {
+            crate::output::Masker::off()
+        };
+        let span = cloacina::task_logs::task_span(
+            packet.tenant_id.as_deref().unwrap_or("public"),
+            &packet.task_name,
+            &packet.workflow_execution_id,
+            packet.attempt,
+            packet.dispatch_id.as_deref(),
+        );
+        let (tx, rx) = oneshot::channel();
+        let capture = crate::output::Capture::new(span, masker, max_bytes, end_line, tx);
+        *worker.output.lock().unwrap_or_else(|e| e.into_inner()) = Some(capture);
+        Some((
+            crate::output::output_key(
+                &packet.task_execution_id,
+                packet.attempt,
+                packet.dispatch_id.as_deref(),
+            ),
+            rx,
+        ))
     }
 
     /// Run one job on a worker and hold it to the job's limits. Returns when
     /// the worker gave its result, or when it has exited.
-    async fn run_on(
+    async fn run_job_on(
         worker: &mut Worker,
         input: &mut WorkerInput,
         info: &JobInfo,
@@ -1199,10 +1609,11 @@ mod spawn {
         // The line holds the secrets: do not keep it.
         line.iter_mut().for_each(|b| *b = 0);
         drop(line);
-        if !taken && worker.jobs > 0 {
+        if !taken && (worker.jobs > 0 || worker.loaded) {
             return JobEnd::NotTaken;
         }
         worker.jobs += 1;
+        worker.loaded = false;
 
         let oom_kills_before = oom_kill_count();
         let job_start = Instant::now();
@@ -1555,6 +1966,7 @@ pub(crate) fn worker_main() -> ! {
         #[cfg(target_os = "linux")]
         limit_cpu_for_job(cpu_allowance(job.info().timeout_seconds));
 
+        let output_end = job.output_end().map(str::to_string);
         // CLOACINA-T-1126: what a job could leave for the next one.
         let env_before = environment();
         let outcome = runtime.block_on(async {
@@ -1566,8 +1978,31 @@ pub(crate) fn worker_main() -> ! {
             }
         });
         let reusable = environment() == env_before && !has_live_children();
+        // CLOACINA-T-1091: what the task wrote goes out first, then the end
+        // line of its output, then the result.
+        if let Some(end_line) = &output_end {
+            end_output(end_line);
+        }
         write_event(&WorkerEvent::Done { outcome, reusable });
     }
+}
+
+/// Flush what the job wrote on stdout and stderr (Rust and C buffers), then
+/// write the job's end line on stdout (CLOACINA-T-1091). Python writes
+/// unbuffered: the agent starts the worker with `PYTHONUNBUFFERED=1`.
+#[cfg(unix)]
+fn end_output(end_line: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    // SAFETY: `fflush(NULL)` flushes every C output stream; no pointer is
+    // read.
+    unsafe {
+        libc::fflush(std::ptr::null_mut());
+    }
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{end_line}");
+    let _ = out.flush();
 }
 
 /// The environment of this process, to compare before and after a job.
@@ -1646,6 +2081,17 @@ pub(crate) mod tests {
         WriteTemp { file: String },
         /// Set the environment variable `name` to `value`.
         SetEnv { name: String, value: String },
+        /// CLOACINA-T-1091: write `stdout` with `print!`, `stderr` with
+        /// `eprint!` and `c_stdout` with C `printf` (buffered), then fail
+        /// when `fail`, else block for `block_ms` (0: succeed at once).
+        Print {
+            stdout: String,
+            stderr: String,
+            #[serde(default)]
+            c_stdout: String,
+            fail: bool,
+            block_ms: u64,
+        },
     }
 
     /// Run a test action. Called by `run_job` in place of the package load.
@@ -1712,10 +2158,42 @@ pub(crate) mod tests {
                 ok(serde_json::json!({ "pid": std::process::id() }))
             }
             TestAction::Crash => std::process::abort(),
+            TestAction::Print {
+                stdout,
+                stderr,
+                c_stdout,
+                fail,
+                block_ms,
+            } => {
+                print!("{stdout}");
+                eprint!("{stderr}");
+                if !c_stdout.is_empty() {
+                    let text = std::ffi::CString::new(c_stdout).unwrap();
+                    // SAFETY: a NUL-terminated string and a "%s" format.
+                    unsafe {
+                        libc::printf(c"%s".as_ptr(), text.as_ptr());
+                    }
+                }
+                if block_ms > 0 {
+                    std::thread::sleep(Duration::from_millis(block_ms));
+                }
+                if fail {
+                    AgentOutcome::Failure {
+                        message: "printed and failed".into(),
+                        classification: FailureClassification::TaskError,
+                    }
+                } else {
+                    ok(serde_json::json!({ "pid": std::process::id() }))
+                }
+            }
         }
     }
 
     const CHILD_ENV: &str = "CLOACINA_AGENT_TEST_WORKER";
+    /// A file the test worker writes its stdout and stderr to, in place of
+    /// the output pipe the agent reads (CLOACINA-T-1158). The test reads it
+    /// as the host log.
+    const CHILD_LOG_ENV: &str = "CLOACINA_AGENT_TEST_WORKER_LOG";
 
     /// The worker of the tests: the test binary runs this one test again as
     /// a child, and the test turns into a worker.
@@ -1723,6 +2201,19 @@ pub(crate) mod tests {
     #[test]
     fn worker_child_entry() {
         if std::env::var_os(CHILD_ENV).is_some() {
+            if let Some(path) = std::env::var_os(CHILD_LOG_ENV) {
+                use std::os::fd::AsRawFd;
+                let log = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .expect("open the host log of the test");
+                // SAFETY: `dup2` onto this process's own stdout and stderr.
+                unsafe {
+                    libc::dup2(log.as_raw_fd(), 1);
+                    libc::dup2(log.as_raw_fd(), 2);
+                }
+            }
             worker_main();
         }
     }
@@ -1786,6 +2277,7 @@ pub(crate) mod tests {
                 cpu_millis: None,
                 memory_bytes: None,
                 inline: false,
+                output_max_bytes: None,
             },
             secrets: HashMap::new(),
             package: PreparedPackage {
@@ -1798,6 +2290,8 @@ pub(crate) mod tests {
             work_dir: PathBuf::new(),
             log_format: "text".into(),
             max_unpacked_bytes: 1 << 20,
+            output_end: None,
+            warm_up: false,
             test_action: Some(action),
         }
     }
@@ -1833,6 +2327,7 @@ pub(crate) mod tests {
             log_format: "text".into(),
             max_unpacked_bytes:
                 cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES,
+            warm_up: false,
             test_action: action,
         }
     }
@@ -2579,12 +3074,204 @@ pub(crate) mod tests {
         assert_ne!(second, first);
         let third = pid_of(run_here_or_in_worker(job("r-3", report()), &settings).await);
         assert_eq!(third, second, "its second job");
-        assert_eq!(settings.warm.idle_len(), 0, "retired at its job cap");
+        // CLOACINA-T-1159: at its cap the worker is replaced by one that
+        // loaded in the background; then the old one is retired.
+        let replaced = wait_for(|| {
+            let idle = settings.warm.idle_memory();
+            idle.len() == 1 && idle[0].0 as u64 != third && !is_alive(third as u32)
+        })
+        .await;
+        assert!(replaced, "replaced and retired at its job cap");
         let fourth = pid_of(run_here_or_in_worker(job("r-4", report()), &settings).await);
         assert_ne!(fourth, third);
         let counts = counts(&settings);
         assert_eq!(counts.retired.get("idle"), Some(&1));
         assert_eq!(counts.retired.get("max_jobs"), Some(&1));
+        assert_eq!(
+            (counts.cold_starts, counts.warm_starts),
+            (2, 2),
+            "the job after the cap ran on the loaded replacement"
+        );
+    }
+
+    /// Wait up to 10 s for `done`.
+    #[cfg(unix)]
+    async fn wait_for(mut done: impl FnMut() -> bool) -> bool {
+        for _ in 0..400 {
+            if done() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        false
+    }
+
+    /// CLOACINA-T-1159: a run of jobs over the job cap pays no cold start
+    /// after the first: the old worker takes jobs until its replacement has
+    /// loaded, then the replacement takes them. Each old worker ends.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_worker_at_its_job_cap_is_replaced_without_a_cold_start() {
+        let settings = warm_settings(
+            "warm-cap",
+            WarmConfig {
+                max_jobs: 3,
+                ..warm_config()
+            },
+        );
+        let report = || TestAction::Report { secret: None };
+        let mut pids = Vec::new();
+        for n in 0..40 {
+            pids.push(pid_of(
+                run_here_or_in_worker(job(&format!("cap-{n}"), report()), &settings).await,
+            ));
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let mut seen: Vec<u64> = Vec::new();
+        for pid in &pids {
+            if seen.last() != Some(pid) {
+                assert!(!seen.contains(pid), "a retired worker came back: {pids:?}");
+                seen.push(*pid);
+            }
+        }
+        assert!(seen.len() >= 2, "the worker was replaced: {pids:?}");
+        let counts = counts(&settings);
+        assert_eq!(
+            counts.cold_starts, 1,
+            "no cold start after the first: {pids:?}"
+        );
+        assert_eq!(counts.warm_starts, 39);
+        let last = *seen.last().unwrap();
+        let ended = wait_for(|| {
+            seen.iter()
+                .filter(|p| **p != last)
+                .all(|p| !is_alive(*p as u32))
+        })
+        .await;
+        assert!(ended, "every replaced worker ended");
+    }
+
+    /// CLOACINA-T-1159: the load-only job of a replacement carries no
+    /// secrets and no data of the job it follows.
+    #[test]
+    fn the_load_only_job_has_no_secrets_and_no_job_data() {
+        const VALUE: &str = "s3cr3t-value-of-t-1159";
+        let mut task = job("w-task", TestAction::Report { secret: None });
+        task.secrets.insert(
+            "warehouse".into(),
+            [("password".to_string(), VALUE.to_string())].into(),
+        );
+        task.packet.context = serde_json::json!({ "input": VALUE });
+        task.output_end = Some(format!("end-line-{VALUE}"));
+        let mut graph = graph_job("w_graph", None);
+        graph.packet.cache.insert("src".into(), VALUE.into());
+        for input in [WorkerInput::Task(task), WorkerInput::Graph(graph)] {
+            let warm = input.warm_up().expect("a load-only job");
+            // No capture of its output: it has no attempt (CLOACINA-T-1091).
+            assert_eq!(warm.output_end(), None);
+            let line = serde_json::to_string(&warm).unwrap();
+            assert!(!line.contains(VALUE), "{line}");
+            assert!(!line.contains("task-w-task") && !line.contains("dispatch-w-task"));
+            assert!(!line.contains("firing-w_graph"), "{line}");
+            assert!(line.contains("\"warm_up\":true"), "{line}");
+            assert_eq!(
+                warm.warm_key(Some(1)),
+                input.warm_key(Some(1)),
+                "the same key"
+            );
+        }
+        // An ordinary job line does not name the field.
+        let plain = serde_json::to_string(&WorkerInput::Task(job("w-plain", TestAction::Crash)));
+        assert!(!plain.unwrap().contains("warm_up"));
+        // A poll has none: its worker is retired at the cap.
+        assert!(
+            WorkerInput::Poll(poll_job("w_poll", None))
+                .warm_up()
+                .is_none()
+        );
+    }
+
+    /// CLOACINA-T-1159: the temp check keeps an empty directory as it is,
+    /// and empties or makes again anything else.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_temp_check_keeps_an_empty_directory_and_empties_anything_else() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = tempdir("tmp-check");
+        let tmp = root.join("tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let ino = std::fs::metadata(&tmp).unwrap().ino();
+        assert!(spawn::reset_tmp(&tmp).await);
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().ino(),
+            ino,
+            "left as it was"
+        );
+
+        std::fs::create_dir_all(tmp.join("sub")).unwrap();
+        std::fs::write(tmp.join("sub").join("left.txt"), "x").unwrap();
+        assert!(!spawn::tmp_is_clean(&tmp));
+        assert!(spawn::reset_tmp(&tmp).await);
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0, "emptied");
+
+        // A link in its place, to a directory with a file in it.
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("kept.txt"), "x").unwrap();
+        std::fs::remove_dir(&tmp).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &tmp).unwrap();
+        assert!(!spawn::tmp_is_clean(&tmp));
+        assert!(spawn::reset_tmp(&tmp).await);
+        let meta = std::fs::symlink_metadata(&tmp).unwrap();
+        assert!(meta.file_type().is_dir(), "a directory again, not a link");
+        assert!(
+            elsewhere.join("kept.txt").exists(),
+            "the link's target is not touched"
+        );
+
+        // An empty directory its owner may not write to.
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o500)).unwrap();
+        assert!(!spawn::tmp_is_clean(&tmp));
+        assert!(spawn::reset_tmp(&tmp).await);
+        assert!(spawn::tmp_is_clean(&tmp));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// CLOACINA-T-1159: a job that wrote nothing to its temporary directory
+    /// leaves the same directory for the next one; a job that wrote leaves
+    /// an empty one.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_job_that_wrote_nothing_keeps_its_temp_directory() {
+        use std::os::unix::fs::MetadataExt;
+        let settings = warm_settings("warm-tmp-kept", warm_config());
+        let report = || TestAction::Report { secret: None };
+        let first = success(run_here_or_in_worker(job("tk-1", report()), &settings).await);
+        let tmp = PathBuf::from(first["tmpdir"].as_str().unwrap());
+        let ino = std::fs::metadata(&tmp).unwrap().ino();
+        let second = success(run_here_or_in_worker(job("tk-2", report()), &settings).await);
+        assert_eq!(second["pid"], first["pid"], "the same worker");
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().ino(),
+            ino,
+            "not made again"
+        );
+        let wrote = pid_of(
+            run_here_or_in_worker(
+                job(
+                    "tk-3",
+                    TestAction::WriteTemp {
+                        file: "left.txt".into(),
+                    },
+                ),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(Some(wrote), first["pid"].as_u64());
+        let after = success(run_here_or_in_worker(job("tk-4", report()), &settings).await);
+        assert_eq!(after["pid"], first["pid"]);
+        assert_eq!(after["tmp_files"], serde_json::json!([]), "{after}");
     }
 
     /// The secrets of one job are not readable by the next job of the
@@ -2897,6 +3584,7 @@ pub(crate) mod tests {
                 tenant_id: None,
                 language: Some("rust".into()),
                 not_after_unix_ms: None,
+                accumulator_name: None,
             },
             package: PreparedPackage {
                 digest: "none".into(),
@@ -2973,6 +3661,107 @@ pub(crate) mod tests {
             }
             PacketEnd::Cancelled => panic!("the poll was cancelled"),
         }
+    }
+
+    /// Build the fixture `examples/fixtures/task-logs-rust` once per test
+    /// process and give the path of its library. It is built under
+    /// `CARGO_TARGET_DIR` when the test has one.
+    fn task_logs_library() -> &'static std::path::Path {
+        static LIBRARY: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        LIBRARY.get_or_init(|| {
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../examples/fixtures/task-logs-rust");
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(|d| PathBuf::from(d).join("fixture-task-logs-rust"))
+                .unwrap_or_else(|| dir.join("target"));
+            let status = std::process::Command::new(env!("CARGO"))
+                .arg("build")
+                .current_dir(&dir)
+                .env("CARGO_TARGET_DIR", &target)
+                .status()
+                .expect("start cargo build of the task-logs-rust fixture");
+            assert!(status.success(), "the task-logs-rust fixture builds");
+            let ext = if cfg!(target_os = "macos") {
+                "dylib"
+            } else {
+                "so"
+            };
+            let path = target
+                .join("debug")
+                .join(format!("libtask_logs_rust.{ext}"));
+            assert!(path.exists(), "built library at {}", path.display());
+            path
+        })
+    }
+
+    /// Text with its ANSI colour codes taken out.
+    fn without_ansi(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                // `ESC [ ... <letter>`
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// CLOACINA-T-1158: a Rust poll trigger's `tracing` line reaches the
+    /// host log when the poll runs in a worker process, inside the span
+    /// `poll` with the poll's ids. The worker writes its stdout and stderr to
+    /// the output pipe the agent reads; here the test worker writes them to a
+    /// file, the host log.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_rust_poll_triggers_log_line_reaches_the_host_log_from_a_worker() {
+        let mut settings = test_settings("poll-log", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let host_log = settings.work_root.join("host.log");
+        settings
+            .env
+            .push((CHILD_LOG_ENV.to_string(), host_log.display().to_string()));
+        // A copy at its own path, as a build the agent fetched.
+        let library = settings.work_root.join(
+            task_logs_library()
+                .file_name()
+                .expect("the library has a file name"),
+        );
+        std::fs::copy(task_logs_library(), &library).unwrap();
+
+        let mut one = poll_job("t1158", None);
+        one.packet.poll_id = "p-1158".into();
+        one.packet.trigger_name = "task_logs_poll".into();
+        one.packet.package_name = "task-logs-rust".into();
+        one.packet.workflow_name = "task_logs_workflow".into();
+        one.packet.tenant_id = Some("acme".into());
+        one.package.digest = format!("t1158-{}", std::process::id());
+        one.package.library = Some(library);
+
+        let answer = poll_answer(run_poll_in_worker(one, &settings).await);
+        assert!(!answer.should_fire(), "the fixture skips");
+
+        let log = without_ansi(&std::fs::read_to_string(&host_log).unwrap_or_default());
+        let line = log
+            .lines()
+            .find(|line| line.contains("packaged poll line"))
+            .unwrap_or_else(|| panic!("the poll's tracing line is in the host log:\n{log}"))
+            .to_string();
+        println!("{line}");
+        assert!(line.contains(" INFO "), "level kept: {line}");
+        assert!(line.contains("task_logs::poll"), "target kept: {line}");
+        assert!(
+            line.contains(
+                "poll{tenant=acme package=task-logs-rust trigger=task_logs_poll poll_id=p-1158}"
+            ),
+            "the poll's ids: {line}"
+        );
     }
 
     /// A poll has no memory request: it is held to the share of the agent.
@@ -3115,6 +3904,127 @@ pub(crate) mod tests {
         );
     }
 
+    // ── Polls of polling accumulators (CLOACINA-T-1156) ───────────────────
+
+    /// Pack a Python graph package with two polling accumulators and a
+    /// reactor: `t1156_tick` answers the process id as `polled_by`,
+    /// `t1156_quiet` answers `None`.
+    fn python_accumulator_package(dir: &std::path::Path) -> PreparedPackage {
+        let source = dir.join("t1156-py");
+        std::fs::create_dir_all(source.join("workflow/t1156_py")).unwrap();
+        std::fs::write(
+            source.join("package.toml"),
+            "[package]\nname = \"t1156-py\"\nversion = \"0.1.0\"\n\
+             interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+             extension = \"cloacina\"\n\n[metadata]\ngraph_name = \"t1156_graph\"\n\
+             language = \"python\"\ndescription = \"worker test\"\n\
+             entry_module = \"t1156_py.graph\"\nreaction_mode = \"when_any\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("workflow/t1156_py/__init__.py"), "").unwrap();
+        std::fs::write(
+            source.join("workflow/t1156_py/graph.py"),
+            "import os\nimport cloaca\n\n\n\
+             @cloaca.polling_accumulator(interval=\"5s\")\n\
+             def t1156_tick():\n    return {\"polled_by\": os.getpid()}\n\n\n\
+             @cloaca.polling_accumulator(interval=\"5s\")\n\
+             def t1156_quiet():\n    return None\n\n\n\
+             @cloaca.reactor(name=\"t1156_reactor\", accumulators=[\"t1156_tick\", \"t1156_quiet\"], mode=\"when_any\")\n\
+             class _Reactor:\n    pass\n",
+        )
+        .unwrap();
+        let archive = dir.join("t1156-py.cloacina");
+        fidius_core::package::pack_package(&source, Some(&archive)).unwrap();
+        PreparedPackage {
+            digest: format!("t1156-py-{}", std::process::id()),
+            library: None,
+            source_archive: Some(archive),
+            vendored_set: None,
+            providers: Providers::None,
+        }
+    }
+
+    /// A poll of `accumulator` in the package of
+    /// [`python_accumulator_package`].
+    fn python_accumulator_job(name: &str, package: &PreparedPackage, accumulator: &str) -> PollJob {
+        let mut one = poll_job(name, None);
+        one.package = package.clone();
+        one.packet.language = Some("python".into());
+        one.packet.package_name = "t1156-py".into();
+        one.packet.workflow_name = String::new();
+        one.packet.trigger_name = String::new();
+        one.packet.accumulator_name = Some(accumulator.to_string());
+        one
+    }
+
+    /// The value as the server reads it from the report.
+    fn accumulator_answer(end: PacketEnd) -> Option<serde_json::Value> {
+        match end {
+            PacketEnd::Report(outcome) => {
+                match cloacina::fleet::accumulator_poll_from_outcome(outcome) {
+                    Ok(answer) => answer,
+                    Err(e) => panic!("not an accumulator poll answer: {e}"),
+                }
+            }
+            PacketEnd::Cancelled => panic!("the poll was cancelled"),
+        }
+    }
+
+    /// A real Python polling accumulator's poll function runs in a worker:
+    /// its value reaches the server with the worker's process id; `None` is
+    /// no change; an accumulator the package does not have fails with why.
+    /// The same poll in the agent process gives the value from this process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_python_polling_accumulator_runs_in_a_worker_and_answers_its_value() {
+        let settings = test_settings("py-acc-poll", fast_watchdog(AgentMemory::Unknown));
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let package = python_accumulator_package(&settings.work_root);
+        let here = std::process::id();
+
+        let value = accumulator_answer(
+            run_poll_in_worker(
+                python_accumulator_job("acc_tick", &package, "t1156_tick"),
+                &settings,
+            )
+            .await,
+        )
+        .expect("a value");
+        let polled_by = value["polled_by"].as_u64().unwrap();
+        assert_ne!(polled_by, u64::from(here), "a worker process ran the poll");
+
+        let quiet = accumulator_answer(
+            run_poll_in_worker(
+                python_accumulator_job("acc_quiet", &package, "t1156_quiet"),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(quiet, None, "no change");
+
+        let missing = run_poll_in_worker(
+            python_accumulator_job("acc_missing", &package, "t1156_none"),
+            &settings,
+        )
+        .await;
+        let (class, message) = failure(missing);
+        assert_eq!(class, FailureClassification::TaskError);
+        assert!(
+            message.contains("has no polling accumulator 't1156_none'"),
+            "{message}"
+        );
+
+        cloacina_python::install();
+        let mut inline = python_accumulator_job("acc_inline", &package, "t1156_tick");
+        inline.work_dir = settings.work_root.join("t1156-inline");
+        let value = cloacina::fleet::accumulator_poll_from_outcome(
+            crate::run_poll_job(inline, Some(Duration::from_secs(30)), || {}).await,
+        )
+        .expect("an answer")
+        .expect("a value");
+        assert_eq!(value["polled_by"].as_u64(), Some(u64::from(here)));
+    }
+
     /// A second poll of one build reuses the warm worker, under a key of
     /// kind `poll`: a task of the same build does not take it, nor a poll of
     /// another tenant.
@@ -3234,6 +4144,127 @@ pub(crate) mod tests {
             )
             .await,
         );
+    }
+
+    // ── The output of a task (CLOACINA-T-1091) ────────────────────────────
+
+    fn print_job(name: &str, stdout: &str, stderr: &str, fail: bool, block_ms: u64) -> WorkerJob {
+        job(
+            name,
+            TestAction::Print {
+                stdout: stdout.into(),
+                stderr: stderr.into(),
+                c_stdout: String::new(),
+                fail,
+                block_ms,
+            },
+        )
+    }
+
+    fn taken_output(job: &WorkerJob) -> cloacina::fleet::AttemptOutput {
+        let key = crate::output::output_key(
+            &job.packet.task_execution_id,
+            job.packet.attempt,
+            job.packet.dispatch_id.as_deref(),
+        );
+        crate::output::take_output(&key).expect("the attempt's output is kept")
+    }
+
+    /// stdout and stderr of a task that fails are one stream; the exact
+    /// value of its own secret is masked; the attempt's output is kept for
+    /// its report.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_task_keeps_its_stdout_and_stderr_masked() {
+        let settings = test_settings("output-fail", fast_watchdog(AgentMemory::Unknown));
+        let mut one = print_job(
+            "output-fail",
+            "out line with hunter2\n",
+            "err line\n",
+            true,
+            0,
+        );
+        one.secrets.insert(
+            "db".into(),
+            BTreeMap::from([("password".to_string(), "hunter2".to_string())]),
+        );
+        let key_job = print_job("output-fail", "", "", true, 0);
+        let (class, _) = failure(run_here_or_in_worker(one, &settings).await);
+        assert_eq!(class, FailureClassification::TaskError);
+        let out = taken_output(&key_job);
+        assert!(out.text.contains("out line with ***\n"), "{:?}", out.text);
+        assert!(out.text.contains("err line\n"), "{:?}", out.text);
+        assert!(!out.text.contains("hunter2"), "{:?}", out.text);
+        assert!(!out.text.contains("cloacina-output-end"), "{:?}", out.text);
+        assert!(!out.cut);
+    }
+
+    /// A success keeps its output, with the cap of the packet; C stdio
+    /// buffers are flushed before the end line. With masking off the value
+    /// stays.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_success_keeps_the_end_of_its_output_under_the_cap() {
+        let mut settings = test_settings("output-cap", fast_watchdog(AgentMemory::Unknown));
+        settings.mask_task_output = false;
+        let mut one = job(
+            "output-cap",
+            TestAction::Print {
+                stdout: format!("{}END-OF-RUST hunter2\n", "x".repeat(4096)),
+                stderr: String::new(),
+                c_stdout: "from C stdio\n".into(),
+                fail: false,
+                block_ms: 0,
+            },
+        );
+        one.packet.output_max_bytes = Some(64);
+        one.secrets.insert(
+            "db".into(),
+            BTreeMap::from([("password".to_string(), "hunter2".to_string())]),
+        );
+        let key_job = print_job("output-cap", "", "", false, 0);
+        success(run_here_or_in_worker(one, &settings).await);
+        let out = taken_output(&key_job);
+        assert!(out.cut);
+        assert!(out.text.len() <= 64, "{}", out.text.len());
+        assert!(out.total_bytes > 4096, "{}", out.total_bytes);
+        assert!(out.text.contains("from C stdio\n"), "{:?}", out.text);
+        assert!(
+            out.text.contains("hunter2"),
+            "masking is off: {:?}",
+            out.text
+        );
+    }
+
+    /// A task killed at its time limit leaves what it wrote before the kill,
+    /// sent with the failure.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_task_killed_at_its_time_limit_keeps_its_output() {
+        let settings = test_settings("output-time", fast_watchdog(AgentMemory::Unknown));
+        let mut slow = print_job("output-time", "before the kill\n", "", false, 60_000);
+        slow.packet.timeout_seconds = 1;
+        let key_job = print_job("output-time", "", "", false, 0);
+        let (class, _) = failure(run_here_or_in_worker(slow, &settings).await);
+        assert_eq!(class, FailureClassification::Timeout);
+        let out = taken_output(&key_job);
+        assert!(out.text.contains("before the kill\n"), "{:?}", out.text);
+    }
+
+    /// An inline task runs in the agent process: nothing is kept.
+    #[tokio::test]
+    async fn an_inline_task_keeps_no_output() {
+        let settings = test_settings("output-inline", fast_watchdog(AgentMemory::Unknown));
+        let mut one = print_job("output-inline", "inline line\n", "", false, 0);
+        one.packet.inline = true;
+        let key_job = print_job("output-inline", "", "", false, 0);
+        success(run_here_or_in_worker(one, &settings).await);
+        let key = crate::output::output_key(
+            &key_job.packet.task_execution_id,
+            key_job.packet.attempt,
+            key_job.packet.dispatch_id.as_deref(),
+        );
+        assert!(crate::output::take_output(&key).is_none());
     }
 
     // ── A worker does not outlive its agent ───────────────────────────────
@@ -3568,5 +4599,56 @@ pub(crate) mod tests {
         })
         .await;
         idle_memory("python graph");
+    }
+
+    /// CLOACINA-T-1159: the hand-over of a warm worker, and the p99 that the
+    /// job cap gives. 300 empty firings on one key, then 300 that each write
+    /// a temp file, with the default cap of 100 jobs. Run by hand:
+    /// `cargo test -p cloacina-agent -- --ignored --nocapture warm_hand_over_cost`.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "a measurement, run by hand"]
+    async fn warm_hand_over_cost() {
+        fn stats(label: &str, mut times: Vec<Duration>, cold: u64) {
+            times.sort();
+            let n = times.len();
+            println!(
+                "T1159 {label} (n={n}): min {:?}, p50 {:?}, p90 {:?}, p99 {:?}, max {:?}, \
+                 cold starts after the first {cold}",
+                times[0],
+                times[n / 2],
+                times[n * 9 / 10],
+                times[(n * 99 / 100).min(n - 1)],
+                times[n - 1],
+            );
+        }
+        let rounds = 300;
+        for (label, write) in [("empty job", false), ("job that writes a temp file", true)] {
+            let settings = warm_settings(&format!("t1159-{write}"), warm_config());
+            let one = |n: usize| {
+                let action = if write {
+                    TestAction::WriteTemp {
+                        file: format!("f-{n}"),
+                    }
+                } else {
+                    TestAction::Block { ms: 0 }
+                };
+                let mut one = graph_job(&format!("h-{write}-{n}"), Some(action));
+                one.package.digest = format!("t1159-{write}");
+                one
+            };
+            // The first job starts the worker; it is not counted.
+            success(run_graph_here_or_in_worker(one(usize::MAX), &settings).await);
+            let mut times = Vec::with_capacity(rounds);
+            for n in 0..rounds {
+                let at = std::time::Instant::now();
+                let end = run_graph_here_or_in_worker(one(n), &settings).await;
+                times.push(at.elapsed());
+                success(end);
+                // A gap between firings, as a reactor has.
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            stats(label, times, counts(&settings).cold_starts - 1);
+        }
     }
 }

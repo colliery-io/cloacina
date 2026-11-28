@@ -83,6 +83,27 @@ pub fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
+/// The priority of a package, a schedule or a run (CLOACINA-T-1123):
+/// " · priority asked N, given M", or " · priority N" when they are equal.
+pub fn priority_label(asked: u8, given: u8) -> String {
+    if asked == given {
+        format!(" · priority {given}")
+    } else {
+        format!(" · priority asked {asked}, given {given}")
+    }
+}
+
+#[cfg(test)]
+mod priority_label_tests {
+    use super::priority_label;
+
+    #[test]
+    fn the_label_says_asked_and_given_when_they_differ() {
+        assert_eq!(priority_label(5, 5), " · priority 5");
+        assert_eq!(priority_label(2, 5), " · priority asked 2, given 5");
+    }
+}
+
 use aurora_leptos::tokens::token;
 
 /// Health-state → accent color (app vocabulary; the pack renders).

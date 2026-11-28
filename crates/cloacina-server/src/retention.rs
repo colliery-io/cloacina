@@ -22,17 +22,20 @@
 //! `delivery_outbox`. Without this loop nothing removes them.
 //!
 //! Both periods are off by default (CLOACINA-T-1092 for the outbox period):
-//! an operator sets a period to turn a delete on. With both off the loop is
-//! not started.
+//! an operator sets a period to turn a delete on. The stored output of task
+//! attempts (CLOACINA-T-1091) has its own period, on by default at 30 days.
+//! With every period off the loop is not started.
 //!
 //! On each tick the loop, for the admin (`public`) schema and then for every
 //! tenant schema:
 //!
 //! 1. deletes finished runs older than the run-history period, with their
 //!    dependent rows ([`cloacina::dal::unified::RetentionDAL`]);
-//! 2. deletes `delivery_outbox` rows acked longer ago than the outbox period.
+//! 2. deletes `delivery_outbox` rows acked longer ago than the outbox period;
+//! 3. deletes `task_attempt_outputs` rows recorded longer ago than the task
+//!    output period.
 //!
-//! Both steps work in bounded batches, with a cap on batches per schema per
+//! Each step works in bounded batches, with a cap on batches per schema per
 //! tick, so one tick cannot run for long or hold large transactions. A backlog
 //! (first start on an old database) drains over several ticks.
 //!
@@ -71,6 +74,11 @@ const RUN_HISTORY_MAX_BATCHES: usize = 25;
 const OUTBOX_BATCH: i64 = 5_000;
 /// Cap on outbox batches per schema per tick (100,000 rows).
 const OUTBOX_MAX_BATCHES: usize = 20;
+/// Task output rows removed per statement (CLOACINA-T-1091). A row holds up
+/// to the output cap, so the batch is small.
+const TASK_OUTPUT_BATCH: i64 = 500;
+/// Cap on task output batches per schema per tick (10,000 rows).
+const TASK_OUTPUT_MAX_BATCHES: usize = 20;
 
 /// Counter of rows removed, labelled by `table`.
 pub const ROWS_DELETED_METRIC: &str = "cloacina_retention_rows_deleted_total";
@@ -84,34 +92,48 @@ pub struct RetentionConfig {
     pub run_history: Option<Duration>,
     /// Keep acked `delivery_outbox` rows this long. `None` turns it off.
     pub outbox_acked: Option<Duration>,
+    /// Keep the stored output of task attempts this long (CLOACINA-T-1091).
+    /// `None` turns it off. It runs whether run-history retention is on or
+    /// not.
+    pub task_output: Option<Duration>,
     /// Time between passes.
     pub interval: Duration,
 }
 
+/// The default of `--task-output-retention-days` (CLOACINA-T-1091).
+pub const DEFAULT_TASK_OUTPUT_RETENTION_DAYS: u64 = 30;
+
 impl RetentionConfig {
-    /// Builds the config from the server flags. `0` for either period means
-    /// "off" (keep for ever); the interval is at least one second.
-    pub fn from_flags(run_history_days: u64, outbox_acked_s: u64, interval_s: u64) -> Self {
+    /// Builds the config from the server flags. `0` for a period means "off"
+    /// (keep for ever); the interval is at least one second.
+    pub fn from_flags(
+        run_history_days: u64,
+        outbox_acked_s: u64,
+        task_output_days: u64,
+        interval_s: u64,
+    ) -> Self {
         Self {
             run_history: (run_history_days > 0)
                 .then(|| Duration::from_secs(run_history_days.saturating_mul(86_400))),
             outbox_acked: (outbox_acked_s > 0).then(|| Duration::from_secs(outbox_acked_s)),
+            task_output: (task_output_days > 0)
+                .then(|| Duration::from_secs(task_output_days.saturating_mul(86_400))),
             interval: Duration::from_secs(interval_s.max(1)),
         }
     }
 
-    /// `false` when both periods are off: the loop is not started.
+    /// `false` when every period is off: the loop is not started.
     pub fn enabled(&self) -> bool {
-        self.run_history.is_some() || self.outbox_acked.is_some()
+        self.run_history.is_some() || self.outbox_acked.is_some() || self.task_output.is_some()
     }
 }
 
 impl Default for RetentionConfig {
     /// Run history and acked outbox rows kept for ever (each delete is off
-    /// until an operator sets its period), a pass every five minutes: the
-    /// defaults of the server flags.
+    /// until an operator sets its period), task output kept 30 days, a pass
+    /// every five minutes: the defaults of the server flags.
     fn default() -> Self {
-        Self::from_flags(0, 0, 300)
+        Self::from_flags(0, 0, DEFAULT_TASK_OUTPUT_RETENTION_DAYS, 300)
     }
 }
 
@@ -122,6 +144,8 @@ pub struct SchemaSweep {
     pub run_history: RunHistoryDeleted,
     /// Acked `delivery_outbox` rows removed.
     pub outbox_acked: usize,
+    /// `task_attempt_outputs` rows removed by their own age (CLOACINA-T-1091).
+    pub task_output: usize,
     /// A batch cap stopped the pass; the next tick continues.
     pub more: bool,
 }
@@ -192,17 +216,47 @@ pub async fn sweep_schema(
         sweep.more |= hit_cap;
     }
 
+    // CLOACINA-T-1091: task output by its own age, whether run history is
+    // kept or not.
+    if let Some(period) = cfg.task_output {
+        let cut = cutoff(now, period);
+        let mut hit_cap = true;
+        for _ in 0..TASK_OUTPUT_MAX_BATCHES {
+            match dal
+                .task_execution()
+                .delete_attempt_outputs_older_than(cut, TASK_OUTPUT_BATCH)
+                .await
+            {
+                Ok(n) => {
+                    sweep.task_output += n;
+                    if (n as i64) < TASK_OUTPUT_BATCH {
+                        hit_cap = false;
+                        break;
+                    }
+                }
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                    hit_cap = false;
+                    break;
+                }
+            }
+        }
+        sweep.more |= hit_cap;
+    }
+
     (sweep, first_error)
 }
 
 /// Adds one schema's counts to the per-table counter.
 fn record(sweep: &SchemaSweep) {
     for (table, n) in sweep.run_history.per_table() {
-        // `delivery_outbox` gets the acked rows too: one series per table.
-        let n = if table == "delivery_outbox" {
-            n + sweep.outbox_acked
-        } else {
-            n
+        // `delivery_outbox` gets the acked rows too, and
+        // `task_attempt_outputs` the rows removed by age: one series per
+        // table.
+        let n = match table {
+            "delivery_outbox" => n + sweep.outbox_acked,
+            "task_attempt_outputs" => n + sweep.task_output,
+            _ => n,
         };
         if n > 0 {
             metrics::counter!(ROWS_DELETED_METRIC, "table" => table).increment(n as u64);
@@ -216,8 +270,9 @@ fn describe_metrics() {
         "Rows removed by the background retention job (CLOACINA-T-1023), by \
          `table`: workflow_executions, task_executions, \
          task_execution_metadata, contexts, execution_events, recovery_events, \
-         schedule_executions, delivery_outbox. Summed over the admin schema \
-         and all tenant schemas."
+         schedule_executions, delivery_outbox, workflow_execution_package_pins, \
+         task_attempt_errors, task_attempt_outputs. Summed over the admin \
+         schema and all tenant schemas."
     );
     metrics::describe_counter!(
         ERRORS_METRIC,
@@ -232,12 +287,13 @@ fn describe_metrics() {
 pub fn spawn(state: AppState, cfg: RetentionConfig, mut shutdown: watch::Receiver<bool>) {
     describe_metrics();
     if !cfg.enabled() {
-        info!("retention: off (both periods are 0)");
+        info!("retention: off (every period is 0)");
         return;
     }
     info!(
         run_history_days = cfg.run_history.map(|d| d.as_secs() / 86_400),
         outbox_acked_s = cfg.outbox_acked.map(|d| d.as_secs()),
+        task_output_days = cfg.task_output.map(|d| d.as_secs() / 86_400),
         interval_s = cfg.interval.as_secs(),
         "retention loop started (one replica per tick)"
     );
@@ -304,13 +360,14 @@ async fn run_pass(state: &AppState, cfg: &RetentionConfig) {
             metrics::counter!(ERRORS_METRIC).increment(1);
             warn!(schema = %schema, error = %e, "retention: pass failed; retrying next tick");
         }
-        let removed = sweep.run_history.total() + sweep.outbox_acked;
+        let removed = sweep.run_history.total() + sweep.outbox_acked + sweep.task_output;
         if removed > 0 {
             info!(
                 schema = %schema,
                 runs = sweep.run_history.workflow_executions,
                 rows = removed,
                 outbox_acked = sweep.outbox_acked,
+                task_output = sweep.task_output,
                 more = sweep.more,
                 "retention: removed rows"
             );
@@ -318,43 +375,71 @@ async fn run_pass(state: &AppState, cfg: &RetentionConfig) {
             debug!(schema = %schema, "retention: nothing to remove");
         }
     }
+
+    // CLOACINA-T-1080: the global outbox, `cloacina_global.delivery_outbox`,
+    // through the admin pool. `public`'s own notices were cleared above.
+    let global_cfg = RetentionConfig {
+        run_history: None,
+        ..*cfg
+    };
+    let (sweep, error) = sweep_schema(&DAL::new(state.database.clone()), &global_cfg, now).await;
+    record(&sweep);
+    if let Some(e) = error {
+        metrics::counter!(ERRORS_METRIC).increment(1);
+        warn!(error = %e, "retention: global outbox pass failed; retrying next tick");
+    } else if sweep.outbox_acked > 0 {
+        info!(
+            outbox_acked = sweep.outbox_acked,
+            more = sweep.more,
+            "retention: removed rows of the global outbox"
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Run history and acked outbox rows are kept; task output goes after 30
+    /// days (CLOACINA-T-1091), so the loop runs by default.
     #[test]
-    fn defaults_keep_run_history_and_acked_outbox_rows() {
+    fn defaults_keep_run_history_and_acked_outbox_rows_and_not_task_output() {
         let cfg = RetentionConfig::default();
         assert_eq!(cfg.run_history, None);
         assert_eq!(cfg.outbox_acked, None);
+        assert_eq!(cfg.task_output, Some(Duration::from_secs(30 * 86_400)));
         assert_eq!(cfg.interval, Duration::from_secs(300));
-        assert!(!cfg.enabled());
+        assert!(cfg.enabled());
     }
 
     #[test]
     fn zero_turns_a_period_off() {
-        let cfg = RetentionConfig::from_flags(0, 60, 30);
+        let cfg = RetentionConfig::from_flags(0, 60, 0, 30);
         assert_eq!(cfg.run_history, None);
         assert_eq!(cfg.outbox_acked, Some(Duration::from_secs(60)));
+        assert_eq!(cfg.task_output, None);
         assert!(cfg.enabled());
 
-        let cfg = RetentionConfig::from_flags(7, 0, 30);
+        let cfg = RetentionConfig::from_flags(7, 0, 0, 30);
         assert_eq!(cfg.run_history, Some(Duration::from_secs(7 * 86_400)));
         assert_eq!(cfg.outbox_acked, None);
         assert!(cfg.enabled());
 
-        assert!(!RetentionConfig::from_flags(0, 0, 30).enabled());
+        // Task output alone, with run history kept for ever.
+        let cfg = RetentionConfig::from_flags(0, 0, 2, 30);
+        assert_eq!(cfg.task_output, Some(Duration::from_secs(2 * 86_400)));
+        assert!(cfg.enabled());
+
+        assert!(!RetentionConfig::from_flags(0, 0, 0, 30).enabled());
     }
 
     #[test]
     fn interval_is_at_least_one_second_and_huge_values_do_not_overflow() {
         assert_eq!(
-            RetentionConfig::from_flags(1, 1, 0).interval,
+            RetentionConfig::from_flags(1, 1, 1, 0).interval,
             Duration::from_secs(1)
         );
-        let cfg = RetentionConfig::from_flags(u64::MAX, u64::MAX, u64::MAX);
+        let cfg = RetentionConfig::from_flags(u64::MAX, u64::MAX, u64::MAX, u64::MAX);
         // A period longer than time itself: the cutoff saturates, nothing is
         // old enough, nothing panics.
         let cut = cutoff(chrono::Utc::now(), cfg.run_history.unwrap());

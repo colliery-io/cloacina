@@ -916,8 +916,11 @@ name = "cloacina-constructor-contract"
 version = "0.12.0"
 dependencies = [
  "cloacina-api-types",
+ "fidius",
+ "log",
  "serde",
  "serde_json",
+ "tracing-core",
 ]
 
 [[package]]

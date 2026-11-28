@@ -9,7 +9,9 @@ While Cloacina is 0.x, a patch release breaks nothing and a minor release may
 break, with each break in `CHANGELOG.md`. The release gate holds a pull
 request to that: it compares the head with the last release tag, lists each
 change that can break a user, and fails when a break is not named in the
-changelog.
+changelog. What a release may change is the
+[Compatibility Promise](../../reference/compatibility-promise/); the gate
+checks the parts of it that a diff shows.
 
 The gate is `scripts/check_release_compat.py`. It runs in the workflow
 `.github/workflows/release-gate.yml` on each pull request to `main` and to an

@@ -48,11 +48,27 @@ class RegistryTest(unittest.TestCase):
     def test_the_rules_load_and_are_sound(self):
         registry = rules.load()
         self.assertEqual(registry.problems(), [])
-        self.assertEqual(rules.chapter_modules(), ["publishing", "standing"])
+        self.assertEqual(rules.chapter_modules(),
+                         ["capacity", "failure", "operations", "publishing", "run_once", "schedules",
+                          "standing", "tenant_code"])
         ids = sorted(rule.id for rule in registry.rules)
-        self.assertEqual(ids, ["publishing.bad_build_keeps_running", "publishing.new_version_built",
-                               "publishing.step_back", "standing.agents", "standing.schedules",
-                               "standing.self_driving"])
+        self.assertEqual(ids, ["capacity.fits_in_flight", "capacity.held_work_runs",
+                               "capacity.no_failure_while_full", "capacity.others_on_time",
+                               "capacity.priority_order",
+                               "failure.agent_death", "failure.postgres_fire_times",
+                               "failure.postgres_runs_end", "failure.server_restart",
+                               "operations.alert_per_failed_run", "operations.audit_of_driver",
+                               "operations.audit_rows_named", "operations.backlog_gauge",
+                               "operations.lag_gauge", "operations.no_alert_after_retry",
+                               "operations.retention",
+                               "publishing.bad_build_keeps_running", "publishing.new_version_built",
+                               "publishing.step_back", "run_once.long_task",
+                               "run_once.no_free_agent", "run_once.other_replica",
+                               "schedules.backlog_order", "schedules.every_fire",
+                               "schedules.interval", "schedules.on_time",
+                               "standing.agents", "standing.schedules",
+                               "standing.self_driving", "tenant_code.build_role_reach",
+                               "tenant_code.tenant_pool_role"])
 
     def test_each_rule_names_its_sources(self):
         registry = rules.load()
@@ -358,7 +374,9 @@ class ReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             code, text = self.run_check(["--replay", HEALTHY, "--out", folder])
             self.assertEqual(code, 0, text)
-            self.assertIn("holds 6", text)
+            # No rule of this snapshot is a gap any more (CLOACINA-T-1080 is in).
+            self.assertIn("holds 23", text)
+            self.assertNotIn("holds now", text)
             with open(os.path.join(folder, "report", "report.json"), encoding="utf-8") as handle:
                 made = json.load(handle)
             self.assertFalse(made["red"])
@@ -395,8 +413,8 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("publishing.step_back", text)
         self.assertIn("Promises with no rule yet:", text)
-        self.assertIn("A long task runs one time.", text)
-        self.assertIn("CLOACINA-T-1110", text)
+        self.assertIn("The server is upgraded with runs in flight and they finish.", text)
+        self.assertIn("CLOACINA-T-1046", text)
 
 
 if __name__ == "__main__":

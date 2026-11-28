@@ -27,6 +27,7 @@ if you need the concepts behind a symbol.
 - [Topology Dict Schema](topology-dict-schema/)
 - [API Error Envelope](api-error-envelope/)
 - [Metrics Catalog](metrics-catalog/)
+- [Compatibility Promise](compatibility-promise/)
 - [DatabaseAdmin API Reference](database-admin/)
 - [Package Signing API Reference](package-signing-api/)
 - [Environment Variables](environment-variables/)

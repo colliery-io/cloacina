@@ -66,12 +66,14 @@ pub use error::ErrorBody;
 pub use executions::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
     ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskAttemptErrorDetail,
-    TaskExecutionDetail,
+    TaskAttemptOutputDetail, TaskExecutionDetail, TaskOutputQuery, TaskOutputResponse,
+    TaskWaitReason,
 };
 pub use fleet::{
-    AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressRule, AgentInfo, AgentPoolInfo,
-    AgentPoolSettings, DEFAULT_AGENT_POOL, DEFAULT_AGENT_RESERVED_MEMORY,
-    DEFAULT_AGENT_RESERVED_MEMORY_BYTES, agent_pool_of,
+    AGENT_POOL_CAPABILITY_PREFIX, AgentEgressPort, AgentEgressPortInfo, AgentEgressRule,
+    AgentEgressRuleInfo, AgentInfo, AgentPoolInfo, AgentPoolSettings, AgentPoolSettingsInfo,
+    DEFAULT_AGENT_POOL, DEFAULT_AGENT_RESERVED_MEMORY, DEFAULT_AGENT_RESERVED_MEMORY_BYTES,
+    agent_pool_of,
 };
 pub use health::{
     AccumulatorStatus, GraphStatus, GraphTopology, GraphTopologyEdge, GraphTopologyNode,
@@ -82,7 +84,8 @@ pub use instances::{
     CreateInstanceRequest, DeleteInstanceResponse, ListInstancesQuery, WorkflowInstanceSummary,
 };
 pub use keys::{
-    CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, WsTicketResponse,
+    CreateKeyRequest, KeyCreatedResponse, KeyInfo, KeyRevokedResponse, KeyRole, UpdateKeyRequest,
+    WsTicketResponse,
 };
 pub use operations::{OpsMetricsEvent, ReconcilerStatus, ServerHealthLite};
 pub use priority::{
@@ -110,7 +113,8 @@ pub use triggers::{
 };
 pub use trusted_keys::{AddTrustedKeyRequest, TrustedKeyRevokedResponse, TrustedKeySummary};
 pub use workflows::{
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
-    WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
-    WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    NeedsNewBuild, PackageNeedingNewBuild, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowTaskNode, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
+    WorkflowVersionSummary,
 };

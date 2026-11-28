@@ -67,6 +67,7 @@ pub mod models;
 pub mod oidc_login_flows;
 #[cfg(feature = "postgres")]
 pub mod oidc_sessions;
+pub mod priority_grants;
 pub mod reactor_owner_addresses;
 pub mod reactor_subscriptions;
 pub mod recovery_event;
@@ -104,6 +105,7 @@ pub use login_throttle::{LoginThrottleDAL, ThrottlePolicy, ThrottleState};
 pub use oidc_login_flows::OidcLoginFlowDAL;
 #[cfg(feature = "postgres")]
 pub use oidc_sessions::{OidcSessionDAL, RefreshSession};
+pub use priority_grants::{PriorityGrantDAL, PriorityGrantRow, PrioritySetter};
 pub use reactor_subscriptions::{
     PREDICATE_VARIABLES, ReactorFiring, ReactorSubscription, ReactorSubscriptionsDAL,
     compile_predicate, lint_predicate_variables, truncate_predicate_text,
@@ -322,6 +324,12 @@ impl DAL {
     /// Returns a unified schedule execution DAL for schedule execution operations.
     pub fn schedule_execution(&self) -> ScheduleExecutionDAL<'_> {
         ScheduleExecutionDAL::new(self)
+    }
+
+    /// Returns the DAL of who set the priority of a package or a schedule
+    /// (CLOACINA-T-1123).
+    pub fn priority_grants(&self) -> PriorityGrantDAL<'_> {
+        PriorityGrantDAL::new(self)
     }
 
     /// Returns a workflow packages DAL for package operations.

@@ -485,6 +485,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/packages/needs-new-build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /packages/needs-new-build — the packages of every tenant that need a
+         *     new publish (CLOACINA-T-1085).
+         * @description After a minor release that changes the plugin interface, each Rust package
+         *     built for the old interface gets one rebuild from its kept source. A
+         *     package that pins the old minor rebuilds with the old interface again and
+         *     is listed here, with its tenant, name, version, both interface versions
+         *     and the step. A platform admin reads it during an upgrade.
+         */
+        get: operations["list_packages_needing_new_build"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants": {
         parameters: {
             query?: never;
@@ -700,6 +725,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /tenants/:tenant_id/executions/:id/tasks/:task_id/output — the end of
+         *     the output of each attempt of a task (CLOACINA-T-1091).
+         */
+        get: operations["get_task_output"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant_id}/keys": {
         parameters: {
             query?: never;
@@ -746,7 +791,14 @@ export interface paths {
         delete: operations["revoke_tenant_key"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * PATCH /tenants/:tenant_id/keys/:key_id — set or clear the highest priority
+         *     a key of the tenant may set (CLOACINA-T-1123). Needs `keys.manage` in the
+         *     tenant. The new limit applies to the key's next request, on every replica,
+         *     and to the next run of each package and schedule the key set a priority
+         *     for.
+         */
+        patch: operations["update_tenant_key"];
         trace?: never;
     };
     "/v1/tenants/{tenant_id}/pools": {
@@ -1465,6 +1517,19 @@ export interface components {
             protocol?: string | null;
         };
         /**
+         * @description One port of an [`AgentEgressRuleInfo`]. An unknown field is ignored
+         *     (CLOACINA-T-1149).
+         */
+        AgentEgressPortInfo: {
+            /**
+             * Format: int32
+             * @description Port number, 1 to 65535.
+             */
+            port: number;
+            /** @description `TCP` (the default), `UDP` or `SCTP`. */
+            protocol?: string | null;
+        };
+        /**
          * @description One extra egress rule: a CIDR block the agent pods may reach, on the listed
          *     ports. No ports means every port.
          */
@@ -1473,6 +1538,16 @@ export interface components {
             cidr: string;
             /** @description Ports the rule allows. Empty: every port. */
             ports?: components["schemas"]["AgentEgressPort"][];
+        };
+        /**
+         * @description One extra egress rule, as the pool routes return it. An unknown field is
+         *     ignored (CLOACINA-T-1149).
+         */
+        AgentEgressRuleInfo: {
+            /** @description IPv4 or IPv6 CIDR block. */
+            cidr: string;
+            /** @description Ports the rule allows. Empty: every port. */
+            ports?: components["schemas"]["AgentEgressPortInfo"][];
         };
         /** @description One registered execution agent in the in-memory fleet roster. */
         AgentInfo: {
@@ -1514,15 +1589,21 @@ export interface components {
              * @description The pool's settings as stored. A field that is absent means the
              *     server-wide default.
              */
-            settings: components["schemas"]["AgentPoolSettings"];
+            settings: components["schemas"]["AgentPoolSettingsInfo"];
             tenant_id: string;
         };
         /**
-         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021).
+         * @description Settings of one agent pool of a tenant (CLOACINA-T-1021), as a request
+         *     sends them (`PUT /v1/tenants/{tenant_id}/pools/{pool}`).
          *
          *     Each field is optional. A field that is absent means the server-wide
          *     default (`CLOACINA_AGENT_*` on the server). The settings apply to every
          *     managed agent of the pool: a pool has one size of agent.
+         *
+         *     A request with an unknown field is refused. The answers of the pool
+         *     routes carry [`AgentPoolSettingsInfo`], which ignores an unknown field,
+         *     so that an older client reads an answer of a newer server
+         *     (CLOACINA-T-1149).
          */
         AgentPoolSettings: {
             /**
@@ -1594,6 +1675,63 @@ export interface components {
              * @description Name of the Kubernetes ServiceAccount the agent pods run as. The
              *     actuator creates it in the tenant namespace. Absent: the namespace's
              *     `default` ServiceAccount.
+             */
+            service_account_name?: string | null;
+        };
+        /**
+         * @description The settings of one agent pool, as the pool routes return them. The same
+         *     fields and the same JSON as [`AgentPoolSettings`], but an unknown field is
+         *     ignored: a client reads an answer of a newer server (CLOACINA-T-1149).
+         */
+        AgentPoolSettingsInfo: {
+            /** @description The pod's `automountServiceAccountToken`. Absent means `false`. */
+            automount_service_account_token?: boolean | null;
+            /** @description CPU limit of the agent container, a Kubernetes quantity (`4`). */
+            cpu_limit?: string | null;
+            /** @description CPU request of the agent container, a Kubernetes quantity (`500m`). */
+            cpu_request?: string | null;
+            /**
+             * @description Extra egress rules for the pool's pods, added to the default (cluster
+             *     DNS and the server only).
+             */
+            extra_egress?: components["schemas"]["AgentEgressRuleInfo"][];
+            /** @description Agent image. Absent: the server-wide `CLOACINA_AGENT_IMAGE`. */
+            image?: string | null;
+            /**
+             * Format: int32
+             * @description Most agents of the pool.
+             */
+            max_agents?: number | null;
+            /**
+             * Format: int32
+             * @description How many tasks one agent runs at the same time. Absent: the agent's
+             *     own default.
+             */
+            max_concurrency?: number | null;
+            /** @description Memory limit of the agent container, a Kubernetes quantity (`32Gi`). */
+            memory_limit?: string | null;
+            /** @description Memory request of the agent container, a Kubernetes quantity (`8Gi`). */
+            memory_request?: string | null;
+            /**
+             * Format: int32
+             * @description Fewest agents of the pool. Absent: the pool keeps `max_agents` agents.
+             */
+            min_agents?: number | null;
+            /** @description Annotations added to the pool's pods. */
+            pod_annotations?: {
+                [key: string]: string;
+            };
+            /** @description Labels added to the pool's pods. */
+            pod_labels?: {
+                [key: string]: string;
+            };
+            /** @description Annotations the actuator puts on that ServiceAccount. */
+            service_account_annotations?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Name of the Kubernetes ServiceAccount the agent pods run as. Absent:
+             *     the namespace's `default` ServiceAccount.
              */
             service_account_name?: string | null;
         };
@@ -1721,6 +1859,12 @@ export interface components {
             max_active_runs: number;
             /** @description Parameter values for each run, as stored. */
             params?: unknown;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when `given` is lower than `asked`: what was asked, what is
+             *     given, and why.
+             */
+            priority_notice?: string | null;
             progress: components["schemas"]["BackfillProgress"];
             /** @description The id of the backfill whose failed intervals this one runs again. */
             retry_of?: string | null;
@@ -1800,6 +1944,14 @@ export interface components {
              */
             params?: unknown;
             /**
+             * Format: int32
+             * @description The workflow priority of each run, 0 (the highest) to 10
+             *     (CLOACINA-T-1123). Each run is held to the creator's limit when it
+             *     starts; a priority above the limit is not refused. Not set: the
+             *     priority the workflow declares.
+             */
+            priority?: number | null;
+            /**
              * @description Start of the range, an RFC 3339 timestamp. The backfill takes each
              *     fire time `F` of the expression with `start <= F <= end`.
              */
@@ -1840,6 +1992,14 @@ export interface components {
              *     workflow's declared `params(...)` slots.
              */
             params?: unknown;
+            /**
+             * Format: int32
+             * @description The workflow priority of each fire, 0 (the highest) to 10
+             *     (CLOACINA-T-1123). Each fire is held to the creator's limit at the
+             *     time of the fire; a priority above the limit is not refused. Not set:
+             *     the priority the workflow declares.
+             */
+            priority?: number | null;
             /** @description IANA timezone for `cron`. Defaults to `UTC`. */
             timezone?: string | null;
         };
@@ -1851,6 +2011,14 @@ export interface components {
              *     refused with 401 `key_expired`. Not set: the key does not expire.
              */
             expires_at?: string | null;
+            /**
+             * Format: int32
+             * @description Optional. The highest priority the key may set, 0 (the highest) to 10
+             *     (CLOACINA-T-1123). Not set: the default of its role (`write` 5,
+             *     `admin` 0). Not better than the caller's own limit (403); refused on a
+             *     `read` or `agent` key (400).
+             */
+            max_priority?: number | null;
             name: string;
             /**
              * @description `POST /auth/keys` only: make a platform admin key (no tenant, role
@@ -2211,6 +2379,12 @@ export interface components {
             is_admin: boolean;
             /** @description One-time plaintext API key. */
             key: string;
+            /**
+             * Format: int32
+             * @description The highest priority the key may set; `null`: the default of its
+             *     role (CLOACINA-T-1123).
+             */
+            max_priority?: number | null;
             name: string;
             /** @description Role string: `read` | `write` | `admin` | `agent`. */
             permissions: string;
@@ -2229,6 +2403,12 @@ export interface components {
             /** @description Key UUID. */
             id: string;
             is_admin: boolean;
+            /**
+             * Format: int32
+             * @description The highest priority the key may set; `null`: the default of its
+             *     role (CLOACINA-T-1123).
+             */
+            max_priority?: number | null;
             name: string;
             /** @description Role string: `read` | `write` | `admin` | `agent`. */
             permissions: string;
@@ -2389,7 +2569,7 @@ export interface components {
                  * @description The pool's settings as stored. A field that is absent means the
                  *     server-wide default.
                  */
-                settings: components["schemas"]["AgentPoolSettings"];
+                settings: components["schemas"]["AgentPoolSettingsInfo"];
                 tenant_id: string;
             }[];
             total: number;
@@ -2455,12 +2635,46 @@ export interface components {
                 /** @description Key UUID. */
                 id: string;
                 is_admin: boolean;
+                /**
+                 * Format: int32
+                 * @description The highest priority the key may set; `null`: the default of its
+                 *     role (CLOACINA-T-1123).
+                 */
+                max_priority?: number | null;
                 name: string;
                 /** @description Role string: `read` | `write` | `admin` | `agent`. */
                 permissions: string;
                 revoked: boolean;
                 /** @description Tenant scope; `null` for global keys. */
                 tenant_id?: string | null;
+            }[];
+            total: number;
+        };
+        /**
+         * @description Unified list envelope (CLOACI-T-0594 / API-03): every list endpoint
+         *     returns `{items, total}`. `total` is best-effort — it equals the
+         *     returned page size when the server doesn't run a separate COUNT.
+         */
+        ListResponse_PackageNeedingNewBuild: {
+            items: {
+                /**
+                 * Format: int32
+                 * @description The plugin interface version the package was built for. Absent when
+                 *     it is not known.
+                 */
+                built_for?: number | null;
+                /**
+                 * Format: int32
+                 * @description The plugin interface version this release loads.
+                 */
+                current: number;
+                /** @description Package UUID. */
+                id: string;
+                package_name: string;
+                /** @description The reason and the step to take. */
+                reason: string;
+                tenant_id: string;
+                version: string;
             }[];
             total: number;
         };
@@ -2615,6 +2829,56 @@ export interface components {
         };
         LogoutResponse: {
             status: string;
+        };
+        /**
+         * @description Why a package needs a new publish (CLOACINA-T-1085).
+         *
+         *     After a minor release that changes the plugin interface, a Rust package
+         *     built for the old interface does not run on the new agents. The compiler
+         *     rebuilds it once from its kept source; when the package pins the old
+         *     minor (in Cargo.toml or Cargo.lock), the rebuild has the old interface
+         *     again. The team changes the `cloacina` pin to the new minor and publishes
+         *     again. The package stays in service until then: agents of the old
+         *     interface still run it during a roll.
+         */
+        NeedsNewBuild: {
+            /**
+             * Format: int32
+             * @description The plugin interface version the package was built for. Absent when
+             *     it is not known: a library of another fidius ABI does not open.
+             */
+            built_for?: number | null;
+            /**
+             * Format: int32
+             * @description The plugin interface version this release loads.
+             */
+            current: number;
+            /** @description The reason and the step to take. */
+            reason: string;
+        };
+        /**
+         * @description One package that needs a new publish, in the list across tenants
+         *     (`GET /v1/packages/needs-new-build`, platform admin, CLOACINA-T-1085).
+         */
+        PackageNeedingNewBuild: {
+            /**
+             * Format: int32
+             * @description The plugin interface version the package was built for. Absent when
+             *     it is not known.
+             */
+            built_for?: number | null;
+            /**
+             * Format: int32
+             * @description The plugin interface version this release loads.
+             */
+            current: number;
+            /** @description Package UUID. */
+            id: string;
+            package_name: string;
+            /** @description The reason and the step to take. */
+            reason: string;
+            tenant_id: string;
+            version: string;
         };
         /**
          * @description Multipart form for workflow package upload. Spec-only type: the handler
@@ -2795,6 +3059,33 @@ export interface components {
             /** @description The error message of the attempt. */
             message: string;
         };
+        /**
+         * @description The end of what one attempt of a task wrote on stdout and stderr, as one
+         *     stream (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker
+         *     process.
+         */
+        TaskAttemptOutputDetail: {
+            /**
+             * Format: int32
+             * @description The attempt, from 1.
+             */
+            attempt: number;
+            /** @description `true` when `output` is not the whole stream: its start was cut. */
+            cut: boolean;
+            /**
+             * @description The last bytes of the output, at most the server's
+             *     `--task-output-max-bytes` (256 KiB by default). The exact values of
+             *     the attempt's own secrets are `***` when the agent masks them.
+             */
+            output: string;
+            /** @description RFC 3339 timestamp of when the output was stored. */
+            recorded_at: string;
+            /**
+             * Format: int64
+             * @description How many bytes the attempt wrote in all.
+             */
+            total_bytes: number;
+        };
         /** @description One per-task row of an execution (CLOACI-I-0124 / WS-1). */
         TaskExecutionDetail: {
             /** Format: int32 */
@@ -2843,6 +3134,32 @@ export interface components {
             task_name: string;
             /** @description Row-updated timestamp (RFC 3339) — always present; a fallback "end". */
             updated_at: string;
+            wait_reason?: components["schemas"]["TaskWaitReason"] | null;
+        };
+        /**
+         * @description `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
+         *     response (CLOACINA-T-1091): the stored output of each attempt of the
+         *     task, in attempt order. Empty for a task whose output was not kept.
+         */
+        TaskOutputResponse: {
+            attempts: components["schemas"]["TaskAttemptOutputDetail"][];
+            execution_id: string;
+            task_id: string;
+            tenant_id: string;
+        };
+        /**
+         * @description Why a task waits (CLOACINA-T-1148): a short code and the same in words.
+         *
+         *     The codes are an open set: a client shows an unknown code with its
+         *     message. The codes of this release: `plugin_interface`, `no_agent`,
+         *     `platform`, `too_large`, `no_capacity`, `agent_refused`,
+         *     `artifact_fetch`, `dispatch_retry`.
+         */
+        TaskWaitReason: {
+            /** @description A short code, for example `no_capacity`. */
+            code: string;
+            /** @description The reason in words, with the tenant, the pool and the numbers. */
+            message: string;
         };
         /**
          * @description `201 Created` body for a new tenant. Password and connection string are
@@ -2874,6 +3191,12 @@ export interface components {
                 max_active_runs: number;
                 /** @description Parameter values for each run, as stored. */
                 params?: unknown;
+                priority?: components["schemas"]["PriorityGrant"] | null;
+                /**
+                 * @description Set when `given` is lower than `asked`: what was asked, what is
+                 *     given, and why.
+                 */
+                priority_notice?: string | null;
                 progress: components["schemas"]["BackfillProgress"];
                 /** @description The id of the backfill whose failed intervals this one runs again. */
                 retry_of?: string | null;
@@ -2993,6 +3316,12 @@ export interface components {
                 params?: unknown;
                 /** @description Whether the schedule is paused (distinct from `enabled`). */
                 paused?: boolean;
+                priority?: components["schemas"]["PriorityGrant"] | null;
+                /**
+                 * @description Set when `given` is lower than `asked`: what was asked, what is
+                 *     given, and why.
+                 */
+                priority_notice?: string | null;
                 timezone?: string | null;
                 workflow_name: string;
             }[];
@@ -3011,12 +3340,20 @@ export interface components {
                 description?: string | null;
                 /** @description Package UUID. */
                 id: string;
+                needs_new_build?: components["schemas"]["NeedsNewBuild"] | null;
                 package_name: string;
                 /**
                  * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
                  *     new executions until resumed.
                  */
                 paused?: boolean;
+                /**
+                 * Format: int32
+                 * @description The plugin interface version of the package's Rust build
+                 *     (CLOACINA-T-1085). Absent for a Python package and for a build whose
+                 *     interface is not recorded yet.
+                 */
+                plugin_interface_version?: number | null;
                 /** @description Task IDs included in this package. */
                 tasks: string[];
                 /**
@@ -3217,6 +3554,19 @@ export interface components {
             trusted_at: string;
         };
         /**
+         * @description Request body for `PATCH /tenants/{tenant_id}/keys/{key_id}`
+         *     (CLOACINA-T-1123): the highest priority the key may set.
+         */
+        UpdateKeyRequest: {
+            /**
+             * Format: int32
+             * @description 0 (the highest) to 10; `null` clears it, and the key has the default
+             *     of its role again. Not better than the caller's own limit (403);
+             *     refused on a `read` or `agent` key (400).
+             */
+            max_priority?: number | null;
+        };
+        /**
          * @description The caller's own identity + role (CLOACI-T-0803) — lets the UI gate
          *     write/admin controls to the key's role instead of offering actions that
          *     would 403.
@@ -3265,6 +3615,7 @@ export interface components {
             description?: string | null;
             /** @description Package UUID. */
             id: string;
+            needs_new_build?: components["schemas"]["NeedsNewBuild"] | null;
             /**
              * @description Why this built package is not loaded (CLOACINA-T-1075). A server that
              *     loads packages from their metadata only does not load a package that
@@ -3281,6 +3632,17 @@ export interface components {
              *     new executions until resumed.
              */
             paused?: boolean;
+            /**
+             * Format: int32
+             * @description As in [`WorkflowSummary::plugin_interface_version`] (CLOACINA-T-1085).
+             */
+            plugin_interface_version?: number | null;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when `given` is lower than `asked`: what was asked, what is
+             *     given, and why.
+             */
+            priority_notice?: string | null;
             /**
              * @description The task dependency graph (nodes + their upstream dependencies) for
              *     rendering the full workflow DAG. Empty for packages predating
@@ -3329,6 +3691,12 @@ export interface components {
             params?: unknown;
             /** @description Whether the schedule is paused (distinct from `enabled`). */
             paused?: boolean;
+            priority?: components["schemas"]["PriorityGrant"] | null;
+            /**
+             * @description Set when `given` is lower than `asked`: what was asked, what is
+             *     given, and why.
+             */
+            priority_notice?: string | null;
             timezone?: string | null;
             workflow_name: string;
         };
@@ -3392,12 +3760,20 @@ export interface components {
             description?: string | null;
             /** @description Package UUID. */
             id: string;
+            needs_new_build?: components["schemas"]["NeedsNewBuild"] | null;
             package_name: string;
             /**
              * @description Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
              *     new executions until resumed.
              */
             paused?: boolean;
+            /**
+             * Format: int32
+             * @description The plugin interface version of the package's Rust build
+             *     (CLOACINA-T-1085). Absent for a Python package and for a build whose
+             *     interface is not recorded yet.
+             */
+            plugin_interface_version?: number | null;
             /** @description Task IDs included in this package. */
             tasks: string[];
             /**
@@ -3444,6 +3820,19 @@ export interface components {
         WorkflowUploadedResponse: {
             /** @description UUID of the registered package. */
             package_id: string;
+            /**
+             * Format: int32
+             * @description The highest priority the runs of this package may get, as its
+             *     publisher may set now (CLOACINA-T-1123). A workflow or task that
+             *     declares a higher priority (a smaller number) in its code runs at
+             *     this one. Absent in an answer from an older server.
+             */
+            priority_limit?: number | null;
+            /**
+             * @description Set when the limit is below the highest priority: one sentence that
+             *     says the limit and why. `cloacinactl` prints it as a warning.
+             */
+            priority_notice?: string | null;
             tenant_id: string;
         };
         /**
@@ -4456,6 +4845,53 @@ export interface operations {
             };
         };
     };
+    list_packages_needing_new_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages in service that need a new publish, across tenants */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListResponse_PackageNeedingNewBuild"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Platform admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_tenants: {
         parameters: {
             query?: never;
@@ -5176,6 +5612,72 @@ export interface operations {
             };
         };
     };
+    get_task_output: {
+        parameters: {
+            query?: {
+                /** @description Only this attempt. */
+                attempt?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Execution UUID */
+                exec_id: string;
+                /** @description Task execution UUID */
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored output of each attempt, in attempt order; empty when none was kept */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskOutputResponse"];
+                };
+            };
+            /** @description Invalid execution or task ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_tenant_keys: {
         parameters: {
             query?: never;
@@ -5340,6 +5842,71 @@ export interface operations {
                 };
             };
             /** @description Key not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_tenant_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier */
+                tenant_id: string;
+                /** @description Key UUID */
+                key_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description The key, with its new limit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyInfo"];
+                };
+            };
+            /** @description Invalid key ID, a priority outside 0 to 10, a `read` or `agent` key, or a body that is not a key update */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Tenant access or admin role denied, or a limit above the caller's own */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Key not found in this tenant, or revoked */
             404: {
                 headers: {
                     [name: string]: unknown;

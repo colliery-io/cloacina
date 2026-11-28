@@ -22,6 +22,9 @@ AGENT_SLOTS = 4
 # The tenant's limit on agents. Equal to AGENTS_PER_TENANT, so a full tenant
 # stays full until its held work ends.
 MAX_AGENTS_PER_TENANT = 2
+# Days of finished runs the standing deployment keeps (`retention.runHistoryDays`;
+# decided on COLLIERY-I-0685, note n-3).
+RUN_HISTORY_DAYS = 2
 
 # The tenant secret that holds a write key of the tenant itself, for its
 # self-driving workflow. One field, `key`.
@@ -54,6 +57,28 @@ TARGETS = {"py": TARGET_PY, "rust": TARGET_RUST}
 
 HOLD_WORKFLOW = "standing_hold"
 HOLD_SECONDS = 120
+
+# Each task body of the workload prints one line that starts with this when
+# it starts, with a JSON object after it (CLOACINA-T-1107, CLOACINA-T-1110):
+# the workflow, the task, and what names the run (`schedule_id` and
+# `scheduled_time` for a scheduled run, `run_once_tag` for a run by hand).
+MARK = "STANDING_MARK "
+# The context key a run by hand carries so its marks name it.
+RUN_TAG_KEY = "run_once_tag"
+
+# Where the pods are, for the checker's `kubectl logs`.
+AGENT_SELECTOR = "app.kubernetes.io/name=cloacina-agent"
+SERVER_SELECTOR = "app.kubernetes.io/name=cloacina-server"
+SERVER_REPLICAS = 2
+
+
+def agent_namespace(tenant):
+    """The namespace of a tenant's agents: the rule of the server's actuator
+    (`actuator::kubernetes::tenant_namespace`) for a schema name."""
+    segment = "".join(char if char.isalnum() else "-" for char in tenant.lower()).strip("-")
+    while "--" in segment:
+        segment = segment.replace("--", "-")
+    return f"cloacina-tenant-{segment or 'unnamed'}"
 # More holds at once than the tenant's agents can take.
 HOLD_BURST = 12
 
@@ -137,7 +162,8 @@ EVIDENCE = {
     "publish.step_back": [DRIVER_WORKFLOW, TARGET_PY_WORKFLOW],
     "run_once.long_task": ["standing_archive"],
     "run_once.no_free_agent": [HOLD_WORKFLOW, "standing_rollup", "standing_extract"],
-    "run_once.other_replica": ["standing_rollup", "standing_extract", "standing_archive"],
+    "run_once.other_replica": ["standing_rollup", "standing_extract", "standing_archive",
+                               HOLD_WORKFLOW],
     "schedules.on_time": ["standing_rollup", "standing_extract", "standing_archive", HOLD_WORKFLOW],
     "schedules.interval": ["standing_rollup", "standing_extract"],
     "schedules.backlog": ["standing_extract"],
@@ -146,6 +172,16 @@ EVIDENCE = {
     "failure.postgres_away": ["standing_rollup", "standing_extract", "standing_flaky"],
     "tenants.key": [DRIVER_WORKFLOW],
     "tenants.task": [DRIVER_WORKFLOW],
+    "tenants.code_rust_load": [],
+    "tenants.code_python_import": [],
+    "tenants.code_default_chart": [],
+    "tenants.code_graph_no_agent": [],
+    "tenants.code_poll_trigger": [],
+    "tenants.code_reactive_layer": [],
+    "tenants.code_public": [],
+    "tenants.code_build_role": [],
+    "tenants.code_older_package": [],
+    "tenants.code_pool_role": [],
     "capacity.waits": [HOLD_WORKFLOW],
     "capacity.fits": [],
     "operations.alert": ["standing_flaky"],
@@ -159,6 +195,12 @@ WITHOUT_EVIDENCE = {
     "workload.agents": "judged from the agent roster, not from a workflow",
     "capacity.fits": "no workflow of the workload names a pool; the Capacity chapter adds one",
 }
+# The claims of CLOACINA-A-0019 are shown by the scenarios of the chapter
+# tenant_code, on its own tenant, and two of them from Postgres's catalogue.
+for _promise in [p for p in EVIDENCE if p.startswith("tenants.code_")]:
+    WITHOUT_EVIDENCE[_promise] = ("shown by the scenarios of the chapter tenant_code "
+                                  "(CLOACINA-T-1079), not by a workflow of the workload")
+del _promise
 
 
 def scheduled_workflows():

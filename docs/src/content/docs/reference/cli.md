@@ -191,6 +191,8 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--run-history-retention-days <N>]
                         [--outbox-acked-retention-s <N>]
                         [--retention-interval-s <N>]
+                        [--task-output-max-bytes <N>]
+                        [--task-output-retention-days <N>]
                         [--fleet-task-timeout-s <N>]
                         [--fleet-task-timeout-max-s <N>]
                         [--alert-webhook-url <URL>]
@@ -241,6 +243,14 @@ Retention of run history in the database has three settings:
 `--retention-interval-s` / `CLOACINA_RETENTION_INTERVAL_S` (default `300`).
 See
 [Run history retention](../../how-to/service/production-deployment/#run-history-retention).
+
+The stored output of task attempts has two settings:
+`--task-output-max-bytes` / `CLOACINA_TASK_OUTPUT_MAX_BYTES` (default
+`262144`, 256 KiB per attempt; `0` keeps none) and
+`--task-output-retention-days` / `CLOACINA_TASK_OUTPUT_RETENTION_DAYS`
+(default `30`; `0` keeps it for ever). The retention job deletes stored output
+by its own period, whether run-history retention is on or not. See
+[The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output).
 
 `server start` has every flag of `cloacina-server`. Each setting below
 `--default-executor` in the tables of this section (from
@@ -481,7 +491,7 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--api-key <KEY>` | `CLOACINA_API_KEY` | (required, or `--api-key-file`) | API key for REST + WS auth. Its tenant scope determines which tenants' work the agent may receive (REQ-008). The agent removes the variable from its environment at start. |
 | `--api-key-file <PATH>` | `CLOACINA_API_KEY_FILE` | | File that holds the API key, in place of `--api-key`. Giving both is an error. |
 | `--ca-file <PATH>` | `CLOACINA_AGENT_CA_FILE` | | PEM file of CA certificates the agent trusts for an `https://` server, in addition to the system roots: for a mesh or gateway whose certificate a private CA signs. A file that cannot be read or holds no certificate stops the agent at start. See [Transport Security](../../how-to/service/transport-security/). |
-| `--agent-id <ID>` | | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. |
+| `--agent-id <ID>` | `CLOACINA_AGENT_ID` | (server-assigned) | Optional caller-chosen agent id. If omitted, the server assigns one. The Kubernetes actuator sets it to the pod's name. |
 | `--max-concurrency <N>` | `CLOACINA_AGENT_MAX_CONCURRENCY` | `4` | Max work packets the agent runs concurrently. The server's capacity-aware selection won't exceed this; a saturated agent refuses further packets. |
 | `--pool <NAME>` | `CLOACINA_AGENT_POOL` | (none) | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in. Registered as the capability `pool:<name>`. Not set: the server counts the agent in `default`. A task goes only to agents of its own pool; a task with no pool goes to `default`. |
 | `--cpu <QTY>` | `CLOACINA_AGENT_CPU` | (none) | Total CPU the agent offers to tasks, a Kubernetes quantity above zero (`4`, `500m`). Reported at registration; the server [places tasks](../../explanation/service/execution-agent-fleet/#how-a-task-is-placed) by their CPU requests against it. Not set: the agent reports none and is packed by `--max-concurrency` only. A value that is not a quantity stops the agent at start. The agent does not cap a task's CPU by it. |
@@ -490,13 +500,14 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--task-address-space-factor <N>` | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | `8` | The address-space ceiling of a task's worker process (`RLIMIT_AS`, Linux): the task's memory limit times this, plus 64 GiB. A backstop behind the memory watchdog. `0`: no ceiling. |
 | `--warm-workers <N>` | `CLOACINA_AGENT_WARM_WORKERS` | the value of `--max-concurrency` | The most idle [warm workers](../../explanation/service/execution-agent-fleet/#warm-workers) the agent keeps: worker processes that keep a package version loaded for the next task or graph firing of the same package version, tenant and memory limit. When one more comes, the oldest ends. `0`: none; each job gets a new worker. |
 | `--warm-worker-idle-seconds <N>` | `CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS` | `60` | A warm worker idle for longer is ended. |
-| `--warm-worker-max-jobs <N>` | `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | `100` | The most jobs one worker process runs; it ends after the last. `1` turns warm workers off. |
+| `--warm-worker-max-jobs <N>` | `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | `100` | The jobs after which a worker process is replaced: a new worker of its key loads the package, and the old one takes jobs until the new one has loaded, then ends. `1` turns warm workers off. |
 | `--warm-worker-max-memory-percent <N>` | `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | `50` | A worker that holds more than this share of its jobs' memory limit after a job is ended and not used again. |
 | `--capabilities <TAG,TAG>` | | (none) | Free-form capability tags advertised at registration. |
 | `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
 | `--max-unpacked-bytes <N>` | `CLOACINA_MAX_UNPACKED_BYTES` | `524288000` | The largest size, in bytes, that a package or provider archive may unpack to (500 MiB). The agent refuses to load a larger one. Use the value of the server. |
 | `--log-format <text\|json>` | `CLOACINA_AGENT_LOG_FORMAT` | `text` | Format of the agent's log lines on stdout. `json` writes one JSON object per line; a line written while a task runs has the task's ids under `span`. See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). |
+| `--task-output-masking <true\|false>` | `CLOACINA_AGENT_TASK_OUTPUT_MASKING` | `true` | Replace the exact values of a task's own secrets by `***` in the output of its worker process: in the agent's log and in the output sent with the result. Exact values only; see [What masking covers](../../how-to/service/find-a-tasks-logs/#what-masking-covers). |
 
 The agent exposes no HTTP surface of its own — observe it via its logs and the
 server's fleet metrics (`cloacina_fleet_*`). See the how-to guide
@@ -652,10 +663,24 @@ The version that is in service stays active until the build of the
 uploaded one succeeds. A failed build leaves it in service; see
 `package versions`.
 
-### `package list [--filter <SUBSTRING>]`
+The server keeps who uploaded the package. Its runs are held to that
+principal's [priority](../../explanation/priority/#the-limit-of-a-publisher-and-of-a-creator)
+limit at each run start. When the limit is not 0 the answer has a
+`priority_notice`, and `package upload` and `package publish` print it on
+stderr as `warning: …`.
+
+### `package list [--filter <SUBSTRING>] [--needs-new-build [--all-tenants]]`
 
 `GET /v1/tenants/<tenant>/workflows`. The `--filter` is applied
 client-side as a substring match on the package name.
+
+`--needs-new-build` shows only the packages that need a new publish: Rust
+packages built for another plugin interface than the server's release,
+whose rebuild from kept source still has the old interface. Each row names
+the version, the interface the package was built for (`BUILT FOR`), the one
+the release loads (`LOADS`) and the step to take. With `--all-tenants` the
+list covers every tenant, from `GET /v1/packages/needs-new-build` (platform
+admin key). See [Upgrade across a plugin interface change](../../how-to/constructors/consume-a-provider/#after-a-release-that-changes-the-plugin-interface).
 
 ### `package inspect <ID>`
 
@@ -727,6 +752,7 @@ cloacinactl constructor package <CRATE-DIR> [--out <PATH>]
 | `execution list [--workflow <F>] [--status <S>] [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/executions?status=…&workflow=…&limit=…&offset=…` | Default limit: 50, server cap 1000; default offset 0. `--status` and `--workflow` map to the server query params of the same names (CLOACI-T-0594 / API-02). |
 | `execution status <ID>` | `GET /v1/tenants/<tenant>/executions/<id>` | Returns Pending / Running / Completed / Failed / Cancelled / Paused. |
 | `execution events <ID> [--since <DURATION>] [--follow]` | `GET /v1/tenants/<tenant>/executions/<id>/events?since=<dur>` | `--follow` streams live events over the server's WebSocket delivery substrate (CLOACI-I-0115) until interrupted. `--since` cannot be combined with `--follow` (cursor support is future work); use `--since` on a non-follow call for the historical snapshot. |
+| `execution output <ID> <TASK_ID> [--attempt <N>]` | `GET /v1/tenants/<tenant>/executions/<id>/tasks/<task_id>/output?attempt=<n>` | The end of what each attempt of the task wrote on stdout and stderr, kept for tasks that ran in an agent's worker process (CLOACINA-T-1091). `TASK_ID` is the `id` of the task in the execution's task list. The table format prints a header line per attempt and the text as it is; `-o json` gives the answer of the route. See [The end of a task's output](../../how-to/service/find-a-tasks-logs/#the-end-of-a-tasks-output). |
 
 ## `graph`
 
@@ -793,8 +819,9 @@ what, when, in which tenant.
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `key create <NAME> [--role <ROLE> \| --platform-admin] [--expires-at <TIME>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. `--expires-at` is an RFC 3339 time in the future after which the key is refused; not set, the key does not expire. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
-| `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at). No hashes, no plaintext. |
+| `key create <NAME> [--role <ROLE> \| --platform-admin] [--expires-at <TIME>] [--max-priority <N>]` | `POST /v1/auth/keys` | Roles: `admin`, `write`, `read`, `agent`. Default `read`. `--platform-admin` makes a platform admin key (no tenant, role `admin`, `is_admin = true`) and cannot be combined with `--role`. `--expires-at` is an RFC 3339 time in the future after which the key is refused; not set, the key does not expire. `--max-priority` (0 to 10) is the highest [priority](../../explanation/priority/#a-limit-on-a-key) the key may set; not set, the default of its role; not on a `read` or `agent` key. **The plaintext key is shown exactly once** in table mode (JSON mode returns it in the body with no warning). Save it; it cannot be retrieved later. |
+| `key set-priority <ID> (--max-priority <N> \| --clear)` | `PATCH /v1/tenants/<tenant>/keys/<id>` | Sets (0 to 10) or clears the highest priority a key of the tenant may set. Needs an `admin` key of the tenant or a platform admin key; the limit may not be better than the caller's own (`403`). Without `--tenant` the tenant is `public`. |
+| `key list` | `GET /v1/auth/keys` | Returns metadata only (ID, name, role, created_at, last_used_at, max_priority). No hashes, no plaintext. |
 | `key revoke <ID> [--force]` | `DELETE /v1/auth/keys/<id>` | Revokes the key. Confirmation unless `--force`. The last live platform admin key is refused (`409`). |
 
 `key create --tenant <TENANT> <NAME> [--role <ROLE>]` calls
@@ -820,7 +847,7 @@ start to an end, oldest first. See
 
 | Command | HTTP Endpoint | Notes |
 |---|---|---|
-| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. Prints the backfill with its id. |
+| `backfill create <WORKFLOW> --start <TIME> --end <TIME> [--cron <EXPR>] [--timezone <TZ>] [--max-active-runs <N>] [--param <KEY=VALUE>]… [--params <FILE>] [--priority <N>]` | `POST /v1/tenants/<tenant>/workflows/<workflow>/backfills` | Times are RFC 3339; both ends are in the range. Without `--cron`: the cron schedule of the workflow, when it has exactly one. `--max-active-runs` defaults to 1. `--param` values are parsed as JSON when they parse, else taken as strings; `--params` reads a JSON object file (`-` for stdin) and `--param` wins on a conflict. `--priority` (0 to 10) is the workflow [priority](../../explanation/priority/#give-a-schedule-a-priority) of each run, held to your limit when the run starts; a priority above your limit is printed as a warning. Prints the backfill with its id. |
 | `backfill create <WORKFLOW> --interval <TIME> […]` | same | One interval: `--interval` is its fire time. The same as `--start` and `--end` with that value. |
 | `backfill list <WORKFLOW> [--limit <N>] [--offset <N>]` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills?limit=…&offset=…` | Newest first, each with its progress. Default limit: 100, max 1000. |
 | `backfill inspect <WORKFLOW> <ID>` | `GET /v1/tenants/<tenant>/workflows/<workflow>/backfills/<id>` | Status, progress (`total`, `completed`, `failed`, `running`, `remaining`, position) and the failed intervals. |

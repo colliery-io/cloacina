@@ -30,6 +30,10 @@ class CreateInstanceRequest:
             `skip` schedule has no limit. Needs `cron`.
         params (Any | Unset): Parameter values bound to this instance, validated against the
             workflow's declared `params(...)` slots.
+        priority (int | None | Unset): The workflow priority of each fire, 0 (the highest) to 10
+            (CLOACINA-T-1123). Each fire is held to the creator's limit at the
+            time of the fire; a priority above the limit is not refused. Not set:
+            the priority the workflow declares.
         timezone (None | str | Unset): IANA timezone for `cron`. Defaults to `UTC`.
     """
 
@@ -39,6 +43,7 @@ class CreateInstanceRequest:
     enabled: bool | None | Unset = UNSET
     max_active_runs: int | None | Unset = UNSET
     params: Any | Unset = UNSET
+    priority: int | None | Unset = UNSET
     timezone: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -71,6 +76,12 @@ class CreateInstanceRequest:
 
         params = self.params
 
+        priority: int | None | Unset
+        if isinstance(self.priority, Unset):
+            priority = UNSET
+        else:
+            priority = self.priority
+
         timezone: None | str | Unset
         if isinstance(self.timezone, Unset):
             timezone = UNSET
@@ -94,6 +105,8 @@ class CreateInstanceRequest:
             field_dict["max_active_runs"] = max_active_runs
         if params is not UNSET:
             field_dict["params"] = params
+        if priority is not UNSET:
+            field_dict["priority"] = priority
         if timezone is not UNSET:
             field_dict["timezone"] = timezone
 
@@ -142,6 +155,15 @@ class CreateInstanceRequest:
 
         params = d.pop("params", UNSET)
 
+        def _parse_priority(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        priority = _parse_priority(d.pop("priority", UNSET))
+
         def _parse_timezone(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -158,6 +180,7 @@ class CreateInstanceRequest:
             enabled=enabled,
             max_active_runs=max_active_runs,
             params=params,
+            priority=priority,
             timezone=timezone,
         )
 

@@ -30,8 +30,8 @@ use cloacina::executor::WorkflowExecutor;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina_api_types::{
     ExecuteRequest, ExecuteResponse, ExecutionDetail, ExecutionEvent, ExecutionEventsResponse,
-    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskExecutionDetail,
-    TenantListResponse,
+    ExecutionSummary, ExecutionTasksResponse, ListExecutionsQuery, TaskAttemptOutputDetail,
+    TaskExecutionDetail, TaskOutputQuery, TaskOutputResponse, TenantListResponse,
 };
 
 use crate::AppState;
@@ -710,6 +710,13 @@ pub async fn get_execution_tasks(
                     sub_status: t.sub_status,
                     last_error: t.last_error,
                     error_details: t.error_details,
+                    // CLOACINA-T-1148: why the task waits, while it does.
+                    wait_reason: t.wait_reason.map(|code| {
+                        cloacina_api_types::TaskWaitReason::new(
+                            &code,
+                            t.wait_message.unwrap_or_default(),
+                        )
+                    }),
                 })
                 .collect();
             Json(ExecutionTasksResponse {
@@ -720,6 +727,83 @@ pub async fn get_execution_tasks(
             .into_response()
         }
         Err(e) => ApiError::internal_logged("get execution tasks failed", &e).into_response(),
+    }
+}
+
+/// GET /tenants/:tenant_id/executions/:id/tasks/:task_id/output — the end of
+/// the output of each attempt of a task (CLOACINA-T-1091).
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/executions/{exec_id}/tasks/{task_id}/output",
+    tag = "executions",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier"),
+        ("exec_id" = String, Path, description = "Execution UUID"),
+        ("task_id" = String, Path, description = "Task execution UUID"),
+        TaskOutputQuery,
+    ),
+    responses(
+        (status = 200, description = "The stored output of each attempt, in attempt order; empty when none was kept", body = TaskOutputResponse),
+        (status = 400, description = "Invalid execution or task ID", body = cloacina_api_types::ErrorBody),
+        (status = 401, description = "Missing or invalid API key", body = cloacina_api_types::ErrorBody),
+        (status = 403, description = "Tenant access denied", body = cloacina_api_types::ErrorBody),
+        (status = 500, description = "Internal error", body = cloacina_api_types::ErrorBody),
+    ),
+    security(("api_key" = []))
+)]
+pub async fn get_task_output(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthenticatedKey>,
+    Path((tenant_id, exec_id, task_id)): Path<(String, String, String)>,
+    Query(query): Query<TaskOutputQuery>,
+) -> impl IntoResponse {
+    let (Ok(execution), Ok(task)) = (
+        uuid::Uuid::parse_str(&exec_id),
+        uuid::Uuid::parse_str(&task_id),
+    ) else {
+        return ApiError::bad_request("invalid_request", "invalid execution or task ID")
+            .into_response();
+    };
+
+    let tenant_db = match state
+        .tenant_databases
+        .resolve(&tenant_id, &state.database)
+        .await
+    {
+        Ok(db) => db,
+        Err(e) => {
+            return ApiError::internal_logged("tenant database error", &e).into_response();
+        }
+    };
+    let dal = cloacina::dal::DAL::new(tenant_db);
+    let execution = cloacina::database::universal_types::UniversalUuid(execution);
+    match dal
+        .task_execution()
+        .attempt_outputs(
+            cloacina::database::universal_types::UniversalUuid(task),
+            query.attempt,
+        )
+        .await
+    {
+        Ok(rows) => Json(TaskOutputResponse {
+            tenant_id,
+            execution_id: exec_id,
+            task_id,
+            attempts: rows
+                .into_iter()
+                // A task of another execution has no output here.
+                .filter(|row| row.workflow_execution_id == execution)
+                .map(|row| TaskAttemptOutputDetail {
+                    attempt: row.attempt,
+                    output: row.output,
+                    total_bytes: row.total_bytes,
+                    cut: row.cut.into(),
+                    recorded_at: row.recorded_at.0.to_rfc3339(),
+                })
+                .collect(),
+        })
+        .into_response(),
+        Err(e) => ApiError::internal_logged("get task output failed", &e).into_response(),
     }
 }
 

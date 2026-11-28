@@ -71,6 +71,11 @@ enum InstanceVerb {
         /// Needs `--cron`.
         #[arg(long, value_name = "N", requires = "cron", value_parser = clap::value_parser!(u32).range(1..))]
         max_active_runs: Option<u32>,
+        /// The workflow priority of each fire, 0 (the highest) to 10
+        /// (CLOACINA-T-1123). Each fire is held to your limit at the time of
+        /// the fire. Not set: the priority the workflow declares.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=10))]
+        priority: Option<u8>,
         /// Create the schedule disabled.
         #[arg(long)]
         disabled: bool,
@@ -107,6 +112,7 @@ impl InstanceCmd {
                 timezone,
                 catchup,
                 max_active_runs,
+                priority,
                 disabled,
             } => {
                 let merged = merge_params(&params, params_file.as_deref())?;
@@ -126,6 +132,9 @@ impl InstanceCmd {
                 if let Some(limit) = max_active_runs {
                     body["max_active_runs"] = serde_json::json!(limit);
                 }
+                if let Some(priority) = priority {
+                    body["priority"] = serde_json::json!(priority);
+                }
                 if disabled {
                     body["enabled"] = serde_json::json!(false);
                 }
@@ -135,6 +144,11 @@ impl InstanceCmd {
                         &body,
                     )
                     .await?;
+                // CLOACINA-T-1123: a priority above the creator's limit is a
+                // warning on stderr.
+                if let Some(notice) = resp.get("priority_notice").and_then(|n| n.as_str()) {
+                    eprintln!("warning: {notice}");
+                }
                 render::object(&resp, output)
             }
             InstanceVerb::List {

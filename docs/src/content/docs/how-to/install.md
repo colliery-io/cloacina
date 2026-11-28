@@ -135,21 +135,38 @@ support CPython 3.9+. See the
 
 ## Docker
 
-The server is published as a multi-arch container image (linux/amd64 +
-linux/arm64) on every release, tagged `X.Y.Z`, `X.Y`, and `latest`:
+Every release publishes three multi-arch container images (linux/amd64 +
+linux/arm64), each tagged `X.Y.Z`, `X.Y`, and `latest`:
+
+| Image | What it runs |
+|-------|--------------|
+| `ghcr.io/colliery-io/cloacina-server` | The HTTP API server, with the web UI |
+| `ghcr.io/colliery-io/cloacina-agent` | An execution agent of the fleet |
+| `ghcr.io/colliery-io/cloacina-compiler` | The build service for uploaded packages |
 
 ```sh
 docker pull ghcr.io/colliery-io/cloacina-server:0.12.0
 ```
 
+Run the three at the same version. The agent and compiler images are
+published from the first release after 0.12.0.
+
 See [Running the server image](../service/running-the-server-image/) for the full container deploy walkthrough — environment variables, signature enforcement, log retention.
 
 ## Kubernetes (Helm)
 
-A Helm chart with an embedded local Postgres subchart ships in-tree:
+Every release publishes two charts to ghcr.io, each with the release
+version:
+
+| Chart | What it installs |
+|-------|------------------|
+| `oci://ghcr.io/colliery-io/charts/cloacina-server` | The server, with an embedded local Postgres subchart and an optional compiler |
+| `oci://ghcr.io/colliery-io/charts/cloacina-agent` | A fleet of execution agents |
 
 ```sh
-helm install cloacina-server ./charts/cloacina-server
+helm install cloacina-server oci://ghcr.io/colliery-io/charts/cloacina-server --version X.Y.Z
 ```
+
+The agent chart is published from the first release after 0.12.0.
 
 See [Deploying to Kubernetes](../service/deploying-to-kubernetes/) for production values, the embedded Postgres subchart story, and the operator-flag reference.

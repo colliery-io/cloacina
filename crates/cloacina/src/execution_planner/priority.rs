@@ -41,6 +41,11 @@ pub struct RunPriority {
     /// The highest priority that who asked may set. `None`: no limit (a run
     /// started by the program itself, with no principal).
     pub limit: Option<u8>,
+    /// The schedule that fires the run (CLOACINA-T-1123). A schedule created
+    /// with a priority gives the run that priority, held to the limit of its
+    /// creator at the time of the fire. A schedule with none gives the run
+    /// the priority its workflow declares.
+    pub schedule: Option<uuid::Uuid>,
 }
 
 impl RunPriority {
@@ -50,8 +55,34 @@ impl RunPriority {
         Self {
             asked: Some(asked),
             limit,
+            schedule: None,
         }
     }
+
+    /// A run that the schedule `schedule` fires (CLOACINA-T-1123).
+    pub fn fired_by(schedule: uuid::Uuid) -> Self {
+        Self {
+            asked: None,
+            limit: None,
+            schedule: Some(schedule),
+        }
+    }
+}
+
+/// A change of the priority given to the runs of a package or a schedule
+/// that a principal set (CLOACINA-T-1123): the stored last given value moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PriorityChange {
+    /// `package` or `schedule`.
+    pub kind: String,
+    /// The package name or the schedule id.
+    pub target: String,
+    /// The workflow of the run.
+    pub workflow_name: String,
+    /// Who set the priority.
+    pub setter: crate::dal::unified::PrioritySetter,
+    /// What the run asked for and what it was given.
+    pub grant: PriorityGrant,
 }
 
 /// Who may limit the priority that the code of a package declares.
@@ -69,6 +100,18 @@ pub trait PriorityAuthority: Send + Sync {
     /// A run of `workflow_name` started with a priority below the one asked
     /// for. Called for each such run.
     async fn run_held(&self, _workflow_name: &str, _grant: PriorityGrant) {}
+
+    /// The highest priority `setter` may set now (CLOACINA-T-1123): the
+    /// limit of the principal that published a package or created a
+    /// schedule, at the start of each of its runs. `None` is no limit.
+    async fn limit_of(&self, _setter: &crate::dal::unified::PrioritySetter) -> Option<u8> {
+        None
+    }
+
+    /// The priority given to the runs of a package or a schedule changed
+    /// (CLOACINA-T-1123). Called once for each change, by the run start that
+    /// changed the stored value, on any replica.
+    async fn given_changed(&self, _change: &PriorityChange) {}
 }
 
 /// `asked` under `limit`, where `None` is no limit.
@@ -247,6 +290,8 @@ mod tests {
             task_priority: own,
             fleet_dispatch_claimed_by: None,
             task_priority_asked: None,
+            wait_reason: None,
+            wait_message: None,
         }
     }
 

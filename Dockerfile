@@ -132,7 +132,7 @@ EXPOSE 8080
 
 # Image labels — drives the GitHub package linkage and makes
 # `docker inspect` carry the source/license/description fields.
-LABEL org.opencontainers.image.source="https://github.com/colliery-software/cloacina"
+LABEL org.opencontainers.image.source="https://github.com/colliery-io/cloacina"
 LABEL org.opencontainers.image.description="cloacina-server — workflow orchestration HTTP API"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 

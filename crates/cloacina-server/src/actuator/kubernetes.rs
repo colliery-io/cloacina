@@ -61,6 +61,9 @@ const LABEL_MANAGED: &str = "cloacina.managed";
 const LABEL_TENANT: &str = "cloacina.tenant";
 /// Kubernetes app label (matches the chart's convention).
 const LABEL_APP: &str = "app.kubernetes.io/name";
+/// The agent's `--agent-id` (CLOACINA-T-1145): the actuator sets it to the
+/// pod's name.
+pub const AGENT_ID_ENV: &str = "CLOACINA_AGENT_ID";
 
 /// Label naming the pool of a pool's workload. Not set for the pool `default`,
 /// so that its objects stay as they were before pools.
@@ -508,6 +511,66 @@ pub trait KubeOps: Send + Sync {
     /// (`networking.k8s.io`) in every namespace: a SelfSubjectAccessReview
     /// (CLOACINA-T-1069). Reads and writes no object.
     async fn may_on_network_policies(&self, verb: &str) -> Result<bool, ActuatorError>;
+    /// The pods of a pool's Deployment, by its app label, with their
+    /// deletion cost (CLOACINA-T-1145). Needs `list` on pods.
+    async fn list_agent_pods(
+        &self,
+        _namespace: &str,
+        _app: &str,
+    ) -> Result<Vec<AgentPod>, ActuatorError> {
+        Ok(Vec::new())
+    }
+    /// Set (or, with `None`, take off) a pod's
+    /// [`POD_DELETION_COST_ANNOTATION`] (CLOACINA-T-1145). Needs `patch` on
+    /// pods.
+    async fn set_pod_deletion_cost(
+        &self,
+        _namespace: &str,
+        _pod: &str,
+        _cost: Option<i32>,
+    ) -> Result<(), ActuatorError> {
+        Ok(())
+    }
+}
+
+/// The annotation by which a ReplicaSet picks the pods it deletes first:
+/// the lowest cost first (Kubernetes 1.22 and later, on by default).
+pub const POD_DELETION_COST_ANNOTATION: &str = "controller.kubernetes.io/pod-deletion-cost";
+
+/// The deletion cost of the pod of a busy agent (CLOACINA-T-1145).
+pub const BUSY_POD_DELETION_COST: i32 = 1000;
+
+/// One pod of a pool's Deployment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPod {
+    pub name: String,
+    /// The pod's deletion cost, as set.
+    pub deletion_cost: Option<i32>,
+}
+
+/// The deletion costs to write before a pool loses pods (CLOACINA-T-1145):
+/// the pod of the `i`-th idle agent gets `-1000 - (idle - i)`, so the first
+/// goes first; a busy agent's pod gets [`BUSY_POD_DELETION_COST`]; a pod of
+/// no known agent (not registered yet) has none, so it goes after the idle
+/// ones and before the busy ones. A Kubernetes agent's id is its pod's name.
+/// Gives only the pods whose cost changes. Pure.
+pub fn deletion_costs(
+    pods: &[AgentPod],
+    agents: &crate::autoscaler::removal::PoolAgents,
+) -> Vec<(String, Option<i32>)> {
+    let idle = agents.idle.len() as i32;
+    pods.iter()
+        .filter_map(|pod| {
+            let want = if let Some(i) = agents.idle.iter().position(|a| a.agent_id == pod.name) {
+                Some(-1000 - (idle - i as i32))
+            } else if agents.busy.iter().any(|a| a.agent_id == pod.name) {
+                Some(BUSY_POD_DELETION_COST)
+            } else {
+                None
+            };
+            (want != pod.deletion_cost).then(|| (pod.name.clone(), want))
+        })
+        .collect()
 }
 
 /// The verbs the actuator uses on NetworkPolicies: server-side apply
@@ -650,6 +713,23 @@ impl KubernetesActuator {
         Ok(())
     }
 
+    /// Write the deletion costs of a pool's pods that differ from what
+    /// [`deletion_costs`] gives (CLOACINA-T-1145).
+    async fn mark_pods(
+        &self,
+        namespace: &str,
+        app: &str,
+        agents: &crate::autoscaler::removal::PoolAgents,
+    ) -> Result<(), ActuatorError> {
+        let pods = self.ops.list_agent_pods(namespace, app).await?;
+        for (pod, cost) in deletion_costs(&pods, agents) {
+            self.ops
+                .set_pod_deletion_cost(namespace, &pod, cost)
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Reconcile one pool of a tenant: its ServiceAccount, its NetworkPolicy,
     /// its Deployment and the replica count.
     async fn reconcile_pool(
@@ -688,6 +768,25 @@ impl KubernetesActuator {
         // Ready replicas are our notion of "running" capacity. Absent
         // Deployment → 0 (treated as a cold start).
         let running = self.ops.count_ready_replicas(namespace, &name).await?;
+
+        // CLOACINA-T-1145: before fewer replicas, steer which pods go. The
+        // pods of idle agents get a low deletion cost (the one registered
+        // last lowest), those of busy agents a high one; the ReplicaSet
+        // deletes the lowest first. An agent's id is its pod's name. If
+        // the costs cannot be written while an agent is busy, the count
+        // stays this tick: a busy pod is never the one removed.
+        let mut desired = desired;
+        if desired < running
+            && let Some(agents) = self.pools.pool_agents(tenant_id, pool)
+            && let Err(e) = self.mark_pods(namespace, &name, &agents).await
+        {
+            if agents.busy.is_empty() {
+                warn!(tenant = %tenant_id, pool = %pool, error = %e, "fleet actuator: pod deletion costs not written; scaling down anyway (no agent is busy)");
+            } else {
+                warn!(tenant = %tenant_id, pool = %pool, error = %e, "fleet actuator: pod deletion costs not written; the pool keeps its pods this tick");
+                desired = running;
+            }
+        }
         let delta = reconcile_delta(running, desired);
 
         // Ensure the Deployment object exists (idempotent; never sets replicas).
@@ -973,7 +1072,7 @@ impl FleetActuator for KubernetesActuator {
 // ---------------------------------------------------------------------------
 
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{Namespace, Secret, ServiceAccount};
+use k8s_openapi::api::core::v1::{Namespace, Pod, Secret, ServiceAccount};
 use k8s_openapi::api::networking::v1::NetworkPolicy;
 use kube::api::{DeleteParams, Patch, PatchParams};
 use kube::{Api, Client, Config};
@@ -1052,6 +1151,15 @@ fn agent_deployment_manifest(spec: &AgentDeployment) -> serde_json::Value {
                                         "name": spec.secret_name,
                                         "key": spec.secret_key,
                                     }
+                                }
+                            },
+                            // CLOACINA-T-1145: the agent's id is its pod's
+                            // name, so the server knows the pod of an idle
+                            // agent when a pool steps down.
+                            {
+                                "name": AGENT_ID_ENV,
+                                "valueFrom": {
+                                    "fieldRef": { "fieldPath": "metadata.name" }
                                 }
                             }
                         ],
@@ -1569,6 +1677,61 @@ impl KubeOps for KubeApiOps {
             })?;
         Ok(answer.status.is_some_and(|s| s.allowed))
     }
+
+    async fn list_agent_pods(
+        &self,
+        namespace: &str,
+        app: &str,
+    ) -> Result<Vec<AgentPod>, ActuatorError> {
+        let api: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        let params = kube::api::ListParams::default().labels(&format!("{LABEL_APP}={app}"));
+        let pods = api
+            .list(&params)
+            .await
+            .map_err(|e| ActuatorError::Substrate(format!("list agent pods failed: {e}")))?;
+        Ok(pods
+            .items
+            .into_iter()
+            .filter_map(|pod| {
+                let name = pod.metadata.name?;
+                let deletion_cost = pod
+                    .metadata
+                    .annotations
+                    .as_ref()
+                    .and_then(|a| a.get(POD_DELETION_COST_ANNOTATION))
+                    .and_then(|v| v.parse().ok());
+                Some(AgentPod {
+                    name,
+                    deletion_cost,
+                })
+            })
+            .collect())
+    }
+
+    async fn set_pod_deletion_cost(
+        &self,
+        namespace: &str,
+        pod: &str,
+        cost: Option<i32>,
+    ) -> Result<(), ActuatorError> {
+        let api: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        // A merge patch: `null` takes the annotation off.
+        let value = cost.map(|c| c.to_string());
+        let patch = serde_json::json!({
+            "metadata": { "annotations": { POD_DELETION_COST_ANNOTATION: value } }
+        });
+        match api
+            .patch(pod, &PatchParams::default(), &Patch::Merge(&patch))
+            .await
+        {
+            Ok(_) => Ok(()),
+            // Gone since the list: nothing to steer.
+            Err(kube::Error::Api(e)) if e.code == 404 => Ok(()),
+            Err(e) => Err(ActuatorError::Substrate(format!(
+                "set pod deletion cost failed: {e}"
+            ))),
+        }
+    }
 }
 
 /// The test of `kubectl rollout status` on a Deployment (CLOACINA-T-1083):
@@ -1642,6 +1805,12 @@ mod tests {
         rolling: Mutex<Vec<String>>,
         /// NetworkPolicy verbs the access review denies (CLOACINA-T-1069).
         denied_network_policy_verbs: Mutex<Vec<String>>,
+        /// The agent pods a list answers (CLOACINA-T-1145).
+        pods: Mutex<Vec<AgentPod>>,
+        /// `(pod, cost)` of every deletion cost written, in order.
+        cost_writes: Mutex<Vec<(String, Option<i32>)>>,
+        /// A pod patch is refused (no RBAC rule).
+        refuse_pod_patch: std::sync::atomic::AtomicBool,
     }
 
     impl MockOps {
@@ -1651,6 +1820,9 @@ mod tests {
                 secret_values: Mutex::new(BTreeMap::new()),
                 fail_delete_once: Mutex::new(None),
                 denied_network_policy_verbs: Mutex::new(Vec::new()),
+                pods: Mutex::new(Vec::new()),
+                cost_writes: Mutex::new(Vec::new()),
+                refuse_pod_patch: std::sync::atomic::AtomicBool::new(false),
                 ready,
                 namespaces: Mutex::new(Vec::new()),
                 secrets: AtomicU32::new(0),
@@ -1817,6 +1989,150 @@ mod tests {
                 .iter()
                 .any(|v| v == verb))
         }
+        async fn list_agent_pods(
+            &self,
+            _namespace: &str,
+            _app: &str,
+        ) -> Result<Vec<AgentPod>, ActuatorError> {
+            Ok(self.pods.lock().unwrap().clone())
+        }
+        async fn set_pod_deletion_cost(
+            &self,
+            _namespace: &str,
+            pod: &str,
+            cost: Option<i32>,
+        ) -> Result<(), ActuatorError> {
+            if self.refuse_pod_patch.load(Ordering::SeqCst) {
+                return Err(ActuatorError::Substrate("pods is forbidden".to_string()));
+            }
+            self.cost_writes
+                .lock()
+                .unwrap()
+                .push((pod.to_string(), cost));
+            Ok(())
+        }
+    }
+
+    // ── which pod goes (CLOACINA-T-1145) ───────────────────────────────────
+
+    fn pod(name: &str, cost: Option<i32>) -> AgentPod {
+        AgentPod {
+            name: name.to_string(),
+            deletion_cost: cost,
+        }
+    }
+
+    fn agents(idle: &[&str], busy: &[&str]) -> crate::autoscaler::removal::PoolAgents {
+        let refs = |ids: &[&str]| {
+            ids.iter()
+                .map(|id| crate::autoscaler::removal::AgentRef {
+                    agent_id: id.to_string(),
+                    owner_key_id: None,
+                })
+                .collect()
+        };
+        crate::autoscaler::removal::PoolAgents {
+            idle: refs(idle),
+            busy: refs(busy),
+        }
+    }
+
+    /// Idle agents' pods get the lowest costs, the first lowest; busy pods
+    /// a high one; a pod of no known agent none. Only changes are written.
+    #[test]
+    fn deletion_costs_put_idle_pods_first_and_busy_ones_last() {
+        let pods = vec![
+            pod("busy", None),
+            pod("idle-new", None),
+            pod("idle-old", Some(-1001)),
+            pod("starting", Some(BUSY_POD_DELETION_COST)),
+        ];
+        let costs = deletion_costs(&pods, &agents(&["idle-new", "idle-old"], &["busy"]));
+        assert_eq!(
+            costs,
+            vec![
+                ("busy".to_string(), Some(BUSY_POD_DELETION_COST)),
+                ("idle-new".to_string(), Some(-1002)),
+                ("starting".to_string(), None),
+            ]
+        );
+    }
+
+    /// A pool lowered by one: the costs are written, then the count. The
+    /// pods' agents are known by their pod names.
+    #[tokio::test]
+    async fn a_step_down_marks_the_idle_pod_before_it_scales() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        *ops.pods.lock().unwrap() = vec![pod("pod-busy", None), pod("pod-idle", None)];
+        let tenant = "t1145-kube";
+        crate::autoscaler::removal::set_pool_agents(
+            tenant,
+            DEFAULT_AGENT_POOL,
+            agents(&["pod-idle"], &["pod-busy"]),
+            std::time::Duration::from_secs(60),
+        );
+        let act = actuator(ops.clone(), Arc::new(MockMinter::default()));
+        act.reconcile(tenant, 1).await.unwrap();
+        assert_eq!(
+            *ops.cost_writes.lock().unwrap(),
+            vec![
+                ("pod-busy".to_string(), Some(BUSY_POD_DELETION_COST)),
+                ("pod-idle".to_string(), Some(-1001)),
+            ]
+        );
+        assert_eq!(
+            ops.scaled.lock().unwrap().last(),
+            Some(&(pool_deployment_name(DEFAULT_AGENT_POOL), 1))
+        );
+    }
+
+    /// Costs that cannot be written: with a busy agent the pool keeps its
+    /// pods this tick; with none busy it scales down as before.
+    #[tokio::test]
+    async fn without_pod_rights_a_pool_with_a_busy_agent_keeps_its_pods() {
+        let ops = Arc::new(MockOps::with_ready(2));
+        *ops.pods.lock().unwrap() = vec![pod("pod-busy", None), pod("pod-idle", None)];
+        ops.refuse_pod_patch.store(true, Ordering::SeqCst);
+        let tenant = "t1145-kube-norbac";
+        crate::autoscaler::removal::set_pool_agents(
+            tenant,
+            DEFAULT_AGENT_POOL,
+            agents(&["pod-idle"], &["pod-busy"]),
+            std::time::Duration::from_secs(60),
+        );
+        let act = actuator(ops.clone(), Arc::new(MockMinter::default()));
+        act.reconcile(tenant, 1).await.unwrap();
+        assert_eq!(
+            ops.scaled.lock().unwrap().last(),
+            Some(&(pool_deployment_name(DEFAULT_AGENT_POOL), 2)),
+            "kept its pods"
+        );
+        crate::autoscaler::removal::set_pool_agents(
+            tenant,
+            DEFAULT_AGENT_POOL,
+            agents(&["pod-idle", "pod-busy"], &[]),
+            std::time::Duration::from_secs(60),
+        );
+        act.reconcile(tenant, 1).await.unwrap();
+        assert_eq!(
+            ops.scaled.lock().unwrap().last(),
+            Some(&(pool_deployment_name(DEFAULT_AGENT_POOL), 1)),
+            "no agent busy: as before"
+        );
+    }
+
+    /// The agent's id is its pod's name (downward API).
+    #[test]
+    fn the_agent_id_is_the_pod_name() {
+        let m = agent_deployment_manifest(&default_spec());
+        let env = m["spec"]["template"]["spec"]["containers"][0]["env"]
+            .as_array()
+            .unwrap();
+        let id = env
+            .iter()
+            .find(|e| e["name"] == AGENT_ID_ENV)
+            .expect("the agent id variable");
+        assert_eq!(id["valueFrom"]["fieldRef"]["fieldPath"], "metadata.name");
     }
 
     /// Mock minter: counts, hands back a deterministic key, and records the
@@ -2341,8 +2657,17 @@ mod tests {
             }
         });
         // CLOACINA-T-1033: since pools were added, the pod mounts no service
-        // account token by default. That is the one change to this manifest.
+        // account token by default.
         expected["spec"]["template"]["spec"]["automountServiceAccountToken"] = false.into();
+        // CLOACINA-T-1145: the agent's id is its pod's name. Decided as one
+        // roll of every agent pod on the upgrade (CHANGELOG upgrade note).
+        expected["spec"]["template"]["spec"]["containers"][0]["env"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": "CLOACINA_AGENT_ID",
+                "valueFrom": { "fieldRef": { "fieldPath": "metadata.name" } }
+            }));
         assert_eq!(m, expected);
     }
 
@@ -3252,6 +3577,7 @@ mod tests {
             is_admin: false,
             expires_at,
             issued_via: None,
+            max_priority: None,
         }
     }
 

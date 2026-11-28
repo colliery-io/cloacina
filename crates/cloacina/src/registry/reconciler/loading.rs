@@ -99,6 +99,24 @@ fn load_plugin_handle_from_bytes(library_data: &[u8]) -> Result<fidius_host::Plu
     Ok(handle)
 }
 
+/// The error of a graph load that found its reactor loaded with another
+/// contract (CLOACINA-T-1135): such a graph would not run, so the package
+/// load fails with this reason. `Ok` for any other error of the graph load,
+/// which the caller logs as before.
+fn different_contract(package: &str, graph: &str, error: &str) -> Result<(), RegistryError> {
+    if !error.contains("different contract") {
+        return Ok(());
+    }
+    Err(RegistryError::RegistrationFailed {
+        message: format!(
+            "package '{}': computation graph '{}' cannot bind to its reactor: {}. A reactor \
+             of another package keeps its own input strategy; give the graph the same \
+             `input_strategy` in package.toml",
+            package, graph, error
+        ),
+    })
+}
+
 impl RegistryReconciler {
     /// Load a package into the global registries.
     ///
@@ -133,6 +151,9 @@ impl RegistryReconciler {
         if result.is_err() && !created_schedule_ids.is_empty() {
             self.rollback_schedule_rows(&metadata, &created_schedule_ids, &existing_schedule_ids)
                 .await;
+        }
+        if result.is_err() {
+            self.loaded_signatures.write().await.remove(&metadata.id);
         }
         result
     }
@@ -258,6 +279,12 @@ impl RegistryReconciler {
                         Some(&verified.signer_fingerprint),
                         /* signature_verified */ true,
                     );
+                    // CLOACINA-T-1119: kept for the check after a revoke.
+                    // `load_package` drops it when the load fails later.
+                    self.loaded_signatures
+                        .write()
+                        .await
+                        .insert(metadata.id, verified);
                 }
                 Err(refusal) => {
                     let msg = format!(
@@ -809,7 +836,7 @@ impl RegistryReconciler {
                             &cloacina_workflow_plugin::python_env::host_platform(),
                         )
                         .await?;
-                    let maybe_decl = {
+                    let mut maybe_decl = {
                         let archive_data = loaded_workflow.package_data.clone();
                         let gn_inner = gn.clone();
                         let em_inner = em.clone();
@@ -848,6 +875,14 @@ impl RegistryReconciler {
                             }
                         })??
                     };
+                    // CLOACINA-T-1135: the manifest's input strategy, as the
+                    // compiler's describe child applies it to the document.
+                    if let Some(decl) = maybe_decl.as_mut() {
+                        crate::computation_graph::packaging_bridge::apply_manifest_input_strategy(
+                            decl,
+                            cloacina_manifest.metadata.input_strategy.as_deref(),
+                        );
+                    }
 
                     // T-0554 Phase 2: build the Python view + run the
                     // unified pipeline helpers (cron triggers, custom
@@ -875,11 +910,20 @@ impl RegistryReconciler {
                             .await?,
                     );
                     let _ = self.step_load_custom_triggers(&metadata, &cg_view, None)?;
-                    self.step_load_reactors(
+                    // The graph's reactor runs with the graph's strategy
+                    // (CLOACINA-T-1135), named by the declaration.
+                    let graph_reactor = maybe_decl.as_ref().and_then(|decl| {
+                        decl.reactor_name
+                            .as_deref()
+                            .map(|name| (name, decl.reactor.strategy.clone()))
+                    });
+                    self.step_load_reactors_with(
                         &metadata,
                         &cg_view,
                         &cloacina_manifest.metadata,
                         cg_provider_root.as_deref(),
+                        graph_reactor,
+                        None,
                     )
                     .await?;
                     if let Some(graph_meta) = cg_view.graph.as_ref() {
@@ -931,6 +975,9 @@ impl RegistryReconciler {
                                 .load_graph_in(decl, cg_provider_root.as_deref())
                                 .await
                             {
+                                // CLOACINA-T-1135: a graph whose reactor
+                                // runs with another contract fails the load.
+                                different_contract(&metadata.package_name, &gn, &e)?;
                                 warn!(
                                     "Failed to load Python CG '{}' into ComputationGraphScheduler: {}",
                                     gn, e
@@ -1013,11 +1060,31 @@ impl RegistryReconciler {
             triggerless_graph_names,
         };
 
+        self.record_task_versions(&package_state);
         let mut loaded_packages = self.loaded_packages.write().await;
         loaded_packages.insert(metadata.id, package_state);
         drop(loaded_packages);
 
         Ok(())
+    }
+
+    /// Record in the runtime the package version of each task of a loaded
+    /// package (CLOACINA-T-1137). The in-process executor pins an execution
+    /// to it, and fails a later task of the execution when another version is
+    /// loaded.
+    pub(super) fn record_task_versions(&self, state: &PackageState) {
+        let Some(runtime) = &self.runtime else {
+            return;
+        };
+        for ns in &state.task_namespaces {
+            runtime.set_task_version(
+                ns.clone(),
+                crate::runtime::LoadedTaskVersion {
+                    package_id: state.metadata.id,
+                    version: state.metadata.version.clone(),
+                },
+            );
+        }
     }
 
     /// Unload a package from the global registries.
@@ -1046,6 +1113,7 @@ impl RegistryReconciler {
                     version: "unknown".to_string(),
                 })?;
         drop(loaded_packages);
+        self.loaded_signatures.write().await.remove(&package_id);
 
         // --- Step 1 (reverse): workflows ---
         // Drop the workflow registration so future executions can't kick
@@ -2065,6 +2133,60 @@ impl RegistryReconciler {
         // resolve there — never against process-wide state another tenant shares.
         provider_root: Option<&std::path::Path>,
     ) -> Result<(), RegistryError> {
+        self.step_load_reactors_with_polls(metadata, view, manifest, provider_root, None)
+            .await
+    }
+
+    /// [`step_load_reactors`](Self::step_load_reactors) where, with `polls`,
+    /// each polling accumulator polls through the dispatcher of the runner
+    /// (CLOACINA-T-1156, the metadata-only load of a Python package).
+    pub(super) async fn step_load_reactors_with_polls(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        provider_root: Option<&std::path::Path>,
+        polls: Option<&crate::computation_graph::packaging_bridge::DispatchedPolls>,
+    ) -> Result<(), RegistryError> {
+        // CLOACINA-T-1135: the reactor of this package that its graph binds
+        // to runs with the graph's input strategy (the manifest's, else the
+        // graph's own), on every load path. A reactor of another package keeps
+        // its own; a graph that differs from it fails its load.
+        let graph_reactor = view.graph.as_ref().and_then(|graph| {
+            let name = graph.trigger_reactor.as_deref()?;
+            let strategy = manifest
+                .input_strategy
+                .as_deref()
+                .unwrap_or(&graph.input_strategy);
+            Some((
+                name,
+                crate::computation_graph::packaging_bridge::input_strategy_named(strategy),
+            ))
+        });
+        self.step_load_reactors_with(
+            metadata,
+            view,
+            manifest,
+            provider_root,
+            graph_reactor,
+            polls,
+        )
+        .await
+    }
+
+    /// [`Self::step_load_reactors`], with the reactor the package's graph
+    /// binds to and the graph's input strategy given by the caller. The
+    /// in-process Python load takes them from the graph declaration of its
+    /// import (CLOACINA-T-1135).
+    pub(super) async fn step_load_reactors_with(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        provider_root: Option<&std::path::Path>,
+        graph_reactor: Option<(&str, crate::computation_graph::reactor::InputStrategy)>,
+        polls: Option<&crate::computation_graph::packaging_bridge::DispatchedPolls>,
+    ) -> Result<(), RegistryError> {
         if view.reactors.is_empty() {
             return Ok(());
         }
@@ -2079,12 +2201,14 @@ impl RegistryReconciler {
             return Ok(());
         };
         if let Err(e) =
-            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler_in(
+            crate::computation_graph::packaging_bridge::dispatch_package_reactors_into_scheduler_with_polls(
                 &view.reactors,
                 scheduler,
                 &manifest.accumulators,
                 Some(self.config.default_tenant_id.clone()),
                 provider_root,
+                graph_reactor,
+                polls,
             )
             .await
         {
@@ -2225,6 +2349,29 @@ impl RegistryReconciler {
         // `step_load_reactors`).
         provider_root: Option<&std::path::Path>,
     ) -> Result<Option<String>, RegistryError> {
+        self.step_load_reactor_bound_cgs_with_polls(
+            metadata,
+            view,
+            manifest,
+            library_data,
+            provider_root,
+            None,
+        )
+        .await
+    }
+
+    /// [`step_load_reactor_bound_cgs`](Self::step_load_reactor_bound_cgs)
+    /// where, with `polls`, each polling accumulator of the graph polls
+    /// through the dispatcher of the runner (CLOACINA-T-1156).
+    pub(super) async fn step_load_reactor_bound_cgs_with_polls(
+        &self,
+        metadata: &WorkflowMetadata,
+        view: &PackageLoadView,
+        manifest: &cloacina_workflow_plugin::CloacinaMetadata,
+        library_data: Option<&[u8]>,
+        provider_root: Option<&std::path::Path>,
+        polls: Option<&crate::computation_graph::packaging_bridge::DispatchedPolls>,
+    ) -> Result<Option<String>, RegistryError> {
         let Some(graph_meta) = view.graph.clone() else {
             return Ok(None);
         };
@@ -2336,6 +2483,13 @@ impl RegistryReconciler {
             ),
         };
         decl.tenant_id = Some(self.config.default_tenant_id.clone());
+        if let Some(polls) = polls {
+            crate::computation_graph::packaging_bridge::dispatch_polling_accumulators(
+                &mut decl.accumulators,
+                &graph_meta.accumulators,
+                polls,
+            );
+        }
 
         // Mirror the CG into the scoped Runtime so executors can look it
         // up without going through the global registry.
@@ -2362,6 +2516,16 @@ impl RegistryReconciler {
         }
 
         if let Err(e) = scheduler.load_graph_in(decl, provider_root).await {
+            // CLOACINA-T-1135: a graph whose reactor runs with another
+            // contract fails the load, and is not left in the runtime.
+            if let Err(refused) =
+                different_contract(&metadata.package_name, &graph_meta.graph_name, &e)
+            {
+                if let Some(runtime) = &self.runtime {
+                    runtime.unregister_computation_graph(&graph_meta.graph_name);
+                }
+                return Err(refused);
+            }
             warn!(
                 "Failed to load computation graph '{}' for package {}: {}",
                 graph_meta.graph_name, metadata.package_name, e
@@ -4485,6 +4649,111 @@ mod tests {
             "manifest input_strategy must override the FFI wire default"
         );
 
+        scheduler.shutdown_all().await;
+    }
+
+    /// CLOACINA-T-1135: the manifest's input strategy applies to the graph
+    /// and to the reactor of the same package that the graph binds to, so
+    /// the graph loads with it.
+    #[tokio::test]
+    #[serial]
+    async fn the_manifest_strategy_applies_to_the_graphs_own_reactor() {
+        use cloacina_workflow_plugin::{
+            GraphPackageMetadata, ReactorPackageMetadata, types::AccumulatorDeclarationEntry,
+        };
+        let scheduler = Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new()));
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+        let metadata = WorkflowMetadata {
+            package_name: "own-rx".to_string(),
+            ..make_test_metadata()
+        };
+        let accumulator = AccumulatorDeclarationEntry {
+            name: "alpha".to_string(),
+            accumulator_type: "passthrough".to_string(),
+            config: Default::default(),
+        };
+        let view = PackageLoadView {
+            triggers: vec![],
+            reactors: vec![ReactorPackageMetadata {
+                name: "own_rx".to_string(),
+                package_name: "own-rx".to_string(),
+                reaction_mode: "when_any".to_string(),
+                accumulators: vec![accumulator.clone()],
+            }],
+            graph: Some(GraphPackageMetadata {
+                graph_name: "own_graph".to_string(),
+                package_name: "own-rx".to_string(),
+                reaction_mode: "when_any".to_string(),
+                input_strategy: "latest".to_string(),
+                accumulators: vec![accumulator],
+                trigger_reactor: Some("own_rx".to_string()),
+                graph_data_json: None,
+            }),
+        };
+        let manifest = cloacina_workflow_plugin::CloacinaMetadata {
+            input_strategy: Some("sequential".to_string()),
+            ..make_cloacina_metadata()
+        };
+
+        reconciler
+            .step_load_reactors(&metadata, &view, &manifest, None)
+            .await
+            .expect("the reactor loads");
+        reconciler
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, Some(&b""[..]), None)
+            .await
+            .expect("the graph loads on its own reactor");
+
+        let graphs = scheduler.list_graphs().await;
+        let status = graphs
+            .iter()
+            .find(|g| g.name == "own_graph")
+            .expect("the graph is loaded");
+        assert_eq!(status.reactor.as_deref(), Some("own_rx"));
+        assert_eq!(status.input_strategy, "sequential");
+        scheduler.shutdown_all().await;
+    }
+
+    /// CLOACINA-T-1135: a graph that binds to a reactor of another package
+    /// with another input strategy fails the load, with a reason, and is
+    /// not left in the runtime.
+    #[tokio::test]
+    #[serial]
+    async fn a_graph_with_another_strategy_than_a_shared_reactor_fails_the_load() {
+        let scheduler = Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new()));
+        load_publishing_reactor_into_scheduler(&scheduler, "shared_rx", &["alpha"]).await;
+        let reconciler = make_reconciler_with_scheduler(scheduler.clone());
+        let metadata = WorkflowMetadata {
+            package_name: "subscriber-sequential".to_string(),
+            ..make_test_metadata()
+        };
+        let view = make_test_view_with_subscriber_graph(
+            "subscriber-sequential",
+            "shared_rx",
+            vec!["alpha"],
+        );
+        let manifest = cloacina_workflow_plugin::CloacinaMetadata {
+            input_strategy: Some("sequential".to_string()),
+            ..make_cloacina_metadata()
+        };
+
+        let err = reconciler
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, Some(&b""[..]), None)
+            .await
+            .expect_err("a different contract fails the load");
+        let msg = err.to_string();
+        assert!(msg.contains("subscriber-sequential_graph"), "{msg}");
+        assert!(msg.contains("shared_rx"), "{msg}");
+        assert!(msg.contains("input strategy differs"), "{msg}");
+        assert!(
+            reconciler
+                .runtime
+                .as_ref()
+                .unwrap()
+                .get_computation_graph("subscriber-sequential_graph")
+                .is_none()
+        );
+        assert!(scheduler.list_graphs().await.is_empty());
         scheduler.shutdown_all().await;
     }
 

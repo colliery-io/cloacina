@@ -37,7 +37,7 @@
 
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, State, rejection::JsonRejection},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -133,7 +133,7 @@ async fn pool_infos(
             },
             live_agents: live.get(&pool).copied().unwrap_or(0),
             pool,
-            settings,
+            settings: settings.into(),
         })
         .collect())
 }
@@ -289,9 +289,10 @@ pub async fn put_pool(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthenticatedKey>,
     Path((tenant_id, pool)): Path<(String, String)>,
-    Json(body): Json<AgentPoolSettings>,
+    body: Result<Json<AgentPoolSettings>, JsonRejection>,
 ) -> impl IntoResponse {
     let result = async {
+        let body = pool_settings_request(body)?;
         settings::validate(&pool, &body, &AgentResources::from_env())
             .map_err(|e| ApiError::bad_request("invalid_pool_settings", e))?;
         let pools = load_pools(&state, &tenant_id).await?;
@@ -333,6 +334,21 @@ pub async fn put_pool(
     match result {
         Ok(info) => (StatusCode::OK, Json(info)).into_response(),
         Err(e) => e.into_response(),
+    }
+}
+
+/// The settings of a `PUT`, or a 400 that says what is wrong with the body.
+/// An unknown field is refused here (CLOACINA-T-1149): a misspelt setting
+/// must not be dropped in silence.
+fn pool_settings_request(
+    body: Result<Json<AgentPoolSettings>, JsonRejection>,
+) -> Result<AgentPoolSettings, ApiError> {
+    match body {
+        Ok(Json(body)) => Ok(body),
+        Err(rejection) => Err(ApiError::bad_request(
+            "invalid_pool_settings",
+            rejection.body_text(),
+        )),
     }
 }
 
@@ -390,7 +406,8 @@ pub async fn delete_pool(
         }
 
         let info = pool_info(&state, &tenant_id, &pool).await?;
-        if let Some(why) = removal_blocker(&pool, &info.settings, info.live_agents) {
+        let stored = AgentPoolSettings::from(info.settings);
+        if let Some(why) = removal_blocker(&pool, &stored, info.live_agents) {
             return Err(ApiError::conflict("pool_has_agents", why));
         }
         // Objects first, row last: if the actuator fails the pool stays listed
@@ -490,5 +507,51 @@ mod tests {
         );
         // Set to 0 and none alive.
         assert!(removal_blocker("big", &sized(0), 0).is_none());
+    }
+
+    /// The status the `PUT` body extraction gives `body`, through a router
+    /// that reads the body as `put_pool` does.
+    async fn put_body_status(body: &str) -> StatusCode {
+        use tower::ServiceExt;
+        let app = axum::Router::new().route(
+            "/",
+            axum::routing::put(
+                |body: Result<Json<AgentPoolSettings>, JsonRejection>| async move {
+                    match pool_settings_request(body) {
+                        Ok(_) => StatusCode::OK.into_response(),
+                        Err(e) => e.into_response(),
+                    }
+                },
+            ),
+        );
+        let req = axum::http::Request::builder()
+            .method("PUT")
+            .uri("/")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        app.oneshot(req).await.unwrap().status()
+    }
+
+    /// CLOACINA-T-1149: a `PUT` with an unknown field is a 400, at each level
+    /// of the settings.
+    #[tokio::test]
+    async fn a_pool_request_with_an_unknown_field_is_a_400() {
+        assert_eq!(put_body_status(r#"{"max_agents":0}"#).await, StatusCode::OK);
+        assert_eq!(
+            put_body_status(r#"{"memory_limt":"2Gi"}"#).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            put_body_status(r#"{"extra_egress":[{"cidr":"198.51.100.0/24","new":1}]}"#).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            put_body_status(
+                r#"{"extra_egress":[{"cidr":"198.51.100.0/24","ports":[{"port":443,"new":1}]}]}"#
+            )
+            .await,
+            StatusCode::BAD_REQUEST
+        );
     }
 }

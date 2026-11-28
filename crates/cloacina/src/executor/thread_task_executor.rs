@@ -336,6 +336,45 @@ impl ThreadTaskExecutor {
         }
     }
 
+    /// Pins the execution to the package version of the loaded task, or
+    /// checks the pin it has (CLOACINA-T-1137). The first task of an
+    /// execution writes the pin; a later task whose pin names another version
+    /// than the loaded one gets an error that names both. A task loaded from
+    /// no package (macros, embedded use) has no version and is not pinned.
+    async fn check_version_pin(
+        &self,
+        event: &TaskReadyEvent,
+        namespace: &crate::task::TaskNamespace,
+    ) -> Result<(), String> {
+        let Some(loaded) = self.runtime.task_version(namespace) else {
+            return Ok(());
+        };
+        let pin = self
+            .dal
+            .workflow_packages()
+            .pin_execution_to_version(
+                event.workflow_execution_id,
+                &namespace.package_name,
+                UniversalUuid(loaded.package_id),
+                &loaded.version,
+            )
+            .await
+            .map_err(|e| {
+                format!(
+                    "Version pin of package `{}` failed: {}",
+                    namespace.package_name, e
+                )
+            })?;
+        if pin.package_id.0 == loaded.package_id {
+            return Ok(());
+        }
+        Err(format!(
+            "Execution {} is pinned to version {} of package `{}`, but version {} is loaded: \
+             the task does not run on another version",
+            event.workflow_execution_id, pin.version, namespace.package_name, loaded.version
+        ))
+    }
+
     // CLOACI-T-0630: the post-execution helpers that used to live here —
     // `save_task_context`, `complete_task_transaction`, `should_retry_task`,
     // `is_transient_error`, `schedule_task_retry` — moved to
@@ -604,6 +643,29 @@ impl TaskExecutor for ThreadTaskExecutor {
                 ));
             }
         };
+
+        // CLOACINA-T-1137: an execution runs all its tasks on the package
+        // version its first task ran on. A task whose pinned version is not
+        // the one loaded now fails; it does not run the code of another
+        // version.
+        if let Err(error_msg) = self.check_version_pin(&event, &namespace).await {
+            self.total_failed.fetch_add(1, Ordering::SeqCst);
+            // This exit does not reach `TaskResultHandler::handle_outcome`,
+            // so count the failed task here (CLOACINA-T-1024).
+            super::result_handler::record_task_outcome(
+                &self.dal,
+                &claimed_task.task_name,
+                "failed",
+                "task_not_found",
+            );
+            self.mark_failed_reliably(event.task_execution_id, &error_msg, claim_runner_id)
+                .await;
+            return Ok(ExecutionResult::failure(
+                event.task_execution_id,
+                error_msg,
+                start.elapsed(),
+            ));
+        }
 
         // Build context for execution
         let dependencies = task.dependencies();
@@ -1301,13 +1363,11 @@ mod tests {
             id
         }
 
-        /// The defect: an execution whose first task ran on version 1.0.0
-        /// runs its next task on version 2.0.0 after an upload, because the
-        /// runtime holds one loaded version per package. Ignored until the
-        /// in-process rule is decided (see the notes of CLOACINA-T-1137); on
-        /// the code of today it fails with `["first@1.0.0", "second@2.0.0"]`.
+        /// An execution whose first task ran on version 1.0.0 does not run a
+        /// task of version 2.0.0 after an upload: the runtime holds one loaded
+        /// version per package, so the task fails with a reason that names
+        /// both versions. A new execution runs on 2.0.0.
         #[tokio::test]
-        #[ignore = "CLOACINA-T-1137: the in-process pinning rule is not decided"]
         async fn an_in_process_execution_does_not_run_a_task_of_a_newer_version() {
             use crate::database::schema::unified::workflow_packages;
             use crate::database::universal_types::UniversalBool;
@@ -1328,18 +1388,29 @@ mod tests {
             let second = "public::inproc::inproc_wf::second";
             let ran = Arc::new(std::sync::Mutex::new(Vec::new()));
             let runtime = Arc::new(Runtime::empty());
-            let register = |name: &str, id: &'static str, version: &'static str| {
-                let ran = ran.clone();
-                runtime.register_task(parse_namespace(name).unwrap(), move || {
-                    Arc::new(VersionedTask {
-                        id,
-                        version,
-                        ran: ran.clone(),
-                    })
-                });
-            };
-            register(first, "first", "1.0.0");
-            register(second, "second", "1.0.0");
+            // The reconciler registers each task of a package it loads and
+            // records the version the task belongs to.
+            let register =
+                |name: &str, id: &'static str, version: &'static str, row: uuid::Uuid| {
+                    let ran = ran.clone();
+                    let ns = parse_namespace(name).unwrap();
+                    runtime.register_task(ns.clone(), move || {
+                        Arc::new(VersionedTask {
+                            id,
+                            version,
+                            ran: ran.clone(),
+                        })
+                    });
+                    runtime.set_task_version(
+                        ns,
+                        crate::runtime::LoadedTaskVersion {
+                            package_id: row,
+                            version: version.to_string(),
+                        },
+                    );
+                };
+            register(first, "first", "1.0.0", v1);
+            register(second, "second", "1.0.0", v1);
             let exec = ThreadTaskExecutor::with_runtime_and_registry(
                 db,
                 Arc::new(TaskRegistry::new()),
@@ -1388,13 +1459,14 @@ mod tests {
                     .execute(conn)
             })
             .unwrap();
-            built_row(&dal, "2.0.0", "digest-2").await;
+            let v2 = built_row(&dal, "2.0.0", "digest-2").await;
             runtime.unregister_task(&parse_namespace(first).unwrap());
             runtime.unregister_task(&parse_namespace(second).unwrap());
-            register(first, "first", "2.0.0");
-            register(second, "second", "2.0.0");
+            register(first, "first", "2.0.0", v2);
+            register(second, "second", "2.0.0", v2);
 
-            // The second task of the same execution.
+            // The second task of the same execution fails: its execution is
+            // pinned to 1.0.0 and 2.0.0 is loaded.
             let task = dal.task_execution().create(ready(second)).await.unwrap();
             TaskExecutor::execute(
                 &exec,
@@ -1403,10 +1475,47 @@ mod tests {
             .await
             .unwrap();
 
-            let ran = ran.lock().unwrap().clone();
+            assert_eq!(
+                ran.lock().unwrap().clone(),
+                vec!["first@1.0.0".to_string()],
+                "the execution started on 1.0.0 ran a task of another version"
+            );
+            let row = dal.task_execution().get_by_id(task.id).await.unwrap();
+            assert_eq!(row.status, "Failed");
+            let reason = row.last_error.unwrap_or_default();
             assert!(
-                !ran.contains(&"second@2.0.0".to_string()),
-                "the execution started on 1.0.0 ran a task of 2.0.0: {ran:?}"
+                reason.contains("pinned to version 1.0.0") && reason.contains("version 2.0.0"),
+                "the reason names both versions: {reason}"
+            );
+
+            // A new execution starts on the loaded version, 2.0.0.
+            let run2 = dal
+                .workflow_execution()
+                .create(NewWorkflowExecution {
+                    workflow_name: "inproc_wf".into(),
+                    workflow_version: "2.0.0".into(),
+                    status: "Running".into(),
+                    context_id: None,
+                })
+                .await
+                .unwrap();
+            let task = dal
+                .task_execution()
+                .create(NewTaskExecution {
+                    workflow_execution_id: run2.id,
+                    ..ready(first)
+                })
+                .await
+                .unwrap();
+            TaskExecutor::execute(
+                &exec,
+                TaskReadyEvent::new(task.id, run2.id, first.to_string(), 1),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                ran.lock().unwrap().clone(),
+                vec!["first@1.0.0".to_string(), "first@2.0.0".to_string()]
             );
         }
     } // mod sqlite_tests

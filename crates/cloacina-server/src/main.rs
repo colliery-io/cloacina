@@ -133,6 +133,29 @@ struct Cli {
     #[arg(long, env = "CLOACINA_OUTBOX_ACKED_RETENTION_S", default_value_t = 0)]
     outbox_acked_retention_s: u64,
 
+    /// Bytes of the end of each fleet task attempt's output (stdout and
+    /// stderr, as one stream) that the agent keeps and the server stores
+    /// with the result. Longer output is cut at its start and stored with a
+    /// "cut" flag and its total size. `0` keeps no output. Default 262144
+    /// (256 KiB). CLOACINA-T-1091.
+    #[arg(
+        long,
+        env = "CLOACINA_TASK_OUTPUT_MAX_BYTES",
+        default_value_t = cloacina::fleet::DEFAULT_TASK_OUTPUT_MAX_BYTES
+    )]
+    task_output_max_bytes: u64,
+
+    /// Days to keep the stored output of a task attempt, counted from when
+    /// it was stored. A background job then deletes it, whether
+    /// `--run-history-retention-days` is set or not. `0` keeps it for ever.
+    /// Default 30. CLOACINA-T-1091.
+    #[arg(
+        long,
+        env = "CLOACINA_TASK_OUTPUT_RETENTION_DAYS",
+        default_value_t = cloacina_server::retention::DEFAULT_TASK_OUTPUT_RETENTION_DAYS
+    )]
+    task_output_retention_days: u64,
+
     /// Seconds between passes of the retention job. Default 300.
     /// CLOACINA-T-1023.
     #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S", default_value_t = 300)]
@@ -496,6 +519,8 @@ async fn main() -> Result<()> {
     // CLOACINA-T-1123: the ageing interval of waiting work.
     cloacina_server::set_priority_aging_interval_seconds(cli.priority_aging_interval_s)
         .map_err(|e| anyhow::anyhow!(e))?;
+    // CLOACINA-T-1091: the end of each attempt's output that is kept.
+    cloacina_server::task_output::set_max_bytes(cli.task_output_max_bytes);
 
     // CLOACINA-T-1075: where tenant code runs. A mode that would run tenant
     // tasks in this process without single trust stops the start.
@@ -536,6 +561,7 @@ async fn main() -> Result<()> {
         cloacina_server::retention::RetentionConfig::from_flags(
             cli.run_history_retention_days,
             cli.outbox_acked_retention_s,
+            cli.task_output_retention_days,
             cli.retention_interval_s,
         ),
         std::time::Duration::from_secs(cli.database_wait_timeout_s),
@@ -554,21 +580,30 @@ mod tests {
         RetentionConfig::from_flags(
             cli.run_history_retention_days,
             cli.outbox_acked_retention_s,
+            cli.task_output_retention_days,
             cli.retention_interval_s,
         )
     }
 
-    // CLOACINA-T-1092: with no retention flag nothing is deleted, and the
-    // retention job does not start.
+    // CLOACINA-T-1092: with no retention flag no run history and no acked
+    // outbox row is deleted. CLOACINA-T-1091: task output goes after 30
+    // days, so the retention job starts; with that set to 0 it does not.
     #[test]
-    fn retention_flags_are_off_by_default() {
+    fn retention_flags_are_off_by_default_but_for_task_output() {
         let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
         assert_eq!(cli.outbox_acked_retention_s, 0);
         assert_eq!(cli.run_history_retention_days, 0);
+        assert_eq!(cli.task_output_retention_days, 30);
+        assert_eq!(cli.task_output_max_bytes, 256 * 1024);
 
         let cfg = retention_of(&["cloacina-server"]);
         assert_eq!(cfg, RetentionConfig::default());
         assert_eq!(cfg.outbox_acked, None);
+        assert_eq!(cfg.run_history, None);
+        assert!(cfg.enabled());
+
+        let cfg = retention_of(&["cloacina-server", "--task-output-retention-days", "0"]);
+        assert_eq!(cfg.task_output, None);
         assert!(!cfg.enabled());
     }
 

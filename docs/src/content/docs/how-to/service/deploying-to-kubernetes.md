@@ -7,7 +7,9 @@ sidebar:
 
 The official Helm chart for `cloacina-server` is published as an OCI
 artifact to `ghcr.io/colliery-io/charts/cloacina-server`. This
-page covers install, configuration, and upgrade.
+page covers install, configuration, and upgrade. The chart of the
+execution agents is published next to it, at
+`ghcr.io/colliery-io/charts/cloacina-agent`, with the same version.
 
 ## Prerequisites
 
@@ -76,11 +78,14 @@ until an agent of its tenant can take it. A poll trigger's polls run on an
 agent of its tenant too: with `fleet.actuator=kubernetes` a tenant with a poll
 trigger keeps one agent; with `fleet.externalAgents=true` keep one agent of
 each such tenant running ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+A Python polling accumulator's poll function runs on an agent of its tenant
+as well; the agent floor does not count it, so keep one agent of such a
+tenant running ([Polling accumulators on agents](../../../explanation/service/execution-agent-fleet/#polling-accumulators-on-agents)).
 A package that uses a stream accumulator on a native provider, a Python
-polling or stream accumulator, or a polling accumulator in a Rust package does
-not load: its `build_status` is `failed` and `build_error` names what it uses.
-Python reactors and graphs with other accumulators load, and their firings run
-on agents. A native provider that only a constructor-node task uses loads: the
+stream accumulator, or a polling accumulator in a Rust package does not load:
+its `build_status` is `failed` and `build_error` names what it uses. Python
+reactors and graphs with other accumulators load, and their firings run on
+agents. A native provider that only a constructor-node task uses loads: the
 task runs on an agent.
 
 `server.singleTrust=true` is for a server whose every tenant is trusted as
@@ -377,7 +382,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
    as that ServiceAccount.
 2. Wire the actuator env into the container: `CLOACINA_FLEET_ACTUATOR=kubernetes`,
    `CLOACINA_AGENT_IMAGE` (from `fleet.agentImage`, default
-   `ghcr.io/colliery-software/cloacina-agent:latest`), and
+   `ghcr.io/colliery-io/cloacina-agent:latest`), and
    `CLOACINA_AGENT_SERVER_URL` (from `fleet.agentServerUrl`, defaulting to this
    release's in-cluster Service DNS).
 3. Render the agent-pod hardening + per-tenant NetworkPolicy knobs (see
@@ -388,7 +393,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | `fleet.actuator` | `none` | `none` (off) or `kubernetes`. |
 | `fleet.externalAgents` | `false` | `true`: you run the agents; the chart renders with `fleet.actuator=none`. |
 | `server.singleTrust` | `false` | `true`: tenant code runs in the server process (`--single-trust`). |
-| `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
+| `fleet.agentImage` | `ghcr.io/colliery-io/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
 | `fleet.agentDrainSeconds` | `""` | Seconds a managed agent drains on SIGTERM. Rendered as the server's `CLOACINA_AGENT_DRAIN_S` when set; the agent pods' grace period is this plus 15. Setting it rolls the agent pods once. |
 | `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |
@@ -436,6 +441,11 @@ cluster-admin and **no** wildcard verb or resource; every rule is enumerated:
 | (core) | `secrets` | `create`, `patch` | Ensure the per-tenant agent-key Secret (server-side apply) delivered to pods as `CLOACINA_API_KEY`. Addressed by its known name — no `get`/`list`/`update`/`delete`. |
 | `networking.k8s.io` | `networkpolicies` | `create`, `delete`, `patch` | Ensure the per-tenant agent NetworkPolicy and each pool's own NetworkPolicy (server-side apply). `delete` removes the policy of a removed pool, by name. Granted whenever `fleet.actuator=kubernetes` so toggling `fleet.networkPolicy.enabled` later never needs an RBAC change. No `get`/`list`. |
 | (core) | `persistentvolumeclaims` | `create`, `delete`, `get` | The cache claim `cloacina-compiler-cache` of a tenant's compiler: read to see whether it exists, made once, deleted with the tenant. No `patch`: a claim that exists is never changed. No `list`/`update`. |
+| (core) | `pods` | `list`, `patch` | Before a pool loses agents, list its agent pods by their app label and set `controller.kubernetes.io/pod-deletion-cost` on them, so the ReplicaSet deletes the pods of idle agents first. No `get`/`delete`: the ReplicaSet deletes the pod when the replica count drops. |
+
+Without the `pods` rule (a ClusterRole from an older chart) the actuator
+cannot steer which pod goes: a pool with a busy agent then keeps its pods,
+and a pool with no busy agent scales down as before.
 
 The ClusterRole is cluster-wide, so the `serviceaccounts` rule lets the server
 write a ServiceAccount's annotations in any namespace, as the `secrets` rule
@@ -631,6 +641,12 @@ helm upgrade --install cloacina \
 > server *replica* count by hand (or your own policy) for HTTP/HA headroom.
 
 ## Upgrades
+
+**0.13.0 is a full stop.** Scale the server Deployment to zero, wait for
+every pod to end, then upgrade and scale back up. The first 0.13.0 start
+moves the global tables into the schema `cloacina_global`, and a 0.12 pod
+does not work after it (see the 0.13.0 upgrade note in
+[Production Deployment](../production-deployment/#upgrading-the-server)).
 
 ```sh
 helm upgrade cloacina \

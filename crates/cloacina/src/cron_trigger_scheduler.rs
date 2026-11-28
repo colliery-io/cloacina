@@ -935,9 +935,15 @@ impl Scheduler {
             schedule.workflow_name, schedule.id, scheduled_time
         );
 
-        let handle = self
+        // CLOACINA-T-1123: a schedule created with a priority gives the run
+        // that priority, held to its creator's limit at this fire.
+        let (handle, _priority) = self
             .executor
-            .execute_async(&schedule.workflow_name, context)
+            .execute_async_with_priority(
+                &schedule.workflow_name,
+                context,
+                crate::execution_planner::RunPriority::fired_by(schedule.id.0),
+            )
             .await?;
 
         debug!(
@@ -1372,9 +1378,15 @@ impl Scheduler {
         // Primary: the trigger's `on` workflow. Drives the audit record + return
         // value, and propagates a handoff error. `execute_async` returns as
         // soon as the execution exists (CLOACINA-T-1019).
-        let handle = self
+        // CLOACINA-T-1123: as a cron fire, the schedule's priority if it was
+        // created with one.
+        let (handle, _priority) = self
             .executor
-            .execute_async(&schedule.workflow_name, context)
+            .execute_async_with_priority(
+                &schedule.workflow_name,
+                context,
+                crate::execution_planner::RunPriority::fired_by(schedule.id.0),
+            )
             .await?;
         let execution_id = handle.execution_id;
 

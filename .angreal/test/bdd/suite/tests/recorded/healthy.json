@@ -1,14 +1,87 @@
 {
-  "_about": "Written by hand from the API types and the table definitions (no server was run). Three tenants, twenty minutes past noon: the self-driving workflow of team_a published a Python version at 11:40, a Rust version with a build error at 11:50, and went back a version at 12:15.",
+  "_about": "Written by hand from the API types and the table definitions (no server was run). Three tenants, twenty minutes past noon: the self-driving workflow of team_a published a Python version at 11:40, a Rust version with a build error at 11:50, and went back a version at 12:15. Three disturbances are over: Postgres away from 09:02 (its record has the open line and the closing line), a server replica restarted at 10:02, an agent pod of team_a killed at 11:02.",
   "taken_at": "2026-11-27T12:20:00Z",
-  "disturbances": [],
+  "disturbances": [
+    {"id": "d-20261127T090200Z-postgres_away", "kind": "postgres_away", "target": "postgres", "start": "2026-11-27T09:02:00Z", "away_seconds": 660},
+    {"id": "d-20261127T090200Z-postgres_away", "kind": "postgres_away", "target": "postgres", "start": "2026-11-27T09:02:00Z", "away_seconds": 660, "end": "2026-11-27T09:14:10Z", "settle_until": "2026-11-27T09:34:10Z", "outcome": "away 660 s; Postgres back; the server is ready", "recovered": true},
+    {"id": "d-20261127T100200Z-restart_server", "kind": "restart_server", "target": "server pod bdd-standing-cloacina-server-6c9d7-k2x4p", "pod": "bdd-standing-cloacina-server-6c9d7-k2x4p", "replicas": 2, "mode": "force", "start": "2026-11-27T10:02:00Z", "end": "2026-11-27T10:02:41Z", "settle_until": "2026-11-27T10:17:41Z", "outcome": "pod deleted; bdd-standing-cloacina-server available again"},
+    {"id": "d-20261127T110200Z-kill_agent", "kind": "kill_agent", "target": "team_a pod cloacina-agent-7f6b9-q8r2s", "tenant": "team_a", "pod": "cloacina-agent-7f6b9-q8r2s", "agent_id": "a1f0c2d4", "in_flight": 1, "mode": "force", "start": "2026-11-27T11:02:00Z", "end": "2026-11-27T11:02:20Z", "settle_until": "2026-11-27T11:17:20Z", "outcome": "pod deleted; cloacina-agent available again"}
+  ],
+  "alerts": {"body": {"started_at": 1795770000.0, "records": [
+    {"received_at": 1795779006.4, "event": "workflow_execution.failed", "delivery": "6f1a0000-0000-4000-8000-0000000a1130", "signed": false,
+     "body": {"schema_version": 1, "event": "workflow_execution.failed", "tenant": "team_a", "workflow": "standing_flaky", "execution_id": "6f1a0000-0000-4000-8000-0000000a1130", "status": "Failed", "trigger_origin": "schedule", "scheduled_time": "2026-11-27T11:30:00+00:00", "failed_task_count": 1}},
+    {"received_at": 1795780807.1, "event": "workflow_execution.failed", "delivery": "6f1a0000-0000-4000-8000-0000000b1200", "signed": false,
+     "body": {"schema_version": 1, "event": "workflow_execution.failed", "tenant": "team_b", "workflow": "standing_flaky", "execution_id": "6f1a0000-0000-4000-8000-0000000b1200", "status": "Failed", "trigger_origin": "schedule", "scheduled_time": "2026-11-27T12:00:00+00:00", "failed_task_count": 1}}
+  ]}},
+  "metrics": {"text": "# HELP cloacina_waiting_tasks Tasks that wait for capacity\n# TYPE cloacina_waiting_tasks gauge\ncloacina_waiting_tasks{pool=\"default\",priority=\"5\",tenant=\"team_a\"} 4\ncloacina_waiting_tasks{pool=\"default\",priority=\"5\",tenant=\"team_b\"} 0\ncloacina_waiting_tasks{pool=\"default\",priority=\"5\",tenant=\"team_c\"} 0\n# TYPE cloacina_schedule_lag_seconds gauge\ncloacina_schedule_lag_seconds{tenant=\"team_a\"} 0\ncloacina_schedule_lag_seconds{tenant=\"team_b\"} 93\ncloacina_schedule_lag_seconds{tenant=\"team_c\"} 0\n"},
   "admin": {
     "db": {
+      "operations_audit": {"rows": [
+        {"id": 4101, "created_at": "2026-11-27T11:15:03.010", "tenant_id": "team_c", "actor_key_id": "c0de0000-0000-4000-8000-0000000c0001", "actor_key_name": "team_c-self-driving", "action": "package.upload", "target": "0c6f3f0e-0000-4000-8000-000000000011", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-py\", \"version\": \"0.1.1\", \"content_hash\": \"ca11\", \"size_bytes\": 611}"},
+        {"id": 4110, "created_at": "2026-11-27T11:35:03.020", "tenant_id": "team_b", "actor_key_id": "c0de0000-0000-4000-8000-0000000b0001", "actor_key_name": "team_b-self-driving", "action": "package.upload", "target": "0b6f3f0e-0000-4000-8000-000000000011", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-py\", \"version\": \"0.1.1\", \"content_hash\": \"ba11\", \"size_bytes\": 610}"},
+        {"id": 4111, "created_at": "2026-11-27T11:35:04.030", "tenant_id": "team_b", "actor_key_id": "c0de0000-0000-4000-8000-0000000b0001", "actor_key_name": "team_b-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000b1135\"}"},
+        {"id": 4120, "created_at": "2026-11-27T11:40:03.010", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "package.upload", "target": "0a6f3f0e-0000-4000-8000-000000000013", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-py\", \"version\": \"0.1.3\", \"content_hash\": \"aa13\", \"size_bytes\": 612}"},
+        {"id": 4121, "created_at": "2026-11-27T11:40:04.020", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1140\"}"},
+        {"id": 4130, "created_at": "2026-11-27T11:50:03.010", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "package.upload", "target": "0a6f3f0e-0000-4000-8000-000000000022", "outcome": "ok", "detail": "{\"package_name\": \"standing-target-rust\", \"version\": \"0.1.2\", \"content_hash\": \"ab12\", \"size_bytes\": 1490}"},
+        {"id": 4131, "created_at": "2026-11-27T11:50:04.020", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1150\"}"},
+        {"id": 4140, "created_at": "2026-11-27T12:15:03.010", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "package.activate", "target": "standing-target-py", "outcome": "ok", "detail": "{\"version\": \"0.1.2\", \"package_id\": \"0a6f3f0e-0000-4000-8000-000000000012\"}"},
+        {"id": 4141, "created_at": "2026-11-27T12:15:03.200", "tenant_id": "team_b", "actor_key_id": "c0de0000-0000-4000-8000-0000000b0001", "actor_key_name": "team_b-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000b1215\"}"},
+        {"id": 4142, "created_at": "2026-11-27T12:15:03.300", "tenant_id": "team_c", "actor_key_id": "c0de0000-0000-4000-8000-0000000c0001", "actor_key_name": "team_c-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000c1215\"}"},
+        {"id": 4143, "created_at": "2026-11-27T12:15:04.020", "tenant_id": "team_a", "actor_key_id": "c0de0000-0000-4000-8000-0000000a0001", "actor_key_name": "team_a-self-driving", "action": "workflow.run", "target": "standing_target_py", "outcome": "ok", "detail": "{\"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1215\"}"},
+        {"id": 4144, "created_at": "2026-11-27T12:16:00.000", "tenant_id": null, "actor_key_id": "c0de0000-0000-4000-8000-000000000001", "actor_key_name": "bootstrap", "action": "tenant.create", "target": "team_d", "outcome": "ok", "detail": "{}"}
+      ]},
       "clock": {"rows": [{"now": "2026-11-27T12:20:00.123456+00:00"}]},
+      "capacity_live_agents": {"rows": [
+        {"agent_id": "agent-a1", "tenant_id": "team_a", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 3, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:55.101"},
+        {"agent_id": "agent-a2", "tenant_id": "team_a", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 4, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:54.020"},
+        {"agent_id": "agent-b1", "tenant_id": "team_b", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 4, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:57.330"},
+        {"agent_id": "agent-b2", "tenant_id": "team_b", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 4, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:56.410"},
+        {"agent_id": "agent-c1", "tenant_id": "team_c", "capabilities": "[]", "max_concurrency": 4, "available_capacity": 3, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:51.004"},
+        {"agent_id": "agent-c2", "tenant_id": "team_c", "capabilities": "[\"pool:sized\"]", "max_concurrency": 4, "available_capacity": 2, "cpu_millis": 1000, "memory_bytes": 1073741824, "last_heartbeat_at": "2026-11-27T12:19:50.870"}
+      ]},
       "agents": {"rows": [
         {"tenant_id": "team_a", "agents": 2, "last_heartbeat": "2026-11-27T12:19:55.101"},
         {"tenant_id": "team_b", "agents": 2, "last_heartbeat": "2026-11-27T12:19:57.330"},
         {"tenant_id": "team_c", "agents": 2, "last_heartbeat": "2026-11-27T12:19:51.004"}
+      ]},
+      "build_role_reach": {"rows": [
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "package_artifacts"},
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "package_providers"},
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "workflow_packages"},
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "workflow_registry"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "package_artifacts"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "package_providers"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "workflow_packages"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "workflow_registry"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "package_artifacts"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "package_providers"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "workflow_packages"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "workflow_registry"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "package_artifacts"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "package_providers"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "workflow_packages"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "workflow_registry"}
+      ]},
+      "tenant_role_reach": {"rows": [
+        {"role": "team_a$server", "tenant": "team_a", "schema": "team_a", "tables": 31},
+        {"role": "team_b$server", "tenant": "team_b", "schema": "team_b", "tables": 31},
+        {"role": "team_c$server", "tenant": "team_c", "schema": "team_c", "tables": 31}
+      ]},
+      "connections": {"rows": [
+        {"role": "cloacina", "connections": 14},
+        {"role": "team_a$build", "connections": 1},
+        {"role": "team_a$server", "connections": 3},
+        {"role": "team_b$build", "connections": 1},
+        {"role": "team_b$server", "connections": 3},
+        {"role": "team_c$build", "connections": 1},
+        {"role": "team_c$server", "connections": 2}
+      ]},
+      "run_once_global_inbox": {"rows": []}
+    },
+    "logs": {
+      "results_elsewhere": {"pods": ["bdd-standing-cloacina-server-5f7c9-a", "bdd-standing-cloacina-server-5f7c9-b"], "rows": [
+        {"pod": "bdd-standing-cloacina-server-5f7c9-b", "at": "2026-11-27T11:24:11.301Z",
+         "text": "INFO cloacina_server::routes::agent: agent result is for no dispatch this replica waits for: stored for the replica that does task_id=7a500000-0000-4000-8000-00000000a002 agent_id=team_a-agent-1 attempt=1 dispatch_id=Some(\"d-a002\") duration_ms=120004"}
       ]}
     }
   },
@@ -26,7 +99,53 @@
         ]}}
       },
       "db": {
+        "failure_runs": {"rows": [
+          {"id": "f1a00000-0000-4000-8000-0000000a0900", "workflow_name": "standing_rollup", "status": "Completed", "started_at": "2026-11-27T09:00:05.500", "completed_at": "2026-11-27T09:00:08.300", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": null},
+          {"id": "f1a00000-0000-4000-8000-0000000a0901", "workflow_name": "standing_flaky", "status": "Failed", "started_at": "2026-11-27T09:00:05.700", "completed_at": "2026-11-27T09:02:30.000", "tasks": 1, "max_attempt": 2, "recoveries": 0, "finished_on": null},
+          {"id": "f1a00000-0000-4000-8000-0000000a0902", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T09:00:06.100", "completed_at": "2026-11-27T09:17:05.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-7f6b9-m3n4p"},
+          {"id": "f1a00000-0000-4000-8000-0000000a1000", "workflow_name": "standing_extract", "status": "Completed", "started_at": "2026-11-27T10:00:01.300", "completed_at": "2026-11-27T10:02:20.000", "tasks": 3, "max_attempt": 1, "recoveries": 0, "finished_on": null},
+          {"id": "f1a00000-0000-4000-8000-0000000a1001", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T10:00:02.100", "completed_at": "2026-11-27T10:06:04.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-7f6b9-q8r2s"},
+          {"id": "f1a00000-0000-4000-8000-0000000a1100", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T11:00:02.100", "completed_at": "2026-11-27T11:08:31.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-7f6b9-m3n4p"},
+          {"id": "f1a00000-0000-4000-8000-0000000a1101", "workflow_name": "standing_hold", "status": "Completed", "started_at": "2026-11-27T11:00:40.000", "completed_at": "2026-11-27T11:04:52.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-7f6b9-m3n4p"}
+        ]},
+        "failure_fires": {"rows": [
+          {"workflow_name": "standing_archive", "instance_name": null, "catchup_policy": "skip", "cron_expression": "0 * * * *", "scheduled_time": "2026-11-27T09:00:00", "status": "Completed"},
+          {"workflow_name": "standing_driver", "instance_name": "drive", "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:15:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:10:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:15:00", "status": "Completed"},
+          {"workflow_name": "standing_flaky", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:15:00", "status": "Completed"}
+        ]},
+        "operations_failed_runs": {"rows": [
+          {"id": "6f1a0000-0000-4000-8000-0000000a1130", "workflow_name": "standing_flaky", "completed_at": "2026-11-27T11:30:05.400"}
+        ]},
+        "operations_retried_runs": {"rows": [
+          {"id": "6f1a0000-0000-4000-8000-0000000a1205", "workflow_name": "standing_flaky", "completed_at": "2026-11-27T12:05:09.100"}
+        ]},
+        "operations_waiting": {"rows": [{"waiting": 4}]},
+        "operations_lag": {"rows": [{"lag_seconds": null, "due": 0}]},
+        "operations_retention": {"rows": [{"old_finished": 0, "oldest_active": "2026-11-24T10:00:03.000", "orphan_tasks": 0, "tenant_since": "2026-11-24T09:00:04.000"}]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:05.210", "runs": 412}]},
+        "capacity_hold_tasks": {"rows": [
+          {"run": "4e1d0000-0000-4000-8000-0000000a0001", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0001", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.100", "started_at": "2026-11-27T11:20:05.300", "completed_at": "2026-11-27T11:22:05.400", "attempt_errors": 0},
+          {"run": "4e1d0000-0000-4000-8000-0000000a0002", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0002", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.200", "started_at": "2026-11-27T11:22:06.100", "completed_at": "2026-11-27T11:24:06.200", "attempt_errors": 0},
+          {"run": "4e1d0000-0000-4000-8000-0000000a0003", "run_status": "Completed", "priority": 9, "task": "4e1d0000-0000-4000-8000-0000000b0003", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:04.300", "started_at": "2026-11-27T11:25:30.000", "completed_at": "2026-11-27T11:27:30.100", "attempt_errors": 0},
+          {"run": "4e1d0000-0000-4000-8000-0000000a0004", "run_status": "Completed", "priority": 5, "task": "4e1d0000-0000-4000-8000-0000000b0004", "status": "Completed", "attempt": 1, "pool": null, "created_at": "2026-11-27T11:20:10.000", "started_at": "2026-11-27T11:22:06.300", "completed_at": "2026-11-27T11:24:06.400", "attempt_errors": 0}
+        ]},
+        "capacity_failures": {"rows": [
+          {"workflow": "standing_flaky", "task": "settle", "kind": "task", "at": "2026-11-27T11:00:03.400", "error": "standing_flaky: planned failure of the run"},
+          {"workflow": "standing_flaky", "task": "wobble", "kind": "attempt", "at": "2026-11-27T11:25:03.100", "error": "standing_flaky: planned failure of the first attempt"}
+        ]},
+        "capacity_scheduled_runs": {"rows": [
+          {"workflow": "standing_rollup", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:41.200"}
+        ]},
+        "capacity_in_flight": {"rows": [
+          {"task": "4e1d0000-0000-4000-8000-0000000c0001", "task_name": "public::standing_rollup::rollup", "status": "Running", "pool": null, "cpu_request_millis": null, "memory_request_bytes": null, "fleet_agent_id": "agent-a1"}
+        ]},
         "last_runs": {"rows": [
           {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.004"},
           {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.310"},
@@ -43,6 +162,53 @@
            "context": "{\"tenant\": \"team_a\", \"standing_driver_actions\": [{\"action\": \"publish_broken\", \"package\": \"standing-target-rust\", \"version\": \"0.1.2\", \"status\": 201, \"bytes\": 1490, \"at\": \"2026-11-27T11:50:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1150\", \"at\": \"2026-11-27T11:50:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T11:50:05Z\"}]}"},
           {"id": "5d0c1a10-0000-4000-8000-0000000a1215", "status": "Completed", "started_at": "2026-11-27T12:15:01.220", "completed_at": "2026-11-27T12:15:05.010",
            "context": "{\"tenant\": \"team_a\", \"standing_driver_actions\": [{\"action\": \"step_back\", \"package\": \"standing-target-py\", \"version\": \"0.1.2\", \"status\": 200, \"at\": \"2026-11-27T12:15:03Z\"}, {\"action\": \"run_by_hand\", \"workflow\": \"standing_target_py\", \"status\": 202, \"execution_id\": \"7b1e0000-0000-4000-8000-0000000a1215\", \"at\": \"2026-11-27T12:15:04Z\"}, {\"action\": \"other_tenant\", \"other_tenant\": \"team_b\", \"packages_status\": 403, \"executions_status\": 403, \"secrets_status\": 403, \"secret_by_name\": \"KeyError\", \"at\": \"2026-11-27T12:15:05Z\"}]}"}
+        ]},
+        "run_once_tasks": {"rows": [
+          {"task_id": "7a500000-0000-4000-8000-00000000a002", "run_id": "5e100000-0000-4000-8000-00000000a002", "workflow_name": "standing_hold", "task_name": "hold", "status": "Completed", "attempt": 1,
+           "created_at": "2026-11-27T11:20:04.900", "started_at": "2026-11-27T11:22:10.050", "completed_at": "2026-11-27T11:24:11.400", "waiting_since": "2026-11-27T11:20:05.010",
+           "schedule_id": null, "scheduled_time": null, "run_once_tag": "hold-2b0d7c66-0000-4000-8000-00000000a002", "held_seconds": null},
+          {"task_id": "7a500000-0000-4000-8000-00000000a001", "run_id": "5e100000-0000-4000-8000-00000000a001", "workflow_name": "standing_archive", "task_name": "archive", "status": "Completed", "attempt": 1,
+           "created_at": "2026-11-27T12:00:02.118", "started_at": "2026-11-27T12:00:02.400", "completed_at": "2026-11-27T12:06:03.010", "waiting_since": null,
+           "schedule_id": "5c4e0000-0000-4000-8000-00000000a001", "scheduled_time": "2026-11-27T12:00:00+00:00", "run_once_tag": null, "held_seconds": "360.0"},
+          {"task_id": "7a500000-0000-4000-8000-00000000a003", "run_id": "5e100000-0000-4000-8000-00000000a003", "workflow_name": "standing_rollup", "task_name": "read_interval", "status": "Completed", "attempt": 1,
+           "created_at": "2026-11-27T12:10:01.004", "started_at": "2026-11-27T12:10:01.200", "completed_at": "2026-11-27T12:10:01.900", "waiting_since": null,
+           "schedule_id": "5c4e0000-0000-4000-8000-00000000a003", "scheduled_time": "2026-11-27T12:10:00+00:00", "run_once_tag": null, "held_seconds": null},
+          {"task_id": "7a500000-0000-4000-8000-00000000a004", "run_id": "5e100000-0000-4000-8000-00000000a004", "workflow_name": "standing_rollup", "task_name": "read_interval", "status": "Running", "attempt": 1,
+           "created_at": "2026-11-27T12:15:01.004", "started_at": "2026-11-27T12:15:01.200", "completed_at": null, "waiting_since": null,
+           "schedule_id": "5c4e0000-0000-4000-8000-00000000a003", "scheduled_time": "2026-11-27T12:15:00+00:00", "run_once_tag": null, "held_seconds": null}
+        ]},
+        "schedules": {"rows": [
+          {"id": "5c5e0000-0000-4000-8000-00000000a101", "workflow_name": "standing_rollup", "instance_name": null, "trigger_name": "standing_rollup_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a102", "workflow_name": "standing_extract", "instance_name": null, "trigger_name": "standing_extract_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a103", "workflow_name": "standing_extract", "instance_name": "in_order", "trigger_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a104", "workflow_name": "standing_archive", "instance_name": null, "trigger_name": "standing_archive_schedule", "cron_expression": "0 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a105", "workflow_name": "standing_flaky", "instance_name": null, "trigger_name": "standing_flaky_schedule", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a106", "workflow_name": "standing_driver", "instance_name": "drive", "trigger_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "paused": false, "backfill": null, "created_at": "2026-11-27T12:09:00.500"},
+          {"id": "5c5e0000-0000-4000-8000-00000000a1f0", "workflow_name": "standing_extract", "instance_name": null, "trigger_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "paused": false, "backfill": "{\"start\": \"2026-11-27T10:00:00Z\"}", "created_at": "2026-11-27T12:11:00.000"}
+        ]},
+        "fires": {"rows": [
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a101", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:00.800", "run_id": "5e2e0000-0000-4000-8000-00000000a111", "status": "Completed", "started_at": "2026-11-27T12:10:01.004", "completed_at": "2026-11-27T12:10:03.100", "rollup_done": {"interval_start": "2026-11-27T12:05:00+00:00", "interval_end": "2026-11-27T12:10:00+00:00", "scheduled_time": "2026-11-27T12:10:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a102", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:00.900", "run_id": "5e2e0000-0000-4000-8000-00000000a112", "status": "Completed", "started_at": "2026-11-27T12:10:01.310", "completed_at": "2026-11-27T12:10:04.200", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:05:00+00:00", "interval_end": "2026-11-27T12:10:00+00:00", "scheduled_time": "2026-11-27T12:10:00+00:00", "rows": 112}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a103", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:00.950", "run_id": "5e2e0000-0000-4000-8000-00000000a113", "status": "Completed", "started_at": "2026-11-27T12:10:01.400", "completed_at": "2026-11-27T12:10:04.500", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:05:00+00:00", "interval_end": "2026-11-27T12:10:00+00:00", "scheduled_time": "2026-11-27T12:10:00+00:00", "rows": 112}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a105", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:01.000", "run_id": "5e2e0000-0000-4000-8000-00000000a115", "status": "Completed", "started_at": "2026-11-27T12:10:01.500", "completed_at": "2026-11-27T12:10:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a106", "scheduled_time": "2026-11-27T12:10:00", "claimed_at": "2026-11-27T12:10:01.050", "run_id": "5e2e0000-0000-4000-8000-00000000a116", "status": "Completed", "started_at": "2026-11-27T12:10:01.220", "completed_at": "2026-11-27T12:10:05.900", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a101", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:00.800", "run_id": "5e2e0000-0000-4000-8000-00000000a121", "status": "Completed", "started_at": "2026-11-27T12:15:01.004", "completed_at": "2026-11-27T12:15:03.100", "rollup_done": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00", "scheduled_time": "2026-11-27T12:15:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a102", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:00.900", "run_id": "5e2e0000-0000-4000-8000-00000000a122", "status": "Completed", "started_at": "2026-11-27T12:15:01.310", "completed_at": "2026-11-27T12:15:04.200", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00", "scheduled_time": "2026-11-27T12:15:00+00:00", "rows": 131}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a103", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:00.950", "run_id": "5e2e0000-0000-4000-8000-00000000a123", "status": "Completed", "started_at": "2026-11-27T12:15:01.400", "completed_at": "2026-11-27T12:15:04.500", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00", "scheduled_time": "2026-11-27T12:15:00+00:00", "rows": 131}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a105", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:01.000", "run_id": "5e2e0000-0000-4000-8000-00000000a125", "status": "Completed", "started_at": "2026-11-27T12:15:01.500", "completed_at": "2026-11-27T12:15:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000a106", "scheduled_time": "2026-11-27T12:15:00", "claimed_at": "2026-11-27T12:15:01.050", "run_id": "5e2e0000-0000-4000-8000-00000000a126", "status": "Completed", "started_at": "2026-11-27T12:15:01.220", "completed_at": "2026-11-27T12:15:05.010", "rollup_done": null, "extract_loaded": null}
+        ]},
+        "busy_runs": {"rows": [
+          {"workflow_name": "standing_archive", "started_at": "2026-11-27T12:00:02.118", "completed_at": "2026-11-27T12:06:03.010"},
+          {"workflow_name": "standing_hold", "started_at": "2026-11-27T12:08:04.900", "completed_at": "2026-11-27T12:10:05.000"}
+        ]}
+      },
+      "logs": {
+        "marks": {"pods": ["cloacina-agent-7d4b9-a1", "cloacina-agent-7d4b9-a2"], "rows": [
+          {"pod": "cloacina-agent-7d4b9-a2", "at": "2026-11-27T11:22:10.210Z", "text": "STANDING_MARK {\"at\": 1764242530.2, \"host\": \"cloacina-agent-7d4b9-a2\", \"pid\": 41, \"run_once_tag\": \"hold-2b0d7c66-0000-4000-8000-00000000a002\", \"schedule_id\": null, \"scheduled_time\": null, \"task\": \"hold\", \"workflow\": \"standing_hold\"}"},
+          {"pod": "cloacina-agent-7d4b9-a1", "at": "2026-11-27T12:00:02.611Z", "text": "STANDING_MARK {\"at\": 1764244802.6, \"host\": \"cloacina-agent-7d4b9-a1\", \"pid\": 52, \"run_once_tag\": null, \"schedule_id\": \"5c4e0000-0000-4000-8000-00000000a001\", \"scheduled_time\": \"2026-11-27T12:00:00+00:00\", \"task\": \"archive\", \"workflow\": \"standing_archive\"}"},
+          {"pod": "cloacina-agent-7d4b9-a2", "at": "2026-11-27T12:10:01.390Z", "text": "STANDING_MARK {\"run_once_tag\":null,\"schedule_id\":\"5c4e0000-0000-4000-8000-00000000a003\",\"scheduled_time\":\"2026-11-27T12:10:00+00:00\",\"task\":\"read_interval\",\"workflow\":\"standing_rollup\"}"},
+          {"pod": "cloacina-agent-7d4b9-a1", "at": "2026-11-27T12:15:01.400Z", "text": "STANDING_MARK {\"run_once_tag\":null,\"schedule_id\":\"5c4e0000-0000-4000-8000-00000000a003\",\"scheduled_time\":\"2026-11-27T12:15:00+00:00\",\"task\":\"read_interval\",\"workflow\":\"standing_rollup\"}"}
         ]}
       }
     },
@@ -57,7 +223,36 @@
         ]}}
       },
       "db": {
+        "failure_runs": {"rows": [
+          {"id": "f1b00000-0000-4000-8000-0000000b0902", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T09:00:07.000", "completed_at": "2026-11-27T09:16:40.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-58d2c-t7v1w"},
+          {"id": "f1b00000-0000-4000-8000-0000000b1001", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T10:00:02.200", "completed_at": "2026-11-27T10:06:10.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-58d2c-t7v1w"},
+          {"id": "f1b00000-0000-4000-8000-0000000b1100", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T11:00:02.200", "completed_at": "2026-11-27T11:06:03.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-58d2c-h2j8k"}
+        ]},
+        "failure_fires": {"rows": [
+          {"workflow_name": "standing_archive", "instance_name": null, "catchup_policy": "skip", "cron_expression": "0 * * * *", "scheduled_time": "2026-11-27T09:00:00", "status": "Completed"},
+          {"workflow_name": "standing_driver", "instance_name": "drive", "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:10:00", "status": "Completed"},
+          {"workflow_name": "standing_flaky", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"}
+        ]},
+        "operations_failed_runs": {"rows": [
+          {"id": "6f1a0000-0000-4000-8000-0000000b1200", "workflow_name": "standing_flaky", "completed_at": "2026-11-27T12:00:06.200"}
+        ]},
+        "operations_retried_runs": {"rows": []},
+        "operations_waiting": {"rows": [{"waiting": 0}]},
+        "operations_lag": {"rows": [{"lag_seconds": 95.2, "due": 1}]},
+        "operations_retention": {"rows": [{"old_finished": 0, "oldest_active": null, "orphan_tasks": 0, "tenant_since": "2026-11-24T09:00:05.000"}]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:06.870", "runs": 398}]},
+        "capacity_hold_tasks": {"rows": []},
+        "capacity_failures": {"rows": []},
+        "capacity_scheduled_runs": {"rows": [
+          {"workflow": "standing_rollup", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:02.300"},
+          {"workflow": "standing_flaky", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:02.900"},
+          {"workflow": "standing_rollup", "scheduled_time": "2026-11-27T11:30:00", "first_task_started": "2026-11-27T11:30:02.100"}
+        ]},
+        "capacity_in_flight": {"rows": []},
         "last_runs": {"rows": [
           {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.090"},
           {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.400"},
@@ -74,8 +269,26 @@
            "context": {"tenant": "team_b", "standing_driver_actions": [
              {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000b1215", "at": "2026-11-27T12:15:03Z"},
              {"action": "other_tenant", "other_tenant": "team_c", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
-        ]}
-      }
+        ]},
+        "run_once_tasks": {"rows": []},
+        "schedules": {"rows": [
+          {"id": "5c5e0000-0000-4000-8000-00000000b101", "workflow_name": "standing_rollup", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b102", "workflow_name": "standing_extract", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b103", "workflow_name": "standing_extract", "instance_name": "in_order", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b104", "workflow_name": "standing_archive", "instance_name": null, "cron_expression": "0 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b105", "workflow_name": "standing_flaky", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000b106", "workflow_name": "standing_driver", "instance_name": "drive", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"}
+        ]},
+        "fires": {"rows": [
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b101", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.090", "completed_at": "2026-11-27T12:15:03.000", "rollup_done": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b102", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.400", "completed_at": "2026-11-27T12:15:04.000", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b103", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.450", "completed_at": "2026-11-27T12:15:04.100", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b105", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.610", "completed_at": "2026-11-27T12:15:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000b106", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.300", "completed_at": "2026-11-27T12:15:04.800", "rollup_done": null, "extract_loaded": null}
+        ]},
+        "busy_runs": {"rows": []}
+      },
+      "logs": {"marks": {"pods": [], "rows": []}}
     },
     "team_c": {
       "api": {
@@ -88,7 +301,34 @@
         ]}}
       },
       "db": {
+        "failure_runs": {"rows": [
+          {"id": "f1c00000-0000-4000-8000-0000000c1000", "workflow_name": "standing_extract", "status": "Completed", "started_at": "2026-11-27T10:00:01.480", "completed_at": "2026-11-27T10:02:05.000", "tasks": 3, "max_attempt": 1, "recoveries": 0, "finished_on": null},
+          {"id": "f1c00000-0000-4000-8000-0000000c1001", "workflow_name": "standing_archive", "status": "Completed", "started_at": "2026-11-27T10:00:02.300", "completed_at": "2026-11-27T10:06:07.000", "tasks": 1, "max_attempt": 1, "recoveries": 0, "finished_on": "cloacina-agent-91e4a-p5s6d"}
+        ]},
+        "failure_fires": {"rows": [
+          {"workflow_name": "standing_driver", "instance_name": "drive", "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_extract", "instance_name": "in_order", "catchup_policy": "run_all", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:10:00", "status": "Completed"},
+          {"workflow_name": "standing_flaky", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"},
+          {"workflow_name": "standing_rollup", "instance_name": null, "catchup_policy": "skip", "cron_expression": "*/5 * * * *", "scheduled_time": "2026-11-27T09:05:00", "status": "Completed"}
+        ]},
+        "operations_failed_runs": {"rows": []},
+        "operations_retried_runs": {"rows": []},
+        "operations_waiting": {"rows": [{"waiting": 0}]},
+        "operations_lag": {"rows": [{"lag_seconds": null, "due": 0}]},
+        "operations_retention": {"rows": [{"old_finished": 0, "oldest_active": null, "orphan_tasks": 0, "tenant_since": "2026-11-24T09:00:06.000"}]},
         "first_run": {"rows": [{"first_run": "2026-11-27T09:00:07.440", "runs": 401}]},
+        "capacity_hold_tasks": {"rows": []},
+        "capacity_failures": {"rows": []},
+        "capacity_scheduled_runs": {"rows": [
+          {"workflow": "standing_extract", "scheduled_time": "2026-11-27T11:25:00", "first_task_started": "2026-11-27T11:25:03.000"}
+        ]},
+        "capacity_in_flight": {"rows": [
+          {"task": "4e1d0000-0000-4000-8000-0000000c0002", "task_name": "team_c::capacity_sized::sized", "status": "Running", "pool": "sized", "cpu_request_millis": 250, "memory_request_bytes": 419430400, "fleet_agent_id": "agent-c2"},
+          {"task": "4e1d0000-0000-4000-8000-0000000c0003", "task_name": "team_c::capacity_sized::sized", "status": "Running", "pool": "sized", "cpu_request_millis": 250, "memory_request_bytes": 419430400, "fleet_agent_id": "agent-c2"},
+          {"task": "4e1d0000-0000-4000-8000-0000000c0004", "task_name": "team_c::standing_extract::load", "status": "Ready", "pool": null, "cpu_request_millis": null, "memory_request_bytes": null, "fleet_agent_id": "agent-c1"}
+        ]},
         "last_runs": {"rows": [
           {"workflow_name": "standing_rollup", "runs": 36, "last_started": "2026-11-27T12:15:01.150"},
           {"workflow_name": "standing_extract", "runs": 72, "last_started": "2026-11-27T12:15:01.480"},
@@ -104,8 +344,26 @@
            "context": {"tenant": "team_c", "standing_driver_actions": [
              {"action": "run_by_hand", "workflow": "standing_target_py", "status": 202, "execution_id": "7b1e0000-0000-4000-8000-0000000c1215", "at": "2026-11-27T12:15:03Z"},
              {"action": "other_tenant", "other_tenant": "team_a", "packages_status": 403, "executions_status": 403, "secrets_status": 403, "secret_by_name": "KeyError", "at": "2026-11-27T12:15:04Z"}]}}
-        ]}
-      }
+        ]},
+        "run_once_tasks": {"rows": []},
+        "schedules": {"rows": [
+          {"id": "5c5e0000-0000-4000-8000-00000000c101", "workflow_name": "standing_rollup", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c102", "workflow_name": "standing_extract", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c103", "workflow_name": "standing_extract", "instance_name": "in_order", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "run_all", "max_active_runs": 1, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c104", "workflow_name": "standing_archive", "instance_name": null, "cron_expression": "0 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c105", "workflow_name": "standing_flaky", "instance_name": null, "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"},
+          {"id": "5c5e0000-0000-4000-8000-00000000c106", "workflow_name": "standing_driver", "instance_name": "drive", "cron_expression": "*/5 * * * *", "timezone": "UTC", "catchup_policy": "skip", "max_active_runs": null, "enabled": true, "backfill": null, "created_at": "2026-11-27T12:14:00.000"}
+        ]},
+        "fires": {"rows": [
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c101", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.150", "completed_at": "2026-11-27T12:15:03.000", "rollup_done": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c102", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.480", "completed_at": "2026-11-27T12:15:04.000", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c103", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.520", "completed_at": "2026-11-27T12:15:04.100", "rollup_done": null, "extract_loaded": {"interval_start": "2026-11-27T12:10:00+00:00", "interval_end": "2026-11-27T12:15:00+00:00"}},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c105", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.700", "completed_at": "2026-11-27T12:15:09.000", "rollup_done": null, "extract_loaded": null},
+          {"schedule_id": "5c5e0000-0000-4000-8000-00000000c106", "scheduled_time": "2026-11-27T12:15:00", "status": "Completed", "started_at": "2026-11-27T12:15:01.390", "completed_at": "2026-11-27T12:15:04.700", "rollup_done": null, "extract_loaded": null}
+        ]},
+        "busy_runs": {"rows": []}
+      },
+      "logs": {"marks": {"pods": [], "rows": []}}
     }
   }
 }

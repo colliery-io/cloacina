@@ -90,6 +90,70 @@ pub struct StoredDescription {
     pub describe_error: Option<String>,
 }
 
+/// A package in service whose plugin interface is to be checked by a
+/// compiler of this build (CLOACINA-T-1085). See
+/// [`WorkflowRegistryImpl::list_packages_to_check_interface`].
+#[derive(Debug, Clone)]
+pub struct InterfaceCheck {
+    pub id: Uuid,
+    pub package_name: String,
+    pub version: String,
+    /// The interface version recorded on the row. `None`: none recorded.
+    pub plugin_interface_version: Option<u32>,
+}
+
+/// What a row says about the plugin interface of its build
+/// (CLOACINA-T-1085), for the package list and detail.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InterfaceStatus {
+    /// The plugin interface version of the build. `None`: a Python package,
+    /// or not known.
+    pub plugin_interface_version: Option<u32>,
+    /// Why the package needs a new publish, with the step. `None`: it needs
+    /// nothing.
+    pub needs_new_build: Option<String>,
+}
+
+/// A package in service that needs a new publish (CLOACINA-T-1085).
+#[derive(Debug, Clone)]
+pub struct PackageNeedingNewBuild {
+    pub id: Uuid,
+    pub package_name: String,
+    pub version: String,
+    /// The interface version it was built for. `None`: not known (a library
+    /// of another fidius ABI does not open).
+    pub built_for: Option<u32>,
+    /// The reason and the step.
+    pub reason: String,
+}
+
+/// What the in-process path did with a library of another interface
+/// (CLOACINA-T-1085).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfaceRebuild {
+    /// The one rebuild for this interface version is asked for: the row is
+    /// `pending` again.
+    Requested,
+    /// The rebuild for this interface version was tried already: the row is
+    /// marked as needing a new publish, and no rebuild is asked for.
+    Marked,
+    /// The row is not there, or is in a build.
+    Unchanged,
+}
+
+/// The end of a long reason, at most 64 KiB, on a character boundary.
+fn truncate_reason(reason: &str) -> String {
+    const MAX_ERR: usize = 64 * 1024;
+    if reason.len() <= MAX_ERR {
+        return reason.to_string();
+    }
+    let mut start = reason.len() - MAX_ERR;
+    while !reason.is_char_boundary(start) {
+        start += 1;
+    }
+    reason[start..].to_string()
+}
+
 /// Build the task dependency graph (one node per task, with its upstream
 /// dependencies) from the persisted package metadata's task list, so the API
 /// and UI can render the full DAG. (CLOACI-T-0663)
@@ -1368,6 +1432,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             workflow_packages::metadata_document_version.eq(document_version),
                             workflow_packages::describe_error.eq::<Option<String>>(None),
                             workflow_packages::plugin_interface_version.eq(plugin_interface),
+                            // CLOACINA-T-1085: a finished build needs nothing.
+                            workflow_packages::needs_new_build.eq::<Option<String>>(None),
                         ))
                         .execute(tx)?,
                     None => diesel::update(target)
@@ -1380,6 +1446,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                             workflow_packages::metadata_document_version.eq(document_version),
                             workflow_packages::describe_error.eq::<Option<String>>(None),
                             workflow_packages::plugin_interface_version.eq(plugin_interface),
+                            // CLOACINA-T-1085: a finished build needs nothing.
+                            workflow_packages::needs_new_build.eq::<Option<String>>(None),
                         ))
                         .execute(tx)?,
                 };
@@ -1769,6 +1837,436 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         })
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
         Ok(updated > 0)
+    }
+
+    // ========================================================================
+    // The plugin interface of a build (CLOACINA-T-1085)
+    // ========================================================================
+
+    /// The packages in service that a compiler of this build checks for its
+    /// plugin interface: active rows (`success`, not superseded) whose
+    /// `plugin_interface_version` is NULL or not
+    /// [`PLUGIN_INTERFACE_VERSION`](crate::fleet::PLUGIN_INTERFACE_VERSION),
+    /// and that were not checked for that version yet. Oldest upload first,
+    /// at most `limit` rows.
+    ///
+    /// Each row is checked once per interface version: the check records
+    /// `interface_checked_for`, also when it marks the row.
+    pub async fn list_packages_to_check_interface(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<InterfaceCheck>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let dal = self.dal();
+        let rows: Vec<(UniversalUuid, String, String, Option<i32>)> =
+            crate::interact_on_backend!(dal, |conn| {
+                use diesel::prelude::*;
+                workflow_packages::table
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                    .filter(
+                        workflow_packages::plugin_interface_version
+                            .is_null()
+                            .or(workflow_packages::plugin_interface_version.ne(current)),
+                    )
+                    .filter(
+                        workflow_packages::interface_checked_for
+                            .is_null()
+                            .or(workflow_packages::interface_checked_for.ne(current)),
+                    )
+                    .order(workflow_packages::created_at.asc())
+                    .limit(limit)
+                    .select((
+                        workflow_packages::id,
+                        workflow_packages::package_name,
+                        workflow_packages::version,
+                        workflow_packages::plugin_interface_version,
+                    ))
+                    .load(conn)
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, package_name, version, piv)| InterfaceCheck {
+                id: id.0,
+                package_name,
+                version,
+                plugin_interface_version: piv.and_then(|v| u32::try_from(v).ok()),
+            })
+            .collect())
+    }
+
+    /// Record that the build of a package in service has this build's plugin
+    /// interface: its stored library opened, or its rebuild had the
+    /// interface. Clears a mark. Returns `true` when the row was written.
+    pub async fn record_interface_current(&self, package_id: Uuid) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("success")),
+            )
+            .set((
+                workflow_packages::plugin_interface_version.eq(Some(current)),
+                workflow_packages::interface_checked_for.eq(Some(current)),
+                workflow_packages::needs_new_build.eq::<Option<String>>(None),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// Record that a package was checked for this build's plugin interface
+    /// and nothing is to be done: a Python package (no interface), or a
+    /// library that fails to open for a reason that is not its interface.
+    /// Returns `true` when the row was written.
+    pub async fn record_interface_checked(&self, package_id: Uuid) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(workflow_packages::table.filter(workflow_packages::id.eq(pid)))
+                .set(workflow_packages::interface_checked_for.eq(Some(current)))
+                .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// Mark a package in service as needing a new publish (CLOACINA-T-1085):
+    /// its rebuild from kept source still had another plugin interface, or
+    /// failed. The row stays `success` and in service: agents of its
+    /// interface still run it during a roll. `built_for` is written to
+    /// `plugin_interface_version` when it is known, so dispatch sends the
+    /// package only to agents of that interface. Returns `true` when the row
+    /// was written.
+    pub async fn mark_needs_new_build(
+        &self,
+        package_id: Uuid,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let reason = truncate_reason(reason);
+        let built_for = built_for.and_then(|v| i32::try_from(v).ok());
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            let target = workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .filter(workflow_packages::build_status.eq("success"));
+            match built_for {
+                Some(v) => diesel::update(target)
+                    .set((
+                        workflow_packages::interface_checked_for.eq(Some(current)),
+                        workflow_packages::needs_new_build.eq(Some(reason)),
+                        workflow_packages::plugin_interface_version.eq(Some(v)),
+                    ))
+                    .execute(conn),
+                None => diesel::update(target)
+                    .set((
+                        workflow_packages::interface_checked_for.eq(Some(current)),
+                        workflow_packages::needs_new_build.eq(Some(reason)),
+                    ))
+                    .execute(conn),
+            }
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// Write the rebuild from kept source of a package in service, in place
+    /// (CLOACINA-T-1085): the row stays `success` and in service, and gets
+    /// the new library, its metadata document, this build's plugin interface
+    /// and the record of the check. Used when the rebuild has this build's
+    /// interface. Returns `true` when the row was written; `false` when it is
+    /// no longer in service.
+    pub async fn replace_build_in_place(
+        &self,
+        package_id: Uuid,
+        compiled: Vec<u8>,
+        document: &crate::registry::package_description::PackageDescription,
+        task_docs: std::collections::HashMap<
+            String,
+            crate::registry::loader::package_loader::TaskDocs,
+        >,
+        declared_params: Vec<cloacina_api_types::InputSlot>,
+        declared_surfaces: Vec<cloacina_api_types::DeclaredSurface>,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{
+            UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
+        };
+
+        let Some(merged) = self
+            .merge_described_build_metadata(
+                package_id,
+                document,
+                &task_docs,
+                &declared_params,
+                &declared_surfaces,
+            )
+            .await?
+        else {
+            return Ok(false);
+        };
+        let document_json =
+            serde_json::to_string(document).map_err(RegistryError::Serialization)?;
+        let document_version = document.format_version as i32;
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let interface = (document.language != "python").then_some(current);
+        let pid = UniversalUuid(package_id);
+        let now = UniversalTimestamp::now();
+        let bytes = UniversalBinary::new(compiled);
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false))),
+            )
+            .set((
+                workflow_packages::compiled_data.eq(Some(bytes)),
+                workflow_packages::compiled_at.eq(Some(now)),
+                workflow_packages::updated_at.eq(now),
+                workflow_packages::metadata.eq(merged),
+                workflow_packages::metadata_document.eq(Some(document_json)),
+                workflow_packages::metadata_document_version.eq(Some(document_version)),
+                workflow_packages::describe_error.eq::<Option<String>>(None),
+                workflow_packages::plugin_interface_version.eq(interface),
+                workflow_packages::interface_checked_for.eq(Some(current)),
+                workflow_packages::needs_new_build.eq::<Option<String>>(None),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// The in-process path's one rebuild per interface version
+    /// (CLOACINA-T-1085), for a daemon, embedded use and a server with single
+    /// trust: a library of another interface failed to load here.
+    ///
+    /// When the row was not checked for this build's interface, it is
+    /// recorded as checked and set back to `pending`, so the compiler builds
+    /// it again from kept source ([`InterfaceRebuild::Requested`]). When it
+    /// was, the rebuild was tried already: the row is marked as needing a new
+    /// publish with `reason` ([`InterfaceRebuild::Marked`]). An in-flight
+    /// build is not touched.
+    pub async fn request_interface_rebuild(
+        &self,
+        package_id: Uuid,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<InterfaceRebuild, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let dal = self.dal();
+        let requested: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq_any(["success", "failed"]))
+                    .filter(
+                        workflow_packages::interface_checked_for
+                            .is_null()
+                            .or(workflow_packages::interface_checked_for.ne(current)),
+                    ),
+            )
+            .set((
+                workflow_packages::build_status.eq("pending"),
+                workflow_packages::build_error.eq(None::<String>),
+                workflow_packages::build_claimed_at
+                    .eq(None::<crate::database::universal_types::UniversalTimestamp>),
+                workflow_packages::interface_checked_for.eq(Some(current)),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        if requested > 0 {
+            return Ok(InterfaceRebuild::Requested);
+        }
+        if self
+            .mark_needs_new_build(package_id, built_for, reason)
+            .await?
+        {
+            Ok(InterfaceRebuild::Marked)
+        } else {
+            Ok(InterfaceRebuild::Unchanged)
+        }
+    }
+
+    /// End the build of a row whose one rebuild for this build's interface
+    /// was asked for by the in-process path ([`Self::request_interface_rebuild`])
+    /// and still had another interface (CLOACINA-T-1085). The row goes back
+    /// to `success` with the library it had, marked as needing a new publish:
+    /// it stays in service. Returns `false`, writing nothing, for any other
+    /// build: a new upload of another interface fails as a build does.
+    pub async fn end_interface_rebuild(
+        &self,
+        package_id: Uuid,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<bool, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let current = crate::fleet::PLUGIN_INTERFACE_VERSION as i32;
+        let reason = truncate_reason(reason);
+        let built_for = built_for.and_then(|v| i32::try_from(v).ok());
+        let dal = self.dal();
+        let updated: usize = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            diesel::update(
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(pid))
+                    .filter(workflow_packages::build_status.eq("building"))
+                    .filter(workflow_packages::interface_checked_for.eq(current))
+                    .filter(workflow_packages::compiled_data.is_not_null()),
+            )
+            .set((
+                workflow_packages::build_status.eq("success"),
+                workflow_packages::build_error.eq(None::<String>),
+                workflow_packages::build_claimed_at
+                    .eq(None::<crate::database::universal_types::UniversalTimestamp>),
+                workflow_packages::needs_new_build.eq(Some(reason)),
+                workflow_packages::plugin_interface_version.eq(built_for),
+            ))
+            .execute(conn)
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(updated > 0)
+    }
+
+    /// The packages in service that need a new publish (CLOACINA-T-1085),
+    /// by name.
+    pub async fn list_packages_needing_new_build(
+        &self,
+    ) -> Result<Vec<PackageNeedingNewBuild>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::{UniversalBool, UniversalUuid};
+
+        let dal = self.dal();
+        let rows: Vec<(UniversalUuid, String, String, Option<i32>, Option<String>)> =
+            crate::interact_on_backend!(dal, |conn| {
+                use diesel::prelude::*;
+                workflow_packages::table
+                    .filter(workflow_packages::build_status.eq("success"))
+                    .filter(workflow_packages::superseded.eq(UniversalBool(false)))
+                    .filter(workflow_packages::needs_new_build.is_not_null())
+                    .order(workflow_packages::package_name.asc())
+                    .select((
+                        workflow_packages::id,
+                        workflow_packages::package_name,
+                        workflow_packages::version,
+                        workflow_packages::plugin_interface_version,
+                        workflow_packages::needs_new_build,
+                    ))
+                    .load(conn)
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, package_name, version, piv, reason)| PackageNeedingNewBuild {
+                    id: id.0,
+                    package_name,
+                    version,
+                    built_for: piv.and_then(|v| u32::try_from(v).ok()),
+                    reason: reason.unwrap_or_default(),
+                },
+            )
+            .collect())
+    }
+
+    /// The interface status of each package row of this registry, by row id
+    /// (CLOACINA-T-1085). A Python row has no interface.
+    pub async fn interface_statuses(
+        &self,
+    ) -> Result<std::collections::HashMap<Uuid, InterfaceStatus>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let dal = self.dal();
+        let rows: Vec<(UniversalUuid, Option<i32>, Option<String>)> =
+            crate::interact_on_backend!(dal, |conn| {
+                use diesel::prelude::*;
+                workflow_packages::table
+                    .select((
+                        workflow_packages::id,
+                        workflow_packages::plugin_interface_version,
+                        workflow_packages::needs_new_build,
+                    ))
+                    .load(conn)
+            })
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, piv, needs)| {
+                (
+                    id.0,
+                    InterfaceStatus {
+                        plugin_interface_version: piv.and_then(|v| u32::try_from(v).ok()),
+                        needs_new_build: needs,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// The interface status of one package row (CLOACINA-T-1085). `None`
+    /// when the row does not exist.
+    pub async fn interface_status(
+        &self,
+        package_id: Uuid,
+    ) -> Result<Option<InterfaceStatus>, RegistryError> {
+        use crate::database::schema::unified::workflow_packages;
+        use crate::database::universal_types::UniversalUuid;
+
+        let pid = UniversalUuid(package_id);
+        let dal = self.dal();
+        let row: Option<(Option<i32>, Option<String>)> = crate::interact_on_backend!(dal, |conn| {
+            use diesel::prelude::*;
+            workflow_packages::table
+                .filter(workflow_packages::id.eq(pid))
+                .select((
+                    workflow_packages::plugin_interface_version,
+                    workflow_packages::needs_new_build,
+                ))
+                .first(conn)
+                .optional()
+        })
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+        Ok(row.map(|(piv, needs)| InterfaceStatus {
+            plugin_interface_version: piv.and_then(|v| u32::try_from(v).ok()),
+            needs_new_build: needs,
+        }))
     }
 
     // ========================================================================
@@ -2890,6 +3388,84 @@ mod tests {
         assert_eq!(live[0].2, "pending");
         // A candidate is not in service.
         assert!(registry.list_all_packages().await.unwrap().is_empty());
+    }
+
+    /// CLOACINA-T-1085: the in-process path asks for one rebuild per package
+    /// per interface version, recorded on the row. A rebuild that still has
+    /// the old interface puts the row back in service, marked; the next load
+    /// failure does not ask again. A new upload of another interface fails as
+    /// any build does.
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn the_in_process_path_asks_for_one_rebuild_per_interface_then_marks() {
+        use crate::registry::plugin_interface::needs_new_build_reason;
+
+        let registry = create_test_registry().await;
+        let id = upload_and_build(&registry, "iface-pkg", "1", "hash-iface-1").await;
+        let reason = needs_new_build_reason(Some(7), "the rebuilt library still fails to load");
+
+        assert_eq!(
+            registry
+                .request_interface_rebuild(id, Some(7), &reason)
+                .await
+                .unwrap(),
+            InterfaceRebuild::Requested
+        );
+        assert_eq!(
+            row_state(&registry, "iface-pkg", id).await,
+            (false, "pending".to_string())
+        );
+
+        // The compiler builds it again; the build still has interface 7.
+        let claimed = registry.claim_next_build().await.unwrap().expect("claim");
+        assert_eq!(claimed.id, id);
+        assert!(
+            registry
+                .end_interface_rebuild(id, Some(7), &reason)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            row_state(&registry, "iface-pkg", id).await,
+            (false, "success".to_string())
+        );
+        let listed = registry.list_packages_needing_new_build().await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, id);
+        assert_eq!(listed[0].built_for, Some(7));
+        assert_eq!(listed[0].reason, reason);
+
+        // The next load failure marks; it asks for no rebuild.
+        assert_eq!(
+            registry
+                .request_interface_rebuild(id, Some(7), &reason)
+                .await
+                .unwrap(),
+            InterfaceRebuild::Marked
+        );
+        assert_eq!(
+            row_state(&registry, "iface-pkg", id).await,
+            (false, "success".to_string())
+        );
+
+        // A new upload: its build is not ended this way.
+        let new_id = registry
+            .insert_candidate(
+                &Uuid::new_v4().to_string(),
+                &sample_metadata("iface-pkg", "2"),
+                "hash-iface-2",
+                None,
+            )
+            .await
+            .unwrap();
+        let claimed = registry.claim_next_build().await.unwrap().expect("claim");
+        assert_eq!(claimed.id, new_id);
+        assert!(
+            !registry
+                .end_interface_rebuild(new_id, Some(7), &reason)
+                .await
+                .unwrap()
+        );
     }
 
     /// CLOACINA-T-1018: the old version stays active until the build of the

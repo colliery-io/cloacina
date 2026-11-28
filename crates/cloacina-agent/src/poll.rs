@@ -29,6 +29,11 @@
 //! - in the worker (`run_poll_job`): the load of the trigger and
 //!   [`run_poll`]. The agent holds the worker to the poll's time limit and to
 //!   the agent's default memory share, and kills its process group at either.
+//!
+//! CLOACINA-T-1156: a packet with `accumulator_name` is a poll of a Python
+//! polling accumulator. The worker imports the package into the same
+//! per-build runtime and calls the accumulator's poll function
+//! ([`run_accumulator_poll`]); the answer is its JSON value or no change.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,7 +43,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use cloacina::cloacina_workflow::Trigger;
 use cloacina::fleet::{
-    AgentOutcome, FailureClassification, PollWorkPacket, RefusalReason, WorkPacket, poll_outcome,
+    AgentOutcome, FailureClassification, PollWorkPacket, RefusalReason, WorkPacket,
+    accumulator_poll_outcome, poll_outcome,
 };
 
 /// Read the packet of an `agent_poll` push.
@@ -103,6 +109,7 @@ pub(crate) fn load_packet_for(packet: &PollWorkPacket) -> WorkPacket {
         cpu_millis: None,
         memory_bytes: None,
         inline: false,
+        output_max_bytes: None,
     }
 }
 
@@ -129,6 +136,64 @@ pub(crate) fn wrong_arch(packet: &PollWorkPacket, agent_triple: &str) -> Option<
             ),
         }
     })
+}
+
+/// The refusal of a poll of a polling accumulator in a package that is not
+/// Python (CLOACINA-T-1156): only a Python package has poll code for one.
+pub(crate) fn not_a_python_package(packet: &PollWorkPacket) -> AgentOutcome {
+    AgentOutcome::Failure {
+        message: format!(
+            "polling accumulator '{}' of package '{}': a poll of a polling accumulator runs only \
+             for a Python package, this one is {}",
+            packet.target_name(),
+            packet.package_name,
+            packet.language.as_deref().unwrap_or("rust")
+        ),
+        classification: FailureClassification::Validation,
+    }
+}
+
+/// The tenant the import of a poll's package registers under, as
+/// [`load_packet_for`] gives it to the loaders.
+pub(crate) fn import_tenant(packet: &PollWorkPacket) -> String {
+    packet
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| "public".to_string())
+}
+
+/// Call the poll function of a polling accumulator of the imported package
+/// and give the outcome (CLOACINA-T-1156): the value, or no change. The time
+/// limit is as in [`run_poll`].
+pub(crate) async fn run_accumulator_poll(
+    packet: &PollWorkPacket,
+    accumulator: String,
+    time_limit: Option<Duration>,
+) -> AgentOutcome {
+    let tenant = import_tenant(packet);
+    let package = packet.package_name.clone();
+    let call = tokio::task::spawn_blocking(move || {
+        cloacina_python::computation_graph::poll_accumulator(&tenant, &package, &accumulator)
+    });
+    let joined = match time_limit {
+        None => call.await,
+        Some(limit) => match tokio::time::timeout(limit, call).await {
+            Ok(joined) => joined,
+            Err(_) => {
+                return AgentOutcome::Failure {
+                    message: format!("poll exceeded timeout of {}s", packet.timeout_seconds),
+                    classification: FailureClassification::Timeout,
+                };
+            }
+        },
+    };
+    match joined {
+        Ok(result) => accumulator_poll_outcome(result),
+        Err(e) => AgentOutcome::Failure {
+            message: format!("the poll function's thread ended: {e}"),
+            classification: FailureClassification::TaskError,
+        },
+    }
 }
 
 /// Call the trigger and give the outcome. With `time_limit` (a poll in the
@@ -173,7 +238,23 @@ mod tests {
             tenant_id: Some("acme".into()),
             language: Some("rust".into()),
             not_after_unix_ms: not_after,
+            accumulator_name: None,
         }
+    }
+
+    /// A poll of a polling accumulator in a Rust build is refused with why
+    /// (CLOACINA-T-1156).
+    #[test]
+    fn an_accumulator_poll_of_a_rust_build_is_refused() {
+        let mut p = packet(None);
+        p.trigger_name = String::new();
+        p.accumulator_name = Some("prices".into());
+        let AgentOutcome::Failure { message, .. } = not_a_python_package(&p) else {
+            panic!("a failure");
+        };
+        assert!(message.contains("'prices'"), "{message}");
+        assert!(message.contains("only for a Python package"), "{message}");
+        assert_eq!(import_tenant(&p), "acme");
     }
 
     #[test]

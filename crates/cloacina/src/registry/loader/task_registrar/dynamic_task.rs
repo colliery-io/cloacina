@@ -92,6 +92,13 @@ impl LoadedWorkflowPlugin {
                     message: "Plugin library contains no plugins".to_string(),
                     timestamp: Utc::now(),
                 })?;
+        // CLOACINA-T-1085: no call into a library of another interface.
+        crate::registry::plugin_interface::check_plugin_interface(plugin.info.interface_version)
+            .map_err(|message| TaskError::ExecutionFailed {
+                task_id: package_name.to_string(),
+                message: format!("Failed to load plugin library: {message}"),
+                timestamp: Utc::now(),
+            })?;
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 

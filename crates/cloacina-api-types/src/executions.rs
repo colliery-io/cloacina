@@ -169,6 +169,68 @@ pub struct TaskExecutionDetail {
     /// error in `last_error` and `error_details`.
     #[serde(default)]
     pub attempt_errors: Vec<TaskAttemptErrorDetail>,
+    /// Why the task waits, while the fleet puts it off (CLOACINA-T-1148);
+    /// `null` when it does not wait, once it is placed on an agent or
+    /// starts, and after it ends.
+    #[serde(default)]
+    pub wait_reason: Option<TaskWaitReason>,
+}
+
+/// Why a task waits (CLOACINA-T-1148): a short code and the same in words.
+///
+/// The codes are an open set: a client shows an unknown code with its
+/// message. The codes of this release: `plugin_interface`, `no_agent`,
+/// `platform`, `too_large`, `no_capacity`, `agent_refused`,
+/// `artifact_fetch`, `dispatch_retry`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskWaitReason {
+    /// A short code, for example `no_capacity`.
+    pub code: String,
+    /// The reason in words, with the tenant, the pool and the numbers.
+    pub message: String,
+}
+
+impl TaskWaitReason {
+    /// No agent of the task's tenant and pool loads the package's plugin
+    /// interface version.
+    pub const PLUGIN_INTERFACE: &'static str = "plugin_interface";
+    /// No live agent of the task's tenant and pool.
+    pub const NO_AGENT: &'static str = "no_agent";
+    /// Agents of the pool, but none on a platform the package is built for.
+    pub const PLATFORM: &'static str = "platform";
+    /// The task requests more CPU or memory than any agent of the pool holds.
+    pub const TOO_LARGE: &'static str = "too_large";
+    /// Agents of the pool can run the task; none has a free slot or room for
+    /// its requests now.
+    pub const NO_CAPACITY: &'static str = "no_capacity";
+    /// The agent the task was sent to refused it: full or shutting down.
+    pub const AGENT_REFUSED: &'static str = "agent_refused";
+    /// The agent could not fetch the package artifact.
+    pub const ARTIFACT_FETCH: &'static str = "artifact_fetch";
+    /// The server could not read the tasks in flight or write the placement;
+    /// it tries again.
+    pub const DISPATCH_RETRY: &'static str = "dispatch_retry";
+
+    /// Every code of this release.
+    pub const CODES: &'static [&'static str] = &[
+        Self::PLUGIN_INTERFACE,
+        Self::NO_AGENT,
+        Self::PLATFORM,
+        Self::TOO_LARGE,
+        Self::NO_CAPACITY,
+        Self::AGENT_REFUSED,
+        Self::ARTIFACT_FETCH,
+        Self::DISPATCH_RETRY,
+    ];
+
+    /// A reason with this code and message.
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.into(),
+        }
+    }
 }
 
 /// The error of one failed attempt of a task (CLOACINA-T-1100).
@@ -193,4 +255,58 @@ pub struct ExecutionTasksResponse {
     pub tenant_id: String,
     pub execution_id: String,
     pub tasks: Vec<TaskExecutionDetail>,
+}
+
+/// The end of what one attempt of a task wrote on stdout and stderr, as one
+/// stream (CLOACINA-T-1091). Kept for tasks that ran in an agent's worker
+/// process.
+#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskAttemptOutputDetail {
+    /// The attempt, from 1.
+    pub attempt: i32,
+    /// The last bytes of the output, at most the server's
+    /// `--task-output-max-bytes` (256 KiB by default). The exact values of
+    /// the attempt's own secrets are `***` when the agent masks them.
+    pub output: String,
+    /// How many bytes the attempt wrote in all.
+    pub total_bytes: i64,
+    /// `true` when `output` is not the whole stream: its start was cut.
+    pub cut: bool,
+    /// RFC 3339 timestamp of when the output was stored.
+    pub recorded_at: String,
+}
+
+impl std::fmt::Debug for TaskAttemptOutputDetail {
+    /// The sizes only: the output is task data.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskAttemptOutputDetail")
+            .field("attempt", &self.attempt)
+            .field("output_bytes", &self.output.len())
+            .field("total_bytes", &self.total_bytes)
+            .field("cut", &self.cut)
+            .field("recorded_at", &self.recorded_at)
+            .finish()
+    }
+}
+
+/// `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
+/// response (CLOACINA-T-1091): the stored output of each attempt of the
+/// task, in attempt order. Empty for a task whose output was not kept.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskOutputResponse {
+    pub tenant_id: String,
+    pub execution_id: String,
+    pub task_id: String,
+    pub attempts: Vec<TaskAttemptOutputDetail>,
+}
+
+/// Query of the task output route (CLOACINA-T-1091).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
+#[cfg_attr(feature = "openapi", into_params(parameter_in = Query))]
+pub struct TaskOutputQuery {
+    /// Only this attempt.
+    pub attempt: Option<i32>,
 }

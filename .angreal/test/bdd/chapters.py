@@ -23,7 +23,7 @@ import importlib
 from pathlib import Path
 
 from . import gherkin
-from .suite import promises, rules, workload
+from .suite import disturb, promises, rules, workload
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent.parent
@@ -129,9 +129,11 @@ def dry_run(root=PROJECT_ROOT):
             if rel not in claimed:
                 problems.append(f"{rel}: no steps file names this feature in FEATURES")
 
-    # The checker's side: the promises table, the workload, the rules.
+    # The checker's side: the promises table, the workload, the rules, and
+    # the disturbance schedule.
     problems.extend(promises.problems())
     problems.extend(workload.problems())
+    problems.extend(disturb.schedule_problems())
     try:
         registry = rules.load()
         problems.extend(registry.problems())
@@ -164,4 +166,13 @@ def dry_run(root=PROJECT_ROOT):
                 work = ", ".join(workload.EVIDENCE.get(promise_id) or []) or \
                     workload.WITHOUT_EVIDENCE.get(promise_id, "none")
                 lines.append(f"    {sentence}\n      {rules_text}; evidence: {work}")
+
+    per_day = {}
+    for item in disturb.plan(0, 86400 - 1):
+        per_day[item.kind] = per_day.get(item.kind, 0) + 1
+    lines.append("")
+    lines.append("disturbance schedule (angreal test bdd standing --disturb --dry-run for the commands):")
+    for kind in disturb.KINDS:
+        lines.append(f"  {kind}: {per_day.get(kind, 0)} a day; tests "
+                     + ", ".join(promises.DISTURBANCE_TESTS[kind]))
     return lines, problems

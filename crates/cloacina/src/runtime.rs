@@ -258,6 +258,16 @@ pub struct Runtime {
     scope: RuntimeScope,
 }
 
+/// The package version a loaded task belongs to: its `workflow_packages` row
+/// and the version string (CLOACINA-T-1137).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadedTaskVersion {
+    /// The `workflow_packages` row of the loaded version.
+    pub package_id: uuid::Uuid,
+    /// The version string of that row.
+    pub version: String,
+}
+
 /// The owned form of [`TenantScope`] carried on a [`Runtime`] handle.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct RuntimeScope {
@@ -278,6 +288,10 @@ struct RuntimeInner {
     /// Already `tenant::package::workflow::task`-keyed — see the module docs
     /// for why this one keeps [`TaskNamespace`] rather than [`TenantKey`].
     tasks: RwLock<HashMap<TaskNamespace, TaskConstructorFn>>,
+    /// The package version a loaded task belongs to (CLOACINA-T-1137). Set by
+    /// the reconciler for the tasks of a package it loads; a task registered
+    /// any other way (macros, embedded use) has none.
+    task_versions: RwLock<HashMap<TaskNamespace, LoadedTaskVersion>>,
     workflows: ScopedRegistry<WorkflowConstructorFn>,
     triggers: ScopedRegistry<TriggerConstructorFn>,
     computation_graphs: ScopedRegistry<ComputationGraphConstructor>,
@@ -314,6 +328,7 @@ impl Runtime {
         Self {
             inner: Arc::new(RuntimeInner {
                 tasks: RwLock::new(HashMap::new()),
+                task_versions: RwLock::new(HashMap::new()),
                 workflows: ScopedRegistry::new("workflow"),
                 triggers: ScopedRegistry::new("trigger"),
                 computation_graphs: ScopedRegistry::new("computation graph"),
@@ -462,9 +477,23 @@ impl Runtime {
             .insert(namespace, Box::new(factory));
     }
 
-    /// Remove a task constructor. Returns true if the entry existed.
+    /// Remove a task constructor, and the package version recorded for it.
+    /// Returns true if the entry existed.
     pub fn unregister_task(&self, namespace: &TaskNamespace) -> bool {
+        self.inner.task_versions.write().remove(namespace);
         self.inner.tasks.write().remove(namespace).is_some()
+    }
+
+    /// Record the package version a registered task belongs to
+    /// (CLOACINA-T-1137). The in-process executor pins an execution to it.
+    pub fn set_task_version(&self, namespace: TaskNamespace, version: LoadedTaskVersion) {
+        self.inner.task_versions.write().insert(namespace, version);
+    }
+
+    /// The package version of a registered task, when the task was loaded from
+    /// a package.
+    pub fn task_version(&self, namespace: &TaskNamespace) -> Option<LoadedTaskVersion> {
+        self.inner.task_versions.read().get(namespace).cloned()
     }
 
     /// Look up and instantiate a task by namespace.

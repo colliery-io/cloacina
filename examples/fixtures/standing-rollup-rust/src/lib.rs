@@ -42,13 +42,16 @@ pub mod standing_rollup {
         let start = context.get("interval_start").cloned();
         let end = context.get("interval_end").cloned();
         let fired = context.get("scheduled_time").cloned();
-        // One marked line for each start of a task body.
+        // One marked line for each start of a task body. `schedule_id` and
+        // `scheduled_time` name a scheduled run, `run_once_tag` a run by hand.
         println!(
             "STANDING_MARK {}",
             serde_json::json!({
                 "workflow": "standing_rollup",
                 "task": "read_interval",
                 "scheduled_time": fired,
+                "schedule_id": context.get("schedule_id").cloned(),
+                "run_once_tag": context.get("run_once_tag").cloned(),
             })
         );
         context.insert(
@@ -71,6 +74,8 @@ pub mod standing_rollup {
                 "workflow": "standing_rollup",
                 "task": "roll_up",
                 "scheduled_time": fired,
+                "schedule_id": context.get("schedule_id").cloned(),
+                "run_once_tag": context.get("run_once_tag").cloned(),
             })
         );
         context.insert(
