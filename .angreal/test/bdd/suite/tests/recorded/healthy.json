@@ -9,6 +9,38 @@
         {"tenant_id": "team_a", "agents": 2, "last_heartbeat": "2026-11-27T12:19:55.101"},
         {"tenant_id": "team_b", "agents": 2, "last_heartbeat": "2026-11-27T12:19:57.330"},
         {"tenant_id": "team_c", "agents": 2, "last_heartbeat": "2026-11-27T12:19:51.004"}
+      ]},
+      "build_role_reach": {"rows": [
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "package_artifacts"},
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "package_providers"},
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "workflow_packages"},
+        {"role": "public$build", "tenant": "public", "schema": "public", "name": "workflow_registry"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "package_artifacts"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "package_providers"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "workflow_packages"},
+        {"role": "team_a$build", "tenant": "team_a", "schema": "team_a", "name": "workflow_registry"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "package_artifacts"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "package_providers"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "workflow_packages"},
+        {"role": "team_b$build", "tenant": "team_b", "schema": "team_b", "name": "workflow_registry"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "package_artifacts"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "package_providers"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "workflow_packages"},
+        {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "workflow_registry"}
+      ]},
+      "tenant_role_reach": {"rows": [
+        {"role": "team_a", "schema": "team_a", "tables": 31},
+        {"role": "team_b", "schema": "team_b", "tables": 31},
+        {"role": "team_c", "schema": "team_c", "tables": 31}
+      ]},
+      "connections": {"rows": [
+        {"role": "cloacina", "connections": 14},
+        {"role": "team_a", "connections": 3},
+        {"role": "team_a$build", "connections": 1},
+        {"role": "team_b", "connections": 3},
+        {"role": "team_b$build", "connections": 1},
+        {"role": "team_c", "connections": 2},
+        {"role": "team_c$build", "connections": 1}
       ]}
     }
   },

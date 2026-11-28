@@ -48,11 +48,12 @@ class RegistryTest(unittest.TestCase):
     def test_the_rules_load_and_are_sound(self):
         registry = rules.load()
         self.assertEqual(registry.problems(), [])
-        self.assertEqual(rules.chapter_modules(), ["publishing", "standing"])
+        self.assertEqual(rules.chapter_modules(), ["publishing", "standing", "tenant_code"])
         ids = sorted(rule.id for rule in registry.rules)
         self.assertEqual(ids, ["publishing.bad_build_keeps_running", "publishing.new_version_built",
                                "publishing.step_back", "standing.agents", "standing.schedules",
-                               "standing.self_driving"])
+                               "standing.self_driving", "tenant_code.build_role_reach",
+                               "tenant_code.tenant_pool_role"])
 
     def test_each_rule_names_its_sources(self):
         registry = rules.load()
@@ -358,7 +359,9 @@ class ReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             code, text = self.run_check(["--replay", HEALTHY, "--out", folder])
             self.assertEqual(code, 0, text)
-            self.assertIn("holds 6", text)
+            # The gap rule of CLOACINA-T-1080 holds on this snapshot: "holds now".
+            self.assertIn("holds 7", text)
+            self.assertIn("holds now 1", text)
             with open(os.path.join(folder, "report", "report.json"), encoding="utf-8") as handle:
                 made = json.load(handle)
             self.assertFalse(made["red"])
