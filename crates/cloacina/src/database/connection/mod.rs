@@ -650,9 +650,6 @@ impl Database {
     ///
     /// This method detects the backend type and runs the corresponding migrations.
     pub async fn run_migrations(&self) -> Result<(), String> {
-        #[cfg(feature = "sqlite")]
-        use diesel_migrations::MigrationHarness;
-
         #[cfg(all(feature = "postgres", feature = "sqlite"))]
         match &self.pool {
             AnyPool::Postgres(pool) => {
@@ -682,9 +679,9 @@ impl Database {
                         .execute(conn)
                         .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
 
-                    conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
+                    // With the release guard (CLOACINA-T-1087).
+                    crate::database::schema_release::run_pending_sqlite_migrations_guarded(conn)
                         .map(|_| ())
-                        .map_err(|e| format!("Failed to run SQLite migrations: {}", e))
                 })
                 .await
                 .map_err(|e| format!("Failed to run migrations: {}", e))??;
@@ -716,9 +713,9 @@ impl Database {
                     .execute(conn)
                     .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
 
-                conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
+                // With the release guard (CLOACINA-T-1087).
+                crate::database::schema_release::run_pending_sqlite_migrations_guarded(conn)
                     .map(|_| ())
-                    .map_err(|e| format!("Failed to run SQLite migrations: {}", e))
             })
             .await
             .map_err(|e| format!("Failed to run migrations: {}", e))?

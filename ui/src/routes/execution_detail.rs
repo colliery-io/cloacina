@@ -53,6 +53,37 @@ fn local_id(name: &str) -> String {
     name.rsplit("::").next().unwrap_or(name).to_string()
 }
 
+/// The errors of the attempts before the task's current one, each with its
+/// attempt number (CLOACINA-T-1100). The current attempt's error is
+/// `last_error`. Nothing when no earlier attempt failed.
+fn earlier_attempt_errors(t: &cloacina_api_types::TaskExecutionDetail) -> impl IntoView + use<> {
+    let earlier: Vec<cloacina_api_types::TaskAttemptErrorDetail> = t
+        .attempt_errors
+        .iter()
+        .filter(|e| e.attempt < t.attempt)
+        .cloned()
+        .collect();
+    (!earlier.is_empty()).then(|| {
+        let count = earlier.len();
+        view! {
+            <details class="app-errdetails">
+                <summary>{format!("Earlier attempts ({count})")}</summary>
+                {earlier
+                    .into_iter()
+                    .map(|e| view! {
+                        <div>
+                            <div>{format!("Attempt {}: {}", e.attempt, e.message)}</div>
+                            {e.details.map(|details| view! {
+                                <pre class="app-errdetails__text">{details}</pre>
+                            })}
+                        </div>
+                    })
+                    .collect_view()}
+            </details>
+        }
+    })
+}
+
 /// A section title; while the run is live it carries a live marker.
 #[component]
 fn SectionHeader(#[prop(into)] title: String, live: Signal<bool>) -> impl IntoView {
@@ -482,6 +513,9 @@ pub fn ExecutionView(
                                                             <pre class="app-errdetails__text">{details}</pre>
                                                         </details>
                                                     })}
+                                                    // The errors of the attempts before
+                                                    // this one (CLOACINA-T-1100).
+                                                    {earlier_attempt_errors(&t)}
                                                 </td>
                                                 {t.log_url.clone().map(|url| view! {
                                                     <td>

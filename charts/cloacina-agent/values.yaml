@@ -33,6 +33,16 @@ server:
   # Override the advertised host target triple (--target-triple-override).
   # Leave empty unless you know you need it (OQ-6 fail-closed matching).
   targetTripleOverride: ""
+  # A private CA for an `https://` server URL (CLOACINA-T-1069): for a mesh or
+  # gateway whose certificate a private CA signs. The agent trusts the PEM
+  # certificates of the file in addition to the system roots (--ca-file).
+  # Name a ConfigMap or a Secret (not both) in the release namespace that
+  # holds the file under `key`; the chart mounts it read-only. Both empty: no
+  # extra CA.
+  ca:
+    configMap: ""
+    secret: ""
+    key: ca.crt
 
 # Format of the agent's log lines on stdout: text or json (one JSON object per
 # line, for a log stack). In json, a line written while a task runs has the

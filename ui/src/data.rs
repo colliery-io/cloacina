@@ -44,7 +44,7 @@ pub fn map_client_error(e: &ClientError) -> ApiError {
         ClientError::Transport(_) => ApiError::Network,
         ClientError::Auth(m) => ApiError::Http {
             status: 401,
-            message: m.clone(),
+            message: m.to_string(),
             code: None,
         },
         ClientError::NotFound(m) => ApiError::Http {
@@ -54,7 +54,7 @@ pub fn map_client_error(e: &ClientError) -> ApiError {
         },
         ClientError::InvalidRequest(m) => ApiError::Http {
             status: 400,
-            message: m.clone(),
+            message: m.to_string(),
             code: None,
         },
         ClientError::Server { status, body } => ApiError::Http {

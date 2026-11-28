@@ -53,6 +53,10 @@ urlencoding = "2.1"
 futures-util = "0.3"
 cloacina-api-types = { path = "../crates/cloacina-api-types" }
 
+# Native tests only: the upload test serves one request on a local port.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util"] }
+
 [profile.release]
 opt-level = "z"
 lto = true
