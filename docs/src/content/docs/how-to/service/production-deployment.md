@@ -226,6 +226,11 @@ job. For those, `cloacinactl admin cleanup-events` removes old
 
 ## Upgrading the server
 
+What each release keeps working, the version skew a server accepts and the
+upgrade order are in the [Compatibility Promise](../../../reference/compatibility-promise/).
+The upgrade from 0.12 to 0.13.0 is a full stop: stop every server and
+compiler, then start 0.13.0 ([why](../../../reference/compatibility-promise/#the-upgrade-to-0130-is-a-full-stop)).
+
 For Kubernetes/Helm deployments, follow the rolling-update path in
 [Deploying to Kubernetes](../deploying-to-kubernetes/#upgrades).
 For a directly-managed server (`cloacinactl server start` or the container image),
