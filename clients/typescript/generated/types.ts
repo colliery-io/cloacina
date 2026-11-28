@@ -3137,6 +3137,17 @@ export interface components {
             wait_reason?: components["schemas"]["TaskWaitReason"] | null;
         };
         /**
+         * @description `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
+         *     response (CLOACINA-T-1091): the stored output of each attempt of the
+         *     task, in attempt order. Empty for a task whose output was not kept.
+         */
+        TaskOutputResponse: {
+            attempts: components["schemas"]["TaskAttemptOutputDetail"][];
+            execution_id: string;
+            task_id: string;
+            tenant_id: string;
+        };
+        /**
          * @description Why a task waits (CLOACINA-T-1148): a short code and the same in words.
          *
          *     The codes are an open set: a client shows an unknown code with its
@@ -3149,17 +3160,6 @@ export interface components {
             code: string;
             /** @description The reason in words, with the tenant, the pool and the numbers. */
             message: string;
-        };
-        /**
-         * @description `GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`
-         *     response (CLOACINA-T-1091): the stored output of each attempt of the
-         *     task, in attempt order. Empty for a task whose output was not kept.
-         */
-        TaskOutputResponse: {
-            attempts: components["schemas"]["TaskAttemptOutputDetail"][];
-            execution_id: string;
-            task_id: string;
-            tenant_id: string;
         };
         /**
          * @description `201 Created` body for a new tenant. Password and connection string are

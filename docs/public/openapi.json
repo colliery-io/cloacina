@@ -9390,24 +9390,6 @@
           }
         }
       },
-      "TaskWaitReason": {
-        "type": "object",
-        "description": "Why a task waits (CLOACINA-T-1148): a short code and the same in words.\n\nThe codes are an open set: a client shows an unknown code with its\nmessage. The codes of this release: `plugin_interface`, `no_agent`,\n`platform`, `too_large`, `no_capacity`, `agent_refused`,\n`artifact_fetch`, `dispatch_retry`.",
-        "required": [
-          "code",
-          "message"
-        ],
-        "properties": {
-          "code": {
-            "type": "string",
-            "description": "A short code, for example `no_capacity`."
-          },
-          "message": {
-            "type": "string",
-            "description": "The reason in words, with the tenant, the pool and the numbers."
-          }
-        }
-      },
       "TaskOutputResponse": {
         "type": "object",
         "description": "`GET /tenants/{tenant_id}/executions/{id}/tasks/{task_id}/output`\nresponse (CLOACINA-T-1091): the stored output of each attempt of the\ntask, in attempt order. Empty for a task whose output was not kept.",
@@ -9432,6 +9414,24 @@
           },
           "tenant_id": {
             "type": "string"
+          }
+        }
+      },
+      "TaskWaitReason": {
+        "type": "object",
+        "description": "Why a task waits (CLOACINA-T-1148): a short code and the same in words.\n\nThe codes are an open set: a client shows an unknown code with its\nmessage. The codes of this release: `plugin_interface`, `no_agent`,\n`platform`, `too_large`, `no_capacity`, `agent_refused`,\n`artifact_fetch`, `dispatch_retry`.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A short code, for example `no_capacity`."
+          },
+          "message": {
+            "type": "string",
+            "description": "The reason in words, with the tenant, the pool and the numbers."
           }
         }
       },
