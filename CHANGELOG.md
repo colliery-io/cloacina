@@ -374,6 +374,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runner made in that window stayed on the closed pool, so the tenant's
   schedules stopped on that replica. `DefaultRunner::shutdown_services()`
   stops a runner and leaves its pool open; `shutdown()` still closes it.
+- **The `tracing` and `log` lines of a native constructor provider are
+  written** (CLOACINA-T-1150). Before, they were lost: the provider's library
+  has its own `tracing` and `log`, and `cloacina-constructor-contract` had no
+  `CloacinaLog` import. Now the contract has it (native targets only), the
+  native glue of `constructor_provider!` installs it, and the constructor
+  loader binds it when it opens the library. The process that loaded the
+  provider writes the lines in the span of the call. A provider gets this when
+  it is built again against this release's `cloacina-macros` and
+  `cloacina-constructor-contract`; a provider built before still loads and
+  runs, and its lines are still lost. The constructor interfaces keep their
+  versions.
 
 ### Upgrade notes
 

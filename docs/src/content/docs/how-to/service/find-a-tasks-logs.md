@@ -109,6 +109,10 @@ lines it lets through.
   `tracing` macros or the `log` crate. They carry the ids of the poll, the
   fields of a span named `poll`: `tenant`, `package`, `trigger` and
   `poll_id`.
+- Lines of a native constructor provider (`runtime = "native"`) that uses the
+  `tracing` macros or the `log` crate, from a task, trigger, accumulator or
+  reactor member. The process that loaded the provider writes them, in the
+  span of the call.
 
 These lines do not carry the ids:
 
@@ -121,6 +125,12 @@ These lines do not carry the ids:
 - `tracing` and `log` lines of a package built against
   `cloacina-workflow-plugin` 0.12 or earlier. They are not written; the
   package runs as before. Build and publish it again to get them.
+- `tracing` and `log` lines of a native provider's stream accumulator
+  (`mode = stream`) from its `source` iterator. They are written, with no ids:
+  the iterator runs on its own thread.
+- `tracing` and `log` lines of a native provider built against
+  `cloacina-constructor-contract` 0.12 or earlier, and of a wasm provider.
+  They are not written; the provider runs as before.
 
 To find the unlabelled output of a task, take the time range of the attempt
 from the labelled lines and read the same pod's log in that range. With
