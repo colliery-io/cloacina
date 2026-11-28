@@ -84,16 +84,19 @@ When the default executor is `fleet` and a task becomes `Ready`, the server's
    was deleted, the task fails; it does not move to another version.
    The per-architecture artifact is looked up for that same version.
 
-   Limits of the rule: the pin covers the artifact an agent runs. The server
-   still builds the task's dependency context from the workflow it has loaded,
-   which is the active version, so a new version that removes a task or changes
-   the edges between tasks can still affect an execution that is running. A
-   runner that executes tasks in its own process (no fleet) holds one loaded
-   version of a package and is not pinned. Computation graph fires have no
-   execution and always use the active version.
+   Limits of the rule: the pin covers the artifact an agent runs and the
+   task's dependencies (step 4). The retry policy, the time limit and the
+   placement of the task come from the task the server has loaded, which is
+   the active version. The scheduler decides when a task is ready from the
+   edges of the active version. A runner that executes tasks in its own
+   process (no fleet) holds one loaded version of a package and is not pinned.
+   Computation graph fires have no execution and always use the active
+   version.
 4. **Inline the context.** It builds the merged dependency context with the same
    `TaskContextBuilder` the in-process path uses, so a fleet-run task sees
-   byte-for-byte the input context it would running locally.
+   byte-for-byte the input context it would running locally. The dependencies
+   are those of the task in the pinned version, from the task list stored with
+   that version; a version stored with no task list uses the loaded task.
 5. **Enqueue + register a rendezvous.** It registers a one-shot keyed by the
    `task_execution_id`, then enqueues a **work packet** (task name, context,
    artifact reference, time limit, tenant, and the task's pool, requests and
