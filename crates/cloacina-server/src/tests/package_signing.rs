@@ -232,6 +232,37 @@ async fn a_signed_upload_by_a_key_of_the_tenant_is_accepted_and_the_row_has_the_
     clean_up(&state, &[&tenant]).await;
 }
 
+/// CLOACINA-T-1152: a signed upload after the tenant's runner stopped (a
+/// server shutdown, a tenant made again) is stored. Stopping the runner
+/// closed the pool that the tenant's routes use, and the upload answered 500
+/// "store package signature failed".
+#[tokio::test]
+#[serial]
+async fn a_signed_upload_after_the_tenant_runner_stops_is_stored() {
+    let state = state_with(true, None).await;
+    let token = create_test_api_key(&state).await;
+    let tenant = make_tenant(&state, "stopped").await;
+    let org = tenant_org_id(&tenant);
+    let keypair = generate_signing_keypair();
+    trust(&state, &tenant, &token, &keypair).await;
+    let bytes = package_bytes();
+    let signature = sign(&bytes, &keypair);
+
+    let answer = upload(&state, &tenant, &token, &bytes, Some(&signature)).await;
+    assert_eq!(answer.0, StatusCode::CREATED, "body: {:?}", answer.1);
+    assert!(state.tenant_runners.contains(&tenant).await);
+    let stopped = state.tenant_runners.shutdown_all().await;
+    assert!(stopped.values().all(|r| r.is_ok()), "{stopped:?}");
+
+    let answer = upload(&state, &tenant, &token, &bytes, Some(&signature)).await;
+    assert_eq!(answer.0, StatusCode::CREATED, "body: {:?}", answer.1);
+    let (all, for_org) = signature_rows(&tenant_database(&tenant), &bytes, &[org]).await;
+    assert_eq!(all, 1);
+    assert_eq!(for_org, vec![(keypair.fingerprint.clone(), org)]);
+
+    clean_up(&state, &[&tenant]).await;
+}
+
 /// With signatures required, each upload that must not pass is refused with
 /// its own code, and none of them stores a row.
 #[tokio::test]

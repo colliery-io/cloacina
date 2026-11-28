@@ -337,6 +337,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   library without the `CloacinaLog` binding, so its lines were lost. Now they
   are written in the agent's log, in a span `poll` with the tenant, package,
   trigger and poll id.
+- **Stopping a tenant's runner leaves the tenant's connection pool open**
+  (CLOACINA-T-1152). Before, the stop closed the pool that the tenant's
+  routes use. During server shutdown, and while a replica replaced the runner
+  of a tenant deleted and made again through another replica, the tenant's
+  routes answered 500 (an upload: "store package signature failed"), and a
+  runner made in that window stayed on the closed pool, so the tenant's
+  schedules stopped on that replica. `DefaultRunner::shutdown_services()`
+  stops a runner and leaves its pool open; `shutdown()` still closes it.
 
 ### Upgrade notes
 
