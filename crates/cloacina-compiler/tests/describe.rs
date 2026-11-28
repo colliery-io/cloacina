@@ -454,7 +454,12 @@ fn python_document_equals_the_in_process_read() {
 #[test]
 #[serial]
 fn python_graph_document_equals_the_in_process_read() {
-    let fixture = "demo-py-graph";
+    for fixture in ["demo-py-graph", "demo-py-state"] {
+        python_graph_document_equals_the_in_process_read_of(fixture);
+    }
+}
+
+fn python_graph_document_equals_the_in_process_read_of(fixture: &str) {
     let archive = fixture_archive(fixture);
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("package.cloacina");
@@ -494,19 +499,47 @@ fn python_graph_document_equals_the_in_process_read() {
         &manifest.metadata.accumulators,
     );
 
+    let (graph_name, reactor_name, accumulator, kind) = match fixture {
+        "demo-py-graph" => (
+            "demo_py_graph",
+            "demo_py_graph_rx",
+            "py_alpha",
+            "passthrough",
+        ),
+        _ => ("demo_py_state", "demo_py_state_rx", "py_window", "state"),
+    };
+    assert_eq!(doc.format_version, PACKAGE_DESCRIPTION_VERSION);
     assert_eq!(by_name(&doc.reactors), by_name(&view.reactors));
     assert_eq!(by_name(&doc.triggers), by_name(&view.triggers));
     assert_eq!(doc.reactors.len(), 1);
-    assert_eq!(doc.reactors[0].name, "demo_py_graph_rx");
+    assert_eq!(doc.reactors[0].name, reactor_name);
     assert_eq!(doc.reactors[0].reaction_mode, "when_any");
-    assert_eq!(doc.reactors[0].accumulators[0].name, "py_alpha");
+    assert_eq!(doc.reactors[0].accumulators[0].name, accumulator);
+    assert_eq!(doc.reactors[0].accumulators[0].accumulator_type, kind);
 
     let graph = doc.graph.as_ref().expect("the graph");
     assert_eq!(graph.graph_name, declaration.name);
-    assert_eq!(graph.graph_name, "demo_py_graph");
+    assert_eq!(graph.graph_name, graph_name);
     assert_eq!(graph.trigger_reactor, declaration.reactor_name);
-    assert_eq!(graph.trigger_reactor.as_deref(), Some("demo_py_graph_rx"));
-    assert_eq!(graph.input_strategy, "latest");
+    assert_eq!(graph.trigger_reactor.as_deref(), Some(reactor_name));
+    // CLOACINA-T-1078: the strategy the declaration runs with, and each
+    // accumulator with the kind and config the in-process load spawns for
+    // the graph's reactor.
+    let strategy = match declaration.reactor.strategy {
+        cloacina::computation_graph::reactor::InputStrategy::Sequential => "sequential",
+        cloacina::computation_graph::reactor::InputStrategy::Latest => "latest",
+    };
+    assert_eq!(graph.input_strategy, strategy);
+    assert_eq!(
+        json(&graph.accumulators),
+        json(&view.reactors[0].accumulators),
+        "{fixture}: the graph's accumulators are its reactor's"
+    );
+    assert_eq!(graph.accumulators[0].accumulator_type, kind);
+    // Nothing of these packages runs in process, and none bundles a provider.
+    assert!(doc.in_process.is_empty(), "{:?}", doc.in_process);
+    assert!(doc.providers.is_empty());
+    assert!(doc.constructors.is_empty());
     let declared: Vec<&str> = declaration
         .accumulators
         .iter()
@@ -1013,5 +1046,823 @@ static T1074_MARK: extern "C" fn() = {{
         );
         assert_eq!(registry.build_queue_stats().await.unwrap().undescribed, 0);
         assert_eq!(describe_pass(&registry, &config).await, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1075: the server loads from the document only
+    // -----------------------------------------------------------------------
+
+    use cloacina::registry::{
+        CronWorkflowRegistrar, PackageLoadMode, ReconcilerConfig, RegistryReconciler,
+    };
+
+    /// A cron registrar that records each schedule.
+    #[derive(Default)]
+    struct RecordedSchedules {
+        cron: std::sync::Mutex<Vec<(String, String)>>,
+        /// CLOACINA-T-1077: poll rows, as (trigger, workflow, interval ms).
+        poll: std::sync::Mutex<Vec<(String, String, i32)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl CronWorkflowRegistrar for RecordedSchedules {
+        async fn register_cron_workflow(
+            &self,
+            workflow_name: &str,
+            cron_expression: &str,
+            _timezone: &str,
+        ) -> Result<String, String> {
+            let mut cron = self.cron.lock().unwrap();
+            cron.push((workflow_name.to_string(), cron_expression.to_string()));
+            Ok(format!("schedule-{}", cron.len()))
+        }
+        async fn unregister_cron_workflow(&self, _schedule_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+        async fn register_poll_trigger(
+            &self,
+            trigger_name: &str,
+            workflow_name: &str,
+            poll_interval_ms: i32,
+            _allow_concurrent: bool,
+        ) -> Result<String, String> {
+            let mut poll = self.poll.lock().unwrap();
+            poll.push((
+                trigger_name.to_string(),
+                workflow_name.to_string(),
+                poll_interval_ms,
+            ));
+            Ok(format!("poll-{}", poll.len()))
+        }
+    }
+
+    /// A reconciler of the tenant `public` over `registry`, in `mode`, with
+    /// its own empty runtime.
+    fn reconciler(
+        registry: Arc<Registry>,
+        mode: PackageLoadMode,
+        schedules: Arc<RecordedSchedules>,
+    ) -> (RegistryReconciler, Arc<Runtime>) {
+        reconciler_with_polls(
+            registry,
+            mode,
+            schedules,
+            cloacina::trigger::empty_poll_dispatcher_slot(),
+        )
+    }
+
+    /// [`reconciler`], with the slot its poll triggers send their polls to.
+    fn reconciler_with_polls(
+        registry: Arc<Registry>,
+        mode: PackageLoadMode,
+        schedules: Arc<RecordedSchedules>,
+        polls: cloacina::trigger::PollDispatcherSlot,
+    ) -> (RegistryReconciler, Arc<Runtime>) {
+        let config = ReconcilerConfig {
+            default_tenant_id: "public".to_string(),
+            package_load_mode: mode,
+            ..ReconcilerConfig::default()
+        };
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let runtime = Arc::new(Runtime::empty());
+        let mut reconciler = RegistryReconciler::new(registry, config, rx)
+            .expect("create the reconciler")
+            .with_runtime(runtime.clone())
+            .with_cron_registrar(schedules);
+        reconciler.set_poll_dispatcher_slot(polls);
+        (reconciler, runtime)
+    }
+
+    /// The process ids in a mark file. An absent file has none.
+    fn marks(path: &Path) -> Vec<u32> {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(|l| l.trim().parse().expect("a process id"))
+            .collect()
+    }
+
+    /// Build `archive` through the compiler (the describe child) and record
+    /// the build with its document.
+    async fn build_and_record(
+        registry: &mut Registry,
+        archive: Vec<u8>,
+        config: &CompilerConfig,
+    ) -> uuid::Uuid {
+        let id = register_and_claim(registry, archive).await;
+        let outcome = cloacina_compiler::execute_build(registry, id, config).await;
+        let BuildOutcome::Success {
+            artifact,
+            task_docs,
+            declared_params,
+            declared_surfaces,
+            document,
+        } = outcome
+        else {
+            match outcome {
+                BuildOutcome::Failed(reason) => panic!("the build failed: {reason}"),
+                _ => panic!("the build did not finish"),
+            }
+        };
+        let document = document.expect("the build gives a document");
+        registry
+            .mark_build_success_described(
+                id,
+                artifact,
+                &document,
+                task_docs,
+                declared_params,
+                declared_surfaces,
+            )
+            .await
+            .expect("record the build");
+        id
+    }
+
+    /// Copy a fixture folder of `examples/fixtures`, with `extra` added to the
+    /// end of the file `module` (a path in the fixture).
+    fn stage_fixture_with(fixture: &str, module: &str, extra: &str) -> tempfile::TempDir {
+        fn copy_dir(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for entry in std::fs::read_dir(from).unwrap() {
+                let entry = entry.unwrap();
+                let target = to.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    copy_dir(&entry.path(), &target);
+                } else {
+                    std::fs::copy(entry.path(), &target).unwrap();
+                }
+            }
+        }
+        let stage = tempfile::TempDir::new().unwrap();
+        copy_dir(
+            &workspace_root().join("examples/fixtures").join(fixture),
+            stage.path(),
+        );
+        let file = stage.path().join(module);
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.push_str(extra);
+        std::fs::write(&file, text).unwrap();
+        stage
+    }
+
+    /// With the metadata-only load, the reconciler in this process never
+    /// opens a tenant's library: a library whose load-time code appends the
+    /// process id holds the describe child's id and never this one. Its
+    /// tasks and workflow are registered from the document. With the
+    /// in-process load (single trust), the same package is opened here, as
+    /// today.
+    #[tokio::test]
+    #[serial]
+    async fn metadata_only_load_never_opens_the_library() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("opened-by.txt");
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, marking_package(&mark), &config).await;
+        let described_by = marks(&mark);
+        assert!(!described_by.is_empty(), "the describe child opened it");
+        assert!(!described_by.contains(&std::process::id()));
+        let registry = Arc::new(registry);
+
+        let (metadata_only, runtime) = reconciler(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            Arc::default(),
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process opened the tenant's library"
+        );
+        let ns = cloacina::TaskNamespace::new(
+            "public",
+            "compiler-happy-rust",
+            "compiler_happy_workflow",
+            "noop",
+        );
+        let task = runtime.get_task(&ns).expect("the task, from the document");
+        assert_eq!(task.retry_policy().max_attempts, 0);
+        assert!(runtime.get_workflow("compiler_happy_workflow").is_some());
+
+        // Single trust: today's in-process load opens it in this process.
+        let (in_process, runtime) =
+            reconciler(registry.clone(), PackageLoadMode::InProcess, Arc::default());
+        let result = in_process.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            marks(&mark).contains(&std::process::id()),
+            "the in-process load opens the library here"
+        );
+        assert!(runtime.get_task(&ns).is_some());
+    }
+
+    /// With the metadata-only load, the reconciler never imports a tenant's
+    /// Python package, also with a Python runtime in the process: a module
+    /// whose import appends the process id holds only the describe child's
+    /// id. The tasks, the workflow and the cron schedule come from the
+    /// document. With the in-process load the module is imported here.
+    #[tokio::test]
+    #[serial]
+    async fn metadata_only_load_never_imports_the_python_package() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("imported-by.txt");
+        let import_mark = format!(
+            "\n\nimport os as _t1075_os\nwith open({:?}, \"a\") as _t1075_f:\n    \
+             _t1075_f.write(f\"{{_t1075_os.getpid()}}\\n\")\n",
+            mark.display().to_string()
+        );
+        let stage = stage_fixture_with(
+            "demo-py-cron",
+            "workflow/demo_py_cron/tasks.py",
+            &import_mark,
+        );
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+        let described_by = marks(&mark);
+        assert!(!described_by.is_empty(), "the describe child imported it");
+        assert!(!described_by.contains(&std::process::id()));
+        let registry = Arc::new(registry);
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+
+        let schedules = Arc::new(RecordedSchedules::default());
+        let (metadata_only, runtime) = reconciler(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            schedules.clone(),
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process imported the tenant's package"
+        );
+        let workflow = runtime
+            .get_workflow("demo_py_cron_workflow")
+            .expect("the workflow, from the document");
+        assert_eq!(workflow.get_task_ids().len(), 4);
+        let audit = runtime
+            .get_task(&cloacina::TaskNamespace::new(
+                "public",
+                "demo-py-cron",
+                "demo_py_cron_workflow",
+                "py_audit",
+            ))
+            .expect("py_audit");
+        assert_ne!(audit.trigger_rules(), serde_json::json!({"type": "Always"}));
+        assert_eq!(
+            schedules.cron.lock().unwrap().as_slice(),
+            &[(
+                "demo_py_cron_workflow".to_string(),
+                "*/15 * * * * *".to_string()
+            )]
+        );
+
+        // Single trust: today's in-process load imports it in this process.
+        let (in_process, _runtime) =
+            reconciler(registry.clone(), PackageLoadMode::InProcess, Arc::default());
+        let result = in_process.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            marks(&mark).contains(&std::process::id()),
+            "the in-process load imports the package here"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1078: Python reactors and graphs from the document
+    // -----------------------------------------------------------------------
+
+    use cloacina::computation_graph::registry::EndpointRegistry;
+    use cloacina::computation_graph::scheduler::ComputationGraphScheduler;
+
+    /// `reconciler` with a graph scheduler of its own.
+    fn reconciler_with_graphs(
+        registry: Arc<Registry>,
+        mode: PackageLoadMode,
+    ) -> (
+        RegistryReconciler,
+        Arc<Runtime>,
+        Arc<ComputationGraphScheduler>,
+    ) {
+        let (reconciler, runtime) = reconciler(registry, mode, Arc::default());
+        let scheduler = Arc::new(ComputationGraphScheduler::new(EndpointRegistry::new()));
+        (
+            reconciler.with_graph_scheduler(scheduler.clone()),
+            runtime,
+            scheduler,
+        )
+    }
+
+    /// The Python code that appends the importing process's id to `mark`.
+    fn import_mark(mark: &Path) -> String {
+        format!(
+            "\n\nimport os as _t1078_os\nwith open({:?}, \"a\") as _t1078_f:\n    \
+             _t1078_f.write(f\"{{_t1078_os.getpid()}}\\n\")\n",
+            mark.display().to_string()
+        )
+    }
+
+    async fn stored_document(registry: &Registry, id: uuid::Uuid) -> PackageDescription {
+        registry
+            .get_package_description(id)
+            .await
+            .unwrap()
+            .expect("the row")
+            .document
+            .expect("a document")
+    }
+
+    /// A Python graph package loads on a metadata-only server and the
+    /// server's process never imports its module: the mark holds only the
+    /// describe child's id. The reactor and the graph are in the scheduler,
+    /// and the graph has no code here.
+    #[tokio::test]
+    #[serial]
+    async fn metadata_only_load_never_imports_the_python_graph_package() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("imported-by.txt");
+        let stage = stage_fixture_with(
+            "demo-py-graph",
+            "workflow/demo_py_graph/graph.py",
+            &import_mark(&mark),
+        );
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+        let described_by = marks(&mark);
+        assert!(!described_by.is_empty(), "the describe child imported it");
+        assert!(!described_by.contains(&std::process::id()));
+
+        let document = stored_document(&registry, id).await;
+        assert_eq!(document.format_version, PACKAGE_DESCRIPTION_VERSION);
+        assert!(document.in_process.is_empty(), "{:?}", document.in_process);
+        let graph = document.graph.as_ref().expect("the graph");
+        assert_eq!(graph.accumulators[0].name, "py_alpha");
+        assert_eq!(graph.accumulators[0].accumulator_type, "passthrough");
+
+        let registry = Arc::new(registry);
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+
+        let (metadata_only, runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process imported the tenant's package"
+        );
+        let graphs = scheduler.list_graphs().await;
+        let loaded = graphs
+            .iter()
+            .find(|g| g.name == "demo_py_graph")
+            .expect("the graph, from the document");
+        assert_eq!(loaded.accumulators, vec!["py_alpha"]);
+        let registration = runtime
+            .get_computation_graph("demo_py_graph")
+            .expect("the graph in the runtime");
+        let fired =
+            (registration.graph_fn)(cloacina::cloacina_computation_graph::InputCache::new()).await;
+        assert!(
+            format!("{fired:?}").contains("runs only on the tenant's agents"),
+            "{fired:?}"
+        );
+        scheduler.shutdown_all().await;
+        // No in-process load here: an import in this process would leave the
+        // module in `sys.modules`, and the read of the same fixture by
+        // `python_graph_document_equals_the_in_process_read` would then
+        // register nothing. The describe child's mark above shows the import
+        // writes the mark; `metadata_only_load_never_imports_the_python_package`
+        // shows the in-process load makes it here.
+    }
+
+    /// A Python polling accumulator is recorded in the document by the
+    /// compiler, and the server refuses the package at load, with the kind
+    /// and the name, where a failed build is read.
+    #[tokio::test]
+    #[serial]
+    async fn a_python_polling_accumulator_is_recorded_and_refused() {
+        let home = tempfile::TempDir::new().unwrap();
+        let stage = stage_fixture_with(
+            "demo-py-graph",
+            "package.toml",
+            "\n[[metadata.accumulators]]\nname = \"py_alpha\"\naccumulator_type = \"polling\"\n\n\
+             [metadata.accumulators.config]\ninterval = \"2s\"\n",
+        );
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(stage.path()), &config).await;
+
+        let document = stored_document(&registry, id).await;
+        assert_eq!(
+            document.in_process,
+            vec![cloacina::registry::in_process::InProcessReason {
+                kind: cloacina::registry::in_process::PYTHON_POLLING_ACCUMULATOR.to_string(),
+                names: vec!["py_alpha".to_string()],
+            }]
+        );
+
+        let registry = Arc::new(registry);
+        let (metadata_only, _runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert!(result.packages_loaded.is_empty());
+        assert_eq!(result.packages_failed.len(), 1);
+        let reason = &result.packages_failed[0].1;
+        assert!(
+            reason.contains("Python polling accumulator(s) 'py_alpha'"),
+            "{reason}"
+        );
+        assert!(scheduler.list_graphs().await.is_empty());
+        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
+        assert_eq!(inspected.build_status, "failed");
+    }
+
+    /// A row with a document of format 1 keeps the refusal of format 1: a
+    /// Python graph package is refused, and the compiler's pass leaves the
+    /// refused row as it is. A format 1 row the pass reaches before a load
+    /// gets a document of format 2 in place, and then loads.
+    #[tokio::test]
+    #[serial]
+    async fn a_format_1_document_keeps_its_refusal_and_the_pass_describes_it_again() {
+        let home = tempfile::TempDir::new().unwrap();
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let as_format_1 = |mut document: PackageDescription| {
+            document.format_version = 1;
+            document.in_process.clear();
+            document.providers.clear();
+            document
+        };
+
+        let refused =
+            build_and_record(&mut registry, fixture_archive("demo-py-graph"), &config).await;
+        let document = as_format_1(stored_document(&registry, refused).await);
+        assert!(
+            registry
+                .store_package_description(refused, &document)
+                .await
+                .unwrap()
+        );
+
+        let registry = Arc::new(registry);
+        let (metadata_only, _runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert!(result.packages_loaded.is_empty());
+        assert!(
+            result.packages_failed[0].1.contains("Python reactive code"),
+            "{:?}",
+            result.packages_failed
+        );
+        assert_eq!(describe_pass(&registry, &config).await, 0);
+        let stored = registry
+            .get_package_description(refused)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.version, Some(1));
+        let inspected = registry
+            .inspect_package_by_id(refused)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inspected.build_status, "failed");
+        scheduler.shutdown_all().await;
+        drop(metadata_only);
+
+        let mut registry = Arc::try_unwrap(registry).ok().expect("one owner");
+        let described =
+            build_and_record(&mut registry, fixture_archive("demo-py-state"), &config).await;
+        let document = as_format_1(stored_document(&registry, described).await);
+        assert!(
+            registry
+                .store_package_description(described, &document)
+                .await
+                .unwrap()
+        );
+        assert_eq!(describe_pass(&registry, &config).await, 1);
+        let again = stored_document(&registry, described).await;
+        assert_eq!(again.format_version, PACKAGE_DESCRIPTION_VERSION);
+        assert_eq!(
+            again.graph.as_ref().unwrap().accumulators[0].accumulator_type,
+            "state"
+        );
+
+        let registry = Arc::new(registry);
+        let (metadata_only, _runtime, scheduler) =
+            reconciler_with_graphs(registry.clone(), PackageLoadMode::MetadataOnly);
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![described],
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(
+            scheduler
+                .list_graphs()
+                .await
+                .iter()
+                .any(|g| g.name == "demo_py_state")
+        );
+        scheduler.shutdown_all().await;
+    }
+
+    /// A built package with no document (a build of a compiler before the
+    /// document) does not load in the metadata-only mode, and its row is not
+    /// changed; the in-process load still loads it.
+    #[tokio::test]
+    #[serial]
+    async fn a_package_with_no_document_does_not_load_from_metadata() {
+        let mut registry = sqlite_registry().await;
+        let id = register_and_claim(&mut registry, fixture_archive("demo-py-workflow")).await;
+        registry.mark_build_success(id, Vec::new()).await.unwrap();
+        let registry = Arc::new(registry);
+
+        let (metadata_only, runtime) = reconciler(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            Arc::default(),
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert!(result.packages_loaded.is_empty());
+        assert_eq!(result.packages_failed.len(), 1);
+        assert!(
+            result.packages_failed[0]
+                .1
+                .contains("no metadata document yet"),
+            "{:?}",
+            result.packages_failed
+        );
+        assert!(runtime.task_namespaces().is_empty());
+        let inspected = registry.inspect_package_by_id(id).await.unwrap().unwrap();
+        assert_eq!(inspected.build_status, "success");
+    }
+
+    // -----------------------------------------------------------------------
+    // CLOACINA-T-1077: a poll trigger's code runs on the agent
+    // -----------------------------------------------------------------------
+
+    use cloacina::cloacina_workflow::{TriggerError, TriggerResult};
+    use cloacina::trigger::{PollDispatcher, PollRequest};
+
+    /// Stands in for the agent fleet: it records each poll and answers fire
+    /// with `{"from": "agent"}`. It runs no trigger code.
+    #[derive(Default)]
+    struct FleetStandIn {
+        polls: std::sync::Mutex<Vec<PollRequest>>,
+    }
+
+    #[async_trait::async_trait]
+    impl PollDispatcher for FleetStandIn {
+        async fn poll(&self, request: &PollRequest) -> Result<TriggerResult, TriggerError> {
+            self.polls.lock().unwrap().push(request.clone());
+            let mut ctx = cloacina::Context::new();
+            ctx.insert("from", serde_json::json!("agent")).unwrap();
+            Ok(TriggerResult::Fire(Some(ctx)))
+        }
+        fn wait(&self) -> Duration {
+            Duration::from_secs(40)
+        }
+    }
+
+    /// What an agent does with the answer of a poll: the outcome it reports
+    /// and the server reads back.
+    fn answer_as_the_server_reads_it(result: Result<TriggerResult, TriggerError>) -> TriggerResult {
+        cloacina::fleet::poll_result_from_outcome(cloacina::fleet::poll_outcome(result))
+            .expect("a poll answer")
+    }
+
+    /// A Rust package with a poll trigger loads on a server that loads from
+    /// metadata only. The server's scheduler polls the trigger through the
+    /// dispatcher, and the trigger's code never runs in this process: the
+    /// poll appends the process id to a file, and the file has none. The
+    /// agent's path then opens the build and polls it: the code runs there,
+    /// and the answer is fire with the trigger's context.
+    #[tokio::test]
+    #[serial]
+    async fn a_rust_poll_trigger_runs_on_the_agent_never_in_the_server() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("polled-by.txt");
+        let poll_code = format!(
+            r#"
+// CLOACINA-T-1077: a poll trigger that leaves the id of the process it runs in.
+#[cloacina_macros::trigger(on = "compiler_happy_workflow", poll_interval = "7s")]
+pub async fn t1077_marking_poll() -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError> {{
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open({mark:?}) {{
+        let _ = writeln!(file, "{{}}", std::process::id());
+    }}
+    let mut ctx = cloacina_workflow::Context::new();
+    ctx.insert("polled_by", serde_json::json!(std::process::id()))
+        .map_err(cloacina_workflow::TriggerError::from)?;
+    Ok(cloacina_workflow::TriggerResult::Fire(Some(ctx)))
+}}
+"#,
+            mark = mark.display().to_string()
+        );
+        let (_stage, pkg) = stage_rust_fixture("compiler-happy-rust", &poll_code);
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, pack_dir(&pkg), &config).await;
+        // The build this test just made; copied before another test builds.
+        let built = fixture_target_dir()
+            .join("debug")
+            .join(format!("libcompiler_happy_rust.{}", library_extension()));
+        let library = home
+            .path()
+            .join(format!("agent-copy.{}", library_extension()));
+        std::fs::copy(&built, &library).expect("copy the built library");
+        assert!(marks(&mark).is_empty(), "the describe child does not poll");
+        let registry = Arc::new(registry);
+
+        let slot = cloacina::trigger::empty_poll_dispatcher_slot();
+        let stand_in = Arc::new(FleetStandIn::default());
+        *slot.write().unwrap() = Some(stand_in.clone());
+        let schedules = Arc::new(RecordedSchedules::default());
+        let (metadata_only, runtime) = reconciler_with_polls(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            schedules.clone(),
+            slot,
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "the refusal of a poll trigger is gone: {:?}",
+            result.packages_failed
+        );
+        // The interval comes from the stored document.
+        assert_eq!(
+            schedules.poll.lock().unwrap().as_slice(),
+            &[(
+                "t1077_marking_poll".to_string(),
+                "compiler_happy_workflow".to_string(),
+                7_000
+            )]
+        );
+
+        // The scheduler's poll, on the server: it goes to the fleet.
+        let trigger = runtime
+            .get_trigger("t1077_marking_poll")
+            .expect("the trigger, from the document");
+        for _ in 0..3 {
+            let answer = trigger.poll().await.expect("an answer");
+            let ctx = answer.into_context().expect("fire with a context");
+            assert_eq!(ctx.get("from"), Some(&serde_json::json!("agent")));
+        }
+        assert_eq!(stand_in.polls.lock().unwrap().len(), 3);
+        assert_eq!(
+            stand_in.polls.lock().unwrap()[0].package_name,
+            "compiler-happy-rust"
+        );
+        assert!(
+            !marks(&mark).contains(&std::process::id()),
+            "the server process ran the poll trigger's code"
+        );
+        assert!(marks(&mark).is_empty());
+
+        // The agent's path: open the build, poll the trigger.
+        let on_agent = cloacina::registry::loader::ffi_trigger::FfiTriggerImpl::open(
+            &library,
+            "t1077_marking_poll",
+            Duration::from_secs(7),
+            false,
+        )
+        .expect("open the build as the agent does");
+        let ctx = answer_as_the_server_reads_it(
+            cloacina::cloacina_workflow::Trigger::poll(&on_agent).await,
+        )
+        .into_context()
+        .expect("fire with the trigger's context");
+        assert_eq!(
+            ctx.get("polled_by"),
+            Some(&serde_json::json!(std::process::id()))
+        );
+        assert_eq!(marks(&mark), vec![std::process::id()]);
+    }
+
+    /// The same for a Python package: the poll trigger loads from the
+    /// document, the server's poll goes to the fleet, the module is never
+    /// imported here; the agent's path imports the package into a runtime,
+    /// polls it, and the answer is fire with the trigger's context.
+    #[tokio::test]
+    #[serial]
+    async fn a_python_poll_trigger_runs_on_the_agent_never_in_the_server() {
+        let home = tempfile::TempDir::new().unwrap();
+        let mark = home.path().join("polled-by.txt");
+        let poll_code = format!(
+            "\n\nimport os as _t1077_os\n\n\
+             @cloaca.trigger(on=\"demo_py_cron_workflow\", poll_interval=\"9s\")\n\
+             def t1077_marking_poll():\n    \
+             with open({mark:?}, \"a\") as _t1077_f:\n        \
+             _t1077_f.write(f\"{{_t1077_os.getpid()}}\\n\")\n    \
+             return cloaca.TriggerResult.fire(cloaca.Context({{\"polled_by\": _t1077_os.getpid()}}))\n",
+            mark = mark.display().to_string()
+        );
+        let stage =
+            stage_fixture_with("demo-py-cron", "workflow/demo_py_cron/tasks.py", &poll_code);
+        let archive = pack_dir(stage.path());
+        let config = test_config(home.path());
+        let mut registry = sqlite_registry().await;
+        let id = build_and_record(&mut registry, archive.clone(), &config).await;
+        assert!(marks(&mark).is_empty(), "the describe child does not poll");
+        let registry = Arc::new(registry);
+        cloacina::python_runtime::register_python_runtime(Arc::new(
+            cloacina_python::CloacinaPythonRuntime,
+        ));
+
+        let slot = cloacina::trigger::empty_poll_dispatcher_slot();
+        let stand_in = Arc::new(FleetStandIn::default());
+        *slot.write().unwrap() = Some(stand_in.clone());
+        let schedules = Arc::new(RecordedSchedules::default());
+        let (metadata_only, runtime) = reconciler_with_polls(
+            registry.clone(),
+            PackageLoadMode::MetadataOnly,
+            schedules.clone(),
+            slot,
+        );
+        let result = metadata_only.reconcile().await.expect("reconcile");
+        assert_eq!(
+            result.packages_loaded,
+            vec![id],
+            "the refusal of a poll trigger is gone: {:?}",
+            result.packages_failed
+        );
+        assert_eq!(
+            schedules.poll.lock().unwrap().as_slice(),
+            &[(
+                "t1077_marking_poll".to_string(),
+                "demo_py_cron_workflow".to_string(),
+                9_000
+            )]
+        );
+        let trigger = runtime
+            .get_trigger("t1077_marking_poll")
+            .expect("the trigger, from the document");
+        assert!(trigger.poll().await.expect("an answer").should_fire());
+        assert_eq!(stand_in.polls.lock().unwrap().len(), 1);
+        assert!(
+            marks(&mark).is_empty(),
+            "the server process ran the poll trigger's code"
+        );
+
+        // The agent's path: import into a runtime of the build, poll.
+        let py = cloacina::python_runtime::python_runtime().expect("a Python runtime");
+        let agent_runtime = Arc::new(Runtime::new());
+        let staging = home.path().join("agent-pysrc");
+        std::fs::create_dir_all(&staging).unwrap();
+        let load_runtime = agent_runtime.clone();
+        tokio::task::spawn_blocking(move || {
+            py.load_workflow_package(&archive, None, &staging, "public", &load_runtime)
+                .map(|_| ())
+        })
+        .await
+        .unwrap()
+        .expect("import the package as the agent does");
+        let on_agent = agent_runtime
+            .get_trigger("t1077_marking_poll")
+            .expect("the import registers the trigger");
+        let ctx = answer_as_the_server_reads_it(on_agent.poll().await)
+            .into_context()
+            .expect("fire with the trigger's context");
+        assert_eq!(
+            ctx.get("polled_by"),
+            Some(&serde_json::json!(std::process::id()))
+        );
+        assert_eq!(marks(&mark), vec![std::process::id()]);
     }
 }

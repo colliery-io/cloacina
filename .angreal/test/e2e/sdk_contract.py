@@ -77,6 +77,8 @@ def _sdk_server():
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
+                # CLOACINA-T-1075: tasks run in the server, no agents here.
+                "--single-trust",
                 "--home", home,
                 "--database-url", "postgres://cloacina:cloacina@localhost:15432/cloacina",
                 "--bind", BIND,

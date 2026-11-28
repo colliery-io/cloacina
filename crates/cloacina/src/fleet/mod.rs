@@ -22,8 +22,13 @@
 //! share with the [[CLOACI-I-0113]] SDK crate) can move these without
 //! behavior change.
 
+pub mod poll;
 pub mod protocol;
 
+pub use poll::{
+    POLL_JOB_CAPABILITY, POLL_PACKET_KIND, PollFailure, PollWorkPacket, poll_outcome,
+    poll_result_from_outcome,
+};
 pub use protocol::*;
 
 // CLOACINA-T-1027: the quantity parsers an agent reads its `--cpu` and

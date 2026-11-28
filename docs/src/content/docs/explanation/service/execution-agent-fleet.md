@@ -22,13 +22,13 @@ task, and report the result. This is the right tool when you want to:
 - scale execution capacity independently of the server, or
 - isolate heavy or untrusted task execution away from the control plane.
 
-Adopting the fleet is a single server-level switch: set the **default executor**
-to `fleet` (via `[server].default_executor` in `config.toml`, or
-`CLOACINA_DEFAULT_EXECUTOR=fleet` / `--default-executor fleet`). Every task then
-runs on the fleet instead of the in-process `default` executor — there is no
-per-task matching. The `fleet` key is only a registered executor when you've
-opted in; if you select it without the fleet deployed, the server fails fast at
-startup.
+The fleet is the server's default executor (CLOACINA-T-1075): every task runs
+on an agent of its tenant, and the server loads packages from their metadata
+only, so no tenant code runs in the server process. The in-process `default`
+executor is used only with `--single-trust` (`[server].single_trust`,
+`CLOACINA_SINGLE_TRUST`), and then only when `--default-executor default` is
+set or no executor is set. There is no per-task matching. See
+[Tenant code and the server process](../security-model/#tenant-code-and-the-server-process).
 
 ## The pieces
 
@@ -605,19 +605,22 @@ free slots only.
 
 ### Worker processes and limits
 
-An agent runs each task in a worker process of its own: the agent binary,
-started again for that one task. The agent fetches the package and unwraps the
-task's secrets. The worker loads the package, runs the task, hands the result
-back over a pipe and exits. A Python task gets a fresh interpreter each time.
+An agent runs each task in a worker process: the agent binary, started again
+as a worker. The agent fetches the package and unwraps the task's secrets. The
+worker loads the package, runs the task and hands the result back over a pipe.
+A worker then stays, with the package loaded, for the next task of the same
+package version and tenant: a [warm worker](#warm-workers). A worker runs one
+task at a time.
 
 **What crosses to the worker.** The work packet, the task's secrets and the
-paths of the fetched package files go in over the worker's stdin, a pipe. A
-secret is never in the worker's arguments or environment. The worker has the
-agent's environment (the agent takes its own key out of its environment at
-start), a temporary directory of its own (`TMPDIR`), which the agent removes
-when the worker has exited, and the agent's stdout and stderr, so a task's log
-lines land in the agent's log. The worker has no API key and makes no request
-to the server.
+paths of the fetched package files go in over the worker's stdin, a pipe, one
+line for each task. A secret is never in the worker's arguments or
+environment. The worker has the agent's environment (the agent takes its own
+key out of its environment at start), a temporary directory of its own
+(`TMPDIR`), which the agent empties after each task and removes when the
+worker ends, and the agent's stdout and stderr, so a task's log lines land in
+the agent's log. The worker has no API key and makes no request to the
+server.
 
 **The memory limit of a task** is its memory request. A task with no request
 gets a share of the agent: what the agent offers to tasks, divided by
@@ -634,16 +637,18 @@ request 224Mi.
 
 | What | How | When it acts |
 |---|---|---|
-| Memory of one task | The agent reads the memory of each worker, with every process the task started, every 250 ms, and kills the worker that is over its limit. On Linux it counts anonymous and shared memory (`RssAnon` + `RssShmem`); pages of a mapped file are not counted. | Within 250 ms of the task passing its limit. The attempt fails with `task exceeded its memory limit of <limit>`. The other tasks on the agent go on. |
-| Memory of the agent as a whole | When the agent and its workers use more than 95% of the agent's memory, the agent kills its largest worker. It reads its own cgroup (cgroup v2) where that has a limit, else its own memory plus that of its workers against `--memory`. | Within 250 ms. The attempt fails with `the agent ran out of memory`. The agent stays registered. |
+| Memory of one task | The agent reads the memory of each worker, with every process the task started, every 250 ms, and kills the worker that is over its limit. On Linux it counts anonymous and shared memory (`RssAnon` + `RssShmem`); pages of a mapped file are not counted. In a warm worker the count includes what the worker holds from its earlier tasks. | Within 250 ms of the task passing its limit. The attempt fails with `task exceeded its memory limit of <limit>`. The other tasks on the agent go on. |
+| Memory of the agent as a whole | Above 80% of the agent's memory the agent ends its largest idle warm worker. Above 95% it ends an idle warm worker if one is left, else kills its largest worker. It reads its own cgroup (cgroup v2) where that has a limit, else its own memory plus that of its workers against `--memory`. Idle warm workers count. | Within 250 ms. A killed task's attempt fails with `the agent ran out of memory`. The agent stays registered. |
 | The kernel's out-of-memory kill | Each worker sets its `oom_score_adj` to 1000, so that the kernel picks a worker and not the agent where it picks one process. A worker the kernel killed is reported as `the agent ran out of memory: the kernel killed the task's worker`. | When the pod reaches its memory limit between two reads of the agent. |
 | Time | The agent kills the worker at the task's [time limit](#time-limits-and-retries). | At the limit. |
 | A cancel from the server | When the server's wait for a result ends with no report, it sends the agent a cancel for that dispatch. The agent kills the worker and reports nothing. | When the server gives up; see [recovery](#liveness-and-dead-agent-reclaim). |
-| Address space, open files, processes, CPU time | `setrlimit` on the worker (Linux): address space at 8 times the memory limit plus 64 GiB (`--task-address-space-factor`; `0` turns it off; the 64 GiB leave room for what a runtime reserves and never uses, such as the memory of a WASM constructor), 65536 open files, 32768 processes, CPU seconds at the time limit times the host's CPUs. Each is lowered to the agent's own limit where that is lower. | A backstop behind the rows above. A task that hits one fails with its own error or with `the task's worker process ended with no result`. |
+| Address space, open files, processes, CPU time | `setrlimit` on the worker (Linux): address space at 8 times the memory limit plus 64 GiB (`--task-address-space-factor`; `0` turns it off; the 64 GiB leave room for what a runtime reserves and never uses, such as the memory of a WASM constructor), 65536 open files, 32768 processes, CPU seconds at the time limit times the host's CPUs (a warm worker sets this soft limit again before each task, to what it used so far plus that allowance). Each is lowered to the agent's own limit where that is lower. | A backstop behind the rows above. A task that hits one fails with its own error or with `the task's worker process ended with no result`. |
 | A crash | A task that crashes its process (a segmentation fault, an abort) ends its worker only. | The attempt fails with `the task's worker process ended with no result` and the signal. |
 
 A kill is a `SIGKILL` to the worker's process group: the task gets no chance
-to clean up. A slot is free when the worker process has exited.
+to clean up. A kill ends a warm worker too; the next task of its package gets
+a new worker. A slot is free when the task's worker has exited, or has handed
+back its result and waits for a next task.
 
 **What is not enforced.**
 
@@ -684,13 +689,73 @@ package one time and keeps it. It gives up:
 Its requests still count for placement. Mark a task inline when it is short,
 uses little memory and is run often.
 
-**What a worker costs.** Measured on a development machine (Apple silicon, a
-debug build): a worker with no package starts, answers and exits in about
-13 ms; a Python task with one small module and no dependencies takes about
-100 ms from the start of the worker to its result. A Python worker also
-unpacks the package for each task.
+#### Warm workers
 
-**Graph firings.** The server setting `--fleet-graph-firings`
+A new worker loads the package: a Rust worker opens the library and registers
+its tasks, a Python worker starts an interpreter, unpacks the package and
+imports it. That load is most of what a task in a worker costs. So after a
+task the worker waits, with the package still loaded, and the agent gives it
+the next task of the same **key**:
+
+- the same kind of job (a task, or a graph firing),
+- the same package version (the package's digest),
+- the same tenant,
+- the same memory limit.
+
+A warm worker never runs a task of another tenant, another package or another
+version. A new version of a package has a new digest: its tasks start new
+workers, and the workers of the old version end at their idle time.
+
+**What two tasks of one warm worker share, and what not.**
+
+| Shared | Not shared |
+|---|---|
+| The loaded package: a Rust package's statics, a Python package's modules and their module-level state (a cache, a client, a global), as in one process. | Files in `TMPDIR`: the agent empties the directory after each task. |
+| Threads a task left running. | The environment: a task that changes an environment variable ends its worker after it; the next task gets a new one. |
+| Files written outside `TMPDIR`, such as in the unpacked package. | Processes: a task that leaves a process running ends its worker after it, and the process is killed with the worker. |
+| Memory a task left allocated: it counts for the next task's memory limit. | Secrets: each task gets only its own; see the [security model](../security-model/). |
+
+**When a warm worker ends.**
+
+- It was idle for `--warm-worker-idle-seconds` (default 60).
+- It ran `--warm-worker-max-jobs` tasks (default 100).
+- After a task it holds more than `--warm-worker-max-memory-percent` (default
+  50) of the memory limit of its key. A Python process seldom gives memory
+  back, so this keeps room for the next task.
+- Its task changed the environment or left a process running.
+- The agent keeps at most `--warm-workers` idle workers (default: the value of
+  `--max-concurrency`); when one more comes, the oldest ends.
+- The agent is above 80% of its memory (see the table above).
+- Its task was killed: at its memory limit, its time limit, or by a cancel.
+
+`--warm-workers 0` turns warm workers off: each task gets a new worker, which
+ends with it. Idle warm workers hold no slot. They hold memory, which counts
+for the agent as a whole but is not taken off what the agent offers to tasks.
+
+The agent counts each task that started a new worker and each that ran in a
+warm one, and each warm worker it ended, by reason. It sends the counts in its
+heartbeat; the server exports them as `cloacina_fleet_worker_starts_total` and
+`cloacina_fleet_warm_workers_retired_total` (see the [metrics
+catalog](../../../reference/metrics-catalog/)).
+
+**What a task costs in a worker.** Measured on a development machine (Apple
+silicon, a debug build, the test binary as the worker), 20 runs each, from the
+hand-over of the task to its result, median:
+
+| Task | New worker for each task | Warm worker | Memory of an idle warm worker |
+|---|---|---|---|
+| Rust task (an empty task of a small workflow library) | 792 ms | 8.7 ms | 28Mi |
+| Rust graph firing (a small routing graph) | 226 ms | 2.2 ms | 21Mi |
+| Python task, one module | 95 ms | 1.7 ms | 27Mi |
+| Python task, a module that imports 16 standard-library modules | 197 ms | 2.2 ms | 44Mi |
+| Python graph firing, one node | 114 ms | 1.9 ms | 27Mi |
+
+The warm column includes the first run of the 20, which loads the package. A
+worker with no package starts, answers and exits in about 13 ms.
+
+#### Graph firings
+
+The server setting `--fleet-graph-firings`
 (`CLOACINA_FLEET_GRAPH_FIRINGS`, chart value `fleet.graphFirings`) says where
 an agent runs a computation-graph firing:
 
@@ -708,7 +773,9 @@ the load of its package each time, and a reactor waits for each firing before
 the next. Measured on a development machine (Apple silicon, a debug build, the
 test binary as the worker), a firing of a small Rust routing graph took about
 210 ms in a worker, most of it the load of the library, and about 0.2 ms
-inline once the library was loaded. The agent that runs a firing belongs to
+inline once the library was loaded. With [warm workers](#warm-workers) only
+the first firing of a graph version pays the load: the same firing took a
+median of 2.2 ms over 20 runs in a warm worker. The agent that runs a firing belongs to
 the firing's tenant, so an inline firing shares a process with that tenant's
 own work only.
 
@@ -889,6 +956,71 @@ the lock executes the loop body; the rest skip it. One replica drives the whole
 fleet, so two replicas never scale or actuate the same tenant concurrently
 (NFR-003). The knobs above are documented in
 [Environment Variables](../../../reference/environment-variables/#fleet-actuator--autoscaler).
+
+## Poll triggers on agents
+
+A server that loads packages from their metadata (no `--single-trust`) runs
+no tenant code, so a poll trigger's code runs on an agent of its tenant
+(CLOACINA-T-1077, CLOACINA-A-0019). The interval, the target workflow and
+`allow_concurrent` come from the package's stored metadata document.
+
+1. **Due.** The scheduler of the tenant's runner reads the trigger's schedule
+   row. A poll is due when `poll_interval_ms` has passed since
+   `last_poll_at`. The scheduler takes the poll with a compare-and-set on
+   `last_poll_at`, so of several server replicas one sends each poll.
+2. **Off the loop.** The poll runs on its own task; the scheduler loop does
+   not wait for the agent. A trigger whose last poll still runs at its next
+   interval is not polled again: that interval is skipped and counted.
+3. **Dispatch.** The server picks a live agent of the tenant, pool
+   `default`, with a free slot, a runnable arch and the capability
+   `job:poll`, and sends a poll packet (kind `agent_poll`) on the delivery
+   outbox. A poll takes one slot of the agent while it runs.
+4. **On the agent.** The agent loads the package as for a task (a Python
+   package is imported into the same runtime its tasks use; a Rust build's
+   library is opened once and kept), calls the trigger under the poll time
+   limit and reports fire, with the trigger's context, or skip.
+5. **Fire.** On a fire the server starts the workflow with the context, as
+   for a poll in the server: the dedup by context hash and the execution row
+   are the same.
+
+**Settings.** `--fleet-poll-timeout-s` / `CLOACINA_FLEET_POLL_TIMEOUT_S`
+(default 30) is the time an agent lets one poll run. The server waits that
+plus 10 s for the answer.
+
+**A poll that gets no answer** fires nothing, and the reason is in
+`last_poll_error` of the trigger in the triggers routes and the UI:
+
+- no live agent of the tenant, or none with the capability (an agent of a
+  release before poll packets registers none and is never sent a poll);
+- every such agent is full;
+- no answer in time, or the packet is lost: the server stops waiting. A later
+  answer finds no wait and changes nothing. A packet carries the time the
+  server stops waiting; an agent that gets it later (for example after the
+  packet was moved from an agent that died) does not run the poll;
+- the agent refused it, or the trigger returned an error.
+
+The next interval polls again. A poll that answers clears `last_poll_error`.
+
+**One agent for a tenant with a poll trigger.** The fleet control loop reads,
+on each tick, which tenants have an enabled, unpaused poll trigger. For those
+the autoscaler's floor and the count the actuator reconciles to are at least
+one, also for a tenant whose desired count is 0. A tenant with no poll
+trigger keeps `CLOACINA_AUTOSCALE_FLOOR` (0 by default) and can scale to zero.
+The loop runs only with an actuator; with agents that register themselves,
+keep one agent of each such tenant running.
+
+**Cost.** Each poll is one dispatch: a trigger with a 10 s interval sends 360
+packets an hour, each with a package load on an agent that has not loaded the
+build yet.
+
+**Metrics.** `cloacina_trigger_polls_total{outcome}` (`fire`, `skip`,
+`error`, `in_flight`), `cloacina_fleet_polls_total{answer}` (`fire`, `skip`,
+`failed`, `missed`), `cloacina_fleet_polls_missed_total{reason}`
+(`no_build`, `no_agent`, `enqueue`, `no_answer`, `refused`, `bad_answer`) and
+the gauge `cloacina_fleet_poll_floor_tenants`.
+
+With `--single-trust` the server polls in its own process, as the daemon
+does; the scheduler's claim and the off-loop poll are the same.
 
 ## When to use the fleet
 

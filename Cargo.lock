@@ -777,6 +777,7 @@ dependencies = [
  "libc",
  "libloading 0.9.0",
  "libsqlite3-sys",
+ "log",
  "metrics",
  "metrics-util",
  "once_cell",
@@ -796,6 +797,7 @@ dependencies = [
  "tokio-postgres",
  "toml 1.1.8+spec-1.1.0",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "url",
  "uuid",
@@ -806,6 +808,7 @@ name = "cloacina-agent"
 version = "0.12.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.23.1",
  "bincode",
  "clap",
@@ -867,6 +870,7 @@ name = "cloacina-compiler"
 version = "0.12.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "clap",
  "cloacina",
@@ -1044,10 +1048,13 @@ dependencies = [
  "fidius",
  "fidius-core",
  "inventory",
+ "log",
  "serde",
  "serde_json",
  "tempfile",
  "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "tracing-core",
 ]
 
 [[package]]

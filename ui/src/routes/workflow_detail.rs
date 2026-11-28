@@ -695,6 +695,16 @@ pub fn WorkflowDetail() -> impl IntoView {
                         </Alert>
                     </Show>
 
+                    // CLOACINA-T-1075: a server that loads packages from their
+                    // metadata only has not loaded this built package.
+                    <Show when=move || data.get().and_then(|d| d.not_loaded_reason).is_some()>
+                        <Alert title="Not loaded" color=token::BAD>
+                            <span class="app-prewrap">
+                                {move || data.get().and_then(|d| d.not_loaded_reason).unwrap_or_default()}
+                            </span>
+                        </Alert>
+                    </Show>
+
                     // Dual views (UAT round 1, T-0938): the current execution
                     // is the default; operational history is the second tab.
                     <Tabs

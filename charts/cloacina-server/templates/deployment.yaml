@@ -1,4 +1,5 @@
 {{- include "cloacina-server.validateDatabase" . -}}
+{{- include "cloacina-server.validateFleet" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,6 +65,10 @@ spec:
             {{- if .Values.server.verificationOrgId }}
             - "--verification-org-id"
             - {{ .Values.server.verificationOrgId | quote }}
+            {{- end }}
+            {{- if .Values.server.singleTrust }}
+            # CLOACINA-T-1075: tenant code runs in the server process.
+            - "--single-trust"
             {{- end }}
           ports:
             - name: http

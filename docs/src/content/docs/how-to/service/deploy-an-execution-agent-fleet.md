@@ -27,8 +27,10 @@ explanation; this is the operational path.
 
 Execution topology is a single server-level knob: the **default executor** key.
 Every task is dispatched to that one executor — there is no per-task matching.
-The default is `default` (the in-process thread executor); set it to `fleet` to
-send all work to the agent fleet.
+The default is `fleet`: the server sends all work to the agent fleet and runs
+no tenant code in its own process (CLOACINA-T-1075). `default` (the in-process
+thread executor) needs `--single-trust`; see
+[Tenant code and the server process](../../../explanation/service/security-model/#tenant-code-and-the-server-process).
 
 The preferred surface is a `[server]` section in `~/.cloacina/config.toml`, which
 `cloacinactl server start` reads and forwards to the `cloacina-server` binary:
@@ -39,7 +41,8 @@ default_executor = "fleet"
 ```
 
 For ad-hoc or direct runs you can override it on the binary or via the
-environment (precedence: explicit CLI/env > `config.toml` > built-in `default`):
+environment (precedence: explicit CLI/env > `config.toml` > the server's
+default, `fleet`):
 
 ```bash
 # All three forms are equivalent overrides:
@@ -114,6 +117,13 @@ Useful options (full list in the [CLI reference](../../../reference/cli/#agent))
   `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` (default 8) — the address-space
   ceiling of a task's worker process, as a multiple of its memory limit. `0`
   sets none.
+- `--warm-workers <N>` / `CLOACINA_AGENT_WARM_WORKERS` (default: the value of
+  `--max-concurrency`) — how many idle
+  [warm workers](../../../explanation/service/execution-agent-fleet/#warm-workers)
+  the agent keeps, so the next task of a package version and tenant skips the
+  load of the package. `0` sets none. `--warm-worker-idle-seconds` (60),
+  `--warm-worker-max-jobs` (100) and `--warm-worker-max-memory-percent` (50)
+  say when a warm worker ends.
 - `--cache-dir <PATH>` / `CLOACINA_AGENT_CACHE_DIR` — persist the fetched-cdylib
   cache across restarts to skip re-fetching artifacts.
 - `--capabilities a,b` — advertise free-form tags at registration.
@@ -176,6 +186,13 @@ Dead-agent detection and in-flight reclaim are governed by two server flags
 | `--fleet-task-timeout-s` / `CLOACINA_FLEET_TASK_TIMEOUT_S` | `300` | Time limit (seconds) of a fleet task that sets none of its own. |
 | `--fleet-task-timeout-max-s` / `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit a task can get. A task that asks for more gets this value. |
 | `--fleet-artifact-fetch-wait-s` / `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long a task waits, per attempt, while agents cannot fetch its package artifact. After that the attempt fails. `0`: the first failed fetch fails the attempt. |
+| `--fleet-poll-timeout-s` / `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit of one poll of a poll trigger on an agent. The server waits this plus 10 s for the answer. |
+
+A tenant with a poll trigger needs a running agent: each poll runs on an agent
+of the tenant ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+With an actuator the server keeps one agent for such a tenant; with agents you
+run yourself, keep one running. An agent of a release before poll packets is
+never sent a poll.
 
 Effective dead-after = interval × misses. For faster failover (at the cost of
 more heartbeat traffic), e.g. ~10s detection:
@@ -442,10 +459,20 @@ pod template, so the pool's agents are rolled. Setting a ServiceAccount's
 annotations alone does not restart pods: a webhook acts when a pod is created,
 so change something in the pod template too, or delete the pods.
 
-### Docker actuator (local dev)
+### Docker actuator (one user)
 
-For a single-host dev loop, the Docker actuator spawns/stops `cloacina-agent`
-**containers** to match each tenant's `desired_count`:
+The Docker actuator is for one user: a laptop, a single machine, development.
+It is not for several teams on one server. Every tenant's containers run on one
+Docker host and join one network, with no namespaces, no network policies and
+no hardened pods, so nothing at the host or network level keeps one tenant's
+containers from another's.
+For several teams, use the
+[Kubernetes actuator](#kubernetes-actuator-production). At start, the server
+logs a warning when the actuator is `docker` and more than one tenant exists
+(`public` counts as one).
+
+The Docker actuator spawns/stops `cloacina-agent` **containers** to match each
+tenant's `desired_count`:
 
 ```bash
 CLOACINA_FLEET_ACTUATOR=docker \
@@ -462,9 +489,11 @@ is **fail-closed**: `docker` refuses to start if it detects Kubernetes or finds
 no Docker socket. Of a pool's settings it applies the image, the memory and CPU
 limits and the max concurrency, and replaces the containers of a pool whose
 settings changed; resource requests, the service account and the egress rules
-have no Docker counterpart and are ignored. It is **dev-only** — for production use the
+have no Docker counterpart and are ignored. For production and for several
+tenants use the
 [Kubernetes actuator](../deploying-to-kubernetes/#fleet-actuator-kubernetes--rbac),
-which scales a per-tenant agent Deployment with least-privilege RBAC.
+which scales a per-tenant agent Deployment in the tenant's own namespace, with
+least-privilege RBAC and a per-tenant network policy.
 
 ### Kubernetes actuator (production)
 

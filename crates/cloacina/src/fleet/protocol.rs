@@ -184,7 +184,63 @@ pub struct AgentHeartbeatRequest {
     /// it. Empty (the serde default) ⇒ nothing in work, or an older agent.
     #[serde(default)]
     pub in_flight_push_ids: Vec<i64>,
+    /// CLOACINA-T-1126 — the worker processes the agent started and retired
+    /// since the last heartbeat the server took. `None` (the serde default)
+    /// ⇒ nothing to count, or an older agent. An older server ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_counts: Option<AgentWorkerCounts>,
 }
+
+/// CLOACINA-T-1126 — counts of the agent's worker processes over one
+/// heartbeat interval.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentWorkerCounts {
+    /// Jobs that started a new worker process.
+    #[serde(default)]
+    pub cold_starts: u64,
+    /// Jobs that ran in a warm worker: one that had run a job of the same
+    /// package version and tenant before, with the package still loaded.
+    #[serde(default)]
+    pub warm_starts: u64,
+    /// Warm workers retired, by reason (see [`WARM_RETIRE_REASONS`]).
+    #[serde(default)]
+    pub retired: std::collections::BTreeMap<String, u64>,
+}
+
+impl AgentWorkerCounts {
+    /// True when there is nothing to send.
+    pub fn is_empty(&self) -> bool {
+        self.cold_starts == 0 && self.warm_starts == 0 && self.retired.values().all(|n| *n == 0)
+    }
+
+    /// Add `other` to these counts.
+    pub fn add(&mut self, other: &AgentWorkerCounts) {
+        self.cold_starts += other.cold_starts;
+        self.warm_starts += other.warm_starts;
+        for (reason, n) in &other.retired {
+            *self.retired.entry(reason.clone()).or_default() += n;
+        }
+    }
+}
+
+/// CLOACINA-T-1126 — why an agent retires a warm worker. The server counts
+/// a reason outside this list as `other`.
+pub const WARM_RETIRE_REASONS: &[&str] = &[
+    // Idle for longer than the agent's idle time.
+    "idle",
+    // Ran the most jobs a worker may run.
+    "max_jobs",
+    // Held more memory after a job than the agent allows a warm worker.
+    "memory",
+    // A job changed the environment or left a process running.
+    "dirty",
+    // The pool of idle workers was full; the oldest went.
+    "pool_full",
+    // The agent as a whole was short of memory.
+    "pressure",
+    // Found dead when a job wanted it.
+    "dead",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentHeartbeatResponse {
@@ -716,6 +772,33 @@ mod tests {
         let back: GraphWorkPacket =
             serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert!(back.inline);
+    }
+
+    #[test]
+    fn a_heartbeat_carries_worker_counts_only_when_it_has_some() {
+        let older = r#"{"protocol_version":1,"agent_id":"a","in_flight":0,"available_capacity":4}"#;
+        let mut hb: AgentHeartbeatRequest = serde_json::from_str(older).unwrap();
+        assert_eq!(hb.worker_counts, None);
+        assert!(
+            !serde_json::to_string(&hb)
+                .unwrap()
+                .contains("worker_counts")
+        );
+        let mut counts = AgentWorkerCounts {
+            cold_starts: 2,
+            warm_starts: 5,
+            ..Default::default()
+        };
+        counts.retired.insert("idle".into(), 1);
+        let mut more = counts.clone();
+        more.add(&counts);
+        assert_eq!(more.warm_starts, 10);
+        assert_eq!(more.retired["idle"], 2);
+        assert!(AgentWorkerCounts::default().is_empty());
+        hb.worker_counts = Some(counts.clone());
+        let back: AgentHeartbeatRequest =
+            serde_json::from_str(&serde_json::to_string(&hb).unwrap()).unwrap();
+        assert_eq!(back.worker_counts, Some(counts));
     }
 
     #[test]

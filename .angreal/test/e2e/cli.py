@@ -124,6 +124,8 @@ def cli():
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
+                # CLOACINA-T-1075: tasks run in the server, no agents here.
+                "--single-trust",
                 "--home", str(home),
                 "--database-url", db_url,
                 "--bind", bind,
@@ -670,6 +672,8 @@ def default_executor():
         proc = subprocess.run(
             [
                 "target/debug/cloacina-server",
+                # CLOACINA-T-1075: tasks run in the server, no agents here.
+                "--single-trust",
                 "--home", str(home),
                 "--database-url", db_url,
                 "--bind", "127.0.0.1:18085",
@@ -703,6 +707,8 @@ def default_executor():
         server = subprocess.Popen(
             [
                 "target/debug/cloacina-server",
+                # CLOACINA-T-1075: tasks run in the server, no agents here.
+                "--single-trust",
                 "--home", str(home),
                 "--database-url", db_url,
                 "--bind", bind,

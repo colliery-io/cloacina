@@ -232,6 +232,12 @@ pub fn Triggers() -> impl IntoView {
                 <td>
                     <span class="app-name app-block app-ellipsis">{t.workflow_name.clone()}</span>
                     {t.trigger_name.clone().map(|n| view! { <span class="app-meta app-block app-ellipsis">{n}</span> })}
+                    // CLOACINA-T-1077: why the last poll gave no answer.
+                    {t.last_poll_error.clone().map(|e| view! {
+                        <span class="app-meta app-block app-ellipsis" title=e.clone()>
+                            {format!("last poll: {e}")}
+                        </span>
+                    })}
                 </td>
                 <td class="app-meta app-meta--md">{schedule_text}</td>
                 <td><StateCell enabled=enabled /></td>

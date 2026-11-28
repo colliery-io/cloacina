@@ -97,6 +97,11 @@ lines it lets through.
   while the task call runs. This includes the Rust side of a Python task.
 - Lines of an embedded Rust task (compiled into the host program) that uses
   the `tracing` macros.
+- Lines of a packaged Rust task that uses the `tracing` macros or the `log`
+  crate. The process that runs the task writes them with its own logger: the
+  agent or its worker process, the server, or the embedded runner. Each line
+  keeps its level and target, and the process's filter applies to it:
+  `RUST_LOG=info` drops a `debug!` of the task.
 
 These lines do not carry the ids:
 
@@ -104,9 +109,11 @@ These lines do not carry the ids:
   go to the stdout or stderr of the process as the task wrote them.
 - Python's `logging` module. Its handlers write on their own, to stderr
   unless the task sets them up.
-- `tracing` events of a packaged Rust task. A packaged workflow is a loaded
-  library with its own copy of `tracing` and no subscriber, so the agent does
-  not write these events. Use `println!` in a packaged Rust task.
+- `tracing` and `log` lines of a packaged Rust task that come from a thread
+  or a tokio task that the task starts itself. They are written, with no ids.
+- `tracing` and `log` lines of a package built against
+  `cloacina-workflow-plugin` 0.12 or earlier. They are not written; the
+  package runs as before. Build and publish it again to get them.
 
 To find the unlabelled output of a task, take the time range of the attempt
 from the labelled lines and read the same pod's log in that range. With

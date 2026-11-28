@@ -145,7 +145,8 @@ def auth_integration_test():
         stderr_file = open(stderr_path, "w")  # noqa: SIM115 - stays open for the subprocess
 
         server_proc = subprocess.Popen(
-            [server_binary, "--home", str(test_home),
+            # CLOACINA-T-1075: tasks run in the server, no agents here.
+            [server_binary, "--single-trust", "--home", str(test_home),
              "--database-url", db_url, "--bind", "127.0.0.1:18082",
              "--bootstrap-key", bootstrap_key],
             stdout=subprocess.PIPE,

@@ -887,8 +887,9 @@ Get details for a specific workflow by package name.
 |---|---|---|
 | `workflow_name` | string | Executable workflow name (the identifier to execute by). Differs from `package_name` under the standard convention (package `demo-slow-rust` → workflow `demo_slow_workflow`); falls back to `package_name` for packages predating workflow-name persistence. |
 | `build_status` | string | Real build state: `pending` / `building` / `failed` / `success`. |
-| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. |
+| `build_error` | string \| null | Build failure detail when `build_status` is `failed`. A package the compiler could not describe during its build is `failed`, with the reason here. A package the server refuses to load, because its code would run in the server (a stream accumulator on a native provider, a Python polling or stream accumulator, a polling accumulator in a Rust package), is `failed` with the reason here. |
 | `describe_error` | string | Present only when the compiler could not write the metadata document of a built package: a package built before the document existed that cannot be described from its stored build. `build_status` stays `success`. |
+| `not_loaded_reason` | string | Present only on a server without single trust, for a built package with no metadata document: the server does not load it. It waits for the tenant's compiler to describe the package, or the compiler could not (`describe_error`). |
 | `paused` | boolean | Whether this workflow is paused. A paused workflow refuses new executions until resumed. |
 | `declared_params` | array | Declared input params (named, JSON-Schema-typed slots) the workflow accepts at execute time. Empty when undeclared; same slot shape as the `/interface` surfaces. The execute endpoint validates the submitted `context` against these. |
 | `task_graph` | array | Task dependency graph (nodes + upstream deps) for rendering the DAG. Empty for packages predating task-graph persistence. |
@@ -1463,7 +1464,8 @@ pagination.
       "created_at": "2026-03-01T10:00:00+00:00",
       "paused": false,
       "paused_at": null,
-      "last_poll_at": null
+      "last_poll_at": null,
+      "last_poll_error": null
     },
     {
       "id": "d4e5f6a7-b8c9-0123-def0-345678901234",
@@ -1478,7 +1480,8 @@ pagination.
       "created_at": "2026-03-15T12:00:00+00:00",
       "paused": false,
       "paused_at": null,
-      "last_poll_at": "2026-04-02T14:30:57+00:00"
+      "last_poll_at": "2026-04-02T14:30:57+00:00",
+      "last_poll_error": null
     }
   ]
 }
@@ -1488,6 +1491,13 @@ pagination.
 `trigger`-type schedule (`null` for cron schedules or never-polled
 triggers); the next poll is due `poll_interval_ms` after it. The web UI
 derives the live poll cadence on the Triggers page from this field.
+
+`last_poll_error` says why the last poll of a trigger gave no answer: no
+agent of the tenant could take it, no answer came in time, the agent refused
+it, or the trigger returned an error (CLOACINA-T-1077). Nothing fired for that
+poll. It is `null` after a poll that answered fire or skip, and on cron rows.
+The trigger detail (`GET /v1/tenants/{tenant_id}/triggers/{name}`) has it in
+`schedule`.
 
 ### GET /v1/tenants/{tenant_id}/triggers/{name}
 

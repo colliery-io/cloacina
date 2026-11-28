@@ -240,6 +240,12 @@ pub struct Schedule {
     /// cron or trigger row.
     #[serde(default)]
     pub backfill: Option<String>,
+
+    /// Why the last poll of this trigger gave no answer (CLOACINA-T-1077):
+    /// no agent, no answer in time, a refusal, or the trigger's own error.
+    /// `None` after a poll that answered fire or skip, and on a cron row.
+    #[serde(default)]
+    pub last_poll_error: Option<String>,
 }
 
 impl Schedule {
@@ -540,6 +546,7 @@ mod tests {
             instance_name: None,
             max_active_runs: None,
             backfill: None,
+            last_poll_error: None,
         };
 
         assert!(schedule.is_trigger());

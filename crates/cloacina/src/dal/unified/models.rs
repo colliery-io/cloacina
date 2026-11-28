@@ -517,6 +517,10 @@ pub struct UnifiedSchedule {
     /// CLOACINA-T-1020: the range of a backfill row, as JSON; None on every
     /// other row.
     pub backfill: Option<String>,
+    /// CLOACINA-T-1077: why the last poll of a trigger gave no answer (no
+    /// agent, no answer in time, a refusal, the trigger's error); None after
+    /// a poll that answered fire or skip, and on every other row.
+    pub last_poll_error: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -1140,6 +1144,7 @@ impl From<UnifiedSchedule> for Schedule {
             instance_name: u.instance_name,
             max_active_runs: u.max_active_runs,
             backfill: u.backfill,
+            last_poll_error: u.last_poll_error,
         }
     }
 }

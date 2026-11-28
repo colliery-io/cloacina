@@ -162,6 +162,57 @@ pub fn task_span(
     span
 }
 
+/// The host side of `CloacinaLog` (CLOACINA-T-1099): writes the log lines of
+/// a packaged library with this process's subscriber.
+///
+/// A line is written as a `log` record through `tracing-log`, so it keeps
+/// its level and target, passes the host's filter by that target, and lands
+/// in the span current on the calling thread: for a task, the [`task_span`]
+/// the executor and the agent enter around the call.
+pub struct EngineLog;
+
+impl cloacina_workflow_plugin::CloacinaLog for EngineLog {
+    fn max_level(&self) -> u32 {
+        match tracing::level_filters::LevelFilter::current().into_level() {
+            None => 0,
+            Some(tracing::Level::ERROR) => 1,
+            Some(tracing::Level::WARN) => 2,
+            Some(tracing::Level::INFO) => 3,
+            Some(tracing::Level::DEBUG) => 4,
+            Some(tracing::Level::TRACE) => 5,
+        }
+    }
+
+    fn write_line(
+        &self,
+        level: u32,
+        target: String,
+        message: String,
+        module_path: Option<String>,
+        file: Option<String>,
+        line: Option<u32>,
+    ) {
+        let level = match level {
+            1 => log::Level::Error,
+            2 => log::Level::Warn,
+            3 => log::Level::Info,
+            4 => log::Level::Debug,
+            5 => log::Level::Trace,
+            _ => return,
+        };
+        let _ = tracing_log::format_trace(
+            &log::Record::builder()
+                .level(level)
+                .target(&target)
+                .args(format_args!("{message}"))
+                .module_path(module_path.as_deref())
+                .file(file.as_deref())
+                .line(line)
+                .build(),
+        );
+    }
+}
+
 /// Captures the text log lines of a test.
 #[cfg(test)]
 pub(crate) mod test_support {
@@ -304,6 +355,46 @@ mod tests {
             "{out}"
         );
         assert!(out.contains("inside the task"), "{out}");
+    }
+
+    #[test]
+    fn a_line_from_a_package_keeps_its_level_and_target_and_the_ids() {
+        use cloacina_workflow_plugin::CloacinaLog;
+        let out = logged(tracing::Level::INFO, || {
+            let span = task_span("acme", "acme::pkg::etl::load", "exec-3", 1, None);
+            let _entered = span.enter();
+            EngineLog.write_line(
+                2,
+                "pkg::load".into(),
+                "from the package".into(),
+                None,
+                None,
+                None,
+            );
+            EngineLog.write_line(
+                4,
+                "pkg::load".into(),
+                "debug from the package".into(),
+                None,
+                None,
+                None,
+            );
+            EngineLog.write_line(
+                9,
+                "pkg::load".into(),
+                "no such level".into(),
+                None,
+                None,
+                None,
+            );
+        });
+        assert_eq!(out.lines().count(), 1, "{out}");
+        assert!(out.contains(" WARN "), "{out}");
+        assert!(out.contains("pkg::load: from the package"), "{out}");
+        assert!(
+            out.contains("task{tenant=acme workflow=etl execution_id=exec-3"),
+            "{out}"
+        );
     }
 
     #[test]

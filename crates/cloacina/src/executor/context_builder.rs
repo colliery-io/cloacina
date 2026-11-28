@@ -38,7 +38,11 @@ use crate::dal::DAL;
 use crate::error::ExecutorError;
 use crate::executor::context_size::{ContextKind, ContextSizeLimits, check_context_size};
 use crate::executor::types::ClaimedTask;
+use crate::security::secret_grant::{
+    DeclaredSecretResolver, SecretGrantMode, declared_secret_grant, secret_bindings,
+};
 use crate::task::TaskNamespace;
+use cloacina_workflow::secret::SECRET_REFS_KEY;
 
 /// Builds a task's input context by loading + merging its dependency contexts
 /// (or the workflow's initial context when the task has no dependencies).
@@ -54,6 +58,9 @@ pub struct TaskContextBuilder {
     /// CLOACINA-T-1047: the warning and the hard limit on the size of the
     /// input context this builder gives a task.
     context_limits: ContextSizeLimits,
+    /// CLOACINA-T-1081: with [`SecretGrantMode::Declared`] the resolver a
+    /// task gets answers only the secrets its package declares.
+    secret_grants: SecretGrantMode,
 }
 
 impl TaskContextBuilder {
@@ -62,7 +69,15 @@ impl TaskContextBuilder {
             dal,
             secret_resolver: None,
             context_limits: ContextSizeLimits::default(),
+            secret_grants: SecretGrantMode::Unrestricted,
         }
+    }
+
+    /// The same builder with this rule for the secrets a task reads
+    /// (CLOACINA-T-1081). A new builder is [`SecretGrantMode::Unrestricted`].
+    pub fn with_secret_grants(mut self, mode: SecretGrantMode) -> Self {
+        self.secret_grants = mode;
+        self
     }
 
     /// The same builder with these limits on the size of an input context
@@ -120,41 +135,18 @@ impl TaskContextBuilder {
 
         let mut context = Context::new();
 
-        // Attach the secret resolution side channel (T-0858) to whichever
-        // context we return below. This is the runtime-only, never-serialized
-        // handle — resolved secrets are returned to the task, never written into
-        // `data`.
-        if let Some(resolver) = &self.secret_resolver {
-            context.set_secret_resolver(resolver.clone());
-        }
-
         // Load initial workflow context if task has no dependencies.
         if dependencies.is_empty() {
-            if let Ok(workflow_execution) = self
-                .dal
-                .workflow_execution()
-                .get_by_id(claimed_task.workflow_execution_id)
-                .await
-            {
-                if let Some(context_id) = workflow_execution.context_id {
-                    if let Ok(initial_context) = self
-                        .dal
-                        .context()
-                        .read::<serde_json::Value>(context_id)
-                        .await
-                    {
-                        for (key, value) in initial_context.data() {
-                            let _ = context.insert(key, value.clone());
-                        }
-                        debug!(
-                            "Loaded initial workflow context with {} keys",
-                            initial_context.data().len()
-                        );
-                    }
+            if let Some(initial_context) = self.initial_context(claimed_task).await {
+                for (key, value) in initial_context.data() {
+                    let _ = context.insert(key, value.clone());
                 }
+                debug!(
+                    "Loaded initial workflow context with {} keys",
+                    initial_context.data().len()
+                );
             }
-            self.check_input_size(claimed_task, &context)?;
-            return Ok(context);
+            return self.finish(claimed_task, context).await;
         }
 
         // Batch-load dependency contexts (eager loading strategy).
@@ -233,8 +225,102 @@ impl TaskContextBuilder {
             context.data().len(),
             context.data().keys().collect::<Vec<_>>()
         );
+
+        // CLOACINA-T-1081: the secret bindings are the caller's, from the
+        // run's first context. A task's output cannot change which stored
+        // secret a later task gets.
+        if context.get(SECRET_REFS_KEY).is_some() {
+            let bindings = self
+                .initial_context(claimed_task)
+                .await
+                .and_then(|initial| initial.get(SECRET_REFS_KEY).cloned());
+            match bindings {
+                Some(value) => {
+                    let _ = context.update(SECRET_REFS_KEY, value);
+                }
+                None => {
+                    let _ = context.remove(SECRET_REFS_KEY);
+                }
+            }
+        }
+        self.finish(claimed_task, context).await
+    }
+
+    /// The run's first context, as the caller wrote it.
+    async fn initial_context(
+        &self,
+        claimed_task: &ClaimedTask,
+    ) -> Option<Context<serde_json::Value>> {
+        let workflow_execution = self
+            .dal
+            .workflow_execution()
+            .get_by_id(claimed_task.workflow_execution_id)
+            .await
+            .ok()?;
+        let context_id = workflow_execution.context_id?;
+        self.dal
+            .context()
+            .read::<serde_json::Value>(context_id)
+            .await
+            .ok()
+    }
+
+    /// Attach the secret resolver and apply the size limits.
+    async fn finish(
+        &self,
+        claimed_task: &ClaimedTask,
+        mut context: Context<serde_json::Value>,
+    ) -> Result<Context<serde_json::Value>, ExecutorError> {
+        // The secret resolution side channel (T-0858): runtime only, never
+        // serialized. Resolved secrets are returned to the task, never written
+        // into `data`.
+        if let Some(resolver) = &self.secret_resolver {
+            let resolver = match self.secret_grants {
+                SecretGrantMode::Unrestricted => resolver.clone(),
+                SecretGrantMode::Declared => {
+                    self.declared_resolver(claimed_task, &context, resolver.clone())
+                        .await
+                }
+            };
+            context.set_secret_resolver(resolver);
+        }
         self.check_input_size(claimed_task, &context)?;
         Ok(context)
+    }
+
+    /// CLOACINA-T-1081: `resolver` limited to the grant of the task: the
+    /// secrets its package declares, through the run's bindings.
+    async fn declared_resolver(
+        &self,
+        claimed_task: &ClaimedTask,
+        context: &Context<serde_json::Value>,
+        resolver: Arc<dyn SecretResolver>,
+    ) -> Arc<dyn SecretResolver> {
+        let bindings = context
+            .get(SECRET_REFS_KEY)
+            .map(|v| secret_bindings(&serde_json::json!({ SECRET_REFS_KEY: v })))
+            .unwrap_or_default();
+        let grant = match crate::task::parse_namespace(&claimed_task.task_name) {
+            Ok(namespace) => {
+                declared_secret_grant(
+                    &self.dal,
+                    claimed_task.workflow_execution_id,
+                    &namespace.package_name,
+                    &bindings,
+                )
+                .await
+            }
+            Err(_) => crate::security::SecretGrant::no_package(&claimed_task.task_name),
+        };
+        DeclaredSecretResolver::new(
+            resolver,
+            grant,
+            self.dal.tenant_label(),
+            &claimed_task.task_name,
+            claimed_task.workflow_execution_id.to_string(),
+            claimed_task.task_execution_id.to_string(),
+        )
+        .into_arc()
     }
 
     /// Smart-merge two context values: arrays concat+dedup, objects merge

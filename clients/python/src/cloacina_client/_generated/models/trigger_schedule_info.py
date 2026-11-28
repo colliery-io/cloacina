@@ -21,6 +21,10 @@ class TriggerScheduleInfo:
         schedule_type (str): `cron` or `trigger`.
         workflow_name (str):
         cron_expression (None | str | Unset):
+        last_poll_error (None | str | Unset): Why the last poll of this trigger gave no answer: no agent of the
+            tenant could take it, no answer came in time, the agent refused it, or
+            the trigger returned an error. Nothing fired for that poll. `None`
+            after a poll that answered fire or skip (CLOACINA-T-1077).
         paused (bool | Unset): Whether the schedule is paused (CLOACI-T-0749).
         paused_at (None | str | Unset): RFC 3339 timestamp of when it was paused, if paused.
         poll_interval_ms (int | None | Unset): Poll interval in milliseconds for `trigger`-type schedules (the
@@ -34,6 +38,7 @@ class TriggerScheduleInfo:
     schedule_type: str
     workflow_name: str
     cron_expression: None | str | Unset = UNSET
+    last_poll_error: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
     paused_at: None | str | Unset = UNSET
     poll_interval_ms: int | None | Unset = UNSET
@@ -54,6 +59,12 @@ class TriggerScheduleInfo:
             cron_expression = UNSET
         else:
             cron_expression = self.cron_expression
+
+        last_poll_error: None | str | Unset
+        if isinstance(self.last_poll_error, Unset):
+            last_poll_error = UNSET
+        else:
+            last_poll_error = self.last_poll_error
 
         paused = self.paused
 
@@ -87,6 +98,8 @@ class TriggerScheduleInfo:
         )
         if cron_expression is not UNSET:
             field_dict["cron_expression"] = cron_expression
+        if last_poll_error is not UNSET:
+            field_dict["last_poll_error"] = last_poll_error
         if paused is not UNSET:
             field_dict["paused"] = paused
         if paused_at is not UNSET:
@@ -117,6 +130,15 @@ class TriggerScheduleInfo:
             return cast(None | str | Unset, data)
 
         cron_expression = _parse_cron_expression(d.pop("cron_expression", UNSET))
+
+        def _parse_last_poll_error(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        last_poll_error = _parse_last_poll_error(d.pop("last_poll_error", UNSET))
 
         paused = d.pop("paused", UNSET)
 
@@ -153,6 +175,7 @@ class TriggerScheduleInfo:
             schedule_type=schedule_type,
             workflow_name=workflow_name,
             cron_expression=cron_expression,
+            last_poll_error=last_poll_error,
             paused=paused,
             paused_at=paused_at,
             poll_interval_ms=poll_interval_ms,

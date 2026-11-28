@@ -31,6 +31,7 @@
 //! - `ReconcileResult`: Result of a reconciliation operation
 //! - `PackageState`: Tracking loaded package state
 
+mod from_document;
 mod loading;
 
 use std::collections::{HashMap, HashSet};
@@ -86,6 +87,12 @@ pub struct ReconcilerConfig {
     /// and signature rows from the tenant's schema; the trusted keys are in
     /// the admin schema. `None` reads them from the registry's database.
     pub signature_trust_database: Option<crate::Database>,
+
+    /// How a package is loaded (CLOACINA-T-1075). The default,
+    /// [`PackageLoadMode::InProcess`], opens the package's library or
+    /// imports its Python module in this process. `cloacina-server` sets
+    /// [`PackageLoadMode::MetadataOnly`] unless it runs with single trust.
+    pub package_load_mode: PackageLoadMode,
 }
 
 impl ReconcilerConfig {
@@ -103,6 +110,25 @@ impl ReconcilerConfig {
     }
 }
 
+/// How the reconciler loads a package (CLOACINA-T-1075, CLOACINA-A-0019).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PackageLoadMode {
+    /// Open the package's library, or import its Python module, in this
+    /// process. The package's code runs here: its load-time code, its
+    /// triggers, its graph and, with the in-process executor, its tasks. The
+    /// mode of the embedded library and of `cloacinactl daemon`.
+    #[default]
+    InProcess,
+    /// Register the package from the metadata document its compiler stored
+    /// (CLOACINA-T-1074). No library is opened and no module is imported:
+    /// the tasks are entries with no code, which an executor that sends work
+    /// to agents runs there. A poll trigger is polled on an agent
+    /// (CLOACINA-T-1077). A package with no document does not load; a
+    /// package that needs its code in this process (see
+    /// [`crate::registry::in_process`]) is refused with the reason.
+    MetadataOnly,
+}
+
 impl Default for ReconcilerConfig {
     fn default() -> Self {
         Self {
@@ -114,6 +140,7 @@ impl Default for ReconcilerConfig {
             require_signatures: false,
             verification_org_id: None,
             signature_trust_database: None,
+            package_load_mode: PackageLoadMode::InProcess,
         }
     }
 }
@@ -350,6 +377,11 @@ pub struct RegistryReconciler {
     /// ([`crate::registry::task_placement_check`]) when the reconciler is
     /// made; the server registers one at start.
     pub(super) placement_check: Option<Arc<dyn crate::registry::TaskPlacementCheck>>,
+
+    /// CLOACINA-T-1077: where a poll trigger of a package loaded from its
+    /// metadata document sends its polls. Shared with the runner, which sets
+    /// the dispatcher after it is made.
+    pub(super) poll_dispatcher: crate::trigger::PollDispatcherSlot,
 }
 
 impl RegistryReconciler {
@@ -380,7 +412,15 @@ impl RegistryReconciler {
             cron_registrar: None,
             recompile_requested: std::sync::Mutex::new(std::collections::HashSet::new()),
             placement_check: crate::registry::task_placement_check(),
+            poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
         })
+    }
+
+    /// Share the runner's poll dispatcher slot (CLOACINA-T-1077), so a
+    /// dispatcher set on the runner later reaches the poll triggers this
+    /// reconciler registers.
+    pub fn set_poll_dispatcher_slot(&mut self, slot: crate::trigger::PollDispatcherSlot) {
+        self.poll_dispatcher = slot;
     }
 
     /// Set the check of a package's task placements at load
@@ -849,6 +889,7 @@ mod tests {
             require_signatures: false,
             verification_org_id: None,
             signature_trust_database: None,
+            package_load_mode: PackageLoadMode::MetadataOnly,
         };
 
         // CLOACINA-T-1062: the tenant's org is asked first, then the server

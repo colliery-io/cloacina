@@ -69,3 +69,4 @@ cloacina-build = { workspace = true }
 [dev-dependencies]
 serial_test = "4"
 serde = "1.0"
+async-trait = "0.1"

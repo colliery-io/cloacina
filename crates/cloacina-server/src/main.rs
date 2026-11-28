@@ -138,15 +138,26 @@ struct Cli {
     #[arg(long, env = "CLOACINA_RETENTION_INTERVAL_S", default_value_t = 300)]
     retention_interval_s: u64,
 
-    /// Executor every task is dispatched to (CLOACI-T-0640). `default` (the
-    /// in-process thread executor) unless set to another registered key —
-    /// notably `fleet` to send all work to the execution-agent fleet. The key
-    /// must match a registered executor or the server fails fast at startup.
-    /// Operators normally set this via `[server].default_executor` in
-    /// `config.toml` (forwarded by `cloacinactl server start`); this flag/env
-    /// is the override for direct `cloacina-server` runs.
-    #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR", default_value = "default")]
-    default_executor: String,
+    /// Executor every task is dispatched to (CLOACI-T-0640). Not set: `fleet`
+    /// (the execution-agent fleet), or `default` (the in-process thread
+    /// executor) with `--single-trust`. `default` needs `--single-trust`: the
+    /// server does not start with it otherwise (CLOACINA-T-1075). The key must
+    /// match a registered executor or the server fails fast at startup.
+    /// `cloacinactl server start` forwards `[server].default_executor` of
+    /// `config.toml` when it is set.
+    #[arg(long, env = "CLOACINA_DEFAULT_EXECUTOR")]
+    default_executor: Option<String>,
+
+    /// Single trust (CLOACINA-T-1075): every tenant of this server is trusted
+    /// as much as the server itself. Turns on the two things that run tenant
+    /// code in the server process: packages are loaded in process (their
+    /// libraries opened, their Python modules imported), and
+    /// `--default-executor default` is allowed. Off by default: the server
+    /// loads each package from the metadata document its compiler stored and
+    /// sends every task to the agent fleet. The server logs a warning at start
+    /// when it is on.
+    #[arg(long, env = "CLOACINA_SINGLE_TRUST")]
+    single_trust: bool,
 
     /// Heartbeat interval (seconds) the server advertises to fleet agents and
     /// uses as its liveness sweep cadence. Lower = faster dead-agent detection
@@ -212,6 +223,17 @@ struct Cli {
         default_value_t = cloacina_server::fleet_executor::DEFAULT_ARTIFACT_FETCH_WAIT_SECONDS
     )]
     fleet_artifact_fetch_wait_s: u64,
+
+    /// Time limit (seconds) of one poll of a poll trigger on an agent. The
+    /// agent stops the poll after this long; the server waits this plus 10 s
+    /// for the answer, then records the poll as missed and fires nothing.
+    /// Default 30. CLOACINA-T-1077.
+    #[arg(
+        long,
+        env = "CLOACINA_FLEET_POLL_TIMEOUT_S",
+        default_value_t = cloacina_server::fleet_poll_dispatcher::DEFAULT_POLL_TIMEOUT_SECONDS
+    )]
+    fleet_poll_timeout_s: u64,
 
     /// Size in bytes above which the context a task returns, or the context
     /// built for a task, is logged as a warning and counted in
@@ -427,6 +449,17 @@ async fn main() -> Result<()> {
             cli.fleet_task_timeout_max_s,
         )
         .map_err(|e| anyhow::anyhow!(e))?;
+    // CLOACINA-T-1077: the time limit of one poll on an agent.
+    cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(cli.fleet_poll_timeout_s)
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    // CLOACINA-T-1075: where tenant code runs. A mode that would run tenant
+    // tasks in this process without single trust stops the start.
+    let execution_mode = cloacina_server::execution_mode::ExecutionMode::resolve(
+        cli.single_trust,
+        cli.default_executor.as_deref(),
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
 
     cloacina_server::run(
         cli.home,
@@ -441,7 +474,7 @@ async fn main() -> Result<()> {
         cli.tenant_runner_cache_size,
         std::time::Duration::from_secs(cli.tenant_deletion_drain_timeout_s),
         cli.log_retention_days,
-        cli.default_executor,
+        execution_mode,
         cli.agent_heartbeat_interval_s,
         cli.agent_liveness_misses,
         fleet_task_time_limits,
@@ -505,6 +538,35 @@ mod tests {
         assert!(cfg.enabled());
     }
 
+    // CLOACINA-T-1075: single trust is off and the executor is not set by
+    // default, so the server needs the fleet; the flag turns single trust on.
+    #[test]
+    fn single_trust_is_off_by_default_and_the_executor_unset() {
+        use cloacina_server::execution_mode::ExecutionMode;
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert!(!cli.single_trust);
+        assert_eq!(cli.default_executor, None);
+        let mode =
+            ExecutionMode::resolve(cli.single_trust, cli.default_executor.as_deref()).unwrap();
+        assert_eq!(mode.default_executor, "fleet");
+
+        let cli = Cli::try_parse_from([
+            "cloacina-server",
+            "--single-trust",
+            "--default-executor",
+            "default",
+        ])
+        .unwrap();
+        assert!(cli.single_trust);
+        let mode =
+            ExecutionMode::resolve(cli.single_trust, cli.default_executor.as_deref()).unwrap();
+        assert_eq!(mode.default_executor, "default");
+
+        let cli =
+            Cli::try_parse_from(["cloacina-server", "--default-executor", "default"]).unwrap();
+        assert!(ExecutionMode::resolve(cli.single_trust, cli.default_executor.as_deref()).is_err());
+    }
+
     // CLOACINA-T-1048: the unpack limit is a setting next to the upload limit.
     #[test]
     fn max_unpacked_bytes_flag_defaults_to_500_mib_and_is_read() {
@@ -539,5 +601,15 @@ mod tests {
         let text = err.to_string();
         assert!(text.contains("--fleet-graph-firings"), "{text}");
         assert!(text.contains("inline") && text.contains("worker"), "{text}");
+    }
+
+    /// CLOACINA-T-1077: the time limit of a poll on an agent.
+    #[test]
+    fn the_poll_time_limit_defaults_to_30_seconds_and_refuses_0() {
+        let cli = Cli::try_parse_from(["cloacina-server"]).unwrap();
+        assert_eq!(cli.fleet_poll_timeout_s, 30);
+        let cli = Cli::try_parse_from(["cloacina-server", "--fleet-poll-timeout-s", "5"]).unwrap();
+        assert_eq!(cli.fleet_poll_timeout_s, 5);
+        assert!(cloacina_server::fleet_poll_dispatcher::set_poll_timeout_seconds(0).is_err());
     }
 }

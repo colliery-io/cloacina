@@ -169,15 +169,23 @@ pub struct WatchSection {
     pub directories: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerSection {
-    /// Executor every task is dispatched to (CLOACI-T-0640). `"default"` runs
-    /// all work on the in-process thread executor; `"fleet"` sends it to the
-    /// execution-agent fleet. This is the preferred way to set the server's
-    /// execution topology — `cloacinactl server start` forwards it to
-    /// `cloacina-server` via `--default-executor`.
-    pub default_executor: String,
+    /// Executor every task is dispatched to (CLOACI-T-0640). `"fleet"` sends
+    /// it to the execution-agent fleet; `"default"` runs it on the in-process
+    /// thread executor and needs `single_trust` (CLOACINA-T-1075). Not set:
+    /// not forwarded, and the server uses `fleet`, or `default` with single
+    /// trust. `cloacinactl server start` forwards it as `--default-executor`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_executor: Option<String>,
+
+    /// Single trust (CLOACINA-T-1075): every tenant of the server is trusted
+    /// as much as the server. `true` is forwarded as `--single-trust`: the
+    /// server then loads packages in its own process and allows the
+    /// in-process executor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub single_trust: Option<bool>,
 
     // The settings below (CLOACINA-T-1039) have no default here: a key that
     // is not set is not forwarded, and `cloacina-server` uses its own default.
@@ -267,6 +275,10 @@ pub struct ServerSection {
     /// (`--fleet-graph-firings`, CLOACINA-T-1125).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fleet_graph_firings: Option<String>,
+    /// Time limit of one poll of a poll trigger on an agent, seconds
+    /// (`--fleet-poll-timeout-s`, CLOACINA-T-1077).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fleet_poll_timeout_s: Option<u64>,
     /// Warning size of a task context, bytes; `0` = off
     /// (`--context-warn-bytes`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -290,43 +302,6 @@ pub struct ServerSection {
     /// (`--max-unpacked-bytes`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_unpacked_bytes: Option<u64>,
-}
-
-impl Default for ServerSection {
-    fn default() -> Self {
-        Self {
-            default_executor: "default".to_string(),
-            database_wait_timeout_s: None,
-            run_history_retention_days: None,
-            outbox_acked_retention_s: None,
-            retention_interval_s: None,
-            fleet_task_timeout_s: None,
-            fleet_task_timeout_max_s: None,
-            alert_webhook_url: None,
-            alert_webhook_events: Vec::new(),
-            alert_webhook_timeout_s: None,
-            alert_webhook_max_attempts: None,
-            public_base_url: None,
-            task_log_url_template: None,
-            verification_org_id: None,
-            reconcile_interval_s: None,
-            tenant_runner_cache_size: None,
-            tenant_deletion_drain_timeout_s: None,
-            log_retention_days: None,
-            log_format: None,
-            agent_heartbeat_interval_s: None,
-            agent_liveness_misses: None,
-            fleet_artifact_fetch_wait_s: None,
-            fleet_graph_firings: None,
-            context_warn_bytes: None,
-            context_max_bytes: None,
-            cors_allowed_origins: Vec::new(),
-            cors_allowed_methods: Vec::new(),
-            cors_allowed_headers: Vec::new(),
-            max_package_bytes: None,
-            max_unpacked_bytes: None,
-        }
-    }
 }
 
 impl CloacinaConfig {
@@ -697,10 +672,11 @@ pub fn resolve_database_url(cli_url: Option<&str>, config_path: &Path) -> Result
 /// config.toml is the preferred surface, but an explicit `--default-executor`
 /// flag (or `CLOACINA_DEFAULT_EXECUTOR` env, captured by clap) still wins for
 /// ad-hoc runs — same precedence as `resolve_database_url`:
-/// explicit arg > `[server].default_executor` > built-in `"default"`.
-pub fn resolve_default_executor(cli_value: Option<&str>, config_path: &Path) -> String {
+/// explicit arg > `[server].default_executor` > not set (CLOACINA-T-1075: the
+/// server then picks `fleet`, or `default` with single trust).
+pub fn resolve_default_executor(cli_value: Option<&str>, config_path: &Path) -> Option<String> {
     if let Some(value) = cli_value {
-        return value.to_string();
+        return Some(value.to_string());
     }
     CloacinaConfig::load(config_path).server.default_executor
 }
@@ -723,7 +699,8 @@ mod tests {
         assert_eq!(config.daemon.cron_recovery_interval_s, 300);
         assert_eq!(config.daemon.cron_lost_threshold_min, 10);
         assert!(config.watch.directories.is_empty());
-        assert_eq!(config.server.default_executor, "default");
+        assert_eq!(config.server.default_executor, None);
+        assert_eq!(config.server.single_trust, None);
     }
 
     #[test]
@@ -731,15 +708,21 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
 
-        // No config, no CLI → built-in default.
-        assert_eq!(resolve_default_executor(None, &path), "default");
+        // No config, no CLI → not set: the server decides (CLOACINA-T-1075).
+        assert_eq!(resolve_default_executor(None, &path), None);
 
         // config.toml [server].default_executor is used when no CLI override.
         std::fs::write(&path, "[server]\ndefault_executor = \"fleet\"\n").unwrap();
-        assert_eq!(resolve_default_executor(None, &path), "fleet");
+        assert_eq!(
+            resolve_default_executor(None, &path).as_deref(),
+            Some("fleet")
+        );
 
         // Explicit CLI value wins over config.toml.
-        assert_eq!(resolve_default_executor(Some("default"), &path), "default");
+        assert_eq!(
+            resolve_default_executor(Some("default"), &path).as_deref(),
+            Some("default")
+        );
     }
 
     #[test]
@@ -904,7 +887,7 @@ public_base_url = "https://cloacina.example.com"
         let server = CloacinaConfig::load(&path).server;
         assert_eq!(server.database_wait_timeout_s, Some(120));
         // A key that the file does not set keeps its default.
-        assert_eq!(server.default_executor, "default");
+        assert_eq!(server.default_executor, None);
         assert_eq!(server.run_history_retention_days, Some(30));
         assert_eq!(server.outbox_acked_retention_s, Some(600));
         assert_eq!(server.retention_interval_s, Some(60));

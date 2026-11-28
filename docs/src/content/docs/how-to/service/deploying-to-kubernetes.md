@@ -23,7 +23,8 @@ page covers install, configuration, and upgrade.
 helm install cloacina \
   oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
-  --set database.url=postgres://cloacina:cloacina@postgres.svc:5432/cloacina
+  --set database.url=postgres://cloacina:cloacina@postgres.svc:5432/cloacina \
+  --set fleet.actuator=kubernetes
 ```
 
 ### With a `DATABASE_URL` Secret
@@ -35,7 +36,8 @@ kubectl create secret generic cloacina-db \
 helm install cloacina \
   oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
-  --set databaseUrlSecretRef.name=cloacina-db
+  --set databaseUrlSecretRef.name=cloacina-db \
+  --set fleet.actuator=kubernetes
 ```
 
 ### Bundled Postgres (demo / dev)
@@ -45,7 +47,8 @@ helm install cloacina \
   oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
   --set postgresql.enabled=true \
-  --set postgresql.auth.password=$(openssl rand -hex 16)
+  --set postgresql.auth.password=$(openssl rand -hex 16) \
+  --set fleet.actuator=kubernetes
 ```
 
 This enables the bundled **in-tree** `postgresql` subchart — a Service + PVC around the official `docker.io/library/postgres` image (it replaced the Bitnami chart). **Don't use this in
@@ -53,6 +56,68 @@ production** — the credentials are exposed via Helm values, and the
 PVC isn't backed up by anything you don't run yourself.
 
 The chart fails fast if you don't pick exactly one of these three paths.
+
+## Where tenant tasks run
+
+The server runs no tenant code in its own process (see the
+[security model](../../../explanation/service/security-model/#tenant-code-and-the-server-process)):
+it loads each package from the metadata document its compiler stored and
+sends every task to an agent of the tenant. The chart fails at render unless
+the install says where the agents come from:
+
+| Value | Agents | What runs in the server |
+|---|---|---|
+| `fleet.actuator=kubernetes` | the server makes them, in each tenant's namespace ([below](#fleet-actuator-kubernetes--rbac)) | no tenant code |
+| `fleet.externalAgents=true` | you run them, for example with the `cloacina-agent` chart ([Deploy an execution-agent fleet](../deploy-an-execution-agent-fleet/)) | no tenant code |
+| `server.singleTrust=true` | none needed | every tenant's packages are loaded and their tasks run in the server process |
+
+With `fleet.actuator=kubernetes` or `fleet.externalAgents=true` a task waits
+until an agent of its tenant can take it. A poll trigger's polls run on an
+agent of its tenant too: with `fleet.actuator=kubernetes` a tenant with a poll
+trigger keeps one agent; with `fleet.externalAgents=true` keep one agent of
+each such tenant running ([Poll triggers on agents](../../../explanation/service/execution-agent-fleet/#poll-triggers-on-agents)).
+A package that uses a stream accumulator on a native provider, a Python
+polling or stream accumulator, or a polling accumulator in a Rust package does
+not load: its `build_status` is `failed` and `build_error` names what it uses.
+Python reactors and graphs with other accumulators load, and their firings run
+on agents. A native provider that only a constructor-node task uses loads: the
+task runs on an agent.
+
+`server.singleTrust=true` is for a server whose every tenant is trusted as
+much as the server: one team, or one person. Each tenant's code then reaches
+the database, the secrets key and the other tenants' data. The chart passes
+`--single-trust` and the server logs a warning at start.
+
+### Upgrading from a chart with no single-trust setting
+
+Before this setting a chart install ran every task in the server process
+(`fleet.actuator=none`, no executor set). After the upgrade:
+
+- `helm upgrade` with the old values fails at render until one of the three
+  values above is set.
+- To keep running tasks in the server, set `server.singleTrust=true`. Nothing
+  else changes.
+- To move tasks to agents, set `fleet.actuator=kubernetes` or run agents and
+  set `fleet.externalAgents=true`. Upgrade the compiler with the server: the
+  server loads a package only once its compiler has stored the package's
+  metadata document, and the compiler describes the packages built before on
+  its own ([Running the Compiler](../running-the-compiler/)). Until then the
+  workflow detail gives `not_loaded_reason`.
+- Without single trust, a package with code that would run in the server (the
+  list above) is refused at its first load and gets `build_status` `failed`.
+  The refusal stays when the setting changes: to load it with single trust
+  after a refusal, publish a new version of it. Set `server.singleTrust=true`
+  before the upgrade to keep such packages in service.
+- A package described by an earlier compiler keeps the stricter rule of that
+  document until its compiler describes it again: any bundled native provider
+  and any Python reactor, graph or accumulator refuse it. Upgrade the compiler
+  first, so its pass describes the packages again before the server loads
+  them.
+- A package with a poll trigger loads and polls on the tenant's agents. One
+  that a server of the release before refused for its poll trigger stays
+  refused: publish a new version of it.
+- With `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv`, the server
+  does not start without `server.singleTrust=true`.
 
 ## Pinning the bootstrap API key
 
@@ -230,10 +295,11 @@ downloads, are in
 The server can provision and autoscale a per-tenant pool of `cloacina-agent`
 workloads itself, instead of you running agents by hand (the agent
 self-management control plane, CLOACI-I-0127). On Kubernetes this is the
-**Kubernetes fleet actuator**. It is **off by default** — existing installs are
-unchanged: no ServiceAccount, no RBAC, and no actuator env are rendered unless
-you opt in. (The Docker actuator is dev-only and is **not** offered through this
-chart.)
+**Kubernetes fleet actuator**. `fleet.actuator` is `none` by default: no
+ServiceAccount, no RBAC and no actuator env are rendered. An install with
+`none` sets `fleet.externalAgents=true` or `server.singleTrust=true`
+([Where tenant tasks run](#where-tenant-tasks-run)). (The Docker actuator is
+dev-only and is **not** offered through this chart.)
 
 ### Enable it
 
@@ -260,6 +326,8 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | Value | Default | Effect |
 |------|---------|--------|
 | `fleet.actuator` | `none` | `none` (off) or `kubernetes`. |
+| `fleet.externalAgents` | `false` | `true`: you run the agents; the chart renders with `fleet.actuator=none`. |
+| `server.singleTrust` | `false` | `true`: tenant code runs in the server process (`--single-trust`). |
 | `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
 | `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |

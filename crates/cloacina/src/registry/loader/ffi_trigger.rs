@@ -53,6 +53,32 @@ pub struct FfiTriggerImpl {
 }
 
 impl FfiTriggerImpl {
+    /// Open the packaged library at `path` and give the poll trigger `name`
+    /// of it (CLOACINA-T-1077): the agent's path to a Rust poll trigger.
+    /// Opening the library runs its load-time code in this process.
+    pub fn open(
+        path: &std::path::Path,
+        name: &str,
+        poll_interval: Duration,
+        allow_concurrent: bool,
+    ) -> Result<Self, String> {
+        let loaded = fidius_host::loader::load_library(path)
+            .map_err(|e| format!("open the library {}: {:?}", path.display(), e))?;
+        let plugin = loaded
+            .plugins
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("the library {} exposes no plugin", path.display()))?;
+        let handle = Arc::new(fidius_host::PluginHandle::from_loaded(plugin));
+        Ok(Self::new(
+            handle,
+            name.to_string(),
+            poll_interval,
+            allow_concurrent,
+            None,
+        ))
+    }
+
     pub fn new(
         handle: Arc<fidius_host::PluginHandle>,
         name: String,

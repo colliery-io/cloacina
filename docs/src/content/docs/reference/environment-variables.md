@@ -71,7 +71,8 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_VERIFICATION_ORG_ID` | `--verification-org-id` | None | Server-wide trusted org UUID (optional) |
 | `CLOACINA_TENANT_RUNNER_CACHE_SIZE` | `--tenant-runner-cache-size` | `256` | Per-tenant runner warning limit |
 | `CLOACINA_TENANT_DELETION_DRAIN_TIMEOUT_S` | `--tenant-deletion-drain-timeout-s` | `30` | Drain timeout during teardown |
-| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
+| `CLOACINA_SINGLE_TRUST` | `--single-trust` | off | Every tenant is trusted as much as the server. On: packages load in the server process (libraries opened, Python modules imported) and the in-process executor is allowed; the server logs a warning at start. Off: packages load from the metadata document their compiler stored and every task goes to the fleet. See [Tenant code and the server process](../../explanation/service/security-model/#tenant-code-and-the-server-process). |
+| `CLOACINA_DEFAULT_EXECUTOR` | `--default-executor` | `fleet`; `default` with single trust | Executor every task is dispatched to. `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/); `default` runs all work on the in-process thread executor and needs `CLOACINA_SINGLE_TRUST`, or the server does not start. Hard-matched against registered executors at startup. Preferred surface is `[server].default_executor` in `config.toml`, which `cloacinactl server start` forwards. |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | `--agent-heartbeat-interval-s` | `15` | Heartbeat interval (seconds) the server advertises to fleet agents and uses as its liveness-sweep cadence. Lower = faster dead-agent detection + in-flight reclaim, at the cost of more heartbeat traffic. |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | `--agent-liveness-misses` | `3` | Consecutive missed heartbeats before the server marks a fleet agent dead and reclaims its in-flight work. Effective dead-after = interval × misses (default 15s × 3 = 45s). |
 | `CLOACINA_RUN_HISTORY_RETENTION_DAYS` | `--run-history-retention-days` | `0` (off) | Days to keep a finished workflow run (Completed, Failed or Cancelled) before the server's retention job deletes it with its task executions, task metadata, contexts, events, recovery events and schedule executions. `0` turns it off. Runs that are not finished are never deleted. |
@@ -81,6 +82,7 @@ These are specified via `clap`'s `env = "..."` attribute and can be set as envir
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `--fleet-task-timeout-max-s` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value, with a warning in the log. A default above the maximum stops the server at start. |
 | `CLOACINA_FLEET_GRAPH_FIRINGS` | `--fleet-graph-firings` | `inline` | Where an agent runs a computation-graph firing: `inline` (in the agent process) or `worker` (a worker process with the limits, time limit and cancel of a task). Any other value stops the server at start. |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `--fleet-artifact-fetch-wait-s` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The time counts from the first refused fetch of the attempt. The task is dispatched again after a delay of 2 s that grows to 30 s, and uses no retry attempt. After the limit the attempt fails with an error that names the artifact fetch, and the task's retry policy decides what follows. `0`: the first failed fetch fails the attempt. |
+| `CLOACINA_FLEET_POLL_TIMEOUT_S` | `--fleet-poll-timeout-s` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent (CLOACINA-T-1077). The server waits this plus 10 s for the answer; with no answer it records the poll as missed in the trigger's `last_poll_error` and fires nothing. |
 | `CLOACINA_CONTEXT_WARN_BYTES` | `--context-warn-bytes` | `1048576` (1 MiB) | Size in bytes above which a task context (the one a task returns, or the one built for a task) is logged as a warning with the task, the size and the largest keys, and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. |
 | `CLOACINA_CONTEXT_MAX_BYTES` | `--context-max-bytes` | `16777216` (16 MiB) | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. The context is not saved. One setting for the whole server. `0` turns the limit off. See [Context size limits](../../explanation/engine/context-management/#context-size-limits). |
 | `CLOACINA_CORS_ALLOWED_ORIGINS` | `--cors-allowed-origins` | None (CORS off) | Comma-separated allowed origins; CORS is off until set (REQ-009). `*` allows any. |
@@ -161,6 +163,10 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_MEMORY` | Total memory of the agent, a Kubernetes quantity above zero. Equivalent to `--memory`. The agent reports it less `CLOACINA_AGENT_RESERVED_MEMORY` and holds each task to a memory limit from it. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
 | `CLOACINA_AGENT_RESERVED_MEMORY` | The agent's own share of its memory, a Kubernetes quantity or `0`. Equivalent to `--reserved-memory`. The fleet actuator does not set it. | `128Mi` | `256Mi` | Agent | No |
 | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | The address-space ceiling of a task's worker process, as a multiple of the task's memory limit (64 GiB is added). `0`: no ceiling. Equivalent to `--task-address-space-factor`. The fleet actuator does not set it. | `8` | `0` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKERS` | The most idle [warm workers](../../explanation/service/execution-agent-fleet/#warm-workers) the agent keeps. `0`: none. Equivalent to `--warm-workers`. The fleet actuator does not set it. | The value of `CLOACINA_AGENT_MAX_CONCURRENCY` | `0` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS` | Seconds a warm worker may stay idle before the agent ends it. Equivalent to `--warm-worker-idle-seconds`. The fleet actuator does not set it. | `60` | `300` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | The most jobs one worker process runs. Equivalent to `--warm-worker-max-jobs`. The fleet actuator does not set it. | `100` | `1000` | Agent | No |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | A worker that holds more than this share of its jobs' memory limit after a job is ended. Equivalent to `--warm-worker-max-memory-percent`. The fleet actuator does not set it. | `50` | `30` | Agent | No |
 | `CLOACINA_AGENT_LOG_FORMAT` | Format of the agent's log lines on stdout: `text` or `json` (one JSON object per line). Equivalent to `--log-format`. The fleet actuator sets it to `json` on the agents it starts when the server's own `CLOACINA_AGENT_LOG_FORMAT` is `json` (see [Actuator selection](#actuator-selection)). See [Find a Task's Logs](../../how-to/service/find-a-tasks-logs/). | `text` | `json` | Agent | No |
 
 The remaining agent options — `--agent-id`, `--capabilities`, and `--target-triple-override` — are CLI-only; see the [CLI Reference](../cli/#agent).
@@ -184,7 +190,7 @@ These server-side variables drive the **agent self-management control plane**: t
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_FLEET_ACTUATOR` | Substrate the fleet actuator reconciles each tenant's running agent count on: `none` (actuation off), `docker` (dev-only — spawns labelled `cloacina-agent` containers), or `kubernetes` (scales a per-tenant `cloacina-agent` Deployment in the tenant's own namespace). Validated fail-closed against the host at boot. | `none` | `kubernetes` | Server | No |
+| `CLOACINA_FLEET_ACTUATOR` | Substrate the fleet actuator reconciles each tenant's running agent count on: `none` (actuation off), `docker` (one user only: a laptop, a single machine, development; spawns labelled `cloacina-agent` containers; every tenant's containers share one Docker host and one network, with no namespaces, no network policies and no hardened pods, so it is not for several teams on one server, and the server logs a warning at start when more than one tenant exists), or `kubernetes` (scales a per-tenant `cloacina-agent` Deployment in the tenant's own namespace). Validated fail-closed against the host at boot. | `none` | `kubernetes` | Server | No |
 | `CLOACINA_AGENT_IMAGE` | Agent image the actuator runs for each tenant. | `cloacina-agent:latest` | `ghcr.io/colliery-io/cloacina-agent:latest` | Server (actuator) | No |
 | `CLOACINA_AGENT_SERVER_URL` | Server URL injected into each spawned agent as `CLOACINA_SERVER` (the agent's registration target). | `http://server:8080` | `http://cloacina-server:8080` | Server (actuator) | No |
 | `CLOACINA_AGENT_NETWORK` | **Docker actuator only.** Docker network attached to each spawned agent container so it can reach the server (e.g. the compose network). Unset = the daemon default. Ignored by the Kubernetes actuator (in-cluster pods reach the server by Service DNS). | None | `cloacina_net` | Server (docker actuator) | No |
@@ -539,18 +545,20 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_MAX_PACKAGE_BYTES` | Server | Largest package upload, in bytes (default `104857600`) |
 | `CLOACINA_MAX_UNPACKED_BYTES` | Server, Compiler, Agent, Daemon, `cloacinactl` | Largest unpacked size of a package archive, in bytes (default `524288000`) |
 | `CLOACINA_UV` | `cloacinactl` | Path of the `uv` program that `package build` runs (default: `uv` on `PATH`) |
-| `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `default`; set `fleet` to offload to the agent fleet) |
+| `CLOACINA_DEFAULT_EXECUTOR` | Server | Executor key every task is dispatched to (default `fleet`; `default` needs single trust) |
+| `CLOACINA_SINGLE_TRUST` | Server | Single trust: tenant code runs in the server process (default off) |
 | `CLOACINA_AGENT_HEARTBEAT_INTERVAL_S` | Server | Advertised fleet heartbeat interval + sweep cadence |
 | `CLOACINA_AGENT_LIVENESS_MISSES` | Server | Missed heartbeats before an agent is declared dead |
 | `CLOACINA_FLEET_TASK_TIMEOUT_S` | Server | Time limit of a fleet task that sets none of its own (default `300`) |
 | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | Server | Longest time limit a fleet task can get (default `86400`) |
 | `CLOACINA_FLEET_GRAPH_FIRINGS` | Server | Where agents run graph firings: `inline` or `worker` (default `inline`) |
 | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | Server | How long a fleet task waits, per attempt, while agents cannot fetch its package artifact (default `300`) |
+| `CLOACINA_FLEET_POLL_TIMEOUT_S` | Server | Time limit of one poll of a poll trigger on an agent (default `30`) |
 | `CLOACINA_CONTEXT_WARN_BYTES` | Server | Size above which a task context is logged and counted (default `1048576`; `0` = off) |
 | `CLOACINA_CONTEXT_MAX_BYTES` | Server | Largest size of a task context; a larger one fails its task (default `16777216`; `0` = off) |
 | `CLOACINA_DEFAULT_MAX_AGENTS` | Server | Platform-wide default per-tenant agent limit (default `4`) |
 | `CLOACINA_INITIAL_AGENTS` | Server | Agents auto-provisioned on tenant create (default `1`; `0` disables) |
-| `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` / `kubernetes` (default `none`) |
+| `CLOACINA_FLEET_ACTUATOR` | Server | Fleet actuator substrate: `none` / `docker` (one user only) / `kubernetes` (default `none`) |
 | `CLOACINA_AGENT_IMAGE` | Server (actuator) | Agent image the actuator runs per tenant |
 | `CLOACINA_AGENT_SERVER_URL` | Server (actuator) | Server URL injected into spawned agents as `CLOACINA_SERVER` |
 | `CLOACINA_AGENT_NETWORK` | Server (docker actuator) | Docker network attached to spawned agent containers |
@@ -576,6 +584,10 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_AGENT_MEMORY` | Agent | Total memory of the agent, for task placement and task memory limits (unset: none) |
 | `CLOACINA_AGENT_RESERVED_MEMORY` | Agent | The agent's own share of its memory (default `128Mi`) |
 | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | Agent | Address-space ceiling of a task's worker, as a multiple of its memory limit (default `8`; `0` = none) |
+| `CLOACINA_AGENT_WARM_WORKERS` | Agent | Most idle warm workers (default: max concurrency; `0` = none) |
+| `CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS` | Agent | Idle time of a warm worker (default `60`) |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | Agent | Most jobs of one worker process (default `100`) |
+| `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | Agent | Memory a warm worker may hold after a job, as a share of its limit (default `50`) |
 | `CLOACINA_AGENT_LOG_FORMAT` | Agent; Server (actuator) | Format of the agent's log lines: `text` (default) or `json`. On the server: the format of the agents the actuator starts |
 | `CLOACINA_LOG_FORMAT` | Server | Format of the server's log lines on stderr: `text` (default) or `json` |
 | `CLOACINA_TASK_LOG_URL_TEMPLATE` | Server | URL template of a task's logs in the log stack; unset = no link in the UI |

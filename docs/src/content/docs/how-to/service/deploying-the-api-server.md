@@ -327,6 +327,19 @@ docker compose -f deploy/docker-compose/cloacina.yml \
   exec cloacina-server cat /root/.cloacina/bootstrap-key
 ```
 
+### Agents on Docker are for one user
+
+This compose file starts no execution agents. To have the server start agent
+containers itself, set `CLOACINA_FLEET_ACTUATOR=docker` (see
+[Deploy an Execution Agent Fleet](../deploy-an-execution-agent-fleet/#docker-actuator-one-user)).
+The Docker actuator is for one user: a laptop, a single machine, development.
+It is not for several teams on one server. Every tenant's containers share one
+Docker host and one network, with no namespaces, no network policies and no
+hardened pods. At start the server logs a warning when the actuator is
+`docker` and more than one tenant exists. For several teams, deploy on
+Kubernetes with `fleet.actuator=kubernetes` (see
+[Deploying to Kubernetes](../deploying-to-kubernetes/)).
+
 ## Graceful Shutdown
 
 The server handles `SIGINT` (Ctrl+C) and `SIGTERM` for graceful shutdown, draining in-flight HTTP requests before exiting. Container orchestrators like Kubernetes send SIGTERM by default, which the server handles correctly.

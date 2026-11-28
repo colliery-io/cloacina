@@ -31,7 +31,7 @@ use std::sync::Arc;
 /// `step_load_custom_triggers` when registering FFI trigger adapters
 /// from packaged cdylibs (the cdylib serializes the duration as a
 /// string in `TriggerPackageMetadata`).
-fn parse_humantime_duration(s: &str) -> Option<std::time::Duration> {
+pub(super) fn parse_humantime_duration(s: &str) -> Option<std::time::Duration> {
     let trimmed = s.trim();
     if let Some(num) = trimmed.strip_suffix("ms") {
         num.trim()
@@ -82,6 +82,8 @@ fn load_plugin_handle_from_bytes(library_data: &[u8]) -> Result<fidius_host::Plu
     }
     let loaded = fidius_host::loader::load_library(&temp_path)
         .map_err(|e| format!("dlopen failed: {:?}", e))?;
+    // CLOACINA-T-1099: the trigger's log lines go to this process's log.
+    crate::registry::loader::package_loader::bind_engine_log(&loaded, &temp_path);
     let plugin = loaded
         .plugins
         .into_iter()
@@ -373,6 +375,20 @@ impl RegistryReconciler {
         // friendly migration message is wrapped at the manifest-load
         // boundary below.
 
+        // CLOACINA-T-1075: a server with no single trust registers the package
+        // from the document its compiler stored. Everything above read data
+        // only (the archive and its manifest); from here the in-process path
+        // opens the library or imports the module, so it is not taken.
+        if self.config.package_load_mode == super::PackageLoadMode::MetadataOnly {
+            return self
+                .load_package_from_document(
+                    &metadata,
+                    &cloacina_manifest.metadata,
+                    created_schedule_ids,
+                )
+                .await;
+        }
+
         // --- Step 4, 5, 6: language-specific loading ---
         //
         // `compiled_data` is populated by the compiler service for Rust / mixed
@@ -523,7 +539,7 @@ impl RegistryReconciler {
                     &metadata,
                     &view,
                     &cloacina_manifest.metadata,
-                    &library_data,
+                    Some(&library_data),
                     provider_root.as_deref(),
                 )
                 .await?;
@@ -1377,68 +1393,7 @@ impl RegistryReconciler {
                 workflow_name
             );
 
-            // Use the actual package name from metadata — the namespaced_id_template
-            // contains unresolved placeholders like {pkg} that don't match registered tasks
-            let task_package_name = metadata.package_name.clone();
-
-            debug!(
-                "Using task_package_name '{}' for task lookup",
-                task_package_name
-            );
-
-            // Create the workflow directly using the runtime-scoped task registry
-            // (avoid FFI isolation issues).
-            let _workflow = self.create_workflow_from_host_registry(
-                &task_package_name, // Use the correct package name from task metadata
-                &workflow_name,
-                &self.config.default_tenant_id,
-            )?;
-
-            // Register workflow constructor on the runtime so it recreates the
-            // workflow from the runtime's task registry each time.
-            let workflow_name_for_closure = workflow_name.clone();
-            let package_name_for_closure = task_package_name.clone();
-            let workflow_name_for_closure_static = workflow_name.clone();
-            let tenant_id_for_closure = self.config.default_tenant_id.clone();
-            let runtime_for_closure: Arc<Runtime> = runtime.clone();
-
-            // CLOACI-T-0924: attribute the registration to this package so a
-            // SECOND package claiming the same workflow name inside the same
-            // tenant is a loud load-time rejection instead of a silent
-            // overwrite. (Same package re-registering still replaces — the
-            // package-reload path depends on it.)
-            let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
-            runtime
-                .try_register_workflow(&owner, workflow_name.clone(), move || {
-                    debug!(
-                        "Creating workflow instance for {} using runtime registry",
-                        workflow_name_for_closure
-                    );
-
-                    // Recreate the workflow from the runtime task registry each time
-                    match Self::create_workflow_from_host_registry_static(
-                        &runtime_for_closure,
-                        &package_name_for_closure,
-                        &workflow_name_for_closure_static,
-                        &tenant_id_for_closure,
-                    ) {
-                        Ok(workflow) => workflow,
-                        Err(e) => {
-                            error!("Failed to create workflow from runtime registry: {}", e);
-                            // Fallback to empty workflow
-                            crate::workflow::Workflow::new(&workflow_name_for_closure)
-                        }
-                    }
-                })
-                .map_err(|e| RegistryError::RegistrationFailed {
-                    message: e.to_string(),
-                })?;
-
-            info!(
-                "Registered workflow '{}' for package {} v{}",
-                workflow_name, metadata.package_name, metadata.version
-            );
-
+            self.register_workflow_of_package(metadata, &workflow_name)?;
             Ok(Some(workflow_name))
         } else {
             debug!(
@@ -1447,6 +1402,89 @@ impl RegistryReconciler {
             );
             Ok(None)
         }
+    }
+
+    /// Register the workflow `workflow_name` of a package, built from the
+    /// package's tasks in the runtime each time it is asked for. The tasks
+    /// must be registered first.
+    pub(super) fn register_workflow_of_package(
+        &self,
+        metadata: &WorkflowMetadata,
+        workflow_name: &str,
+    ) -> Result<(), RegistryError> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| RegistryError::RegistrationFailed {
+                message: format!(
+                    "package {} received but the reconciler has no Runtime attached",
+                    metadata.package_name
+                ),
+            })?;
+        let workflow_name = workflow_name.to_string();
+
+        // Use the actual package name from metadata — the namespaced_id_template
+        // contains unresolved placeholders like {pkg} that don't match registered tasks
+        let task_package_name = metadata.package_name.clone();
+
+        debug!(
+            "Using task_package_name '{}' for task lookup",
+            task_package_name
+        );
+
+        // Create the workflow directly using the runtime-scoped task registry
+        // (avoid FFI isolation issues).
+        let _workflow = self.create_workflow_from_host_registry(
+            &task_package_name, // Use the correct package name from task metadata
+            &workflow_name,
+            &self.config.default_tenant_id,
+        )?;
+
+        // Register workflow constructor on the runtime so it recreates the
+        // workflow from the runtime's task registry each time.
+        let workflow_name_for_closure = workflow_name.clone();
+        let package_name_for_closure = task_package_name.clone();
+        let workflow_name_for_closure_static = workflow_name.clone();
+        let tenant_id_for_closure = self.config.default_tenant_id.clone();
+        let runtime_for_closure: Arc<Runtime> = runtime.clone();
+
+        // CLOACI-T-0924: attribute the registration to this package so a
+        // SECOND package claiming the same workflow name inside the same
+        // tenant is a loud load-time rejection instead of a silent
+        // overwrite. (Same package re-registering still replaces — the
+        // package-reload path depends on it.)
+        let owner = crate::tenant_scope::TenantOwner::package(&metadata.package_name);
+        runtime
+            .try_register_workflow(&owner, workflow_name.clone(), move || {
+                debug!(
+                    "Creating workflow instance for {} using runtime registry",
+                    workflow_name_for_closure
+                );
+
+                // Recreate the workflow from the runtime task registry each time
+                match Self::create_workflow_from_host_registry_static(
+                    &runtime_for_closure,
+                    &package_name_for_closure,
+                    &workflow_name_for_closure_static,
+                    &tenant_id_for_closure,
+                ) {
+                    Ok(workflow) => workflow,
+                    Err(e) => {
+                        error!("Failed to create workflow from runtime registry: {}", e);
+                        // Fallback to empty workflow
+                        crate::workflow::Workflow::new(&workflow_name_for_closure)
+                    }
+                }
+            })
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: e.to_string(),
+            })?;
+
+        info!(
+            "Registered workflow '{}' for package {} v{}",
+            workflow_name, metadata.package_name, metadata.version
+        );
+        Ok(())
     }
 
     /// Create a workflow using the runtime-scoped task registry (avoiding FFI isolation).
@@ -2179,7 +2217,10 @@ impl RegistryReconciler {
         metadata: &WorkflowMetadata,
         view: &PackageLoadView,
         manifest: &cloacina_workflow_plugin::CloacinaMetadata,
-        library_data: &[u8],
+        // The package's library, opened for the graph function. `None`
+        // (CLOACINA-T-1075, metadata-only load): nothing is opened, and the
+        // graph function fails each firing it is asked to run.
+        library_data: Option<&[u8]>,
         // CLOACI-T-0925: this package's staged provider tree (see
         // `step_load_reactors`).
         provider_root: Option<&std::path::Path>,
@@ -2277,11 +2318,23 @@ impl RegistryReconciler {
             }
         }
 
-        let mut decl = crate::computation_graph::packaging_bridge::build_declaration_from_ffi_in(
-            &graph_meta,
-            library_data.to_vec(),
-            provider_root,
-        );
+        let mut decl = match library_data {
+            Some(library_data) => {
+                crate::computation_graph::packaging_bridge::build_declaration_from_ffi_in(
+                    &graph_meta,
+                    library_data.to_vec(),
+                    provider_root,
+                )
+            }
+            None => crate::computation_graph::packaging_bridge::build_declaration_without_code(
+                &graph_meta,
+                provider_root,
+                super::from_document::graph_runs_on_agents_reason(
+                    &metadata.package_name,
+                    &graph_meta.graph_name,
+                ),
+            ),
+        };
         decl.tenant_id = Some(self.config.default_tenant_id.clone());
 
         // Mirror the CG into the scoped Runtime so executors can look it
@@ -3656,7 +3709,7 @@ mod tests {
         let manifest = make_cloacina_metadata();
 
         let err = reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, Some(&b""[..]), None)
             .await
             .expect_err("subscriber declaring accumulator outside upstream contract must error");
         let msg = format!("{:?}", err);
@@ -3696,7 +3749,7 @@ mod tests {
         let manifest = make_cloacina_metadata();
 
         let err = reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, Some(&b""[..]), None)
             .await
             .expect_err("subscriber-before-publisher must error fast, no pending bindings");
         let msg = format!("{:?}", err);
@@ -3768,7 +3821,7 @@ mod tests {
         // appears in view.reactors. The downstream `load_graph` call
         // will spin its own reactor instance via the bundled-form path.
         let result = reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, Some(&b""[..]), None)
             .await;
         assert!(
             result.is_ok(),
@@ -4418,7 +4471,7 @@ mod tests {
         };
 
         reconciler
-            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, b"", None)
+            .step_load_reactor_bound_cgs(&metadata, &view, &manifest, Some(&b""[..]), None)
             .await
             .expect("bundled-form graph load should succeed");
 

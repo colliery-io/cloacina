@@ -68,6 +68,11 @@ pub async fn run(globals: &GlobalOpts, id: &str) -> Result<(), CliError> {
             if let Some(err) = body.get("describe_error").and_then(|v| v.as_str()) {
                 println!("Describe error: {}", err);
             }
+            // CLOACINA-T-1075: why a server that loads from metadata only has
+            // not loaded this built package.
+            if let Some(reason) = body.get("not_loaded_reason").and_then(|v| v.as_str()) {
+                println!("Not loaded: {}", reason);
+            }
         }
     }
     Ok(())

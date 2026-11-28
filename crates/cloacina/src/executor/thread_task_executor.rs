@@ -96,6 +96,9 @@ pub struct ThreadTaskExecutor {
     /// `context.secret(...)`. `None` when secrets aren't configured for this
     /// runner.
     secret_resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
+    /// CLOACINA-T-1081: whether a task reads only the secrets its package
+    /// declares.
+    secret_grants: crate::security::SecretGrantMode,
 }
 
 impl ThreadTaskExecutor {
@@ -185,6 +188,7 @@ impl ThreadTaskExecutor {
             total_failed,
             result_handler,
             secret_resolver: None,
+            secret_grants: crate::security::SecretGrantMode::Unrestricted,
         }
     }
 
@@ -202,6 +206,14 @@ impl ThreadTaskExecutor {
         resolver: Option<Arc<dyn cloacina_workflow::secret::SecretResolver>>,
     ) -> Self {
         self.secret_resolver = resolver;
+        self
+    }
+
+    /// Sets the rule for the secrets a task reads (CLOACINA-T-1081). With
+    /// [`SecretGrantMode::Declared`](crate::security::SecretGrantMode) a task
+    /// reads only the secrets its package declares.
+    pub fn with_secret_grants(mut self, mode: crate::security::SecretGrantMode) -> Self {
+        self.secret_grants = mode;
         self
     }
 
@@ -231,6 +243,7 @@ impl ThreadTaskExecutor {
         // identically (same drift-elimination pattern as TaskResultHandler).
         crate::executor::TaskContextBuilder::new(self.dal.clone())
             .with_secret_resolver(self.secret_resolver.clone())
+            .with_secret_grants(self.secret_grants)
             .with_context_limits(self.config.context_limits)
             .build(claimed_task, dependencies)
             .await
@@ -349,6 +362,7 @@ impl Clone for ThreadTaskExecutor {
             total_failed: Arc::clone(&self.total_failed),
             result_handler: self.result_handler.clone(),
             secret_resolver: self.secret_resolver.clone(),
+            secret_grants: self.secret_grants,
         }
     }
 }

@@ -153,6 +153,11 @@ pub struct ServerSettingArgs {
     #[arg(long, env = "CLOACINA_FLEET_GRAPH_FIRINGS")]
     pub fleet_graph_firings: Option<String>,
 
+    /// Time limit (seconds) of one poll of a poll trigger on an agent.
+    /// Overrides `[server].fleet_poll_timeout_s`. CLOACINA-T-1077.
+    #[arg(long, env = "CLOACINA_FLEET_POLL_TIMEOUT_S")]
+    pub fleet_poll_timeout_s: Option<u64>,
+
     /// Size in bytes above which a task context is logged as a warning;
     /// `0` = off. Overrides `[server].context_warn_bytes`.
     #[arg(long, env = "CLOACINA_CONTEXT_WARN_BYTES")]
@@ -343,6 +348,10 @@ pub(crate) fn forwarded_settings(
         text(&cli.fleet_graph_firings, &config.fleet_graph_firings),
     );
     arg(
+        "--fleet-poll-timeout-s",
+        number(cli.fleet_poll_timeout_s, config.fleet_poll_timeout_s),
+    );
+    arg(
         "--context-warn-bytes",
         number(cli.context_warn_bytes, config.context_warn_bytes),
     );
@@ -392,6 +401,7 @@ pub async fn run(
     bootstrap_key: Option<String>,
     require_signatures: bool,
     default_executor: Option<String>,
+    single_trust: bool,
     settings: ServerSettingArgs,
 ) -> Result<()> {
     #![allow(clippy::too_many_arguments)]
@@ -401,12 +411,18 @@ pub async fn run(
     // surface; an explicit `--default-executor` overrides it. Forward the
     // resolved value so the server doesn't re-read config (cloacinactl is the
     // config-aware front door, same as `--database-url`).
+    // CLOACINA-T-1075: forwarded only when set, so the server's own rule
+    // applies: `fleet`, or `default` with single trust.
     let default_executor =
         config::resolve_default_executor(default_executor.as_deref(), &config_path);
+    let server_section = CloacinaConfig::load(&config_path).server;
+    // CLOACINA-T-1075: the flag (or `CLOACINA_SINGLE_TRUST`), or
+    // `[server].single_trust = true`, is forwarded as `--single-trust`.
+    let single_trust = single_trust || server_section.single_trust == Some(true);
 
     // CLOACINA-T-1039: the database wait, retention, fleet time limit and
     // alert webhook settings, resolved the same way.
-    let forwarded = forwarded_settings(&settings, &CloacinaConfig::load(&config_path).server);
+    let forwarded = forwarded_settings(&settings, &server_section);
 
     // Write PID file before exec — we're the process about to become server.
     pid::write(&globals.home.join("server.pid"))?;
@@ -418,7 +434,8 @@ pub async fn run(
         &db_url,
         bootstrap_key,
         require_signatures,
-        &default_executor,
+        default_executor.as_deref(),
+        single_trust,
     );
     if globals.verbose {
         cmd.arg("--verbose");
@@ -440,7 +457,8 @@ fn server_command(
     db_url: &str,
     bootstrap_key: Option<String>,
     require_signatures: bool,
-    default_executor: &str,
+    default_executor: Option<&str>,
+    single_trust: bool,
 ) -> Command {
     let mut cmd = Command::new("cloacina-server");
     cmd.arg("--home")
@@ -448,9 +466,10 @@ fn server_command(
         .arg("--bind")
         .arg(bind.to_string())
         .arg("--database-url")
-        .arg(db_url)
-        .arg("--default-executor")
-        .arg(default_executor);
+        .arg(db_url);
+    if let Some(executor) = default_executor {
+        cmd.arg("--default-executor").arg(executor);
+    }
     // CLOACINA-T-1032: the flag is passed on only when set, so the server's
     // own default (`/metrics` on `--bind`) is as before.
     if let Some(addr) = metrics_bind {
@@ -461,6 +480,9 @@ fn server_command(
     }
     if require_signatures {
         cmd.arg("--require-signatures");
+    }
+    if single_trust {
+        cmd.arg("--single-trust");
     }
     cmd
 }
@@ -512,6 +534,7 @@ agent_heartbeat_interval_s = 10
 agent_liveness_misses = 4
 fleet_artifact_fetch_wait_s = 120
 fleet_graph_firings = "worker"
+fleet_poll_timeout_s = 20
 context_warn_bytes = 2097152
 context_max_bytes = 33554432
 cors_allowed_origins = ["https://ops.example.com", "https://ui.example.com"]
@@ -523,7 +546,7 @@ max_unpacked_bytes = 1073741824
 
     /// The arguments forwarded for [`FULL_CONFIG`] after the settings of
     /// CLOACINA-T-1039, in order.
-    const FULL_CONFIG_LATER_ARGS: [&str; 34] = [
+    const FULL_CONFIG_LATER_ARGS: [&str; 36] = [
         "--verification-org-id",
         "6f1c2a7e-3b9d-4c55-9e0a-2d4b8f1e7a60",
         "--reconcile-interval-s",
@@ -544,6 +567,8 @@ max_unpacked_bytes = 1073741824
         "120",
         "--fleet-graph-firings",
         "worker",
+        "--fleet-poll-timeout-s",
+        "20",
         "--context-warn-bytes",
         "2097152",
         "--context-max-bytes",
@@ -709,11 +734,43 @@ max_unpacked_bytes = 1073741824
             "postgres://u:p@h:5432/d",
             None,
             false,
-            "default",
+            Some("default"),
+            false,
         )
         .get_args()
         .map(|a| a.to_string_lossy().into_owned())
         .collect()
+    }
+
+    /// CLOACINA-T-1075: the executor is passed on only when set, and
+    /// `--single-trust` only when on.
+    #[test]
+    fn executor_and_single_trust_are_passed_only_when_set() {
+        let command = |executor: Option<&str>, single_trust: bool| -> Vec<String> {
+            server_command(
+                Path::new("/tmp/cloacina-home"),
+                "127.0.0.1:8080".parse().unwrap(),
+                None,
+                "postgres://u:p@h:5432/d",
+                None,
+                false,
+                executor,
+                single_trust,
+            )
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+        };
+        let plain = command(None, false);
+        assert!(!plain.iter().any(|a| a == "--default-executor"));
+        assert!(!plain.iter().any(|a| a == "--single-trust"));
+        let trusted = command(Some("default"), true);
+        let at = trusted
+            .iter()
+            .position(|a| a == "--default-executor")
+            .unwrap();
+        assert_eq!(trusted[at + 1], "default");
+        assert!(trusted.iter().any(|a| a == "--single-trust"));
     }
 
     #[test]
@@ -734,7 +791,8 @@ max_unpacked_bytes = 1073741824
             "postgres://u:p@h:5432/d",
             Some("key".to_string()),
             true,
-            "fleet",
+            Some("fleet"),
+            false,
         );
         let forwarded = forwarded_settings(&ServerSettingArgs::default(), &section(FULL_CONFIG));
         cmd.args(&forwarded.args);
@@ -745,12 +803,12 @@ max_unpacked_bytes = 1073741824
         let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
         let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
         assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
-        assert_eq!(flags.len(), 34);
+        assert_eq!(flags.len(), 35);
         assert_eq!(flags[0], "--home");
         assert_eq!(flags[6], "--require-signatures");
         assert_eq!(flags[7], "--database-wait-timeout-s");
         assert_eq!(flags[17], "--verification-org-id");
-        assert_eq!(flags[33], "--max-unpacked-bytes");
+        assert_eq!(flags[34], "--max-unpacked-bytes");
     }
 
     /// CLOACINA-T-1106: each flag of [`ServerSettingArgs`] is forwarded under

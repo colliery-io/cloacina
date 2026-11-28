@@ -244,6 +244,8 @@ roll them one at a time behind the proxy.
 
 **Upgrade note, cron schedules:** migration 060 adds a unique index on cron schedules: one schedule per workflow, cron expression and timezone (named instances are not in it). Where a schema holds the same schedule more than once, the migration keeps the row with the latest `last_run_at`, moves the fire records (`schedule_executions`) of the other rows to it with one record per fire time, and deletes the other rows. Run history (`workflow_executions`) is not changed.
 
+**Upgrade note, secrets:** a task reads only the secrets its package declares (`secrets(...)` in `#[workflow]`, `@cloaca.workflow_secrets(...)`), through the run's `$secret` bindings. Any other name answers `secret not granted`, on agents and in the server process. A package that reads a secret it does not declare, or one built before `secrets(...)`, stops reading secrets until a new version declares them. A package with no metadata document reads no secret until its compiler describes it. Each refusal by the server writes an audit row with the action `secret.refused`, the secret name and the package. See [Use Secrets in a Workflow](../../workflows/use-secrets/).
+
 **Rollback:** if the new version fails readiness, restart the previous pinned tag
 against the same database. If a migration changed the schema incompatibly, restore
 the pre-upgrade backup from step 1.

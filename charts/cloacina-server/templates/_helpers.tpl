@@ -112,3 +112,18 @@ neither path is configured.
 {{- fail "cloacina-server: configure exactly one of `database.url`, `databaseUrlSecretRef.name`, or `postgresql.enabled=true`" -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Validate where tenant code runs (CLOACINA-T-1075). The server runs no tenant
+code in its process unless `server.singleTrust` is true: every task goes to
+the agent fleet. An install must say where the agents come from, or choose
+single trust.
+*/}}
+{{- define "cloacina-server.validateFleet" -}}
+{{- $actuator := eq .Values.fleet.actuator "kubernetes" -}}
+{{- $external := .Values.fleet.externalAgents -}}
+{{- $singleTrust := .Values.server.singleTrust -}}
+{{- if not (or $actuator $external $singleTrust) -}}
+{{- fail "cloacina-server: the server runs tenant tasks only on agents. Set `fleet.actuator=kubernetes` (the server makes the agents), or `fleet.externalAgents=true` (you run agents, for example with the cloacina-agent chart), or `server.singleTrust=true` (every tenant is trusted as much as the server, and tenant code runs in the server process)" -}}
+{{- end -}}
+{{- end -}}

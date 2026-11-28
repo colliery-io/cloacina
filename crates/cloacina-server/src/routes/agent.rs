@@ -230,6 +230,40 @@ pub async fn register_agent(
     }))
 }
 
+/// Add an agent's worker counts to the server's metrics (CLOACINA-T-1126). A
+/// retire reason outside the known list is counted as `other`, so an agent
+/// cannot make new label values.
+fn record_worker_counts(counts: &cloacina::fleet::AgentWorkerCounts) {
+    if counts.cold_starts > 0 {
+        metrics::counter!("cloacina_fleet_worker_starts_total", "start" => "cold")
+            .increment(counts.cold_starts);
+    }
+    if counts.warm_starts > 0 {
+        metrics::counter!("cloacina_fleet_worker_starts_total", "start" => "warm")
+            .increment(counts.warm_starts);
+    }
+    for (reason, n) in &counts.retired {
+        if *n == 0 {
+            continue;
+        }
+        metrics::counter!(
+            "cloacina_fleet_warm_workers_retired_total",
+            "reason" => retire_reason_label(reason)
+        )
+        .increment(*n);
+    }
+}
+
+/// The metric label of a warm-worker retire reason: a known reason, else
+/// `other`.
+fn retire_reason_label(reason: &str) -> &'static str {
+    cloacina::fleet::WARM_RETIRE_REASONS
+        .iter()
+        .copied()
+        .find(|known| *known == reason)
+        .unwrap_or("other")
+}
+
 /// `POST /v1/agent/heartbeat`
 pub async fn heartbeat_agent(
     State(state): State<AppState>,
@@ -252,6 +286,11 @@ pub async fn heartbeat_agent(
             "agent_not_registered",
             format!("agent not registered: {} (re-register)", req.agent_id),
         ));
+    }
+    // CLOACINA-T-1126 — the agent's worker starts and warm-worker retirements
+    // since its last heartbeat.
+    if let Some(counts) = &req.worker_counts {
+        record_worker_counts(counts);
     }
     // CLOACINA-T-1011 — renew the lease of the work packets the agent says it
     // still works on, so the delivery sweeper does not push them again. Best
@@ -814,6 +853,13 @@ mod tests {
     fn require_protocol_version_accepts_current() {
         assert!(require_protocol_version(AGENT_PROTOCOL_VERSION).is_ok());
         assert!(require_protocol_version(AGENT_PROTOCOL_VERSION + 1).is_err());
+    }
+
+    #[test]
+    fn a_warm_worker_retire_reason_outside_the_list_is_other() {
+        assert_eq!(retire_reason_label("idle"), "idle");
+        assert_eq!(retire_reason_label("max_jobs"), "max_jobs");
+        assert_eq!(retire_reason_label("made-up"), "other");
     }
 
     // -----------------------------------------------------------------------

@@ -318,7 +318,10 @@ fn describe_python(
     let python = cloacina_python::CloacinaPythonRuntime;
     let python_version = python.python_version();
 
-    let doc = if !manifest.metadata.has_computation_graph() {
+    // CLOACINA-T-1078: what each `cloaca.constructor(...)` declares goes into
+    // the document; this process imports one package only.
+    cloacina_python::constructor::record_declarations();
+    let mut doc = if !manifest.metadata.has_computation_graph() {
         let loaded = python.load_workflow_package(
             &archive_data,
             vendored.as_deref(),
@@ -375,6 +378,7 @@ fn describe_python(
         }
         doc
     };
+    doc.constructors = cloacina_python::constructor::take_declarations();
     Ok(doc)
 }
 
@@ -390,17 +394,32 @@ fn add_python_graph_declaration(
     use cloacina::computation_graph::reactor::{InputStrategy, ReactionCriteria};
     use cloacina_workflow_plugin::types::AccumulatorDeclarationEntry;
 
+    // CLOACINA-T-1078: the authored kinds, as the graph's reactor entry has
+    // them.
+    let reactor_entry = declaration
+        .reactor_name
+        .as_deref()
+        .and_then(|name| doc.reactors.iter().find(|r| r.name == name))
+        .cloned();
     let graph = doc.graph.get_or_insert_with(|| {
         let accumulators = declaration
             .accumulators
             .iter()
             .map(|accumulator| {
-                // The declaration's factory is chosen by the manifest entry
-                // of the accumulator, and is a passthrough without one.
+                // The manifest entry of the accumulator, then the kind its
+                // reactor was authored with, then a passthrough.
                 let (accumulator_type, config) = accumulator_overrides
                     .iter()
                     .find(|cfg| cfg.name == accumulator.name)
                     .map(|cfg| (cfg.accumulator_type.clone(), cfg.config.clone()))
+                    .or_else(|| {
+                        reactor_entry.as_ref().and_then(|r| {
+                            r.accumulators
+                                .iter()
+                                .find(|a| a.name == accumulator.name)
+                                .map(|a| (a.accumulator_type.clone(), a.config.clone()))
+                        })
+                    })
                     .unwrap_or_else(|| ("passthrough".to_string(), Default::default()));
                 AccumulatorDeclarationEntry {
                     name: accumulator.name.clone(),

@@ -21,6 +21,11 @@ in the packaged manifest as encrypted, required input slots, so the runtime
 knows which secrets a workflow expects — but their values are delivered through
 a separate channel, never as params.
 
+On `cloacina-server` the declaration is required to read a secret: a task
+reads only the secrets its package declares. A name the package does not
+declare is refused with `secret not granted`, also when a stored secret of
+that name exists in the tenant. A package that declares no secret reads none.
+
 **Rust** — add a `secrets(...)` list to `#[workflow(...)]`:
 
 ```rust
@@ -99,6 +104,19 @@ never written into the context's serialized data.
 Python these surface as `RuntimeError` (not configured / backend error),
 `KeyError` (secret or field not found), and `PermissionError` (name not granted).
 
+On `cloacina-server`, a task may read, for each name its package declares, the
+stored secret the run binds to that name, or the stored secret of that name
+when the run binds none. Any other name is not granted:
+
+```text
+secret not granted: b_secret: package `orders` does not declare it; a task reads only the secrets its package declares (`secrets(...)` in `#[workflow]`, `@cloaca.workflow_secrets(...)` in Python)
+```
+
+On the fleet, the server refuses the dispatch of a task whose context binds a
+secret its package does not declare, and the agent refuses any name the work
+packet does not carry. Each refusal by the server writes an audit row with the
+action `secret.refused`.
+
 On the embedded / in-process path, the host wires the resolver into the runner —
 for example from `CLOACINA_SECRET_KEK`:
 
@@ -158,6 +176,11 @@ invalid execution context: secret 'dst_credentials' is declared by the workflow 
 ```
 
 Creating an instance without the reference is refused with the same message.
+A reference for a name the workflow does not declare is accepted here. On
+`cloacina-server` it grants nothing: on the fleet each task of the run fails
+at dispatch with `secret not granted`, and in the server process a read of it
+fails the same way (a Rust package reads every bound secret before its task
+starts).
 A task that asks for a name that no stored secret and no reference matches gets
 `secret not found: <name>`, followed by the same reference form. This composes
 with the rest of the instance model — rotating `s3_prod` takes effect on the

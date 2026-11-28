@@ -101,6 +101,14 @@ pub struct DefaultRunnerConfig {
     /// CLOACINA-T-1062: the database that holds the trusted keys, when it
     /// is not the runner's own (a tenant's runner: the admin schema).
     signature_trust_database: Option<crate::Database>,
+    /// CLOACINA-T-1075: how the reconciler loads a package. In process by
+    /// default; `cloacina-server` loads from metadata only unless it runs
+    /// with single trust.
+    package_load_mode: crate::registry::PackageLoadMode,
+    /// CLOACINA-T-1081: whether an in-process task reads only the secrets its
+    /// package declares. Unrestricted by default; `cloacina-server` sets
+    /// declared.
+    secret_grants: crate::security::SecretGrantMode,
     enable_claiming: bool,
     heartbeat_interval: Duration,
     stale_claim_sweep_interval: Duration,
@@ -272,7 +280,19 @@ impl DefaultRunnerConfig {
             require_signatures: self.require_signatures,
             verification_org_id: self.verification_org_id,
             signature_trust_database: self.signature_trust_database.clone(),
+            // CLOACINA-T-1075: in process unless the server says otherwise.
+            package_load_mode: self.package_load_mode,
         }
+    }
+
+    /// CLOACINA-T-1075: how the reconciler loads a package.
+    pub fn package_load_mode(&self) -> crate::registry::PackageLoadMode {
+        self.package_load_mode
+    }
+
+    /// CLOACINA-T-1081: the rule for the secrets an in-process task reads.
+    pub fn secret_grants(&self) -> crate::security::SecretGrantMode {
+        self.secret_grants
     }
 
     /// The tenant this runner serves (CLOACI-T-0781). Namespaces its tasks.
@@ -396,6 +416,8 @@ impl Default for DefaultRunnerConfigBuilder {
                 require_signatures: false,
                 verification_org_id: None,
                 signature_trust_database: None,
+                package_load_mode: crate::registry::PackageLoadMode::InProcess,
+                secret_grants: crate::security::SecretGrantMode::Unrestricted,
                 enable_claiming: true,
                 heartbeat_interval: Duration::from_secs(10),
                 stale_claim_sweep_interval: Duration::from_secs(30),
@@ -572,6 +594,22 @@ impl DefaultRunnerConfigBuilder {
     /// from the admin schema.
     pub fn signature_trust_database(mut self, value: Option<crate::Database>) -> Self {
         self.config.signature_trust_database = value;
+        self
+    }
+
+    /// CLOACINA-T-1075: how the reconciler loads a package. The default,
+    /// in process, runs the package's code in this process; a server with no
+    /// single trust sets [`PackageLoadMode::MetadataOnly`](crate::registry::PackageLoadMode).
+    pub fn package_load_mode(mut self, mode: crate::registry::PackageLoadMode) -> Self {
+        self.config.package_load_mode = mode;
+        self
+    }
+
+    /// CLOACINA-T-1081: with [`SecretGrantMode::Declared`](crate::security::SecretGrantMode)
+    /// an in-process task reads only the secrets its package declares. The
+    /// default reads any secret the runner's resolver can read.
+    pub fn secret_grants(mut self, mode: crate::security::SecretGrantMode) -> Self {
+        self.config.secret_grants = mode;
         self
     }
 
@@ -907,7 +945,8 @@ impl DefaultRunnerBuilder {
         )
         // CLOACI-T-0858: thread the secret resolution side channel to the
         // executor so task contexts can resolve secrets in-process.
-        .with_secret_resolver(self.secret_resolver.clone());
+        .with_secret_resolver(self.secret_resolver.clone())
+        .with_secret_grants(self.config.secret_grants());
 
         // Configure dispatcher for push-based task execution. Every task is sent
         // to the one configured executor key (CLOACI-T-0640).
@@ -926,6 +965,7 @@ impl DefaultRunnerBuilder {
             scheduler: Arc::new(scheduler),
             service_manager: Arc::new(RwLock::new(ServiceManager::new())),
             cron_change: Arc::new(tokio::sync::Notify::new()),
+            poll_dispatcher: crate::trigger::empty_poll_dispatcher_slot(),
         };
 
         // Start the background services immediately

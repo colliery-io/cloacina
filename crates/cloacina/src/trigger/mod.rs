@@ -52,6 +52,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
 
+pub mod dispatched;
+
+pub use dispatched::{
+    DispatchedTrigger, PollDispatcher, PollDispatcherSlot, PollRequest, empty_poll_dispatcher_slot,
+};
+
 /// Errors that can occur during trigger operations.
 #[derive(Debug, Error)]
 pub enum TriggerError {

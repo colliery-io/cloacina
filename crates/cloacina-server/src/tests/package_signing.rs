@@ -569,6 +569,7 @@ fn tenant_reconciler(
         server_org.map(|o| o.0),
         Some(state.database.clone()),
         Default::default(),
+        Default::default(),
     );
     config.set_tenant_id(tenant);
     let database = tenant_database(tenant);

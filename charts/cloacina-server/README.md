@@ -13,14 +13,16 @@ CLOACI-I-0111 / T-0605.
 helm install cloacina \
   oci://ghcr.io/colliery-io/charts/cloacina-server \
   --version 0.1.0 \
-  --set database.url=postgres://user:pass@host:5432/cloacina
+  --set database.url=postgres://user:pass@host:5432/cloacina \
+  --set fleet.actuator=kubernetes
 ```
 
 ### From a local clone
 
 ```sh
 helm install cloacina ./charts/cloacina-server \
-  --set database.url=postgres://user:pass@host:5432/cloacina
+  --set database.url=postgres://user:pass@host:5432/cloacina \
+  --set fleet.actuator=kubernetes
 ```
 
 ### With bundled Postgres (demo / dev only)
@@ -29,13 +31,36 @@ helm install cloacina ./charts/cloacina-server \
 helm dependency update ./charts/cloacina-server
 helm install cloacina ./charts/cloacina-server \
   --set postgresql.enabled=true \
-  --set postgresql.auth.password=$(openssl rand -hex 16)
+  --set postgresql.auth.password=$(openssl rand -hex 16) \
+  --set fleet.actuator=kubernetes
 ```
 
 The chart fails fast if you don't configure exactly one of:
 - `database.url`
 - `databaseUrlSecretRef.name`
 - `postgresql.enabled=true`
+
+It also fails unless the install says where tenant tasks run (CLOACINA-T-1075):
+- `fleet.actuator=kubernetes`: the server makes each tenant's agents;
+- `fleet.externalAgents=true`: you run the agents, for example with the
+  `cloacina-agent` chart;
+- `server.singleTrust=true`: tenant code runs in the server process.
+
+## Where tenant tasks run
+
+By default the server runs no tenant code in its own process. It loads each
+package from the metadata document its compiler stored, opens no tenant
+library and imports no tenant Python module, and sends every task to an agent
+of the tenant. A task waits until such an agent can take it. A poll trigger's
+polls also run on an agent of the tenant; a tenant with a poll trigger keeps
+one agent. A package that uses a native provider or Python reactive code does
+not load; its `build_error` names what it uses.
+
+`server.singleTrust=true` (`--single-trust`) is for a server whose every
+tenant is trusted as much as the server. The server then loads packages and
+runs tasks in its own process, where each tenant's code reaches the database,
+the secrets key and the other tenants' data. The server logs a warning at
+start.
 
 ## Common values
 
@@ -49,10 +74,14 @@ The chart fails fast if you don't configure exactly one of:
 | `postgresql.enabled` | `false` | Install Bitnami's Postgres in-cluster |
 | `apiKeySecretRef.name` | `""` | Secret for `CLOACINA_BOOTSTRAP_KEY` |
 | `server.requireSignatures` | `false` | Reject unsigned packages |
+| `server.singleTrust` | `false` | Tenant code runs in the server process: packages load in process and tasks may run there (`--single-trust`) |
+| `fleet.actuator` | `none` | `kubernetes`: the server makes each tenant's agents |
+| `fleet.externalAgents` | `false` | `true`: you run the agents; with `fleet.actuator=none` the server makes none |
 | `server.tenantRunnerCacheSize` | `256` | Warning limit on per-tenant runners; none is stopped at the limit |
 | `context.warnBytes` | `1048576` | Size in bytes above which a task context is logged as a warning and counted (`0` = off) |
 | `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
 | `server.logFormat` | `text` | Format of the server's log lines on stderr: `text` or `json` (`--log-format`) |
+| `fleet.actuator` | `none` | `none` or `kubernetes` (`CLOACINA_FLEET_ACTUATOR`). The chart does not offer `docker`: the Docker actuator is for one user on one machine, not for several teams on one server, since every tenant's containers share one Docker host and one network, with no namespaces, no network policies and no hardened pods |
 | `fleet.agentLogFormat` | `text` | Format of the log lines of the agents the fleet actuator starts: `text` or `json`; the server sets it on each agent pod; used when `fleet.actuator` is `kubernetes` (`CLOACINA_AGENT_LOG_FORMAT`) |
 | `server.taskLogUrlTemplate` | `""` | URL of a task's logs in your log stack, with `{tenant}`, `{execution_id}`, `{task}`, `{attempt}`; the UI shows it as a link on each task; empty = no link (`--task-log-url-template`) |
 | `service.type` | `ClusterIP` | Service type |
@@ -213,6 +242,45 @@ default (CLOACINA-T-1032). After an upgrade with default values:
 - The server image must have `--metrics-bind`: a release after 0.12.0.
   With an older image, set `metrics.enabled=false`.
 - To keep the old behaviour, set `metrics.enabled=false`.
+
+### Upgrade note: tenant tasks need agents, or single trust
+
+Before `server.singleTrust` a default install ran every tenant's tasks in the
+server process. After an upgrade with the old values:
+
+- The chart fails at render until `fleet.actuator=kubernetes`,
+  `fleet.externalAgents=true` or `server.singleTrust=true` is set.
+- To keep running tasks in the server, set `server.singleTrust=true`.
+- Without single trust, the server loads a package only once its compiler
+  has stored the package's metadata document; upgrade the compiler with the
+  server. A package with a native provider or Python reactive code is refused
+  at its first load (`build_status` `failed`), and stays refused if the
+  setting is turned on later: set `server.singleTrust=true` before the
+  upgrade to keep such packages in service.
+- A package with a poll trigger loads, and its polls run on the tenant's
+  agents. A package that a server of the release before refused for its poll
+  trigger stays refused: upload a new version of it.
+- `CLOACINA_DEFAULT_EXECUTOR=default` in `server.extraEnv` stops the server
+  at start without `server.singleTrust=true`.
+
+### Upgrade note: a task reads only the secrets its package declares
+
+Before this release a task could read every secret of its tenant
+(CLOACINA-T-1081). After the upgrade:
+
+- A task reads, for each secret name its package declares (`secrets(...)` in
+  `#[workflow]`, `@cloaca.workflow_secrets(...)`), the stored secret the run
+  binds to it. Any other name answers `secret not granted`, on agents and in
+  the server process, with or without single trust.
+- A package that reads a secret it does not declare stops working until a new
+  version declares it. A package built before `secrets(...)` declares none
+  and reads no secret.
+- A package with no metadata document reads no secret. The compiler describes
+  older packages after the upgrade.
+- Each refusal by the server writes an audit row with the action
+  `secret.refused`, the secret name and the package: list them with
+  `GET /v1/tenants/{tenant}/audit?action=secret.refused` to find the
+  packages to change.
 
 ## Uninstall
 

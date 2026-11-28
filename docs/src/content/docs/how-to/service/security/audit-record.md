@@ -53,8 +53,8 @@ A `read` or `write` key cannot read the audit record.
 | `id` | Row id. Larger is newer. Also the paging cursor. |
 | `created_at` | When the row was written (RFC 3339, UTC). |
 | `tenant_id` | The tenant the action applied to. `null` for a platform action with no tenant (a global key revoke, a denied platform route). |
-| `actor_key_id` | UUID of the API key that made the request. |
-| `actor_key_name` | Name of that key. |
+| `actor_key_id` | UUID of the API key that made the request; `server` on a row the server writes itself (a refused secret). |
+| `actor_key_name` | Name of that key; `server` on a row the server writes itself. |
 | `actor_identity` | Who the key was minted for at login: `oidc:<issuer>:<sub>` or `local:<account_id>`. `null` for a manually created key. |
 | `action` | One of the fixed strings below. |
 | `target_kind` | What the action applied to: `package`, `workflow`, `trigger`, `instance`, `key`, `tenant`, `secret`, `trusted_key`, `fleet`, `limit`, `pool`, `account`. |
@@ -108,6 +108,19 @@ A `trigger.fire` row is written when at least one workflow started. A
 route returns `200` also when no such package existed. An upload of content
 that is already registered returns the existing package id and writes a new
 `package.upload` row.
+
+### Refused secrets
+
+A task reads only the secrets its package declares. When the server refuses a
+secret to a task, it writes a row with no route behind it:
+
+| Action | `actor_key_id`, `actor_key_name` | `target_kind`, `target` | `outcome` | `detail` |
+|---|---|---|---|---|
+| `secret.refused` | `server` | `secret`, the secret name | `denied` | `package`, `version`, `task`, `workflow_execution_id`, `task_execution_id`, `path` (`fleet`: not sent to an agent; `in_process`: refused in the server process), `reason` |
+
+The row names the secret, never its value. A name a task asks for on an agent,
+and that the work packet does not carry, is refused by the agent; that refusal
+is in the task's error and the agent's log, not in the audit record.
 
 ### Denied requests
 

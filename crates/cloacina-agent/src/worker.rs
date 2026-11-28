@@ -44,6 +44,15 @@
 //! (CLOACINA-T-1125): its job
 //! is a [`GraphJob`], it has the memory share of a task with no request and
 //! the packet's time limit, and a cancel names its firing id.
+//!
+//! **Warm workers** (CLOACINA-T-1126). After a job a worker can wait, with
+//! its package loaded, for the next job of the same [`WarmKey`]: the same
+//! kind, package version, tenant, language and memory limit. Each job is a
+//! line on stdin and gets its own `started` and `done`. The memory limit,
+//! the time limit and the cancel are per job; a kill ends the worker. The
+//! agent empties the worker's `TMPDIR` between jobs, and does not use a
+//! worker again whose job changed its environment or left a process
+//! running. See [`WarmPool`].
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -67,6 +76,15 @@ pub(crate) const RESULT_FD_ENV: &str = "CLOACINA_AGENT_WORKER_RESULT_FD";
 /// starts. The worker ends no later than the task's time limit plus this
 /// after its start. The server waits 30 s past the time limit for the report.
 pub(crate) const LOAD_ALLOWANCE: Duration = Duration::from_secs(20);
+
+/// The CPU seconds one job may use: its time limit and the load allowance,
+/// times the host's CPUs, plus 60 s. A worker that may take more jobs sets
+/// it again before each one (CLOACINA-T-1126).
+pub(crate) fn cpu_allowance(timeout_seconds: u32) -> u64 {
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u64);
+    let wall = u64::from(timeout_seconds.max(1)) + LOAD_ALLOWANCE.as_secs();
+    wall.saturating_mul(cpus).saturating_add(60)
+}
 
 /// The `setrlimit` ceilings of a worker that do not depend on the task.
 pub(crate) const WORKER_MAX_OPEN_FILES: u64 = 65_536;
@@ -203,13 +221,6 @@ impl WorkerInput {
         *max = max_unpacked_bytes;
     }
 
-    fn work_dir(&self) -> &std::path::Path {
-        match self {
-            WorkerInput::Task(job) => &job.work_dir,
-            WorkerInput::Graph(job) => &job.work_dir,
-        }
-    }
-
     fn max_unpacked_bytes(&self) -> u64 {
         match self {
             WorkerInput::Task(job) => job.max_unpacked_bytes,
@@ -223,6 +234,147 @@ impl WorkerInput {
             WorkerInput::Graph(job) => &job.log_format,
         }
     }
+
+    /// The jobs a warm worker of this job may take next (CLOACINA-T-1126):
+    /// the same kind, package version, tenant, language and memory limit.
+    fn warm_key(&self, memory_limit: Option<u64>) -> WarmKey {
+        match self {
+            WorkerInput::Task(job) => WarmKey {
+                kind: "task",
+                digest: job.package.digest.clone(),
+                // The tenant of the packet, and the tenant of the task's
+                // namespace, which the load registers the tasks under.
+                tenant: format!(
+                    "{}|{}",
+                    job.packet.tenant_id.as_deref().unwrap_or(""),
+                    cloacina::parse_namespace(&job.packet.task_name)
+                        .map(|ns| ns.tenant_id)
+                        .unwrap_or_default()
+                ),
+                language: job.packet.language.clone().unwrap_or_default(),
+                memory_limit,
+            },
+            WorkerInput::Graph(job) => WarmKey {
+                kind: "graph",
+                digest: job.package.digest.clone(),
+                tenant: job.packet.tenant_id.clone().unwrap_or_default(),
+                language: job.packet.language.clone().unwrap_or_default(),
+                memory_limit,
+            },
+        }
+    }
+}
+
+/// What a warm worker is kept for (CLOACINA-T-1126): it takes only jobs of
+/// an equal key. Never another tenant's, package's or version's.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct WarmKey {
+    kind: &'static str,
+    /// The package version: a new version is a new digest.
+    digest: String,
+    tenant: String,
+    language: String,
+    /// The address-space ceiling of the worker follows it.
+    memory_limit: Option<u64>,
+}
+
+/// How an agent keeps warm workers (CLOACINA-T-1126).
+#[derive(Clone, Debug)]
+pub(crate) struct WarmConfig {
+    /// The most idle warm workers the agent keeps. 0: none; each job gets a
+    /// new worker and the worker ends with it.
+    pub max_idle: usize,
+    /// A warm worker idle for longer is ended.
+    pub idle_timeout: Duration,
+    /// A worker that has run this many jobs is ended after the last one.
+    pub max_jobs: u32,
+    /// A worker that holds more than this share of its jobs' memory limit
+    /// after a job, in percent, is ended.
+    pub max_memory_percent: u64,
+}
+
+/// The defaults of the agent's flags.
+pub(crate) const DEFAULT_WARM_IDLE_SECONDS: u64 = 60;
+pub(crate) const DEFAULT_WARM_MAX_JOBS: u32 = 100;
+pub(crate) const DEFAULT_WARM_MAX_MEMORY_PERCENT: u64 = 50;
+
+impl WarmConfig {
+    /// No warm workers: one worker per job.
+    pub(crate) fn off() -> Self {
+        Self {
+            max_idle: 0,
+            idle_timeout: Duration::from_secs(DEFAULT_WARM_IDLE_SECONDS),
+            max_jobs: DEFAULT_WARM_MAX_JOBS,
+            max_memory_percent: DEFAULT_WARM_MAX_MEMORY_PERCENT,
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.max_idle > 0 && self.max_jobs > 1
+    }
+}
+
+/// The warm workers of an agent and their counts (CLOACINA-T-1126).
+pub(crate) struct WarmPool {
+    pub(crate) config: WarmConfig,
+    #[cfg(unix)]
+    idle: std::sync::Mutex<Vec<spawn::Worker>>,
+    counts: std::sync::Mutex<cloacina::fleet::AgentWorkerCounts>,
+    sweeper: std::sync::atomic::AtomicBool,
+}
+
+impl WarmPool {
+    pub(crate) fn new(config: WarmConfig) -> Arc<Self> {
+        Arc::new(Self {
+            config,
+            #[cfg(unix)]
+            idle: std::sync::Mutex::new(Vec::new()),
+            counts: std::sync::Mutex::new(Default::default()),
+            sweeper: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    fn count(&self, change: impl FnOnce(&mut cloacina::fleet::AgentWorkerCounts)) {
+        change(&mut self.counts.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+
+    fn count_retired(&self, reason: &str) {
+        self.count(|c| *c.retired.entry(reason.to_string()).or_default() += 1);
+    }
+
+    /// The counts since the last call, for the heartbeat. `None`: nothing
+    /// happened.
+    pub(crate) fn take_counts(&self) -> Option<cloacina::fleet::AgentWorkerCounts> {
+        let taken = std::mem::take(&mut *self.counts.lock().unwrap_or_else(|e| e.into_inner()));
+        (!taken.is_empty()).then_some(taken)
+    }
+
+    /// Put back counts the server did not take.
+    pub(crate) fn restore_counts(&self, counts: &cloacina::fleet::AgentWorkerCounts) {
+        self.count(|c| c.add(counts));
+    }
+
+    /// How many idle warm workers the agent holds.
+    #[cfg(all(unix, test))]
+    pub(crate) fn idle_len(&self) -> usize {
+        self.idle.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// The process ids of the idle warm workers, and their memory now.
+    #[cfg(all(unix, test))]
+    pub(crate) fn idle_memory(&self) -> Vec<(u32, Option<u64>)> {
+        let pids: Vec<u32> = self
+            .idle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|w| w.pid())
+            .collect();
+        let used = crate::memory::worker_memory(&pids);
+        pids.into_iter()
+            .map(|pid| (pid, used.get(&pid).copied()))
+            .collect()
+    }
 }
 
 /// What a worker writes on its result pipe, one JSON object per line.
@@ -231,8 +383,14 @@ impl WorkerInput {
 pub(crate) enum WorkerEvent {
     /// The package is loaded and the task starts now.
     Started,
-    /// The task ended.
-    Done { outcome: AgentOutcome },
+    /// The task ended. `reusable`: the job left the worker as it found it
+    /// (the same environment, no process of its own still running), so the
+    /// worker may take the next job of the same key (CLOACINA-T-1126).
+    Done {
+        outcome: AgentOutcome,
+        #[serde(default)]
+        reusable: bool,
+    },
 }
 
 /// How a packet ended on the agent.
@@ -261,10 +419,13 @@ pub(crate) struct WorkerSettings {
     pub max_unpacked_bytes: u64,
     /// Each worker gets a directory of its own under this one.
     pub work_root: PathBuf,
+    /// The warm workers (CLOACINA-T-1126).
+    pub warm: Arc<WarmPool>,
 }
 
 impl WorkerSettings {
-    /// Workers of this binary with no memory figure: no limit by default.
+    /// Workers of this binary with no memory figure: no limit by default, and
+    /// no warm workers.
     pub(crate) fn unlimited(work_root: PathBuf) -> Self {
         Self {
             program: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("cloacina-agent")),
@@ -277,6 +438,7 @@ impl WorkerSettings {
             max_unpacked_bytes:
                 cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES,
             work_root,
+            warm: WarmPool::new(WarmConfig::off()),
         }
     }
 
@@ -439,20 +601,14 @@ mod spawn {
     use super::*;
     use crate::memory::{StopReason, format_bytes, oom_kill_count};
 
-    /// How long the agent waits for a worker to exit after its result, before
-    /// it kills what is left.
-    const EXIT_ALLOWANCE: Duration = Duration::from_secs(5);
-
     /// The `setrlimit` ceilings of one worker.
     pub(crate) fn worker_rlimits(
         memory_limit: Option<u64>,
         timeout_seconds: u32,
         address_space_factor: u64,
     ) -> ChildRlimits {
-        let cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u64);
-        let wall = u64::from(timeout_seconds.max(1)) + LOAD_ALLOWANCE.as_secs();
         ChildRlimits {
-            cpu_s: wall.saturating_mul(cpus).saturating_add(60),
+            cpu_s: cpu_allowance(timeout_seconds),
             mem_bytes: match memory_limit {
                 Some(limit) if address_space_factor > 0 => limit
                     .saturating_mul(address_space_factor)
@@ -490,8 +646,45 @@ mod spawn {
         if let Some(id) = info.stop_id.as_deref() {
             dispatch_registry().end(id);
         }
-        let _ = tokio::fs::remove_dir_all(input.work_dir()).await;
         end
+    }
+
+    /// A worker process of the agent. With warm workers on, it can take more
+    /// than one job of its key, one at a time (CLOACINA-T-1126).
+    pub(crate) struct Worker {
+        child: tokio::process::Child,
+        pid: u32,
+        /// The worker reads its jobs here; when it closes, the worker ends.
+        stdin: Option<tokio::process::ChildStdin>,
+        events: mpsc::UnboundedReceiver<WorkerEvent>,
+        /// The worker's own directory: the unpacked Python package, and
+        /// `tmp`, its `TMPDIR`. Removed when the worker is retired.
+        work_dir: PathBuf,
+        tmp_dir: PathBuf,
+        /// The jobs it may take next. `None`: it ends with its job.
+        key: Option<WarmKey>,
+        /// The jobs it was given.
+        jobs: u32,
+        idle_since: Instant,
+        /// While idle: the watch that counts its memory for the agent, and
+        /// where the watchdog says it killed it.
+        idle_watch: Option<crate::memory::WatchGuard>,
+        idle_stop: Option<mpsc::UnboundedReceiver<StopReason>>,
+    }
+
+    /// How one job on a worker ended.
+    enum JobEnd {
+        /// The worker gave a result. `reusable`: it may take another job;
+        /// `stopped`: the agent killed it (the result came first).
+        Done {
+            outcome: AgentOutcome,
+            reusable: bool,
+            stopped: bool,
+        },
+        /// The worker exited with no result, or the agent stopped it.
+        Ended(PacketEnd),
+        /// A warm worker that could not take the job: it died while idle.
+        NotTaken,
     }
 
     async fn supervise(
@@ -500,63 +693,299 @@ mod spawn {
         settings: &WorkerSettings,
         cancel: &mut Option<oneshot::Receiver<()>>,
     ) -> PacketEnd {
-        let noun = info.noun;
         let memory_limit = settings.memory_limit_for(info.memory_request);
-        let time_limit = Duration::from_secs(u64::from(info.timeout_seconds.max(1)));
+        let pool = &settings.warm;
+        let key = pool.config.enabled().then(|| input.warm_key(memory_limit));
+        // A warm worker of the key, else a new one.
+        let mut warm = match &key {
+            Some(key) => pool.take(key, memory_limit).await,
+            None => None,
+        };
+        loop {
+            let (mut worker, is_warm) = match warm.take() {
+                Some(worker) => (worker, true),
+                None => match start_worker(info, settings, memory_limit, key.clone()).await {
+                    Ok(worker) => (worker, false),
+                    Err(end) => return end,
+                },
+            };
+            let end = run_on(&mut worker, input, info, settings, memory_limit, cancel).await;
+            if !matches!(end, JobEnd::NotTaken) {
+                pool.count(|c| {
+                    if is_warm {
+                        c.warm_starts += 1;
+                    } else {
+                        c.cold_starts += 1;
+                    }
+                });
+            }
+            match end {
+                // It died while idle: a new worker takes the job.
+                JobEnd::NotTaken => {
+                    pool.count_retired("dead");
+                    retire(worker).await;
+                }
+                JobEnd::Done {
+                    outcome,
+                    reusable,
+                    stopped,
+                } => {
+                    if worker.key.is_none() || stopped {
+                        retire(worker).await;
+                    } else if !reusable {
+                        debug!(
+                            pid = worker.pid,
+                            job = %info.name,
+                            "the job changed the environment or left a process running; \
+                             the worker is not used again"
+                        );
+                        pool.count_retired("dirty");
+                        retire(worker).await;
+                    } else {
+                        pool.give_back(worker, memory_limit, &settings.watchdog)
+                            .await;
+                    }
+                    return PacketEnd::Report(outcome);
+                }
+                JobEnd::Ended(end) => {
+                    retire(worker).await;
+                    return end;
+                }
+            }
+        }
+    }
 
+    /// End a worker: kill its process group, wait for it, take what it left
+    /// out of the process table, and remove its directory.
+    async fn retire(mut worker: Worker) {
+        worker.idle_watch = None;
+        kill_child_group(worker.pid);
+        worker.stdin = None;
+        let _ = worker.child.wait().await;
+        reap_group(worker.pid).await;
+        let _ = tokio::fs::remove_dir_all(&worker.work_dir).await;
+    }
+
+    /// Whether the worker holds more than `percent` of `limit`.
+    async fn over_memory(pid: u32, limit: Option<u64>, percent: u64) -> bool {
+        let Some(limit) = limit else {
+            return false;
+        };
+        let used = tokio::task::spawn_blocking(move || {
+            crate::memory::worker_memory(&[pid]).get(&pid).copied()
+        })
+        .await
+        .ok()
+        .flatten();
+        used.is_some_and(|used| used.saturating_mul(100) > limit.saturating_mul(percent))
+    }
+
+    impl Worker {
+        #[cfg(test)]
+        pub(crate) fn pid(&self) -> u32 {
+            self.pid
+        }
+
+        /// Why an idle worker must not take another job, from what is known
+        /// without a read of its memory.
+        fn unfit(&mut self, idle_timeout: Duration) -> Option<&'static str> {
+            // The watchdog killed it for the agent's memory: it may not have
+            // exited yet.
+            if self
+                .idle_stop
+                .as_mut()
+                .is_some_and(|stop| stop.try_recv().is_ok())
+            {
+                return Some("pressure");
+            }
+            if !matches!(self.child.try_wait(), Ok(None)) {
+                return Some("dead");
+            }
+            if self.idle_since.elapsed() > idle_timeout {
+                return Some("idle");
+            }
+            None
+        }
+    }
+
+    impl WarmPool {
+        /// An idle warm worker of `key`, the one used last. The workers of
+        /// the key that are unfit are retired on the way.
+        async fn take(
+            self: &Arc<Self>,
+            key: &WarmKey,
+            memory_limit: Option<u64>,
+        ) -> Option<Worker> {
+            loop {
+                let found = {
+                    let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+                    idle.iter()
+                        .rposition(|w| w.key.as_ref() == Some(key))
+                        .map(|at| idle.remove(at))
+                };
+                let mut worker = found?;
+                let reason = match worker.unfit(self.config.idle_timeout) {
+                    Some(reason) => Some(reason),
+                    None if over_memory(
+                        worker.pid,
+                        memory_limit,
+                        self.config.max_memory_percent,
+                    )
+                    .await =>
+                    {
+                        Some("memory")
+                    }
+                    None => None,
+                };
+                match reason {
+                    None => return Some(worker),
+                    Some(reason) => {
+                        self.count_retired(reason);
+                        retire(worker).await;
+                    }
+                }
+            }
+        }
+
+        /// A worker whose job ended well and left it clean: keep it for the
+        /// next job of its key, or retire it.
+        async fn give_back(
+            self: &Arc<Self>,
+            mut worker: Worker,
+            memory_limit: Option<u64>,
+            watchdog: &Arc<Watchdog>,
+        ) {
+            let reason = if worker.jobs >= self.config.max_jobs {
+                Some("max_jobs")
+            } else if over_memory(worker.pid, memory_limit, self.config.max_memory_percent).await {
+                Some("memory")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                self.count_retired(reason);
+                retire(worker).await;
+                return;
+            }
+            // Nothing a job wrote to its temporary directory is there for
+            // the next one. The path stays: Python keeps the one it found.
+            let _ = tokio::fs::remove_dir_all(&worker.tmp_dir).await;
+            if tokio::fs::create_dir_all(&worker.tmp_dir).await.is_err() {
+                self.count_retired("dirty");
+                retire(worker).await;
+                return;
+            }
+            let (stop_tx, stop_rx) = mpsc::unbounded_channel();
+            worker.idle_watch = Some(watchdog.watch_idle(worker.pid, stop_tx));
+            worker.idle_stop = Some(stop_rx);
+            worker.idle_since = Instant::now();
+            let evicted = {
+                let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+                idle.push(worker);
+                (idle.len() > self.config.max_idle).then(|| idle.remove(0))
+            };
+            if let Some(oldest) = evicted {
+                self.count_retired("pool_full");
+                retire(oldest).await;
+            }
+            self.start_sweeper();
+        }
+
+        /// Retire idle workers past their idle time, and dead ones, on a
+        /// timer. One per pool, started with its first idle worker.
+        fn start_sweeper(self: &Arc<Self>) {
+            if self.sweeper.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let pool = Arc::downgrade(self);
+            let every = (self.config.idle_timeout / 4)
+                .clamp(Duration::from_millis(50), Duration::from_secs(5));
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(every);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    ticker.tick().await;
+                    let Some(pool) = pool.upgrade() else {
+                        break;
+                    };
+                    pool.sweep().await;
+                }
+            });
+        }
+
+        async fn sweep(&self) {
+            let gone: Vec<(Worker, &'static str)> = {
+                let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+                let mut gone = Vec::new();
+                let mut at = 0;
+                while at < idle.len() {
+                    match idle[at].unfit(self.config.idle_timeout) {
+                        Some(reason) => gone.push((idle.remove(at), reason)),
+                        None => at += 1,
+                    }
+                }
+                gone
+            };
+            for (worker, reason) in gone {
+                debug!(pid = worker.pid, reason, "retiring a warm worker");
+                self.count_retired(reason);
+                retire(worker).await;
+            }
+        }
+    }
+
+    /// Start a worker process. `key`: it may take more jobs of this key.
+    async fn start_worker(
+        info: &JobInfo,
+        settings: &WorkerSettings,
+        memory_limit: Option<u64>,
+        key: Option<WarmKey>,
+    ) -> Result<Worker, PacketEnd> {
+        let noun = info.noun;
         // A directory of its own: the Python package is unpacked there, and
-        // the worker's TMPDIR is in it. Removed when the worker has exited.
+        // the worker's TMPDIR is in it. Removed when the worker is retired.
         let work_dir = settings.work_root.join(uuid_like());
         let tmp_dir = work_dir.join("tmp");
         if let Err(e) = tokio::fs::create_dir_all(&tmp_dir).await {
-            return failure(
+            return Err(failure(
                 FailureClassification::Transient,
                 format!("create the worker directory {work_dir:?}: {e}"),
-            );
+            ));
         }
-        input.set_run(
-            work_dir,
-            settings.log_format.to_string(),
-            settings.max_unpacked_bytes,
-        );
-        let mut line = match serde_json::to_vec(&*input) {
-            Ok(line) => line,
-            Err(e) => {
-                return failure(
-                    FailureClassification::Validation,
-                    format!("serialize the worker job: {e}"),
-                );
-            }
-        };
-        line.push(b'\n');
 
         let (result_read, result_write) = match std::io::pipe() {
             Ok(pipe) => pipe,
             Err(e) => {
-                return failure(
+                return Err(failure(
                     FailureClassification::Transient,
                     format!("open the result pipe of the worker: {e}"),
-                );
+                ));
             }
         };
         let result_fd = result_write.as_raw_fd();
-        let rlimits = worker_rlimits(
+        let mut rlimits = worker_rlimits(
             memory_limit,
             info.timeout_seconds,
             settings.address_space_factor,
-        )
-        .capped_at_own_limits();
+        );
+        // CPU seconds count for the life of the process. A worker that may
+        // take more jobs gets no ceiling here; it sets its own soft limit
+        // before each job (`limit_cpu_for_job`).
+        if key.is_some() {
+            rlimits.cpu_s = u64::MAX;
+        }
+        let rlimits = rlimits.capped_at_own_limits();
         let mut policy = ChildPolicy::worker(rlimits)
             .env(RESULT_FD_ENV, result_fd.to_string())
             .env("TMPDIR", &tmp_dir);
-        for (key, value) in &settings.env {
-            policy = policy.env(key, value);
+        for (name, value) in &settings.env {
+            policy = policy.env(name, value);
         }
         let Some(program) = settings.program.to_str() else {
-            return failure(
+            return Err(failure(
                 FailureClassification::Transient,
                 "the path of the agent binary is not UTF-8".to_string(),
-            );
+            ));
         };
         let mut cmd = build_child_command(program, &policy, ChildStep::Build);
         cmd.args(&settings.args)
@@ -579,38 +1008,23 @@ mod spawn {
         let mut cmd = tokio::process::Command::from(cmd);
         cmd.kill_on_drop(true);
 
-        let oom_kills_before = oom_kill_count();
-        let spawned_at = Instant::now();
         let mut child = match cmd.spawn() {
             Ok(child) => child,
             Err(e) => {
-                return failure(
+                return Err(failure(
                     FailureClassification::Transient,
                     format!("start the {noun}'s worker process: {e}"),
-                );
+                ));
             }
         };
         drop(result_write);
         let pid = child.id().unwrap_or(0);
-
-        let (stop_tx, mut stop_rx) = mpsc::unbounded_channel::<StopReason>();
-        let _watch = settings.watchdog.watch(pid, memory_limit, stop_tx);
-
-        // The job goes in on stdin. The pipe stays open for the life of the
+        // The jobs go in on stdin. The pipe stays open for the life of the
         // worker: the worker reads its end to learn that the agent is gone.
-        let mut stdin = child.stdin.take();
-        if let Some(pipe) = stdin.as_mut() {
-            if let Err(e) = pipe.write_all(&line).await {
-                debug!(pid, error = %e, "the worker did not take its job");
-            }
-            let _ = pipe.flush().await;
-        }
-        // The line holds the secrets: do not keep it.
-        line.iter_mut().for_each(|b| *b = 0);
-        drop(line);
+        let stdin = child.stdin.take();
 
-        // The worker's events, read on a blocking thread.
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<WorkerEvent>();
+        // The worker's events, read on a blocking thread for its life.
+        let (event_tx, events) = mpsc::unbounded_channel::<WorkerEvent>();
         tokio::task::spawn_blocking(move || {
             use std::io::BufRead;
             for line in std::io::BufReader::new(result_read).lines() {
@@ -622,52 +1036,119 @@ mod spawn {
                 }
             }
         });
+        Ok(Worker {
+            child,
+            pid,
+            stdin,
+            events,
+            work_dir,
+            tmp_dir,
+            key,
+            jobs: 0,
+            idle_since: Instant::now(),
+            idle_watch: None,
+            idle_stop: None,
+        })
+    }
 
-        let hard_deadline = spawned_at + time_limit + LOAD_ALLOWANCE;
+    /// Run one job on a worker and hold it to the job's limits. Returns when
+    /// the worker gave its result, or when it has exited.
+    async fn run_on(
+        worker: &mut Worker,
+        input: &mut WorkerInput,
+        info: &JobInfo,
+        settings: &WorkerSettings,
+        memory_limit: Option<u64>,
+        cancel: &mut Option<oneshot::Receiver<()>>,
+    ) -> JobEnd {
+        let noun = info.noun;
+        let pid = worker.pid;
+        let time_limit = Duration::from_secs(u64::from(info.timeout_seconds.max(1)));
+        input.set_run(
+            worker.work_dir.clone(),
+            settings.log_format.to_string(),
+            settings.max_unpacked_bytes,
+        );
+        let mut line = match serde_json::to_vec(&*input) {
+            Ok(line) => line,
+            Err(e) => {
+                return JobEnd::Ended(failure(
+                    FailureClassification::Validation,
+                    format!("serialize the worker job: {e}"),
+                ));
+            }
+        };
+        line.push(b'\n');
+
+        // The idle watch ends; the job's watch, with its limit, starts.
+        worker.idle_watch = None;
+        worker.idle_stop = None;
+        let (stop_tx, mut stop_rx) = mpsc::unbounded_channel::<StopReason>();
+        let _watch = settings.watchdog.watch(pid, memory_limit, stop_tx);
+
+        let taken = match worker.stdin.as_mut() {
+            Some(pipe) => match pipe.write_all(&line).await {
+                Ok(()) => pipe.flush().await.is_ok(),
+                Err(e) => {
+                    debug!(pid, error = %e, "the worker did not take its job");
+                    false
+                }
+            },
+            None => false,
+        };
+        // The line holds the secrets: do not keep it.
+        line.iter_mut().for_each(|b| *b = 0);
+        drop(line);
+        if !taken && worker.jobs > 0 {
+            return JobEnd::NotTaken;
+        }
+        worker.jobs += 1;
+
+        let oom_kills_before = oom_kill_count();
+        let job_start = Instant::now();
+        let hard_deadline = job_start + time_limit + LOAD_ALLOWANCE;
         let mut deadline = hard_deadline;
         let mut started = false;
-        let mut outcome: Option<AgentOutcome> = None;
         let mut stop: Option<StopReason> = None;
         let mut events_open = true;
         let status = loop {
             tokio::select! {
-                status = child.wait() => break status,
-                event = event_rx.recv(), if events_open => match event {
+                status = worker.child.wait() => break status,
+                event = worker.events.recv(), if events_open => match event {
                     Some(WorkerEvent::Started) => {
                         started = true;
                         deadline = (Instant::now() + time_limit).min(hard_deadline);
                     }
-                    Some(WorkerEvent::Done { outcome: done }) => {
-                        outcome = Some(done);
-                        // The worker exits now. If it does not, what is left
-                        // of it is killed; the result stands.
-                        deadline = Instant::now() + EXIT_ALLOWANCE;
+                    // The result stands, even when the agent was stopping
+                    // the worker at the same time.
+                    Some(WorkerEvent::Done { outcome, reusable }) => {
+                        return JobEnd::Done {
+                            outcome,
+                            reusable,
+                            stopped: stop.is_some(),
+                        };
                     }
                     None => events_open = false,
                 },
                 Some(reason) = stop_rx.recv(), if stop.is_none() => {
-                    if outcome.is_none() {
-                        info!(
-                            pid,
-                            job = %info.name,
-                            kind = noun,
-                            reason = ?reason,
-                            "stopping the worker"
-                        );
-                        stop = Some(reason);
-                    }
+                    info!(
+                        pid,
+                        job = %info.name,
+                        kind = noun,
+                        reason = ?reason,
+                        "stopping the worker"
+                    );
+                    stop = Some(reason);
                     kill_child_group(pid);
                 }
                 _ = tokio::time::sleep_until(deadline.into()), if stop.is_none() => {
-                    if outcome.is_none() {
-                        info!(
-                            pid,
-                            job = %info.name,
-                            kind = noun,
-                            limit_s = info.timeout_seconds,
-                            "past its time limit; stopping the worker"
-                        );
-                    }
+                    info!(
+                        pid,
+                        job = %info.name,
+                        kind = noun,
+                        limit_s = info.timeout_seconds,
+                        "past its time limit; stopping the worker"
+                    );
                     stop = Some(StopReason::TimeLimit);
                     kill_child_group(pid);
                 }
@@ -692,29 +1173,33 @@ mod spawn {
         // The worker has exited. Kill what it left in its process group, and
         // let the agent's end of stdin go.
         kill_child_group(pid);
-        drop(stdin);
+        worker.stdin = None;
         reap_group(pid).await;
 
         // A result written just before the exit may still be on its way.
-        if outcome.is_none() && stop.is_none() && events_open {
+        if stop.is_none() && events_open {
+            let events = &mut worker.events;
             let drain = async {
-                while let Some(event) = event_rx.recv().await {
-                    if let WorkerEvent::Done { outcome: done } = event {
-                        return Some(done);
+                while let Some(event) = events.recv().await {
+                    if let WorkerEvent::Done { outcome, .. } = event {
+                        return Some(outcome);
                     }
                 }
                 None
             };
-            outcome = tokio::time::timeout(Duration::from_secs(2), drain)
+            if let Some(outcome) = tokio::time::timeout(Duration::from_secs(2), drain)
                 .await
                 .ok()
-                .flatten();
+                .flatten()
+            {
+                return JobEnd::Done {
+                    outcome,
+                    reusable: false,
+                    stopped: true,
+                };
+            }
         }
-
-        if let Some(done) = outcome {
-            return PacketEnd::Report(done);
-        }
-        match stop {
+        JobEnd::Ended(match stop {
             Some(StopReason::Cancelled) => PacketEnd::Cancelled,
             Some(StopReason::OverLimit { used, limit }) => failure(
                 FailureClassification::TaskError,
@@ -756,10 +1241,10 @@ mod spawn {
                 let status = match status {
                     Ok(status) => status,
                     Err(e) => {
-                        return failure(
+                        return JobEnd::Ended(failure(
                             FailureClassification::Transient,
                             format!("wait for the {noun}'s worker process: {e}"),
-                        );
+                        ));
                     }
                 };
                 let oom_killed = matches!(
@@ -775,12 +1260,12 @@ mod spawn {
                     "the worker ended with no result"
                 );
                 if status.signal() == Some(libc::SIGKILL) && oom_killed {
-                    return failure(
+                    return JobEnd::Ended(failure(
                         FailureClassification::Transient,
                         format!(
                             "the agent ran out of memory: the kernel killed the {noun}'s worker"
                         ),
-                    );
+                    ));
                 }
                 let why = match status.signal() {
                     Some(libc::SIGKILL) => "it was killed (signal 9), not by the agent".to_string(),
@@ -795,7 +1280,7 @@ mod spawn {
                     format!("the {noun}'s worker process ended with no result: {why}"),
                 )
             }
-        }
+        })
     }
 
     /// Take the dead processes a task left behind out of the process table.
@@ -857,11 +1342,13 @@ pub(crate) use spawn::run_in_worker;
 #[cfg(unix)]
 const WORKER_NICE: libc::c_int = 5;
 
-/// The entry of the agent binary in worker mode. Reads one job from stdin,
-/// runs it, writes the outcome to the result pipe, and exits.
+/// The entry of the agent binary in worker mode. Reads a job from stdin,
+/// runs it, writes the outcome to the result pipe, and waits for the next
+/// job; the agent sends one only of the same key (CLOACINA-T-1126). Ends
+/// when stdin closes.
 #[cfg(unix)]
 pub(crate) fn worker_main() -> ! {
-    use std::io::{BufRead, Read, Write};
+    use std::io::{BufRead, Write};
     use std::os::fd::FromRawFd;
 
     fn fail(what: &str) -> ! {
@@ -882,15 +1369,29 @@ pub(crate) fn worker_main() -> ! {
         std::fs::File::from_raw_fd(result_fd)
     };
 
-    let mut line = String::new();
-    if std::io::stdin().lock().read_line(&mut line).is_err() || line.trim().is_empty() {
-        fail("no job on stdin")
-    }
-    let job: WorkerInput = match serde_json::from_str(&line) {
-        Ok(job) => job,
-        Err(e) => fail(&format!("the job on stdin does not parse: {e}")),
-    };
-    drop(line);
+    // The jobs come on stdin, one line each, read on a thread of their own.
+    // stdin closes when the agent is gone, or when the agent retires this
+    // worker: end this worker and what its jobs started.
+    let (job_tx, job_rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin().lock();
+        loop {
+            let mut line = String::new();
+            match stdin.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if job_tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        // SAFETY: `killpg` has no memory-safety preconditions. The worker
+        // leads its own process group.
+        unsafe {
+            libc::killpg(libc::getpgrp(), libc::SIGKILL);
+        }
+    });
 
     // The kernel picks a worker, not the agent, when the pod is out of
     // memory; and the agent gets the CPU before its workers do.
@@ -901,29 +1402,6 @@ pub(crate) fn worker_main() -> ! {
         libc::setpriority(libc::PRIO_PROCESS, 0, WORKER_NICE);
     }
 
-    // stdin closes when the agent is gone: end this worker and what the task
-    // started.
-    std::thread::spawn(|| {
-        let mut sink = [0u8; 256];
-        let mut stdin = std::io::stdin();
-        loop {
-            match stdin.read(&mut sink) {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => break,
-            }
-        }
-        // SAFETY: `killpg` has no memory-safety preconditions. The worker
-        // leads its own process group.
-        unsafe {
-            libc::killpg(libc::getpgrp(), libc::SIGKILL);
-        }
-    });
-
-    let _ = cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
-        job.max_unpacked_bytes(),
-    );
     let write_event = |event: &WorkerEvent| {
         if let Ok(mut text) = serde_json::to_string(event) {
             text.push('\n');
@@ -939,29 +1417,108 @@ pub(crate) fn worker_main() -> ! {
         Ok(runtime) => runtime,
         Err(e) => fail(&format!("build the tokio runtime: {e}")),
     };
-    let outcome = runtime.block_on(async {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-        let _ = match job.log_format().parse().unwrap_or(LogFormat::Text) {
-            LogFormat::Text => tracing_subscriber::fmt().with_env_filter(filter).try_init(),
-            LogFormat::Json => tracing_subscriber::fmt()
-                .json()
-                .with_env_filter(filter)
-                .try_init(),
+    let mut first = true;
+    loop {
+        let Ok(line) = job_rx.recv() else {
+            // The reader is ending this process.
+            std::process::exit(0)
         };
-        cloacina_python::install();
-        let started = || write_event(&WorkerEvent::Started);
-        match job {
-            WorkerInput::Task(job) => crate::run_job(job, None, started).await,
-            WorkerInput::Graph(job) => crate::run_graph_job(job, None, started).await,
+        let parsed = serde_json::from_str::<WorkerInput>(&line);
+        // The line holds the job's secrets: do not keep it.
+        let mut bytes = line.into_bytes();
+        bytes.iter_mut().for_each(|b| *b = 0);
+        drop(bytes);
+        let job = match parsed {
+            Ok(job) => job,
+            Err(e) => fail(&format!("the job on stdin does not parse: {e}")),
+        };
+        if first {
+            first = false;
+            let _ = cloacina::cloacina_workflow_plugin::unpack_limit::set_max_unpacked_bytes(
+                job.max_unpacked_bytes(),
+            );
+            let log_format = job.log_format().parse().unwrap_or(LogFormat::Text);
+            runtime.block_on(async {
+                let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+                let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+                let _ = match log_format {
+                    LogFormat::Text => tracing_subscriber::fmt().with_env_filter(filter).try_init(),
+                    LogFormat::Json => tracing_subscriber::fmt()
+                        .json()
+                        .with_env_filter(filter)
+                        .try_init(),
+                };
+                cloacina_python::install();
+            });
         }
-    });
-    write_event(&WorkerEvent::Done { outcome });
-    drop(result);
-    // The task is over: leave at once. A thread the task left running does
-    // not hold the slot.
-    std::process::exit(0)
+        #[cfg(target_os = "linux")]
+        limit_cpu_for_job(cpu_allowance(job.info().timeout_seconds));
+
+        // CLOACINA-T-1126: what a job could leave for the next one.
+        let env_before = environment();
+        let outcome = runtime.block_on(async {
+            let started = || write_event(&WorkerEvent::Started);
+            match job {
+                WorkerInput::Task(job) => crate::run_job(job, None, started).await,
+                WorkerInput::Graph(job) => crate::run_graph_job(job, None, started).await,
+            }
+        });
+        let reusable = environment() == env_before && !has_live_children();
+        write_event(&WorkerEvent::Done { outcome, reusable });
+    }
+}
+
+/// The environment of this process, to compare before and after a job.
+#[cfg(unix)]
+fn environment() -> BTreeMap<std::ffi::OsString, std::ffi::OsString> {
+    std::env::vars_os().collect()
+}
+
+/// Whether a process this worker started is still running. Children that
+/// ended are taken out of the process table on the way.
+#[cfg(unix)]
+fn has_live_children() -> bool {
+    loop {
+        // SAFETY: `waitpid` for any child, no status wanted, no blocking.
+        let got = unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) };
+        match got {
+            // One that ended: look again.
+            n if n > 0 => {}
+            // Children, none of which has ended.
+            0 => return true,
+            // No children.
+            _ => return false,
+        }
+    }
+}
+
+/// Set the soft CPU-time limit of this worker to what it used so far plus
+/// the allowance of one job (CLOACINA-T-1126). The hard limit stays.
+#[cfg(target_os = "linux")]
+fn limit_cpu_for_job(allowance_s: u64) {
+    // SAFETY: `getrusage` and `getrlimit` write one struct each to the
+    // pointer; `setrlimit` reads one.
+    unsafe {
+        let mut usage: libc::rusage = std::mem::zeroed();
+        if libc::getrusage(libc::RUSAGE_SELF, &mut usage) != 0 {
+            return;
+        }
+        let used = (usage.ru_utime.tv_sec.max(0) + usage.ru_stime.tv_sec.max(0)) as u64 + 1;
+        let mut own = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::getrlimit(libc::RLIMIT_CPU, &mut own) != 0 {
+            return;
+        }
+        let soft = used.saturating_add(allowance_s).min(own.rlim_max);
+        let limit = libc::rlimit {
+            rlim_cur: soft,
+            rlim_max: own.rlim_max,
+        };
+        libc::setrlimit(libc::RLIMIT_CPU, &limit);
+    }
 }
 
 #[cfg(test)]
@@ -984,6 +1541,10 @@ pub(crate) mod tests {
         StartChild { pid_file: PathBuf, ms: u64 },
         /// End the process with no result.
         Crash,
+        /// Write a file named `file` in the temporary directory.
+        WriteTemp { file: String },
+        /// Set the environment variable `name` to `value`.
+        SetEnv { name: String, value: String },
     }
 
     /// Run a test action. Called by `run_job` in place of the package load.
@@ -1007,7 +1568,23 @@ pub(crate) mod tests {
                     "env": std::env::vars().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>(),
                     "secret_ok": secret_ok,
                     "tmpdir": std::env::temp_dir(),
+                    "tmp_files": std::fs::read_dir(std::env::temp_dir())
+                        .map(|entries| entries
+                            .flatten()
+                            .map(|e| e.file_name().to_string_lossy().into_owned())
+                            .collect::<Vec<_>>())
+                        .unwrap_or_default(),
                 }))
+            }
+            TestAction::WriteTemp { file } => {
+                std::fs::write(std::env::temp_dir().join(file), "left by a job").unwrap();
+                ok(serde_json::json!({ "pid": std::process::id() }))
+            }
+            TestAction::SetEnv { name, value } => {
+                // SAFETY: a test job; no other thread of the worker reads
+                // the environment while it runs.
+                unsafe { std::env::set_var(name, value) };
+                ok(serde_json::json!({ "pid": std::process::id() }))
             }
             TestAction::Allocate { bytes, hold_ms } => {
                 let mut block = vec![0u8; bytes as usize];
@@ -1614,6 +2191,359 @@ pub(crate) mod tests {
         drop(rx);
     }
 
+    // ── Warm workers (CLOACINA-T-1126) ────────────────────────────────────
+
+    fn warm_config() -> WarmConfig {
+        WarmConfig {
+            max_idle: 4,
+            idle_timeout: Duration::from_secs(60),
+            max_jobs: 100,
+            max_memory_percent: 50,
+        }
+    }
+
+    /// Settings with warm workers on.
+    fn warm_settings(name: &str, config: WarmConfig) -> WorkerSettings {
+        WorkerSettings {
+            warm: WarmPool::new(config),
+            ..test_settings(name, fast_watchdog(AgentMemory::Unknown))
+        }
+    }
+
+    fn pid_of(end: PacketEnd) -> u64 {
+        success(end)["pid"].as_u64().expect("a pid")
+    }
+
+    fn counts(settings: &WorkerSettings) -> cloacina::fleet::AgentWorkerCounts {
+        let counts = settings.warm.take_counts().unwrap_or_default();
+        settings.warm.restore_counts(&counts);
+        counts
+    }
+
+    /// The second job of one package version reuses the worker, which has
+    /// the package loaded, and is faster.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_second_job_of_the_same_package_reuses_the_warm_worker_and_is_faster() {
+        let settings = warm_settings("warm-reuse", warm_config());
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let (package, task) = python_package(&settings.work_root);
+
+        let at = std::time::Instant::now();
+        let first = run_here_or_in_worker(python_job("warm-1", &package, &task), &settings).await;
+        let cold = at.elapsed();
+        let at = std::time::Instant::now();
+        let second = run_here_or_in_worker(python_job("warm-2", &package, &task), &settings).await;
+        let warm = at.elapsed();
+        println!("python task: cold worker {cold:?}, warm worker {warm:?}");
+
+        let (first, second) = (pid_of(first), pid_of(second));
+        assert_ne!(first, u64::from(std::process::id()), "a worker ran it");
+        assert_eq!(first, second, "the second job ran in the same worker");
+        assert!(
+            warm < cold,
+            "warm {warm:?} is not faster than cold {cold:?}"
+        );
+        let counts = counts(&settings);
+        assert_eq!((counts.cold_starts, counts.warm_starts), (1, 1));
+        assert_eq!(settings.warm.idle_len(), 1);
+    }
+
+    /// Another package, version, tenant, memory limit or kind of job never
+    /// takes the warm worker.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_job_of_another_package_version_or_tenant_never_takes_the_warm_worker() {
+        // Room for every key below, so that none is pushed out.
+        let settings = warm_settings(
+            "warm-keys",
+            WarmConfig {
+                max_idle: 8,
+                ..warm_config()
+            },
+        );
+        let report = || TestAction::Report { secret: None };
+        let base = pid_of(run_here_or_in_worker(job("k-base", report()), &settings).await);
+
+        let mut other_version = job("k-version", report());
+        other_version.package.digest = "another-digest".into();
+        let mut other_tenant = job("k-tenant", report());
+        other_tenant.packet.tenant_id = Some("acme".into());
+        let mut other_tenant_ns = job("k-tenant-ns", report());
+        other_tenant_ns.packet.task_name = "acme::pkg::wf::k".into();
+        let mut other_limit = job("k-limit", report());
+        other_limit.packet.memory_bytes = Some(300 << 20);
+        for (what, one) in [
+            ("version", other_version),
+            ("tenant", other_tenant),
+            ("namespace tenant", other_tenant_ns),
+            ("memory limit", other_limit),
+        ] {
+            let pid = pid_of(run_here_or_in_worker(one, &settings).await);
+            assert_ne!(pid, base, "a job of another {what} took the warm worker");
+        }
+        let graph = pid_of(
+            run_graph_here_or_in_worker(graph_job("k_graph", Some(report())), &settings).await,
+        );
+        assert_ne!(graph, base, "a graph firing took a task's warm worker");
+
+        let again = pid_of(run_here_or_in_worker(job("k-again", report()), &settings).await);
+        assert_eq!(again, base, "a job of the same key takes it");
+    }
+
+    /// A job over its memory limit is killed with its worker; the next job
+    /// of the key gets a fresh one.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn a_job_over_its_memory_limit_ends_the_warm_worker() {
+        let settings = warm_settings("warm-memory", warm_config());
+        let limited = |name: &str, action: TestAction| {
+            let mut one = job(name, action);
+            one.packet.memory_bytes = Some(200 << 20);
+            one
+        };
+        let first = pid_of(
+            run_here_or_in_worker(
+                limited("m-1", TestAction::Report { secret: None }),
+                &settings,
+            )
+            .await,
+        );
+        let (class, message) = failure(
+            run_here_or_in_worker(
+                limited(
+                    "m-2",
+                    TestAction::Allocate {
+                        bytes: 600 << 20,
+                        hold_ms: 20_000,
+                    },
+                ),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(class, FailureClassification::TaskError);
+        assert!(
+            message.contains("exceeded its memory limit of 200Mi"),
+            "{message}"
+        );
+        assert_eq!(counts(&settings).warm_starts, 1, "the warm worker took it");
+        assert!(
+            !is_alive(first as u32),
+            "the warm worker was killed with it"
+        );
+        let next = pid_of(
+            run_here_or_in_worker(
+                limited("m-3", TestAction::Report { secret: None }),
+                &settings,
+            )
+            .await,
+        );
+        assert_ne!(next, first, "the next job got a fresh worker");
+    }
+
+    /// A time-limit kill and a cancel end the warm worker.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_time_limit_kill_and_a_cancel_end_the_warm_worker() {
+        let settings = Arc::new(warm_settings("warm-kill", warm_config()));
+        let report = || TestAction::Report { secret: None };
+        let first = pid_of(run_here_or_in_worker(job("t-1", report()), &settings).await);
+        let mut slow = job("t-2", TestAction::Block { ms: 60_000 });
+        slow.packet.timeout_seconds = 1;
+        let (class, _) = failure(run_here_or_in_worker(slow, &settings).await);
+        assert_eq!(class, FailureClassification::Timeout);
+        assert!(
+            !is_alive(first as u32),
+            "the time limit ended the warm worker"
+        );
+
+        let second = pid_of(run_here_or_in_worker(job("t-3", report()), &settings).await);
+        assert_ne!(second, first);
+        let long = job("t-4", TestAction::Block { ms: 60_000 });
+        let run = {
+            let settings = settings.clone();
+            tokio::spawn(async move { run_here_or_in_worker(long, &settings).await })
+        };
+        // The cancel is for a job that runs: wait until it is registered.
+        let mut told = false;
+        for _ in 0..200 {
+            if dispatch_registry().running.contains_key("dispatch-t-4") {
+                told = dispatch_registry().cancel("dispatch-t-4");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(told, "the cancel reached the job");
+        assert!(matches!(run.await.unwrap(), PacketEnd::Cancelled));
+        assert!(!is_alive(second as u32), "the cancel ended the warm worker");
+        let third = pid_of(run_here_or_in_worker(job("t-5", report()), &settings).await);
+        assert_ne!(third, second);
+        assert_eq!(counts(&settings).warm_starts, 2);
+    }
+
+    /// Nothing a job writes to its temporary directory or sets in its
+    /// environment is seen by the next job; a job that leaves a process
+    /// running retires its worker.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_next_job_does_not_see_the_temp_files_environment_or_processes_of_the_last() {
+        let settings = warm_settings("warm-clean", warm_config());
+        let report = || TestAction::Report { secret: None };
+        let first = pid_of(
+            run_here_or_in_worker(
+                job(
+                    "c-1",
+                    TestAction::WriteTemp {
+                        file: "left-over.txt".into(),
+                    },
+                ),
+                &settings,
+            )
+            .await,
+        );
+        let seen = success(run_here_or_in_worker(job("c-2", report()), &settings).await);
+        assert_eq!(seen["pid"].as_u64(), Some(first), "the same worker");
+        assert_eq!(seen["tmp_files"], serde_json::json!([]), "{seen}");
+
+        let set = pid_of(
+            run_here_or_in_worker(
+                job(
+                    "c-3",
+                    TestAction::SetEnv {
+                        name: "T1126_LEFT_BY_A_JOB".into(),
+                        value: "yes".into(),
+                    },
+                ),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(set, first, "the same worker ran it");
+        let after = success(run_here_or_in_worker(job("c-4", report()), &settings).await);
+        assert_ne!(after["pid"].as_u64(), Some(first), "the worker was retired");
+        assert!(
+            !after["env"].to_string().contains("T1126_LEFT_BY_A_JOB"),
+            "{after}"
+        );
+
+        let child_pid = settings.work_root.join("child.pid");
+        let left = pid_of(
+            run_here_or_in_worker(
+                job(
+                    "c-5",
+                    TestAction::StartChild {
+                        pid_file: child_pid.clone(),
+                        ms: 0,
+                    },
+                ),
+                &settings,
+            )
+            .await,
+        );
+        let next = pid_of(run_here_or_in_worker(job("c-6", report()), &settings).await);
+        assert_ne!(next, left, "a job that left a process retired its worker");
+        let grandchild = read_pid(&child_pid).await;
+        let gone = (0..200).any(|_| {
+            let alive = is_alive(grandchild);
+            if alive {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            !alive
+        });
+        assert!(gone, "the process the job left was killed with its worker");
+        assert_eq!(counts(&settings).retired.get("dirty"), Some(&2));
+    }
+
+    /// A warm worker is retired after its idle time, and after its job cap.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_warm_worker_is_retired_after_its_idle_time_and_its_job_cap() {
+        let settings = warm_settings(
+            "warm-retire",
+            WarmConfig {
+                idle_timeout: Duration::from_millis(300),
+                max_jobs: 2,
+                ..warm_config()
+            },
+        );
+        let report = || TestAction::Report { secret: None };
+        let first = pid_of(run_here_or_in_worker(job("r-1", report()), &settings).await);
+        assert_eq!(settings.warm.idle_len(), 1);
+        tokio::time::sleep(Duration::from_millis(1_000)).await;
+        assert_eq!(settings.warm.idle_len(), 0, "retired when idle");
+        assert!(!is_alive(first as u32), "the idle worker has ended");
+
+        let second = pid_of(run_here_or_in_worker(job("r-2", report()), &settings).await);
+        assert_ne!(second, first);
+        let third = pid_of(run_here_or_in_worker(job("r-3", report()), &settings).await);
+        assert_eq!(third, second, "its second job");
+        assert_eq!(settings.warm.idle_len(), 0, "retired at its job cap");
+        let fourth = pid_of(run_here_or_in_worker(job("r-4", report()), &settings).await);
+        assert_ne!(fourth, third);
+        let counts = counts(&settings);
+        assert_eq!(counts.retired.get("idle"), Some(&1));
+        assert_eq!(counts.retired.get("max_jobs"), Some(&1));
+    }
+
+    /// The secrets of one job are not readable by the next job of the
+    /// worker.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_secrets_of_one_job_are_not_readable_by_the_next() {
+        const VALUE: &str = "s3cr3t-value-of-t-1126";
+        let settings = warm_settings("warm-secret", warm_config());
+        let ask = || TestAction::Report {
+            secret: Some(("warehouse".into(), VALUE.into())),
+        };
+        let mut with_secret = job("s-1", ask());
+        with_secret.secrets.insert(
+            "warehouse".into(),
+            [("password".to_string(), VALUE.to_string())].into(),
+        );
+        let first = success(run_here_or_in_worker(with_secret, &settings).await);
+        assert_eq!(first["secret_ok"], true, "the first job read its secret");
+        let second = success(run_here_or_in_worker(job("s-2", ask()), &settings).await);
+        assert_eq!(second["pid"], first["pid"], "the same worker");
+        assert_eq!(second["secret_ok"], false, "the next job cannot read it");
+        assert!(!second.to_string().contains(VALUE), "{second}");
+    }
+
+    /// A worker that holds more than its share of the limit after a job is
+    /// retired.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn a_worker_that_grew_past_its_share_of_the_limit_is_retired() {
+        let settings = warm_settings(
+            "warm-grew",
+            WarmConfig {
+                max_memory_percent: 1,
+                ..warm_config()
+            },
+        );
+        let mut grow = job("g-1", TestAction::Report { secret: None });
+        // Over 1% of 100Mi after any job. On Linux only anonymous and shared
+        // memory counts, which stays under 10Mi for the test binary.
+        grow.packet.memory_bytes = Some(100 << 20);
+        let first = pid_of(run_here_or_in_worker(grow, &settings).await);
+        assert_eq!(settings.warm.idle_len(), 0, "retired for its memory");
+        assert!(!is_alive(first as u32));
+        assert_eq!(counts(&settings).retired.get("memory"), Some(&1));
+    }
+
+    /// With warm workers off, each job gets a worker of its own.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn with_warm_workers_off_each_job_gets_a_new_worker() {
+        let settings = test_settings("warm-off", fast_watchdog(AgentMemory::Unknown));
+        let report = || TestAction::Report { secret: None };
+        let first = pid_of(run_here_or_in_worker(job("o-1", report()), &settings).await);
+        let second = pid_of(run_here_or_in_worker(job("o-2", report()), &settings).await);
+        assert_ne!(first, second);
+        assert!(!is_alive(first as u32));
+        assert_eq!(counts(&settings).cold_starts, 2);
+    }
+
     // ── Graph firings (CLOACINA-T-1125) ───────────────────────────────────
 
     /// A firing has no memory request: it is held to the share of the agent.
@@ -2035,5 +2965,170 @@ pub(crate) mod tests {
             python[rounds / 2],
             python[rounds - 1]
         );
+    }
+
+    /// Pack a Python package whose one task, `report`, runs after an import
+    /// of a set of standard-library modules (`asyncio`, `decimal`, `email`,
+    /// `http.client`, `json`, `logging`, `sqlite3`, `xml.etree`, ...). No
+    /// fixture of the repository has a third-party data stack.
+    fn python_heavy_package(dir: &std::path::Path) -> (PreparedPackage, String) {
+        let source = dir.join("t1126-heavy");
+        std::fs::create_dir_all(source.join("workflow/t1126_heavy")).unwrap();
+        std::fs::write(
+            source.join("package.toml"),
+            "[package]\nname = \"t1126-heavy\"\nversion = \"0.1.0\"\n\
+             interface = \"cloacina-workflow-plugin\"\ninterface_version = 1\n\
+             extension = \"cloacina\"\n\n[metadata]\nworkflow_name = \"t1126_heavy\"\n\
+             language = \"python\"\ndescription = \"worker test\"\n\
+             entry_module = \"t1126_heavy.tasks\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("workflow/t1126_heavy/__init__.py"), "").unwrap();
+        std::fs::write(
+            source.join("workflow/t1126_heavy/tasks.py"),
+            "import os\nimport asyncio, csv, dataclasses, datetime, decimal, email.mime.text\n\
+             import fractions, http.client, json, logging.handlers, sqlite3, statistics\n\
+             import urllib.request, uuid, xml.etree.ElementTree, zipfile\nimport cloaca\n\n\n\
+             @cloaca.task(dependencies=[])\n\
+             def report(context):\n    context.set(\"pid\", os.getpid())\n    return context\n",
+        )
+        .unwrap();
+        let archive = dir.join("t1126-heavy.cloacina");
+        fidius_core::package::pack_package(&source, Some(&archive)).unwrap();
+        (
+            PreparedPackage {
+                digest: format!("t1126-heavy-{}", std::process::id()),
+                library: None,
+                source_archive: Some(archive),
+                vendored_set: None,
+                providers: Providers::None,
+            },
+            "public::t1126-heavy::t1126_heavy::report".to_string(),
+        )
+    }
+
+    /// Run `one` `rounds` times and print the min, median and max.
+    async fn measure<F, Fut>(label: &str, rounds: usize, mut one: F) -> Duration
+    where
+        F: FnMut(usize) -> Fut,
+        Fut: std::future::Future<Output = PacketEnd>,
+    {
+        let mut times = Vec::new();
+        for n in 0..rounds {
+            let at = std::time::Instant::now();
+            let end = one(n).await;
+            times.push(at.elapsed());
+            success(end);
+        }
+        times.sort();
+        println!(
+            "MEASURE {label} over {rounds} runs: min {:?}, median {:?}, max {:?}",
+            times[0],
+            times[rounds / 2],
+            times[rounds - 1]
+        );
+        times[rounds / 2]
+    }
+
+    /// The cost of a job in a worker for each kind of package
+    /// (CLOACINA-T-1126). Run by hand: `cargo test -p cloacina-agent --
+    /// --ignored --nocapture job_cost_by_kind`. A Rust task runs when
+    /// `CLOACINA_AGENT_TEST_TASK_LIB` names a built workflow library and
+    /// `CLOACINA_AGENT_TEST_TASK` the full name of one of its tasks; a Rust
+    /// graph firing when `CLOACINA_AGENT_TEST_GRAPH_LIB` and
+    /// `CLOACINA_AGENT_TEST_GRAPH_RX` are set (see
+    /// `rust_graph_firing_in_a_worker_and_in_the_agent`).
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "a measurement, run by hand"]
+    async fn job_cost_by_kind() {
+        // `CLOACINA_AGENT_TEST_WARM=1`: with warm workers (CLOACINA-T-1126).
+        let warm = std::env::var_os("CLOACINA_AGENT_TEST_WARM").is_some();
+        let settings = if warm {
+            warm_settings("kind-cost", warm_config())
+        } else {
+            test_settings("kind-cost", fast_watchdog(AgentMemory::Unknown))
+        };
+        std::fs::create_dir_all(&settings.work_root).unwrap();
+        let rounds = 20;
+        // The worker used last is the last one in the pool.
+        let idle_memory = |label: &str| {
+            if let Some((pid, used)) = settings.warm.idle_memory().pop() {
+                println!(
+                    "IDLE {label}: warm worker {pid} holds {}",
+                    used.map_or("?".to_string(), crate::memory::format_bytes)
+                );
+            }
+        };
+
+        if let (Some(lib), Ok(task)) = (
+            std::env::var_os("CLOACINA_AGENT_TEST_TASK_LIB"),
+            std::env::var("CLOACINA_AGENT_TEST_TASK"),
+        ) {
+            let lib = PathBuf::from(lib);
+            measure("rust task in a worker", rounds, |n| {
+                let mut one = job(&format!("kc-rust-{n}"), TestAction::Crash);
+                one.test_action = None;
+                one.packet.task_name = task.clone();
+                one.package.digest = format!("kc-rust-{}", std::process::id());
+                one.package.library = Some(lib.clone());
+                run_here_or_in_worker(one, &settings)
+            })
+            .await;
+            idle_memory("rust task");
+        }
+
+        if let Some(lib) = std::env::var_os("CLOACINA_AGENT_TEST_GRAPH_LIB") {
+            let lib = PathBuf::from(lib);
+            let reactor = std::env::var("CLOACINA_AGENT_TEST_GRAPH_RX").unwrap_or_default();
+            let cache: HashMap<String, serde_json::Value> = serde_json::from_str(
+                &std::env::var("CLOACINA_AGENT_TEST_GRAPH_CACHE").unwrap_or_else(|_| "{}".into()),
+            )
+            .unwrap();
+            measure("rust graph firing in a worker", rounds, |n| {
+                let mut one = graph_job(&format!("kc-graph-{n}"), None);
+                one.package.digest = format!("kc-graph-{}", std::process::id());
+                one.package.library = Some(lib.clone());
+                one.packet.graph_name = reactor.clone();
+                one.packet.cache = cache
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_string()))
+                    .collect();
+                run_graph_here_or_in_worker(one, &settings)
+            })
+            .await;
+            idle_memory("rust graph");
+        }
+
+        let (small, small_task) = python_package(&settings.work_root);
+        measure("python task (one module) in a worker", rounds, |n| {
+            run_here_or_in_worker(
+                python_job(&format!("kc-py-{n}"), &small, &small_task),
+                &settings,
+            )
+        })
+        .await;
+        idle_memory("python task (one module)");
+
+        let (heavy, heavy_task) = python_heavy_package(&settings.work_root);
+        measure("python task (stdlib imports) in a worker", rounds, |n| {
+            run_here_or_in_worker(
+                python_job(&format!("kc-heavy-{n}"), &heavy, &heavy_task),
+                &settings,
+            )
+        })
+        .await;
+        idle_memory("python task (stdlib imports)");
+
+        let graph = python_graph_package(&settings.work_root, "t1126_cost");
+        let pid_file = settings.work_root.join("cost.pid");
+        measure("python graph firing in a worker", rounds, |n| {
+            run_graph_here_or_in_worker(
+                python_graph_job(&format!("kc-pyg-{n}"), "t1126_cost", &graph, &pid_file),
+                &settings,
+            )
+        })
+        .await;
+        idle_memory("python graph");
     }
 }

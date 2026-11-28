@@ -159,6 +159,7 @@ fn test_reconciler_config() {
         require_signatures: false,
         verification_org_id: None,
         signature_trust_database: None,
+        package_load_mode: cloacina::registry::PackageLoadMode::InProcess,
     };
 
     assert_eq!(custom_config.reconcile_interval.as_secs(), 60);

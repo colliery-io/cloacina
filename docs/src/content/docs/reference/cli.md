@@ -81,7 +81,8 @@ distinguish failure modes:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `server start` | If set, enables OpenTelemetry tracing to the named gRPC collector. |
 | `OTEL_SERVICE_NAME` | `server start` | Service name in OpenTelemetry spans. Default: `cloacina`. |
 | `CLOACINA_VAR_<NAME>` | Workflow context | Read by `cloacina::var("NAME")` / `var_or` in Rust and `cloaca.var("NAME")` in Python; the `CLOACINA_VAR_` prefix is mandatory. |
-| `CLOACINA_DEFAULT_EXECUTOR` | `server start` | Executor key for dispatch (`default` or `fleet`). Overridden by `--default-executor`; overrides `[server].default_executor`. |
+| `CLOACINA_DEFAULT_EXECUTOR` | `server start` | Executor key for dispatch (`fleet`, or `default` with single trust). Overridden by `--default-executor`; overrides `[server].default_executor`. |
+| `CLOACINA_SINGLE_TRUST` | `server start` | `true`: single trust, tenant code runs in the server process. Same as `--single-trust`. |
 
 ---
 
@@ -185,7 +186,7 @@ cloacinactl server start [--bind <ADDR>] [--metrics-bind <ADDR>]
                         [--tenant-runner-cache-size <N>]
                         [--tenant-deletion-drain-timeout-s <N>]
                         [--log-retention-days <N>]
-                        [--default-executor <KEY>]
+                        [--default-executor <KEY>] [--single-trust]
                         [--database-wait-timeout-s <N>]
                         [--run-history-retention-days <N>]
                         [--outbox-acked-retention-s <N>]
@@ -269,13 +270,20 @@ environment of `server start`.
 Execution topology is a single deployment knob (CLOACI-T-0640). The
 preferred way to set it is `[server].default_executor` in `config.toml`;
 `cloacinactl server start` reads it and forwards `--default-executor` to
-`cloacina-server`. The flag/env below override the config value for ad-hoc
-runs. The key is hard-matched against the registered executors at startup —
-an unknown key fails fast.
+`cloacina-server` when it is set. The flag/env below override the config value
+for ad-hoc runs. The key is hard-matched against the registered executors at
+startup — an unknown key fails fast.
+
+Without single trust the server runs no tenant code in its process
+(CLOACINA-T-1075): it loads each package from the metadata document its
+compiler stored, and every task goes to the fleet. `--default-executor
+default` then stops the start with an error that names `--single-trust`. See
+[Tenant code and the server process](../../explanation/service/security-model/#tenant-code-and-the-server-process).
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `default` | Executor every task is dispatched to. `default` runs all work on the in-process thread executor; `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/). Forwarded by `cloacinactl server start`; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+| `--default-executor <KEY>` | `CLOACINA_DEFAULT_EXECUTOR` | `fleet`; `default` with `--single-trust` | Executor every task is dispatched to. `fleet` sends it to the [execution-agent fleet](../../explanation/service/execution-agent-fleet/); `default` runs all work on the in-process thread executor and needs `--single-trust`. Forwarded by `cloacinactl server start` when set; also settable directly on `cloacina-server`. CLOACI-T-0640. |
+| `--single-trust` | `CLOACINA_SINGLE_TRUST` | off | Every tenant is trusted as much as the server: packages load in the server process (libraries opened, Python modules imported) and `--default-executor default` is allowed. The server logs a warning at start. `cloacinactl server start` forwards it, also from `[server].single_trust = true`. |
 
 ### Task logs (`cloacina-server`)
 
@@ -300,6 +308,7 @@ These flags tune the [execution-agent fleet](../../explanation/service/execution
 | `--fleet-task-timeout-max-s <N>` | `CLOACINA_FLEET_TASK_TIMEOUT_MAX_S` | `86400` | Longest time limit (seconds) a fleet task can get. A task that asks for more gets this value. Must not be below `--fleet-task-timeout-s`. CLOACINA-T-1014. |
 | `--fleet-graph-firings <inline\|worker>` | `CLOACINA_FLEET_GRAPH_FIRINGS` | `inline` | Where an agent runs a computation-graph firing: `inline` in the agent process, `worker` in a worker process with the limits, time limit and cancel of a task. Any other value stops the server at start. CLOACINA-T-1125. |
 | `--fleet-artifact-fetch-wait-s <N>` | `CLOACINA_FLEET_ARTIFACT_FETCH_WAIT_S` | `300` | How long (seconds) a fleet task waits, per attempt, while agents cannot fetch its package artifact. The task is dispatched again after a delay (2 s, growing to 30 s) and uses no retry attempt. After the limit the attempt fails. `0`: the first failed fetch fails the attempt. CLOACINA-T-1064. |
+| `--fleet-poll-timeout-s <N>` | `CLOACINA_FLEET_POLL_TIMEOUT_S` | `30` | Time limit (seconds) of one poll of a poll trigger on an agent. The server waits this plus 10 s for the answer; with no answer it records the poll as missed and fires nothing. `0` stops the start. CLOACINA-T-1077. |
 | `--context-warn-bytes <N>` | `CLOACINA_CONTEXT_WARN_BYTES` | `1048576` | Size in bytes above which a task context is logged as a warning and counted in `cloacina_context_size_warnings_total`. `0` turns the warning off. CLOACINA-T-1047. |
 | `--context-max-bytes <N>` | `CLOACINA_CONTEXT_MAX_BYTES` | `16777216` | Largest size in bytes of a task context. A task whose result or input context is larger fails with the size, the limit and the largest keys in the error, and is not retried. `0` turns the limit off. CLOACINA-T-1047. |
 
@@ -442,6 +451,10 @@ cloacina-agent --server <URL> --api-key <KEY>
 | `--memory <QTY>` | `CLOACINA_AGENT_MEMORY` | (none) | Total memory of the agent, a Kubernetes quantity above zero (`32Gi`, `512Mi`): the memory limit of its pod. The agent reports it less `--reserved-memory` at registration, as what it offers to tasks. A task's memory request is its limit; a task with no request gets the offered memory divided by `--max-concurrency`. Not set: the agent reports none, and uses the memory limit of its own cgroup, when it has one, for the task limits. See [worker processes and limits](../../explanation/service/execution-agent-fleet/#worker-processes-and-limits). |
 | `--reserved-memory <QTY>` | `CLOACINA_AGENT_RESERVED_MEMORY` | `128Mi` | The agent's own share of its memory, a Kubernetes quantity or `0`. Taken off `--memory` before the rest is offered to tasks. An agent whose memory is not above its share does not start. The server's publish check assumes the default. |
 | `--task-address-space-factor <N>` | `CLOACINA_AGENT_TASK_ADDRESS_SPACE_FACTOR` | `8` | The address-space ceiling of a task's worker process (`RLIMIT_AS`, Linux): the task's memory limit times this, plus 64 GiB. A backstop behind the memory watchdog. `0`: no ceiling. |
+| `--warm-workers <N>` | `CLOACINA_AGENT_WARM_WORKERS` | the value of `--max-concurrency` | The most idle [warm workers](../../explanation/service/execution-agent-fleet/#warm-workers) the agent keeps: worker processes that keep a package version loaded for the next task or graph firing of the same package version, tenant and memory limit. When one more comes, the oldest ends. `0`: none; each job gets a new worker. |
+| `--warm-worker-idle-seconds <N>` | `CLOACINA_AGENT_WARM_WORKER_IDLE_SECONDS` | `60` | A warm worker idle for longer is ended. |
+| `--warm-worker-max-jobs <N>` | `CLOACINA_AGENT_WARM_WORKER_MAX_JOBS` | `100` | The most jobs one worker process runs; it ends after the last. `1` turns warm workers off. |
+| `--warm-worker-max-memory-percent <N>` | `CLOACINA_AGENT_WARM_WORKER_MAX_MEMORY_PERCENT` | `50` | A worker that holds more than this share of its jobs' memory limit after a job is ended and not used again. |
 | `--capabilities <TAG,TAG>` | | (none) | Free-form capability tags advertised at registration. |
 | `--target-triple-override <TRIPLE>` | | (host triple) | Override the advertised host target triple. Rarely needed — the server only dispatches a cdylib built for the agent's triple (OQ-6 fail-closed), so this is mainly for testing that path. |
 | `--cache-dir <PATH>` | `CLOACINA_AGENT_CACHE_DIR` | `<TMPDIR>/cloacina-agent-cache` | Where fetched cdylibs are cached by digest; a cache hit skips the REST fetch. |
@@ -932,8 +945,9 @@ directories = ["~/my-workflows", "/opt/cloacina/packages"]
 
 # Server settings read by `cloacinactl server start`.
 [server]
-default_executor = "default"        # "default" (in-process) or "fleet"
 # Optional. A key that is not set is not forwarded: the server default applies.
+# default_executor = "fleet"        # "fleet", or "default" (in-process) with single_trust
+# single_trust = false              # true: tenant code runs in the server process
 # database_wait_timeout_s = 60
 # run_history_retention_days = 30   # 0 keeps run history for ever
 # outbox_acked_retention_s = 3600
@@ -956,6 +970,7 @@ default_executor = "default"        # "default" (in-process) or "fleet"
 # agent_liveness_misses = 3
 # fleet_artifact_fetch_wait_s = 300
 # fleet_graph_firings = "inline"
+# fleet_poll_timeout_s = 30
 # context_warn_bytes = 1048576
 # context_max_bytes = 16777216
 # cors_allowed_origins = ["https://ops.example.com"]
