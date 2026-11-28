@@ -2002,7 +2002,7 @@ The tenant's pools, `default` first. Tenant-scoped read.
 |---|---|---|
 | `pool` | string | Pool name. |
 | `settings` | object | The pool's settings as stored (see `PUT`). A field that is absent means the server-wide default. |
-| `desired_agents` | integer | How many agents the server keeps for the pool: the tenant's `desired_count` for `default`, the pool's `max_agents` for another pool. |
+| `desired_agents` | integer | How many agents the server keeps for the pool now: the tenant's `desired_count` for `default`; for another pool the count the autoscaler set, within its `min_agents` and `max_agents` (with no `min_agents`, its `max_agents`). |
 | `live_agents` | integer | Agents of the pool that are registered and alive now. |
 
 **Errors:** `401`; `403 tenant_access_denied`; `500`.
@@ -2050,8 +2050,8 @@ The pool name is lowercase letters, digits and `-`, 40 characters at most.
 | `pod_annotations` | object | Annotations added to the pool's pods. Keys must be valid annotation keys. 32 at most. |
 | `automount_service_account_token` | boolean | The pod's `automountServiceAccountToken`. Absent: left out of the pod, the cluster default applies. |
 | `extra_egress` | array | Egress rules added to the default (DNS and the server only). Each has `cidr` (IPv4 or IPv6 block, no host bits set) and optional `ports` (`port` 1 to 65535; `protocol` `TCP` (default), `UDP` or `SCTP`). No ports: every port. 64 rules at most. |
-| `max_agents` | integer | For a pool other than `default`: the number of agents the pool runs (needed; 0 to 1000). Refused for `default`, whose max is the tenant's agent limit. |
-| `min_agents` | integer | For a pool other than `default`: must equal `max_agents` (such a pool is not autoscaled yet). Refused for `default`. |
+| `max_agents` | integer | For a pool other than `default`: the most agents the pool runs (needed; 0 to 1000). Refused for `default`, whose max is the tenant's agent limit. |
+| `min_agents` | integer | For a pool other than `default`: the fewest agents, at most `max_agents`. The pool scales between the two on its waiting work and goes back to this count when idle; `0` lets it scale to zero. Absent: the pool keeps `max_agents` agents. Refused for `default`. |
 
 **Response:** `200 OK` — the pool, in the shape of a list item. The actuator
 applies the settings on its next tick; a changed setting rolls the pool's agents.
@@ -2060,7 +2060,7 @@ applies the settings on its next tick; a changed setting rolls the pool's agents
 
 | Status | `code` | Cause |
 |---|---|---|
-| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed. The message names the field. |
+| `400` | `invalid_pool_settings` | A value is not valid: a malformed quantity, a request above its limit, a bad pool or ServiceAccount name, a bad label or annotation key, a label key the actuator sets itself, a bad CIDR block, port or protocol, an agent count that is missing or not allowed, a `min_agents` above `max_agents`. The message names the field. |
 | `401` | (auth) | Missing or invalid API key. |
 | `403` | `admin_required` | Caller is not an `is_admin` (god-mode) key. |
 | `422` | | The body is not the JSON object above (for example an unknown field). |

@@ -158,6 +158,7 @@ The [execution-agent fleet](../../explanation/service/execution-agent-fleet/) (`
 | `CLOACINA_AGENT_CACHE_DIR` | Directory used to cache fetched workflow cdylibs by digest, so a cache hit skips the REST fetch. Equivalent to `--cache-dir`. | `<TMPDIR>/cloacina-agent-cache` | `/var/lib/cloacina-agent/cache` | Agent | No |
 | `CLOACINA_MAX_UNPACKED_BYTES` | The largest size, in bytes, that a package or provider archive may unpack to. The agent refuses to load a larger one. Equivalent to `--max-unpacked-bytes`. Use the value of the server. The fleet actuator sets it to the server's value when that is not the default. | `524288000` | `629145600` | Agent | No |
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | How many work packets the agent runs at the same time. Equivalent to `--max-concurrency`. The fleet actuator sets it from the pool's `max_concurrency` setting. | `4` | `1` | Agent | No |
+| `CLOACINA_AGENT_DRAIN_SECONDS` | On SIGTERM, how long the agent lets the work it runs finish before it hands the rest back to the server and exits. It takes no new work from the signal on. Keep it under the pod's termination grace period. Equivalent to `--drain-seconds`. The Kubernetes actuator sets it from `CLOACINA_AGENT_DRAIN_S`. | `25` | `900` | Agent | No |
 | `CLOACINA_AGENT_POOL` | The [agent pool](../../explanation/service/execution-agent-fleet/#agent-pools) the agent is in, registered as the capability `pool:<name>`. Equivalent to `--pool`. The fleet actuator sets it for a pool other than `default`. Unset: the server counts the agent in `default`. | None | `big` | Agent | No |
 | `CLOACINA_AGENT_CPU` | Total CPU the agent offers to tasks, a Kubernetes quantity above zero. Equivalent to `--cpu`. Reported at registration; the server places tasks by their CPU requests against it. The Kubernetes actuator sets it from the pool's `cpu_limit`, or its `cpu_request` when it sets no limit; the Docker actuator from the container's CPU limit. Unset: the agent reports none and is packed by its slots only. | None | `4` | Agent | No |
 | `CLOACINA_AGENT_MEMORY` | Total memory of the agent, a Kubernetes quantity above zero. Equivalent to `--memory`. The agent reports it less `CLOACINA_AGENT_RESERVED_MEMORY` and holds each task to a memory limit from it. The actuators set it as they set `CLOACINA_AGENT_CPU`, from the pool's memory limit or request. | None | `32Gi` | Agent | No |
@@ -256,16 +257,18 @@ The compiler pods' NetworkPolicy is written when `CLOACINA_FLEET_NETWORK_POLICY`
 
 ### Autoscaler
 
-The autoscaler is a single leader-gated control loop (one replica drives the fleet via a Postgres advisory lock). Each tick it computes per-tenant utilization (Σ `in_flight` / Σ `max_concurrency` over the tenant's live agents) and nudges `desired_count` by ±1 within `[floor, effective_limit]`, then reconciles actual → desired through the actuator.
+The autoscaler is a single leader-gated control loop (one replica drives the fleet via a Postgres advisory lock). Each tick it sets the agent count of each [agent pool](../../explanation/service/execution-agent-fleet/#how-a-pool-scales) of each tenant from the waiting work that does not fit on the pool's live agents, packed by the tasks' CPU and memory requests, within the pool's min and max; a pool that has been idle for `CLOACINA_AUTOSCALE_IDLE_S` goes back to its min. Then it reconciles actual → desired through the actuator.
 
 | Variable | Purpose | Default | Example | Component | Required |
 |----------|---------|---------|---------|-----------|----------|
-| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze `desired_count` so operators drive it by hand (provision API); reconciliation keeps running. Defaults **on** whenever an actuator is active. | on (when actuator ≠ `none`) | `false` | Server | No |
-| `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Scale **up** by one when a tenant's utilization is strictly greater than this. | `0.8` | `0.75` | Server | No |
-| `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Scale **down** by one when utilization is strictly less than this. The gap to the up-threshold is the hysteresis band that prevents thrash. | `0.2` | `0.1` | Server | No |
-| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Minimum wall-clock seconds between consecutive scale changes for a tenant. | `60` | `120` | Server | No |
-| `CLOACINA_AUTOSCALE_FLOOR` | Lower bound on a tenant's `desired_count`; scale-down never goes below it. | `0` | `1` | Server | No |
+| `CLOACINA_AUTOSCALE` | Kill-switch for **only** the autoscale step. Off-values (`0`, `false`, `off`, `no`) freeze the counts so operators drive them by hand (provision API, pool `min_agents`); reconciliation keeps running. Defaults **on** whenever an actuator is active. | on (when actuator ≠ `none`) | `false` | Server | No |
+| `CLOACINA_AUTOSCALE_IDLE_S` | Seconds a pool must be idle (no task in flight, none waiting) before it goes back to its min. | `300` | `900` | Server | No |
+| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Least wall-clock seconds between two scale-downs of a pool. A scale-up does not wait. | `60` | `120` | Server | No |
+| `CLOACINA_AUTOSCALE_FLOOR` | The min of the pool `default` of each tenant. A tenant with an active poll trigger keeps at least 1. | `0` | `1` | Server | No |
 | `CLOACINA_AUTOSCALE_INTERVAL_S` | How often the control loop ticks (both the autoscale and reconcile steps). Values ≤ 0 fall back to the default. | `30` | `15` | Server | No |
+| `CLOACINA_AGENT_DRAIN_S` | **Kubernetes actuator.** How long a managed agent drains on SIGTERM: given to each agent as `CLOACINA_AGENT_DRAIN_SECONDS`, and the agent pods' `terminationGracePeriodSeconds` is this plus 15. Unset: the agent's own default (25 s) and the Kubernetes default grace period (30 s). Setting it rolls the agent pods once. | None | `900` | Server (k8s actuator) | No |
+
+`CLOACINA_AUTOSCALE_UP_THRESHOLD` and `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` no longer apply: the autoscaler does not scale on utilization.
 
 > The unified control loop ticks at `CLOACINA_AUTOSCALE_INTERVAL_S`. (An earlier `CLOACINA_RECONCILE_INTERVAL_S` proposal was superseded — there is no separate reconcile-interval variable.)
 
@@ -570,15 +573,16 @@ Quick reference of all Cloacina-specific environment variables:
 | `CLOACINA_SERVER_PORT` | Server (k8s actuator) | Server pod port opened by the NetworkPolicy egress (default `8080`) |
 | `CLOACINA_FLEET_DNS_NAMESPACE` | Server (k8s actuator) | DNS namespace allowed for port-53 egress (default `kube-system`) |
 | `CLOACINA_AUTOSCALE` | Server | Kill-switch for the autoscale step (default on when an actuator is active) |
-| `CLOACINA_AUTOSCALE_UP_THRESHOLD` | Server | Utilization above which a tenant scales up (default `0.8`) |
-| `CLOACINA_AUTOSCALE_DOWN_THRESHOLD` | Server | Utilization below which a tenant scales down (default `0.2`) |
-| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Server | Min seconds between scale changes per tenant (default `60`) |
-| `CLOACINA_AUTOSCALE_FLOOR` | Server | Lower bound on `desired_count` (default `0`) |
+| `CLOACINA_AUTOSCALE_IDLE_S` | Server | Seconds a pool must be idle before it goes back to its min (default `300`) |
+| `CLOACINA_AUTOSCALE_COOLDOWN_S` | Server | Min seconds between two scale-downs of a pool (default `60`) |
+| `CLOACINA_AUTOSCALE_FLOOR` | Server | The min of each tenant's pool `default` (default `0`) |
 | `CLOACINA_AUTOSCALE_INTERVAL_S` | Server | Control-loop tick interval (default `30`) |
+| `CLOACINA_AGENT_DRAIN_S` | Server (k8s actuator) | Drain time of managed agents on SIGTERM; sets the pods' grace period (unset: agent default 25 s) |
 | `CLOACINA_SERVER` | Agent | Server base URL the agent registers with |
 | `CLOACINA_API_KEY` | Agent | Agent API key (tenant scope) |
 | `CLOACINA_AGENT_CACHE_DIR` | Agent | Fetched-cdylib cache directory |
 | `CLOACINA_AGENT_MAX_CONCURRENCY` | Agent | Work packets the agent runs at the same time (default `4`) |
+| `CLOACINA_AGENT_DRAIN_SECONDS` | Agent | Drain time on SIGTERM before the rest is handed back (default `25`) |
 | `CLOACINA_AGENT_POOL` | Agent | The agent pool the agent registers in (unset: `default`) |
 | `CLOACINA_AGENT_CPU` | Agent | Total CPU the agent reports for task placement (unset: none) |
 | `CLOACINA_AGENT_MEMORY` | Agent | Total memory of the agent, for task placement and task memory limits (unset: none) |

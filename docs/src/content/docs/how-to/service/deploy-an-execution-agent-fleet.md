@@ -302,12 +302,16 @@ the large ones in a second pool.
 
    ```bash
    cloacinactl tenant pool set tenant_acme large --cpu-limit 4 \
-     --memory-limit 32Gi --memory-request 16Gi --max-concurrency 8 --agents 2
+     --memory-limit 32Gi --memory-request 16Gi --max-concurrency 8 \
+     --min-agents 0 --agents 2
    ```
 
-   A pool other than `default` runs a fixed number of agents (`--agents`, the
-   `max_agents` setting). It is not autoscaled, and the tenant's agent limit
-   does not count it.
+   The pool scales between `--min-agents` (`min_agents`) and `--agents`
+   (`max_agents`) on the work that waits for it: with `0` it has no agent
+   until a large task waits, and goes back to none when it has been idle for
+   `CLOACINA_AUTOSCALE_IDLE_S` (300 s). Without `--min-agents` it runs exactly
+   `--agents` agents. The tenant's agent limit does not count it. See
+   [How a pool scales](../../../explanation/service/execution-agent-fleet/#how-a-pool-scales).
 
 2. Name the pool on the tasks that need it, with what each one needs.
 
@@ -519,14 +523,23 @@ for the full knob list.
 
 ### Autoscaler tuning
 
-When an actuator is active, a leader-gated control loop autoscales
-`desired_count` from per-tenant utilization (Σ `in_flight` / Σ `max_concurrency`)
-and reconciles toward it. Tune it with the `CLOACINA_AUTOSCALE_*` knobs — up/down
-thresholds, cooldown, floor, and tick interval — documented in
+When an actuator is active, a leader-gated control loop sets the count of each
+pool from the waiting work that does not fit on its agents, and reconciles
+toward it ([How a pool scales](../../../explanation/service/execution-agent-fleet/#how-a-pool-scales)).
+Tune it with the `CLOACINA_AUTOSCALE_*` knobs (idle time, cooldown between
+scale-downs, the floor of `default`, tick interval), documented in
 [Environment Variables](../../../reference/environment-variables/#autoscaler).
 Set `CLOACINA_AUTOSCALE=false` to freeze automatic scaling and drive
 `desired_count` by hand through the provision API while reconciliation keeps
 running.
+
+Watch a pool with `cloacinactl tenant pool get <tenant> <pool>`
+(`desired_agents`, `live_agents`) and the `cloacina_fleet_pool_*` gauges.
+
+Agents stopped by a scale-down or a roll drain first. Set
+`CLOACINA_AGENT_DRAIN_S` on the server to the longest task time limit of your
+pools, so a roll lets running tasks finish; see
+[Stopping an agent](../../../explanation/service/execution-agent-fleet/#stopping-an-agent).
 
 ## See also
 
