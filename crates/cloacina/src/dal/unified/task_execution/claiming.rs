@@ -28,7 +28,16 @@ use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
 use crate::models::task_execution::TaskExecution;
+use cloacina_api_types::TaskWaitReason;
 use diesel::prelude::*;
+
+/// The `wait_reason` and `wait_message` columns for a reason (CLOACINA-T-1148).
+fn reason_columns(reason: Option<&TaskWaitReason>) -> (Option<String>, Option<String>) {
+    match reason {
+        Some(r) => (Some(r.code.clone()), Some(r.message.clone())),
+        None => (None, None),
+    }
+}
 
 /// The heartbeat time before which a claim is stale.
 fn stale_cutoff(threshold: std::time::Duration) -> UniversalTimestamp {
@@ -165,7 +174,20 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         not_before: UniversalTimestamp,
     ) -> Result<bool, ValidationError> {
+        self.defer_dispatch_because(task_id, not_before, None).await
+    }
+
+    /// [`defer_dispatch`](Self::defer_dispatch), and the row records why the
+    /// task waits (CLOACINA-T-1148). The reason rides in the same write, so a
+    /// put-off costs no extra write. `None` clears it.
+    pub async fn defer_dispatch_because(
+        &self,
+        task_id: UniversalUuid,
+        not_before: UniversalTimestamp,
+        reason: Option<&TaskWaitReason>,
+    ) -> Result<bool, ValidationError> {
         let now = UniversalTimestamp::now();
+        let (code, message) = reason_columns(reason);
         let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
             diesel::update(
                 task_executions::table
@@ -175,6 +197,8 @@ impl<'a> TaskExecutionDAL<'a> {
             .set((
                 task_executions::retry_at.eq(Some(not_before)),
                 task_executions::started_at.eq(None::<UniversalTimestamp>),
+                task_executions::wait_reason.eq(code),
+                task_executions::wait_message.eq(message),
                 task_executions::updated_at.eq(now),
             ))
             .execute(conn)
@@ -211,8 +235,30 @@ impl<'a> TaskExecutionDAL<'a> {
         not_before: UniversalTimestamp,
         waiting_since: Option<UniversalTimestamp>,
     ) -> Result<bool, ValidationError> {
-        self.defer_started_dispatch(task_id, runner_id, not_before, waiting_since, None)
+        self.defer_started_dispatch(task_id, runner_id, not_before, waiting_since, None, None)
             .await
+    }
+
+    /// [`defer_dispatch_after_start`](Self::defer_dispatch_after_start), and
+    /// the row records why the task waits (CLOACINA-T-1148), in the same
+    /// write.
+    pub async fn defer_dispatch_after_start_because(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: UniversalUuid,
+        not_before: UniversalTimestamp,
+        waiting_since: Option<UniversalTimestamp>,
+        reason: &TaskWaitReason,
+    ) -> Result<bool, ValidationError> {
+        self.defer_started_dispatch(
+            task_id,
+            runner_id,
+            not_before,
+            waiting_since,
+            None,
+            Some(reason),
+        )
+        .await
     }
 
     /// [`defer_dispatch_after_start`](Self::defer_dispatch_after_start) for a
@@ -234,12 +280,36 @@ impl<'a> TaskExecutionDAL<'a> {
         waiting_since: Option<UniversalTimestamp>,
         fetch_wait_since: UniversalTimestamp,
     ) -> Result<bool, ValidationError> {
+        self.defer_dispatch_after_fetch_refusal_because(
+            task_id,
+            runner_id,
+            not_before,
+            waiting_since,
+            fetch_wait_since,
+            None,
+        )
+        .await
+    }
+
+    /// [`defer_dispatch_after_fetch_refusal`](Self::defer_dispatch_after_fetch_refusal),
+    /// and the row records why the task waits (CLOACINA-T-1148), in the same
+    /// write. `None` clears it.
+    pub async fn defer_dispatch_after_fetch_refusal_because(
+        &self,
+        task_id: UniversalUuid,
+        runner_id: UniversalUuid,
+        not_before: UniversalTimestamp,
+        waiting_since: Option<UniversalTimestamp>,
+        fetch_wait_since: UniversalTimestamp,
+        reason: Option<&TaskWaitReason>,
+    ) -> Result<bool, ValidationError> {
         self.defer_started_dispatch(
             task_id,
             runner_id,
             not_before,
             waiting_since,
             Some(fetch_wait_since),
+            reason,
         )
         .await
     }
@@ -251,9 +321,11 @@ impl<'a> TaskExecutionDAL<'a> {
         not_before: UniversalTimestamp,
         waiting_since: Option<UniversalTimestamp>,
         fetch_wait_since: Option<UniversalTimestamp>,
+        reason: Option<&TaskWaitReason>,
     ) -> Result<bool, ValidationError> {
         use diesel::connection::Connection;
 
+        let (code, message) = reason_columns(reason);
         let rows: usize = crate::interact_on_backend!(self.dal, |conn| {
             conn.transaction::<usize, diesel::result::Error, _>(|conn| {
                 let now = UniversalTimestamp::now();
@@ -283,6 +355,8 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::started_at.eq(None::<UniversalTimestamp>),
                     task_executions::waiting_since.eq(Some(waiting_since)),
                     task_executions::artifact_fetch_wait_since.eq(fetch_wait_since),
+                    task_executions::wait_reason.eq(code),
+                    task_executions::wait_message.eq(message),
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -420,6 +494,8 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::status.eq("Running"),
                 task_executions::started_at.eq(Some(now)),
                 task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                task_executions::wait_reason.eq(None::<String>),
+                task_executions::wait_message.eq(None::<String>),
                 task_executions::fleet_dispatch_id.eq(Some(dispatch_id)),
                 task_executions::fleet_packet_row_id.eq(Some(packet_row_id)),
                 task_executions::fleet_dispatch_claimed_by.eq(Some(runner_id)),
@@ -737,6 +813,108 @@ mod defer_dispatch_after_start_tests {
         let waiting_before = row(dal, task_id).await.waiting_since;
         dal.task_execution().mark_started(task_id).await.unwrap();
         waiting_before
+    }
+
+    fn reason(code: &str) -> cloacina_api_types::TaskWaitReason {
+        cloacina_api_types::TaskWaitReason::new(code, format!("because {code}"))
+    }
+
+    fn reason_of(task: &TaskExecution) -> (Option<&str>, Option<&str>) {
+        (task.wait_reason.as_deref(), task.wait_message.as_deref())
+    }
+
+    /// CLOACINA-T-1148: a put-off records why; the next put-off replaces it;
+    /// placement on an agent clears it.
+    #[tokio::test]
+    async fn a_put_off_records_why_and_placement_clears_it() {
+        let dal = unique_dal().await;
+        let task_id = ready_task(&dal).await;
+        assert_eq!(reason_of(&row(&dal, task_id).await), (None, None));
+
+        let te = dal.task_execution();
+        assert!(
+            te.defer_dispatch_because(task_id, in_seconds(2), Some(&reason("no_agent")))
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            reason_of(&row(&dal, task_id).await),
+            (Some("no_agent"), Some("because no_agent"))
+        );
+        assert!(
+            te.defer_dispatch_because(task_id, in_seconds(2), Some(&reason("no_capacity")))
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            reason_of(&row(&dal, task_id).await),
+            (Some("no_capacity"), Some("because no_capacity"))
+        );
+
+        let runner = UniversalUuid::new_v4();
+        te.claim_for_runner(task_id, runner).await.unwrap();
+        assert!(
+            te.place_on_fleet_agent(task_id, runner, "a1", None, None)
+                .await
+                .unwrap()
+        );
+        assert_eq!(reason_of(&row(&dal, task_id).await), (None, None));
+    }
+
+    /// CLOACINA-T-1148: a refusal after the start records why; the next
+    /// start and the end of the task clear it.
+    #[tokio::test]
+    async fn a_refused_dispatch_records_why_and_the_start_and_the_end_clear_it() {
+        let dal = unique_dal().await;
+        let task_id = ready_task(&dal).await;
+        let runner = UniversalUuid::new_v4();
+        let waiting_before = claim_and_start(&dal, task_id, runner).await;
+        let te = dal.task_execution();
+        assert!(
+            te.defer_dispatch_after_start_because(
+                task_id,
+                runner,
+                in_seconds(2),
+                waiting_before,
+                &reason("agent_refused"),
+            )
+            .await
+            .unwrap()
+        );
+        let after = row(&dal, task_id).await;
+        assert_eq!(after.status, "Ready");
+        assert_eq!(
+            reason_of(&after),
+            (Some("agent_refused"), Some("because agent_refused"))
+        );
+
+        assert!(
+            te.defer_dispatch_after_fetch_refusal_because(
+                task_id,
+                runner,
+                in_seconds(2),
+                waiting_before,
+                in_seconds(0),
+                Some(&reason("artifact_fetch")),
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            reason_of(&row(&dal, task_id).await).0,
+            Some("artifact_fetch")
+        );
+
+        te.mark_started(task_id).await.unwrap();
+        assert_eq!(reason_of(&row(&dal, task_id).await), (None, None));
+
+        // A task that ends while it waits has no reason either.
+        let other = ready_task(&dal).await;
+        te.defer_dispatch_because(other, in_seconds(2), Some(&reason("no_agent")))
+            .await
+            .unwrap();
+        te.mark_failed(other, "gave up", None).await.unwrap();
+        assert_eq!(reason_of(&row(&dal, other).await), (None, None));
     }
 
     #[tokio::test]

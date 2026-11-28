@@ -491,14 +491,28 @@ pub fn ExecutionView(
                             <tbody>
                                 <For
                                     each=move || task_list.get()
-                                    key=|t| (t.id.clone(), t.status.clone(), t.attempt)
+                                    key=|t| (
+                                        t.id.clone(),
+                                        t.status.clone(),
+                                        t.attempt,
+                                        t.wait_reason.clone().map(|w| w.message),
+                                    )
                                     children=|t| {
                                         let start = t.started_at.clone().unwrap_or_else(|| t.created_at.clone());
                                         let end = t.completed_at.clone();
                                         view! {
                                             <tr>
                                                 <td>{local_id(&t.task_name)}</td>
-                                                <td><StatusBadge status=t.status.clone() /></td>
+                                                <td>
+                                                    <StatusBadge status=t.status.clone() />
+                                                    // Why a waiting task waits
+                                                    // (CLOACINA-T-1148).
+                                                    {t.wait_reason.clone().map(|w| view! {
+                                                        <div class="app-meta app-meta--md" title=w.code>
+                                                            {format!("Waits: {}", w.message)}
+                                                        </div>
+                                                    })}
+                                                </td>
                                                 <td>{format!("{}/{}", t.attempt, t.max_attempts)}</td>
                                                 <td class="cl-tnum">
                                                     {format_duration(Some(start.as_str()), end.as_deref())}

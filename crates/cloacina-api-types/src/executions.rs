@@ -169,6 +169,68 @@ pub struct TaskExecutionDetail {
     /// error in `last_error` and `error_details`.
     #[serde(default)]
     pub attempt_errors: Vec<TaskAttemptErrorDetail>,
+    /// Why the task waits, while the fleet puts it off (CLOACINA-T-1148);
+    /// `null` when it does not wait, once it is placed on an agent or
+    /// starts, and after it ends.
+    #[serde(default)]
+    pub wait_reason: Option<TaskWaitReason>,
+}
+
+/// Why a task waits (CLOACINA-T-1148): a short code and the same in words.
+///
+/// The codes are an open set: a client shows an unknown code with its
+/// message. The codes of this release: `plugin_interface`, `no_agent`,
+/// `platform`, `too_large`, `no_capacity`, `agent_refused`,
+/// `artifact_fetch`, `dispatch_retry`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct TaskWaitReason {
+    /// A short code, for example `no_capacity`.
+    pub code: String,
+    /// The reason in words, with the tenant, the pool and the numbers.
+    pub message: String,
+}
+
+impl TaskWaitReason {
+    /// No agent of the task's tenant and pool loads the package's plugin
+    /// interface version.
+    pub const PLUGIN_INTERFACE: &'static str = "plugin_interface";
+    /// No live agent of the task's tenant and pool.
+    pub const NO_AGENT: &'static str = "no_agent";
+    /// Agents of the pool, but none on a platform the package is built for.
+    pub const PLATFORM: &'static str = "platform";
+    /// The task requests more CPU or memory than any agent of the pool holds.
+    pub const TOO_LARGE: &'static str = "too_large";
+    /// Agents of the pool can run the task; none has a free slot or room for
+    /// its requests now.
+    pub const NO_CAPACITY: &'static str = "no_capacity";
+    /// The agent the task was sent to refused it: full or shutting down.
+    pub const AGENT_REFUSED: &'static str = "agent_refused";
+    /// The agent could not fetch the package artifact.
+    pub const ARTIFACT_FETCH: &'static str = "artifact_fetch";
+    /// The server could not read the tasks in flight or write the placement;
+    /// it tries again.
+    pub const DISPATCH_RETRY: &'static str = "dispatch_retry";
+
+    /// Every code of this release.
+    pub const CODES: &'static [&'static str] = &[
+        Self::PLUGIN_INTERFACE,
+        Self::NO_AGENT,
+        Self::PLATFORM,
+        Self::TOO_LARGE,
+        Self::NO_CAPACITY,
+        Self::AGENT_REFUSED,
+        Self::ARTIFACT_FETCH,
+        Self::DISPATCH_RETRY,
+    ];
+
+    /// A reason with this code and message.
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.into(),
+        }
+    }
 }
 
 /// The error of one failed attempt of a task (CLOACINA-T-1100).

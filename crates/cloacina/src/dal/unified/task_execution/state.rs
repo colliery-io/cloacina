@@ -58,6 +58,8 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::status.eq("Completed"),
                     task_executions::completed_at.eq(Some(now)),
                     task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                    task_executions::wait_reason.eq(None::<String>),
+                    task_executions::wait_message.eq(None::<String>),
                     task_executions::updated_at.eq(now),
                 );
                 let rows = if let Some(rid) = runner_id {
@@ -141,6 +143,8 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::last_error.eq(&error_message),
                     task_executions::error_details.eq(&error_details),
                     task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                    task_executions::wait_reason.eq(None::<String>),
+                    task_executions::wait_message.eq(None::<String>),
                     task_executions::updated_at.eq(now),
                 );
                 let rows = if let Some(rid) = runner_id {
@@ -266,7 +270,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// are logged by the caller, not fatal to execution.
     ///
     /// Clears `waiting_since`: the wait for capacity is over
-    /// (CLOACINA-T-1036).
+    /// (CLOACINA-T-1036). Clears the wait reason (CLOACINA-T-1148).
     pub async fn mark_started(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         crate::interact_on_backend!(self.dal, |conn| {
             let now = UniversalTimestamp::now();
@@ -279,6 +283,8 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::status.eq("Running"),
                 task_executions::started_at.eq(Some(now)),
                 task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                task_executions::wait_reason.eq(None::<String>),
+                task_executions::wait_message.eq(None::<String>),
                 task_executions::updated_at.eq(now),
             ))
             .execute(conn)
@@ -315,6 +321,8 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::status.eq("Skipped"),
                         task_executions::error_details.eq(&reason),
                         task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                        task_executions::wait_reason.eq(None::<String>),
+                        task_executions::wait_message.eq(None::<String>),
                         task_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;
@@ -372,6 +380,8 @@ impl<'a> TaskExecutionDAL<'a> {
                         task_executions::completed_at.eq(Some(now)),
                         task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
                         task_executions::waiting_since.eq(None::<UniversalTimestamp>),
+                        task_executions::wait_reason.eq(None::<String>),
+                        task_executions::wait_message.eq(None::<String>),
                         task_executions::updated_at.eq(now),
                     ))
                     .execute(conn)?;

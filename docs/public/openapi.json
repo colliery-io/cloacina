@@ -8712,6 +8712,35 @@
           "updated_at": {
             "type": "string",
             "description": "Row-updated timestamp (RFC 3339) — always present; a fallback \"end\"."
+          },
+          "wait_reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TaskWaitReason",
+                "description": "Why the task waits, while the fleet puts it off (CLOACINA-T-1148);\n`null` when it does not wait, once it is placed on an agent or\nstarts, and after it ends."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "TaskWaitReason": {
+        "type": "object",
+        "description": "Why a task waits (CLOACINA-T-1148): a short code and the same in words.\n\nThe codes are an open set: a client shows an unknown code with its\nmessage. The codes of this release: `plugin_interface`, `no_agent`,\n`platform`, `too_large`, `no_capacity`, `agent_refused`,\n`artifact_fetch`, `dispatch_retry`.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A short code, for example `no_capacity`."
+          },
+          "message": {
+            "type": "string",
+            "description": "The reason in words, with the tenant, the pool and the numbers."
           }
         }
       },

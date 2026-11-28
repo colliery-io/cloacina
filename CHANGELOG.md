@@ -267,6 +267,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent NetworkPolicy. The agent takes `--ca-file` /
   `CLOACINA_AGENT_CA_FILE`.
 
+### Added
+
+- **A waiting task says why** (CLOACINA-T-1148). While the agent fleet puts
+  a task off, its row in `GET .../executions/{id}/tasks` has `wait_reason`,
+  a code and a message (for example `no_capacity`, `no_agent`,
+  `plugin_interface`); the UI shows it under the task's status. It is `null`
+  once the task is placed or starts. Migration 079 adds the columns.
+
 ### Fixed
 
 - **The `tracing` and `log` lines of a packaged Rust task are written**
@@ -290,10 +298,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade notes
 
-- **Database migrations 051 to 075.** The server applies them at start:
+- **Database migrations 051 to 079.** The server applies them at start:
   `051`, `052`, `053`, `054`, `055`, `056`, `057`, `058`, `059`, `060`,
   `061`, `062`, `063`, `064`, `065`, `066`, `067`, `068`, `069`, `070`,
-  `073`, `074`, `075` (Postgres and SQLite) and `071`, `072` (Postgres
+  `073`, `074`, `075`, `079` (Postgres and SQLite) and `071`, `072` (Postgres
   only). Back up the database before the upgrade; there is no downgrade,
   restore the backup to go back.
 - **Upgrade order** (CLOACINA-T-1087, CLOACINA-T-1046): back up the
