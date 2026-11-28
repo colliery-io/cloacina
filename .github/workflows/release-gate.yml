@@ -24,9 +24,8 @@ concurrency:
 
 env:
   # "true": the gate reports its failures as warnings and the job passes.
-  # Set to "false" once the Unreleased section of CHANGELOG.md holds every
-  # break since the last release; the gate then fails the job.
-  RELEASE_GATE_WARN_ONLY: "true"
+  # "false": a failure fails the job.
+  RELEASE_GATE_WARN_ONLY: "false"
 
 jobs:
   release-gate:
