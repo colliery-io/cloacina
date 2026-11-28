@@ -98,6 +98,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it no longer runs the code of the new version. Executions that start after
   the swap run on the new version. Tasks not loaded from a package (macros,
   embedded use) are not pinned.
+- **A graph's input strategy applies to its reactor, and a Python graph in
+  process applies it** (CLOACINA-T-1135). The `input_strategy` of a
+  package's `[metadata]` is now the strategy of its graph and of the reactor
+  of the same package that the graph binds to, on the in-process load and on
+  the load from the stored document, for Rust and Python packages. Before, a
+  Python graph loaded in process always ran `latest`, and a graph with a
+  `sequential` manifest bound to its own reactor was left unloaded with a
+  warning. A graph that binds to a reactor of another package with another
+  strategy now fails the package load, with an error that names the graph and
+  the reactor; before, it was a warning and the graph did not run.
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task

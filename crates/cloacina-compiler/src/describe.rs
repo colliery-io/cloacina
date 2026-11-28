@@ -348,7 +348,7 @@ fn describe_python(
                     .to_string(),
             );
         };
-        let declaration = python.load_cg_package(
+        let mut declaration = python.load_cg_package(
             &archive_data,
             vendored.as_deref(),
             &scratch.path().join("python-cg-staging"),
@@ -358,6 +358,14 @@ fn describe_python(
             &manifest.metadata.accumulators,
             &runtime,
         )?;
+        // CLOACINA-T-1135: the manifest's input strategy, as the server's
+        // in-process load applies it.
+        if let Some(declaration) = declaration.as_mut() {
+            cloacina::computation_graph::packaging_bridge::apply_manifest_input_strategy(
+                declaration,
+                manifest.metadata.input_strategy.as_deref(),
+            );
+        }
         let mut doc = PackageDescription::from_python_runtime(
             &runtime,
             &package_name,
