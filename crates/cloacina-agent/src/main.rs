@@ -170,8 +170,9 @@ struct Args {
         default_value_t = worker::DEFAULT_WARM_IDLE_SECONDS
     )]
     warm_worker_idle_seconds: u64,
-    /// The most jobs one worker process runs. The agent ends it after the
-    /// last one.
+    /// The jobs after which a worker process is replaced. A new worker of
+    /// its key loads the package in the background; the old one takes jobs
+    /// until the new one has loaded, then ends.
     #[arg(
         long,
         env = "CLOACINA_AGENT_WARM_WORKER_MAX_JOBS",
@@ -2374,6 +2375,7 @@ async fn process_graph_packet(
         package,
         log_format: settings.log_format.to_string(),
         max_unpacked_bytes: settings.max_unpacked_bytes,
+        warm_up: false,
         #[cfg(test)]
         test_action: None,
     };
@@ -2395,11 +2397,16 @@ pub(crate) async fn run_graph_job(
         packet,
         package,
         work_dir,
+        warm_up,
         #[cfg(test)]
         test_action,
         ..
     } = job;
 
+    #[cfg(test)]
+    if warm_up && test_action.is_some() {
+        return warmed_up();
+    }
     #[cfg(test)]
     if let Some(action) = test_action {
         started();
@@ -2420,6 +2427,9 @@ pub(crate) async fn run_graph_job(
             Err(out) => return out,
         }
     };
+    if warm_up {
+        return warmed_up();
+    }
     started();
     let fire = async {
         match plugin {
@@ -3394,10 +3404,19 @@ async fn process_work_packet(
         max_unpacked_bytes: settings.max_unpacked_bytes,
         // Set by the agent when the job goes to a worker (CLOACINA-T-1091).
         output_end: None,
+        warm_up: false,
         #[cfg(test)]
         test_action: None,
     };
     worker::run_here_or_in_worker(job, settings).await
+}
+
+/// The outcome of a load-only job (CLOACINA-T-1159): the package is loaded
+/// and nothing ran. The agent does not report it.
+fn warmed_up() -> cloacina::fleet::AgentOutcome {
+    cloacina::fleet::AgentOutcome::Success {
+        context: serde_json::Value::Null,
+    }
 }
 
 /// Load the job's package and run its one task (CLOACINA-T-1028): in a
@@ -3417,10 +3436,15 @@ pub(crate) async fn run_job(
         secrets,
         package,
         work_dir,
+        warm_up,
         #[cfg(test)]
         test_action,
         ..
     } = job;
+    #[cfg(test)]
+    if warm_up && test_action.is_some() {
+        return warmed_up();
+    }
     let packet = &packet;
     // CLOACINA-T-1081: the packet carries only the secrets the task's package
     // declares; any other name the task asks for is refused.
@@ -3464,6 +3488,9 @@ pub(crate) async fn run_job(
             rt
         }
     };
+    if warm_up {
+        return warmed_up();
+    }
 
     // 4. Resolve the task by namespace string.
     let namespace = match cloacina::parse_namespace(&packet.task_name) {

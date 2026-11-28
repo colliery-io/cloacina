@@ -56,9 +56,11 @@
 //! kind, package version, tenant, language and memory limit. Each job is a
 //! line on stdin and gets its own `started` and `done`. The memory limit,
 //! the time limit and the cancel are per job; a kill ends the worker. The
-//! agent empties the worker's `TMPDIR` between jobs, and does not use a
-//! worker again whose job changed its environment or left a process
-//! running. See [`WarmPool`].
+//! agent leaves the worker's `TMPDIR` empty between jobs (it checks it, and
+//! empties it when a job wrote there), and does not use a worker again whose
+//! job changed its environment or left a process running. At its job cap a
+//! worker is replaced by one that loaded the package in the background
+//! (CLOACINA-T-1159). See [`WarmPool`].
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -147,6 +149,10 @@ pub(crate) struct WorkerJob {
     /// agent for each job; a value the task cannot know.
     #[serde(default)]
     pub output_end: Option<String>,
+    /// Load the package and stop: the replacement of a warm worker at its
+    /// job cap (CLOACINA-T-1159). Such a job has no secrets and no data.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub warm_up: bool,
     /// Tests only: what the job does in place of a packaged task.
     #[cfg(test)]
     #[serde(default)]
@@ -165,6 +171,9 @@ pub(crate) struct GraphJob {
     /// `text` or `json`: the format of the agent's log lines.
     pub log_format: String,
     pub max_unpacked_bytes: u64,
+    /// Load the package and stop (CLOACINA-T-1159), as for a task.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub warm_up: bool,
     /// Tests only: what the job does in place of a packaged graph.
     #[cfg(test)]
     #[serde(default)]
@@ -287,6 +296,56 @@ impl WorkerInput {
         }
     }
 
+    /// A load-only copy of this job (CLOACINA-T-1159), for the worker that
+    /// replaces one at its job cap: the same package, key and settings, and
+    /// no secrets and no data of the job (no task context, no graph cache).
+    /// `None` for a poll: a poll's worker is retired at the cap and the next
+    /// poll starts a new one, as before. A poll waits for its interval, not
+    /// for a hand-over, and a poll job may consume what it reads.
+    fn warm_up(&self) -> Option<WorkerInput> {
+        Some(match self {
+            WorkerInput::Task(job) => {
+                let mut packet = job.packet.clone();
+                packet.context = serde_json::json!({});
+                packet.wrapped_secrets = Vec::new();
+                packet.secret_key_id = None;
+                // Not the ids of the job it follows: nothing of the load is
+                // taken for that job's attempt.
+                packet.task_execution_id = String::new();
+                packet.dispatch_id = None;
+                WorkerInput::Task(WorkerJob {
+                    packet,
+                    secrets: HashMap::new(),
+                    package: job.package.clone(),
+                    work_dir: job.work_dir.clone(),
+                    log_format: job.log_format.clone(),
+                    max_unpacked_bytes: job.max_unpacked_bytes,
+                    warm_up: true,
+                    #[cfg(test)]
+                    test_action: job.test_action.clone(),
+                })
+            }
+            WorkerInput::Graph(job) => {
+                let mut packet = job.packet.clone();
+                packet.cache = HashMap::new();
+                packet.wrapped_secrets = Vec::new();
+                packet.secret_key_id = None;
+                packet.firing_id = String::new();
+                WorkerInput::Graph(GraphJob {
+                    packet,
+                    package: job.package.clone(),
+                    work_dir: job.work_dir.clone(),
+                    log_format: job.log_format.clone(),
+                    max_unpacked_bytes: job.max_unpacked_bytes,
+                    warm_up: true,
+                    #[cfg(test)]
+                    test_action: job.test_action.clone(),
+                })
+            }
+            WorkerInput::Poll(_) => return None,
+        })
+    }
+
     /// The jobs a warm worker of this job may take next (CLOACINA-T-1126):
     /// the same kind, package version, tenant, language and memory limit.
     /// A poll's key is of kind `poll` (CLOACINA-T-1143): a poll never takes
@@ -347,7 +406,8 @@ pub(crate) struct WarmConfig {
     pub max_idle: usize,
     /// A warm worker idle for longer is ended.
     pub idle_timeout: Duration,
-    /// A worker that has run this many jobs is ended after the last one.
+    /// A worker that has run this many jobs is replaced: a new worker of
+    /// its key loads the package, then the old one ends (CLOACINA-T-1159).
     pub max_jobs: u32,
     /// A worker that holds more than this share of its jobs' memory limit
     /// after a job, in percent, is ended.
@@ -465,6 +525,7 @@ pub(crate) enum PacketEnd {
 
 /// How the agent starts and holds its workers. One per agent process; tests
 /// make their own.
+#[derive(Clone)]
 pub(crate) struct WorkerSettings {
     /// The agent binary.
     pub program: PathBuf,
@@ -785,6 +846,11 @@ mod spawn {
         key: Option<WarmKey>,
         /// The jobs it was given.
         jobs: u32,
+        /// It loaded its package with a load-only job, and has run no job
+        /// since (CLOACINA-T-1159).
+        loaded: bool,
+        /// Past its job cap: the worker that replaces it, as it loads.
+        replacement: Option<Arc<std::sync::atomic::AtomicU8>>,
         idle_since: Instant,
         /// While idle: the watch that counts its memory for the agent, and
         /// where the watchdog says it killed it.
@@ -865,7 +931,7 @@ mod spawn {
                         pool.count_retired("dirty");
                         retire(worker).await;
                     } else {
-                        pool.give_back(worker, memory_limit, &settings.watchdog)
+                        pool.give_back(worker, memory_limit, settings, input, info)
                             .await;
                     }
                     return PacketEnd::Report(outcome);
@@ -901,6 +967,49 @@ mod spawn {
         .ok()
         .flatten();
         used.is_some_and(|used| used.saturating_mul(100) > limit.saturating_mul(percent))
+    }
+
+    /// The states of the replacement of a worker at its job cap.
+    const REPLACEMENT_LOADING: u8 = 0;
+    const REPLACEMENT_READY: u8 = 1;
+    const REPLACEMENT_FAILED: u8 = 2;
+
+    /// Whether `tmp` is a directory of its own (not a link) that its owner
+    /// may use, with nothing in it: one `lstat` and one read of the
+    /// directory, on this thread (CLOACINA-T-1159).
+    pub(crate) fn tmp_is_clean(tmp: &std::path::Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::symlink_metadata(tmp)
+            .is_ok_and(|m| m.file_type().is_dir() && m.permissions().mode() & 0o700 == 0o700)
+            && std::fs::read_dir(tmp).is_ok_and(|mut entries| entries.next().is_none())
+    }
+
+    /// Leave a worker's `TMPDIR` an empty directory, for the next job
+    /// (CLOACINA-T-1126). A job that wrote nothing there costs one check: the
+    /// directory stays as it is. Anything else (a file in it, a link or a
+    /// file in its place, a directory the agent cannot read) is removed and
+    /// the directory made again. The path stays: Python keeps the one it
+    /// found. `false`: it could not be made empty; the worker must go.
+    pub(crate) async fn reset_tmp(tmp: &std::path::Path) -> bool {
+        if tmp_is_clean(tmp) {
+            return true;
+        }
+        let tmp = tmp.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            match std::fs::symlink_metadata(&tmp) {
+                Ok(meta) if meta.file_type().is_dir() => {
+                    let _ = std::fs::remove_dir_all(&tmp);
+                }
+                Ok(_) => {
+                    let _ = std::fs::remove_file(&tmp);
+                }
+                Err(_) => {}
+            }
+            let _ = std::fs::create_dir_all(&tmp);
+            tmp_is_clean(&tmp)
+        })
+        .await
+        .unwrap_or(false)
     }
 
     impl Worker {
@@ -972,46 +1081,199 @@ mod spawn {
 
         /// A worker whose job ended well and left it clean: keep it for the
         /// next job of its key, or retire it.
+        ///
+        /// At its job cap (CLOACINA-T-1159) a worker is not retired at once:
+        /// a new worker of its key loads the package in the background, and
+        /// the old one takes the jobs of its key until the new one is idle.
+        /// So no job of the key waits for a cold start. If the new worker
+        /// fails to load, the old one is retired on its next return.
         async fn give_back(
             self: &Arc<Self>,
             mut worker: Worker,
             memory_limit: Option<u64>,
-            watchdog: &Arc<Watchdog>,
+            settings: &WorkerSettings,
+            input: &WorkerInput,
+            info: &JobInfo,
         ) {
-            let reason = if worker.jobs >= self.config.max_jobs {
-                Some("max_jobs")
-            } else if over_memory(worker.pid, memory_limit, self.config.max_memory_percent).await {
-                Some("memory")
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                self.count_retired(reason);
+            if over_memory(worker.pid, memory_limit, self.config.max_memory_percent).await {
+                self.count_retired("memory");
                 retire(worker).await;
                 return;
             }
+            if worker.jobs >= self.config.max_jobs {
+                let state = worker
+                    .replacement
+                    .as_ref()
+                    .map(|s| s.load(std::sync::atomic::Ordering::SeqCst));
+                match state {
+                    None => match input.warm_up() {
+                        Some(job) => {
+                            worker.replacement = Some(self.start_replacement(
+                                settings,
+                                input,
+                                job,
+                                info,
+                                memory_limit,
+                                worker.pid,
+                            ));
+                        }
+                        // A poll: retired at the cap, as before.
+                        None => {
+                            self.count_retired("max_jobs");
+                            retire(worker).await;
+                            return;
+                        }
+                    },
+                    Some(REPLACEMENT_LOADING) => {}
+                    // Replaced, or the replacement failed: the old worker
+                    // goes. Its job is done and it runs nothing: the report
+                    // does not wait for its end.
+                    Some(_) => {
+                        self.count_retired("max_jobs");
+                        tokio::spawn(retire(worker));
+                        return;
+                    }
+                }
+            }
             // Nothing a job wrote to its temporary directory is there for
-            // the next one. The path stays: Python keeps the one it found.
-            let _ = tokio::fs::remove_dir_all(&worker.tmp_dir).await;
-            if tokio::fs::create_dir_all(&worker.tmp_dir).await.is_err() {
+            // the next one.
+            if !reset_tmp(&worker.tmp_dir).await {
                 self.count_retired("dirty");
                 retire(worker).await;
                 return;
             }
+            self.park(worker, &settings.watchdog, None).await;
+        }
+
+        /// Put a worker on the idle list, watched for the agent's memory.
+        /// `replaces`: the pid of an idle worker it takes the place of, and
+        /// the state to set to [`REPLACEMENT_READY`] in the same step.
+        async fn park(
+            self: &Arc<Self>,
+            mut worker: Worker,
+            watchdog: &Arc<Watchdog>,
+            replaces: Option<(u32, &std::sync::atomic::AtomicU8)>,
+        ) {
             let (stop_tx, stop_rx) = mpsc::unbounded_channel();
             worker.idle_watch = Some(watchdog.watch_idle(worker.pid, stop_tx));
             worker.idle_stop = Some(stop_rx);
             worker.idle_since = Instant::now();
-            let evicted = {
+            let (replaced, evicted) = {
                 let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
+                let replaced = replaces.and_then(|(pid, state)| {
+                    state.store(REPLACEMENT_READY, std::sync::atomic::Ordering::SeqCst);
+                    idle.iter()
+                        .position(|w| w.pid == pid)
+                        .map(|at| idle.remove(at))
+                });
                 idle.push(worker);
-                (idle.len() > self.config.max_idle).then(|| idle.remove(0))
+                let evicted = (idle.len() > self.config.max_idle).then(|| idle.remove(0));
+                (replaced, evicted)
             };
+            if let Some(old) = replaced {
+                self.count_retired("max_jobs");
+                retire(old).await;
+            }
             if let Some(oldest) = evicted {
                 self.count_retired("pool_full");
                 retire(oldest).await;
             }
             self.start_sweeper();
+        }
+
+        /// Start the worker that replaces the worker `old_pid` at its job
+        /// cap (CLOACINA-T-1159): a new process of the same key loads the
+        /// package with a load-only job ([`WorkerInput::warm_up`]: no
+        /// secrets, no job data), then takes the old one's place on the idle
+        /// list. It holds no slot; while it loads, the watchdog holds it to
+        /// the key's memory limit, and the load allowance bounds its time.
+        fn start_replacement(
+            self: &Arc<Self>,
+            settings: &WorkerSettings,
+            input: &WorkerInput,
+            mut job: WorkerInput,
+            info: &JobInfo,
+            memory_limit: Option<u64>,
+            old_pid: u32,
+        ) -> Arc<std::sync::atomic::AtomicU8> {
+            let state = Arc::new(std::sync::atomic::AtomicU8::new(REPLACEMENT_LOADING));
+            let pool = self.clone();
+            let settings = settings.clone();
+            let info = JobInfo {
+                stop_id: None,
+                timeout_seconds: info.timeout_seconds,
+                memory_request: info.memory_request,
+                name: info.name.clone(),
+                noun: info.noun,
+            };
+            let key = input.warm_key(memory_limit);
+            let shared = state.clone();
+            tokio::spawn(async move {
+                let loaded = pool
+                    .load_replacement(
+                        &settings,
+                        &mut job,
+                        &info,
+                        memory_limit,
+                        key,
+                        old_pid,
+                        &shared,
+                    )
+                    .await;
+                if !loaded {
+                    shared.store(REPLACEMENT_FAILED, std::sync::atomic::Ordering::SeqCst);
+                }
+            });
+            state
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        async fn load_replacement(
+            self: &Arc<Self>,
+            settings: &WorkerSettings,
+            job: &mut WorkerInput,
+            info: &JobInfo,
+            memory_limit: Option<u64>,
+            key: WarmKey,
+            old_pid: u32,
+            state: &std::sync::atomic::AtomicU8,
+        ) -> bool {
+            let mut worker = match start_worker(info, settings, memory_limit, Some(key)).await {
+                Ok(worker) => worker,
+                Err(_) => return false,
+            };
+            let mut no_cancel = None;
+            let end = run_on(
+                &mut worker,
+                job,
+                info,
+                settings,
+                memory_limit,
+                &mut no_cancel,
+            )
+            .await;
+            let loaded = matches!(
+                end,
+                JobEnd::Done {
+                    outcome: AgentOutcome::Success { .. },
+                    reusable: true,
+                    stopped: false,
+                }
+            );
+            if !loaded || !reset_tmp(&worker.tmp_dir).await {
+                debug!(
+                    pid = worker.pid,
+                    job = %info.name,
+                    "the replacement of a warm worker did not load its package"
+                );
+                retire(worker).await;
+                return false;
+            }
+            worker.jobs = 0;
+            worker.loaded = true;
+            self.park(worker, &settings.watchdog, Some((old_pid, state)))
+                .await;
+            true
         }
 
         /// Retire idle workers past their idle time, and dead ones, on a
@@ -1195,6 +1457,8 @@ mod spawn {
             tmp_dir,
             key,
             jobs: 0,
+            loaded: false,
+            replacement: None,
             idle_since: Instant::now(),
             idle_watch: None,
             idle_stop: None,
@@ -1338,10 +1602,11 @@ mod spawn {
         // The line holds the secrets: do not keep it.
         line.iter_mut().for_each(|b| *b = 0);
         drop(line);
-        if !taken && worker.jobs > 0 {
+        if !taken && (worker.jobs > 0 || worker.loaded) {
             return JobEnd::NotTaken;
         }
         worker.jobs += 1;
+        worker.loaded = false;
 
         let oom_kills_before = oom_kill_count();
         let job_start = Instant::now();
@@ -2019,6 +2284,7 @@ pub(crate) mod tests {
             log_format: "text".into(),
             max_unpacked_bytes: 1 << 20,
             output_end: None,
+            warm_up: false,
             test_action: Some(action),
         }
     }
@@ -2054,6 +2320,7 @@ pub(crate) mod tests {
             log_format: "text".into(),
             max_unpacked_bytes:
                 cloacina::cloacina_workflow_plugin::unpack_limit::DEFAULT_MAX_UNPACKED_BYTES,
+            warm_up: false,
             test_action: action,
         }
     }
@@ -2800,12 +3067,201 @@ pub(crate) mod tests {
         assert_ne!(second, first);
         let third = pid_of(run_here_or_in_worker(job("r-3", report()), &settings).await);
         assert_eq!(third, second, "its second job");
-        assert_eq!(settings.warm.idle_len(), 0, "retired at its job cap");
+        // CLOACINA-T-1159: at its cap the worker is replaced by one that
+        // loaded in the background; then the old one is retired.
+        let replaced = wait_for(|| {
+            let idle = settings.warm.idle_memory();
+            idle.len() == 1 && idle[0].0 as u64 != third && !is_alive(third as u32)
+        })
+        .await;
+        assert!(replaced, "replaced and retired at its job cap");
         let fourth = pid_of(run_here_or_in_worker(job("r-4", report()), &settings).await);
         assert_ne!(fourth, third);
         let counts = counts(&settings);
         assert_eq!(counts.retired.get("idle"), Some(&1));
         assert_eq!(counts.retired.get("max_jobs"), Some(&1));
+        assert_eq!(
+            (counts.cold_starts, counts.warm_starts),
+            (2, 2),
+            "the job after the cap ran on the loaded replacement"
+        );
+    }
+
+    /// Wait up to 10 s for `done`.
+    #[cfg(unix)]
+    async fn wait_for(mut done: impl FnMut() -> bool) -> bool {
+        for _ in 0..400 {
+            if done() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        false
+    }
+
+    /// CLOACINA-T-1159: a run of jobs over the job cap pays no cold start
+    /// after the first: the old worker takes jobs until its replacement has
+    /// loaded, then the replacement takes them. Each old worker ends.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_worker_at_its_job_cap_is_replaced_without_a_cold_start() {
+        let settings = warm_settings(
+            "warm-cap",
+            WarmConfig {
+                max_jobs: 3,
+                ..warm_config()
+            },
+        );
+        let report = || TestAction::Report { secret: None };
+        let mut pids = Vec::new();
+        for n in 0..40 {
+            pids.push(pid_of(
+                run_here_or_in_worker(job(&format!("cap-{n}"), report()), &settings).await,
+            ));
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let mut seen: Vec<u64> = Vec::new();
+        for pid in &pids {
+            if seen.last() != Some(pid) {
+                assert!(!seen.contains(pid), "a retired worker came back: {pids:?}");
+                seen.push(*pid);
+            }
+        }
+        assert!(seen.len() >= 2, "the worker was replaced: {pids:?}");
+        let counts = counts(&settings);
+        assert_eq!(
+            counts.cold_starts, 1,
+            "no cold start after the first: {pids:?}"
+        );
+        assert_eq!(counts.warm_starts, 39);
+        let last = *seen.last().unwrap();
+        let ended = wait_for(|| {
+            seen.iter()
+                .filter(|p| **p != last)
+                .all(|p| !is_alive(*p as u32))
+        })
+        .await;
+        assert!(ended, "every replaced worker ended");
+    }
+
+    /// CLOACINA-T-1159: the load-only job of a replacement carries no
+    /// secrets and no data of the job it follows.
+    #[test]
+    fn the_load_only_job_has_no_secrets_and_no_job_data() {
+        const VALUE: &str = "s3cr3t-value-of-t-1159";
+        let mut task = job("w-task", TestAction::Report { secret: None });
+        task.secrets.insert(
+            "warehouse".into(),
+            [("password".to_string(), VALUE.to_string())].into(),
+        );
+        task.packet.context = serde_json::json!({ "input": VALUE });
+        let mut graph = graph_job("w_graph", None);
+        graph.packet.cache.insert("src".into(), VALUE.into());
+        for input in [WorkerInput::Task(task), WorkerInput::Graph(graph)] {
+            let warm = input.warm_up().expect("a load-only job");
+            let line = serde_json::to_string(&warm).unwrap();
+            assert!(!line.contains(VALUE), "{line}");
+            assert!(!line.contains("task-w-task") && !line.contains("dispatch-w-task"));
+            assert!(!line.contains("firing-w_graph"), "{line}");
+            assert!(line.contains("\"warm_up\":true"), "{line}");
+            assert_eq!(
+                warm.warm_key(Some(1)),
+                input.warm_key(Some(1)),
+                "the same key"
+            );
+        }
+        // An ordinary job line does not name the field.
+        let plain = serde_json::to_string(&WorkerInput::Task(job("w-plain", TestAction::Crash)));
+        assert!(!plain.unwrap().contains("warm_up"));
+        // A poll has none: its worker is retired at the cap.
+        assert!(
+            WorkerInput::Poll(poll_job("w_poll", None))
+                .warm_up()
+                .is_none()
+        );
+    }
+
+    /// CLOACINA-T-1159: the temp check keeps an empty directory as it is,
+    /// and empties or makes again anything else.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_temp_check_keeps_an_empty_directory_and_empties_anything_else() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = tempdir("tmp-check");
+        let tmp = root.join("tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let ino = std::fs::metadata(&tmp).unwrap().ino();
+        assert!(spawn::reset_tmp(&tmp).await);
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().ino(),
+            ino,
+            "left as it was"
+        );
+
+        std::fs::create_dir_all(tmp.join("sub")).unwrap();
+        std::fs::write(tmp.join("sub").join("left.txt"), "x").unwrap();
+        assert!(!spawn::tmp_is_clean(&tmp));
+        assert!(spawn::reset_tmp(&tmp).await);
+        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0, "emptied");
+
+        // A link in its place, to a directory with a file in it.
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("kept.txt"), "x").unwrap();
+        std::fs::remove_dir(&tmp).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &tmp).unwrap();
+        assert!(!spawn::tmp_is_clean(&tmp));
+        assert!(spawn::reset_tmp(&tmp).await);
+        let meta = std::fs::symlink_metadata(&tmp).unwrap();
+        assert!(meta.file_type().is_dir(), "a directory again, not a link");
+        assert!(
+            elsewhere.join("kept.txt").exists(),
+            "the link's target is not touched"
+        );
+
+        // An empty directory its owner may not write to.
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o500)).unwrap();
+        assert!(!spawn::tmp_is_clean(&tmp));
+        assert!(spawn::reset_tmp(&tmp).await);
+        assert!(spawn::tmp_is_clean(&tmp));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// CLOACINA-T-1159: a job that wrote nothing to its temporary directory
+    /// leaves the same directory for the next one; a job that wrote leaves
+    /// an empty one.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_job_that_wrote_nothing_keeps_its_temp_directory() {
+        use std::os::unix::fs::MetadataExt;
+        let settings = warm_settings("warm-tmp-kept", warm_config());
+        let report = || TestAction::Report { secret: None };
+        let first = success(run_here_or_in_worker(job("tk-1", report()), &settings).await);
+        let tmp = PathBuf::from(first["tmpdir"].as_str().unwrap());
+        let ino = std::fs::metadata(&tmp).unwrap().ino();
+        let second = success(run_here_or_in_worker(job("tk-2", report()), &settings).await);
+        assert_eq!(second["pid"], first["pid"], "the same worker");
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().ino(),
+            ino,
+            "not made again"
+        );
+        let wrote = pid_of(
+            run_here_or_in_worker(
+                job(
+                    "tk-3",
+                    TestAction::WriteTemp {
+                        file: "left.txt".into(),
+                    },
+                ),
+                &settings,
+            )
+            .await,
+        );
+        assert_eq!(Some(wrote), first["pid"].as_u64());
+        let after = success(run_here_or_in_worker(job("tk-4", report()), &settings).await);
+        assert_eq!(after["pid"], first["pid"]);
+        assert_eq!(after["tmp_files"], serde_json::json!([]), "{after}");
     }
 
     /// The secrets of one job are not readable by the next job of the
@@ -4133,5 +4589,56 @@ pub(crate) mod tests {
         })
         .await;
         idle_memory("python graph");
+    }
+
+    /// CLOACINA-T-1159: the hand-over of a warm worker, and the p99 that the
+    /// job cap gives. 300 empty firings on one key, then 300 that each write
+    /// a temp file, with the default cap of 100 jobs. Run by hand:
+    /// `cargo test -p cloacina-agent -- --ignored --nocapture warm_hand_over_cost`.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "a measurement, run by hand"]
+    async fn warm_hand_over_cost() {
+        fn stats(label: &str, mut times: Vec<Duration>, cold: u64) {
+            times.sort();
+            let n = times.len();
+            println!(
+                "T1159 {label} (n={n}): min {:?}, p50 {:?}, p90 {:?}, p99 {:?}, max {:?}, \
+                 cold starts after the first {cold}",
+                times[0],
+                times[n / 2],
+                times[n * 9 / 10],
+                times[(n * 99 / 100).min(n - 1)],
+                times[n - 1],
+            );
+        }
+        let rounds = 300;
+        for (label, write) in [("empty job", false), ("job that writes a temp file", true)] {
+            let settings = warm_settings(&format!("t1159-{write}"), warm_config());
+            let one = |n: usize| {
+                let action = if write {
+                    TestAction::WriteTemp {
+                        file: format!("f-{n}"),
+                    }
+                } else {
+                    TestAction::Block { ms: 0 }
+                };
+                let mut one = graph_job(&format!("h-{write}-{n}"), Some(action));
+                one.package.digest = format!("t1159-{write}");
+                one
+            };
+            // The first job starts the worker; it is not counted.
+            success(run_graph_here_or_in_worker(one(usize::MAX), &settings).await);
+            let mut times = Vec::with_capacity(rounds);
+            for n in 0..rounds {
+                let at = std::time::Instant::now();
+                let end = run_graph_here_or_in_worker(one(n), &settings).await;
+                times.push(at.elapsed());
+                success(end);
+                // A gap between firings, as a reactor has.
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            stats(label, times, counts(&settings).cold_starts - 1);
+        }
     }
 }
