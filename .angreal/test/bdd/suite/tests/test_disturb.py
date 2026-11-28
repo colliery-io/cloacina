@@ -320,6 +320,32 @@ class DisturbanceTest(unittest.TestCase):
             self.assertEqual(log[0], "checked")
             self.assertIn("command", log)
 
+    def test_every_server_replica_together_is_one_window(self):
+        # CLOACINA-T-1111: the schedules chapter restarts both replicas at once.
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder)
+            closed = setup.runner.run_now("restart_server", mode="force", together=True)
+            deletes = setup.kubectl.commands("delete")
+            self.assertEqual([args[2] for args in deletes],
+                             ["bdd-standing-cloacina-server-a", "bdd-standing-cloacina-server-b"])
+            for args in deletes:
+                self.assertIsNone(disturb.check_command(args), args)
+            self.assertEqual(len(setup.kubectl.commands("rollout")), 1)
+            lines = setup.lines()
+            self.assertEqual(len(lines), 2)
+            self.assertTrue(closed["together"])
+            self.assertEqual(closed["replicas"], 2)
+            self.assertTrue(closed["outcome"].startswith("pods deleted"), closed["outcome"])
+            windows = engine.read_windows(json.dumps(line) for line in lines)
+            self.assertEqual([w.kind for w in windows], ["restart_server"])
+        with tempfile.TemporaryDirectory() as folder:
+            setup = Setup(folder)
+            with self.assertRaises(disturb.Refused):
+                setup.runner.run_now("kill_agent", together=True)
+            with self.assertRaises(disturb.Refused):
+                setup.runner.run_now("restart_server", pod="bdd-standing-cloacina-server-a",
+                                     together=True)
+
     def test_an_agent_pod_that_holds_a_task_is_found_by_its_name(self):
         # The agent id is the pod's name (CLOACINA-T-1145).
         ns = disturb.tenant_namespace("team_b")

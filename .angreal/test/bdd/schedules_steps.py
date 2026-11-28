@@ -7,9 +7,10 @@ schedule's next and last run, not each fire. The schedules a scenario makes
 are workflow instances, made and removed through the API with the team's own
 key.
 
-The restart scenarios delete both server pods at once, write the window to
-the disturbance record of the checker, and open a port forward of their own
-to the new pods.
+The restart scenarios ask the runner of the disturbance schedule
+(CLOACINA-T-1109) to delete every server pod at once; the runner writes the
+window to the disturbance record of the checker. They then open a port
+forward of their own to the new pods.
 
 The world is the standing workload's (`standing_world.StandingWorld`).
 """
@@ -21,11 +22,11 @@ import json
 import subprocess
 import time
 import urllib.request
-import uuid
+from pathlib import Path
 
 from .gherkin import StepRegistry
 from .standing_world import TERMINAL
-from .suite import workload
+from .suite import disturb, workload
 from .suite.cron import Cron, local_minute_for
 from .suite.engine import format_time, parse_time
 from .suite.rules.schedules import LATE_LIMIT_SECONDS
@@ -138,15 +139,28 @@ def _instance_fires(world):
 
 # --- restarts -----------------------------------------------------------------
 
-def _record_disturbance(world, start, end):
-    path = world.root.joinpath(*DISTURBANCES)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    line = {"id": f"schedules-{uuid.uuid4()}", "kind": "restart_server", "target": "",
-            "start": format_time(start), "end": format_time(end),
-            "settle_until": format_time(end + 300), "by": "the chapter schedules"}
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(line) + "\n")
-    world.note(f"disturbance on record: restart_server {line['start']} to {line['end']}")
+def _runner(world):
+    """The runner of the disturbance schedule (CLOACINA-T-1109), on the
+    suite's own cluster: it restarts the server and writes the window to the
+    disturbance record, as in the chapter failure."""
+    runner = world.scratch.get("runner")
+    if runner is None:
+        report_dir = Path(world.root).joinpath(*DISTURBANCES).parent
+        hostdir = Path(world.kubeconfig).parent
+        runner = disturb.Runner(
+            # Refuses any kubeconfig but the suite's own.
+            disturb.Kube(str(world.kubeconfig)),
+            disturb.Api(world.base_url),
+            dict(world.keys),
+            disturb.Record(str(Path(world.root).joinpath(*DISTURBANCES)),
+                           str(report_dir / "disturbance-log.jsonl")),
+            read_keys=dict(world.checker_keys) or None,
+            stop_path=str(hostdir / "disturb.stop"),
+            lock_path=str(hostdir / "disturb.lock"),
+            out=world.note,
+        )
+        world.scratch["runner"] = runner
+    return runner
 
 
 def _forward(world):
@@ -174,10 +188,15 @@ def _forward(world):
 
 
 def _restart_servers(world):
-    start = time.time()
-    world.kubectl("delete", "pods", "-n", world.ns, "-l", workload.SERVER_SELECTOR, "--wait=false")
-    world.scratch["restart_started"] = start
-    world.note(f"deleted the server pods at {format_time(start)}")
+    """Every server pod at once, through the disturbance runner: one
+    `restart_server` window on record (Dylan, 2026-11-28, on this task)."""
+    entry = _runner(world).run_now("restart_server", mode="force", together=True)
+    assert entry is not None, ("the server was not restarted (another disturbance holds the lock, "
+                               "or no server pod runs); see bdd-standing-report/disturbance-log.jsonl")
+    world.scratch["restart_started"] = parse_time(entry.get("start"))
+    world.scratch["restart"] = entry
+    world.note(f"restarted every server pod: {entry.get('id')}, {entry.get('start')} to "
+               f"{entry.get('end')}, {entry.get('outcome')}")
 
 
 def _ready_since(world):
@@ -462,8 +481,6 @@ def s5_serving(world):
     fresh = _wait(300, ready, every=5)
     assert fresh, "the server replicas did not come back in five minutes"
     world.scratch["ready_at"] = fresh
-    end = max(fresh.values())
-    _record_disturbance(world, start, end)
     world.note("ready again: " + ", ".join(f"{p} at {format_time(a)}" for p, a in sorted(fresh.items())))
     _forward(world)
 

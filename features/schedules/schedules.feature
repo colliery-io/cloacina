@@ -11,8 +11,10 @@
 # of the checker's rule `schedules.on_time`. The first full run measures the
 # real lateness, and the limit is set from it in both places.
 #
-# Scenarios 5 and 6 restart both server replicas. They write each restart to
-# the disturbance record, so the checker does not count it as a break.
+# Scenarios 5 and 6 restart both server replicas at once, through the runner
+# of the disturbance schedule (CLOACINA-T-1109). The runner writes each
+# restart to the disturbance record, so the checker does not count it as a
+# break.
 #
 # A scenario tagged @gap does not hold today. It still runs. The second tag
 # names the Kairos task that owns the gap. When such a scenario passes, the

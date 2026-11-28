@@ -157,7 +157,7 @@ MAX_ACTION_SECONDS = {
 class Planned:
     """One disturbance of the schedule, or one asked for now."""
 
-    def __init__(self, at, kind, tenant, mode, cycle, pod=None):
+    def __init__(self, at, kind, tenant, mode, cycle, pod=None, together=False):
         self.at = at
         self.kind = kind
         self.tenant = tenant
@@ -166,6 +166,9 @@ class Planned:
         # A pod named by a scenario (`kill_agent`, `restart_server`); None
         # lets the runner choose.
         self.pod = pod
+        # `restart_server` only, asked by a scenario: every server pod at
+        # once, so no replica serves until the new ones are ready.
+        self.together = together
 
     def describe(self):
         mode = f" ({self.mode})" if self.mode else ""
@@ -614,11 +617,13 @@ class Runner:
 
     # -- one disturbance ---------------------------------------------------
 
-    def run_now(self, kind, tenant=None, mode=None, pod=None):
+    def run_now(self, kind, tenant=None, mode=None, pod=None, together=False):
         """One disturbance now, outside the schedule (a scenario asks for it).
         `pod` names the agent or server pod to delete; it must be a running
-        pod of that tenant's agents or of the server. Returns the closed
-        record entry, or None when nothing was done."""
+        pod of that tenant's agents or of the server. `together` (only
+        `restart_server`, no `pod`) deletes every server pod at once, each by
+        its name, in one window. Returns the closed record entry, or None
+        when nothing was done."""
         if kind not in KINDS:
             raise Refused(f"unknown kind of disturbance: {kind}")
         tenant = tenant or workload.TENANTS[0]
@@ -626,7 +631,10 @@ class Runner:
             mode = mode or MODES[0]
         elif pod is not None:
             raise Refused(f"{kind} takes no pod")
-        return self.disturb(Planned(self.clock(), kind, tenant, mode, cycle=0, pod=pod))
+        if together and (kind != "restart_server" or pod is not None):
+            raise Refused("only restart_server, with no pod named, restarts every replica together")
+        return self.disturb(Planned(self.clock(), kind, tenant, mode, cycle=0, pod=pod,
+                                    together=together))
 
     def disturb(self, item):
         if item.kind not in KINDS:
@@ -756,6 +764,8 @@ class Runner:
             self.record.log("skipped", kind=item.kind, target="server",
                             reason=f"{item.pod} is not a running server pod")
             return None
+        if item.together:
+            return self._restart_every_server(pods, item)
         pod = item.pod or pods[item.cycle % len(pods)]
         entry = self.record.open("restart_server", f"server pod {pod}", pod=pod, replicas=len(pods),
                                  mode=item.mode)
@@ -765,6 +775,32 @@ class Runner:
         finally:
             closed = self._close(entry, outcome)
             self.out(f"restart_server ({item.mode}), pod {pod} of {len(pods)}: {outcome}")
+        return closed
+
+    def _restart_every_server(self, pods, item):
+        """Every server pod at once, each deleted by its name, then one wait
+        for the Deployment: one window (a scenario asks, CLOACINA-T-1111)."""
+        entry = self.record.open("restart_server", "every server pod: " + ", ".join(pods),
+                                 pods=list(pods), replicas=len(pods), together=True,
+                                 mode=item.mode)
+        outcome = "interrupted"
+        try:
+            failed = []
+            for pod in pods:
+                code, _out, err = self._call(delete_pod_args(pod, NAMESPACE, item.mode))
+                if code != 0:
+                    failed.append(f"{pod}: {err.strip()[:120]}")
+            if failed:
+                outcome = "the delete failed: " + "; ".join(failed)
+            else:
+                code, _out, _err = self._call(rollout_args(SERVER_DEPLOYMENT, NAMESPACE),
+                                              timeout=ROLLOUT_TIMEOUT_SECONDS + 30)
+                outcome = (f"pods deleted; {SERVER_DEPLOYMENT} available again" if code == 0 else
+                           f"pods deleted; {SERVER_DEPLOYMENT} not available after "
+                           f"{ROLLOUT_TIMEOUT_SECONDS} s")
+        finally:
+            closed = self._close(entry, outcome)
+            self.out(f"restart_server ({item.mode}), every pod of {len(pods)} together: {outcome}")
         return closed
 
     # postgres_away

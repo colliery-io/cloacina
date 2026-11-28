@@ -26,9 +26,12 @@ skip, and the scenario fails with that reason.
 
 The `schedules` chapter makes two schedules of its own on team B and removes
 them at the end of their scenarios. Its last two scenarios restart both
-server replicas, write each restart to the disturbance record
+server replicas at once through the runner of the disturbance schedule, which
+writes each restart to the disturbance record
 (`bdd-standing-report/disturbances.jsonl`), and open a port forward of their
-own on port 18110.
+own on port 18110. Do not run them while `--disturb` runs a disturbance: the
+runner's lock makes the second a skip, and the scenario fails with that
+reason.
 
 ```
 angreal test bdd standing --dry-run     # every feature parsed, every step resolved; no cluster
