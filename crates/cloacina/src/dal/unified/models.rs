@@ -139,6 +139,9 @@ pub struct UnifiedTaskExecution {
     /// then by `waiting_since`.
     pub workflow_priority: i32,
     pub task_priority: i32,
+    /// CLOACINA-T-1123: the priority the task declares, as asked. `None`:
+    /// it declares none and takes its workflow's.
+    pub task_priority_asked: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
@@ -162,6 +165,9 @@ pub struct NewUnifiedTaskExecution {
     /// CLOACINA-T-1045: `None` writes the column default, 5.
     pub workflow_priority: Option<i32>,
     pub task_priority: Option<i32>,
+    /// CLOACINA-T-1123: the priority the task declares; `None` when it
+    /// declares none.
+    pub task_priority_asked: Option<i32>,
 }
 
 // =====================================================================// Task Execution Metadata Models
@@ -977,6 +983,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             updated_at: u.updated_at,
             workflow_priority: u.workflow_priority,
             task_priority: u.task_priority,
+            task_priority_asked: u.task_priority_asked,
         }
     }
 }

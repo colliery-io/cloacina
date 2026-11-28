@@ -279,6 +279,10 @@ pub struct ServerSection {
     /// (`--fleet-poll-timeout-s`, CLOACINA-T-1077).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fleet_poll_timeout_s: Option<u64>,
+    /// Ageing interval of waiting work, seconds; `0` = no ageing
+    /// (`--priority-aging-interval-s`, CLOACINA-T-1123).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority_aging_interval_s: Option<u64>,
     /// Warning size of a task context, bytes; `0` = off
     /// (`--context-warn-bytes`).
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -158,6 +158,11 @@ pub struct ServerSettingArgs {
     #[arg(long, env = "CLOACINA_FLEET_POLL_TIMEOUT_S")]
     pub fleet_poll_timeout_s: Option<u64>,
 
+    /// The ageing interval of waiting work, in seconds; `0` = no ageing.
+    /// Overrides `[server].priority_aging_interval_s`. CLOACINA-T-1123.
+    #[arg(long, env = "CLOACINA_PRIORITY_AGING_INTERVAL_SECONDS")]
+    pub priority_aging_interval_s: Option<u64>,
+
     /// Size in bytes above which a task context is logged as a warning;
     /// `0` = off. Overrides `[server].context_warn_bytes`.
     #[arg(long, env = "CLOACINA_CONTEXT_WARN_BYTES")]
@@ -352,6 +357,13 @@ pub(crate) fn forwarded_settings(
         number(cli.fleet_poll_timeout_s, config.fleet_poll_timeout_s),
     );
     arg(
+        "--priority-aging-interval-s",
+        number(
+            cli.priority_aging_interval_s,
+            config.priority_aging_interval_s,
+        ),
+    );
+    arg(
         "--context-warn-bytes",
         number(cli.context_warn_bytes, config.context_warn_bytes),
     );
@@ -535,6 +547,7 @@ agent_liveness_misses = 4
 fleet_artifact_fetch_wait_s = 120
 fleet_graph_firings = "worker"
 fleet_poll_timeout_s = 20
+priority_aging_interval_s = 300
 context_warn_bytes = 2097152
 context_max_bytes = 33554432
 cors_allowed_origins = ["https://ops.example.com", "https://ui.example.com"]
@@ -546,7 +559,7 @@ max_unpacked_bytes = 1073741824
 
     /// The arguments forwarded for [`FULL_CONFIG`] after the settings of
     /// CLOACINA-T-1039, in order.
-    const FULL_CONFIG_LATER_ARGS: [&str; 36] = [
+    const FULL_CONFIG_LATER_ARGS: [&str; 38] = [
         "--verification-org-id",
         "6f1c2a7e-3b9d-4c55-9e0a-2d4b8f1e7a60",
         "--reconcile-interval-s",
@@ -569,6 +582,8 @@ max_unpacked_bytes = 1073741824
         "worker",
         "--fleet-poll-timeout-s",
         "20",
+        "--priority-aging-interval-s",
+        "300",
         "--context-warn-bytes",
         "2097152",
         "--context-max-bytes",
@@ -803,12 +818,12 @@ max_unpacked_bytes = 1073741824
         let flags: Vec<&String> = args.iter().filter(|a| a.starts_with("--")).collect();
         let unique: std::collections::BTreeSet<&String> = flags.iter().copied().collect();
         assert_eq!(flags.len(), unique.len(), "a flag is there twice: {args:?}");
-        assert_eq!(flags.len(), 35);
+        assert_eq!(flags.len(), 36);
         assert_eq!(flags[0], "--home");
         assert_eq!(flags[6], "--require-signatures");
         assert_eq!(flags[7], "--database-wait-timeout-s");
         assert_eq!(flags[17], "--verification-org-id");
-        assert_eq!(flags[34], "--max-unpacked-bytes");
+        assert_eq!(flags[35], "--max-unpacked-bytes");
     }
 
     /// CLOACINA-T-1106: each flag of [`ServerSettingArgs`] is forwarded under

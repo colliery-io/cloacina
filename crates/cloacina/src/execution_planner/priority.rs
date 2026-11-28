@@ -245,6 +245,7 @@ mod tests {
             updated_at: since,
             workflow_priority: workflow,
             task_priority: own,
+            task_priority_asked: None,
         }
     }
 

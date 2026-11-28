@@ -1019,6 +1019,7 @@ mod tests {
             updated_at: at(90),
             workflow_priority: 5,
             task_priority: 5,
+            task_priority_asked: None,
         }
     }
 

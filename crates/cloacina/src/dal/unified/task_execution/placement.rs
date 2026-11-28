@@ -58,6 +58,17 @@ pub struct PoolWaitingTasks {
     pub waiting: WaitingTasks,
 }
 
+/// The waiting tasks of one pool at one workflow priority (CLOACINA-T-1123).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PoolPriorityWaitingTasks {
+    /// The pool. A task with no pool is in `default`.
+    pub pool: String,
+    /// The workflow priority stored on the task rows, 0 to 10.
+    pub priority: u8,
+    /// Its waiting tasks.
+    pub waiting: WaitingTasks,
+}
+
 impl<'a> TaskExecutionDAL<'a> {
     /// Record that the fleet placed a task on an agent. Only the runner that
     /// holds the claim can place the task. Returns `false` when it does not
@@ -163,64 +174,116 @@ impl<'a> TaskExecutionDAL<'a> {
     pub async fn waiting_task_stats_by_pool(
         &self,
     ) -> Result<Vec<PoolWaitingTasks>, ValidationError> {
-        let now = UniversalTimestamp::now();
-        let per_pool: Vec<(Option<String>, i64, Option<UniversalTimestamp>)> =
-            crate::interact_on_backend!(self.dal, |conn| {
-                let counts: Vec<(Option<String>, i64)> = task_executions::table
-                    .filter(task_executions::status.eq("Ready"))
-                    .filter(
-                        task_executions::waiting_since
-                            .le(now)
-                            .or(task_executions::waiting_since.is_null().and(
-                                task_executions::retry_at
-                                    .is_null()
-                                    .or(task_executions::retry_at.le(now)),
-                            )),
-                    )
-                    .group_by(task_executions::pool)
-                    .select((task_executions::pool, diesel::dsl::count_star()))
-                    .load(conn)?;
-                let mut out = Vec::with_capacity(counts.len());
-                for (pool, count) in counts {
-                    let mut oldest = task_executions::table
-                        .filter(task_executions::status.eq("Ready"))
-                        .filter(task_executions::waiting_since.le(now))
-                        .order(task_executions::waiting_since.asc())
-                        .select(task_executions::waiting_since)
-                        .into_boxed();
-                    oldest = match &pool {
-                        Some(name) => oldest.filter(task_executions::pool.eq(name.clone())),
-                        None => oldest.filter(task_executions::pool.is_null()),
-                    };
-                    let oldest: Option<UniversalTimestamp> = oldest
-                        .first::<Option<UniversalTimestamp>>(conn)
-                        .optional()?
-                        .flatten();
-                    out.push((pool, count, oldest));
-                }
-                Ok::<_, diesel::result::Error>(out)
-            })?;
-
-        // A row with no pool and a row that names `default` are one pool.
         let mut by_pool: std::collections::BTreeMap<String, WaitingTasks> =
             std::collections::BTreeMap::new();
-        for (pool, count, oldest) in per_pool {
-            let name = pool.unwrap_or_else(|| DEFAULT_POOL.to_string());
-            let entry = by_pool.entry(name).or_insert(WaitingTasks {
-                count: 0,
-                oldest_waiting_since: None,
-            });
-            entry.count += count;
-            entry.oldest_waiting_since = match (entry.oldest_waiting_since, oldest.map(|t| t.0)) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+        for group in self.waiting_task_stats_by_pool_and_priority().await? {
+            merge_waiting(
+                by_pool.entry(group.pool).or_insert(WaitingTasks {
+                    count: 0,
+                    oldest_waiting_since: None,
+                }),
+                &group.waiting,
+            );
         }
         Ok(by_pool
             .into_iter()
             .map(|(pool, waiting)| PoolWaitingTasks { pool, waiting })
             .collect())
     }
+
+    /// The waiting tasks of each pool and workflow priority that has any
+    /// (CLOACINA-T-1123): the figures of
+    /// [`waiting_task_stats_by_pool`](Self::waiting_task_stats_by_pool),
+    /// grouped also by the workflow priority stored on the task row (0 to
+    /// 10, so at most 11 groups per pool). Sorted by pool, then priority.
+    ///
+    /// Reads no task rows: one grouped count, and for each group in it a
+    /// one-column `ORDER BY … LIMIT 1` read for its earliest `waiting_since`.
+    pub async fn waiting_task_stats_by_pool_and_priority(
+        &self,
+    ) -> Result<Vec<PoolPriorityWaitingTasks>, ValidationError> {
+        let now = UniversalTimestamp::now();
+        type Group = (Option<String>, i32, i64, Option<UniversalTimestamp>);
+        let per_group: Vec<Group> = crate::interact_on_backend!(self.dal, |conn| {
+            let counts: Vec<(Option<String>, i32, i64)> = task_executions::table
+                .filter(task_executions::status.eq("Ready"))
+                .filter(
+                    task_executions::waiting_since
+                        .le(now)
+                        .or(task_executions::waiting_since.is_null().and(
+                            task_executions::retry_at
+                                .is_null()
+                                .or(task_executions::retry_at.le(now)),
+                        )),
+                )
+                .group_by((task_executions::pool, task_executions::workflow_priority))
+                .select((
+                    task_executions::pool,
+                    task_executions::workflow_priority,
+                    diesel::dsl::count_star(),
+                ))
+                .load(conn)?;
+            let mut out = Vec::with_capacity(counts.len());
+            for (pool, priority, count) in counts {
+                let mut oldest = task_executions::table
+                    .filter(task_executions::status.eq("Ready"))
+                    .filter(task_executions::waiting_since.le(now))
+                    .filter(task_executions::workflow_priority.eq(priority))
+                    .order(task_executions::waiting_since.asc())
+                    .select(task_executions::waiting_since)
+                    .into_boxed();
+                oldest = match &pool {
+                    Some(name) => oldest.filter(task_executions::pool.eq(name.clone())),
+                    None => oldest.filter(task_executions::pool.is_null()),
+                };
+                let oldest: Option<UniversalTimestamp> = oldest
+                    .first::<Option<UniversalTimestamp>>(conn)
+                    .optional()?
+                    .flatten();
+                out.push((pool, priority, count, oldest));
+            }
+            Ok::<_, diesel::result::Error>(out)
+        })?;
+
+        // A row with no pool and a row that names `default` are one pool; a
+        // stored priority outside the scale counts at its nearest end.
+        let mut groups: std::collections::BTreeMap<(String, u8), WaitingTasks> =
+            std::collections::BTreeMap::new();
+        for (pool, priority, count, oldest) in per_group {
+            let key = (
+                pool.unwrap_or_else(|| DEFAULT_POOL.to_string()),
+                cloacina_api_types::clamp_priority(priority),
+            );
+            merge_waiting(
+                groups.entry(key).or_insert(WaitingTasks {
+                    count: 0,
+                    oldest_waiting_since: None,
+                }),
+                &WaitingTasks {
+                    count,
+                    oldest_waiting_since: oldest.map(|t| t.0),
+                },
+            );
+        }
+        Ok(groups
+            .into_iter()
+            .map(|((pool, priority), waiting)| PoolPriorityWaitingTasks {
+                pool,
+                priority,
+                waiting,
+            })
+            .collect())
+    }
+}
+
+/// Add the figures of `more` to `into`: the counts add up, the earliest
+/// `waiting_since` stays.
+fn merge_waiting(into: &mut WaitingTasks, more: &WaitingTasks) {
+    into.count += more.count;
+    into.oldest_waiting_since = match (into.oldest_waiting_since, more.oldest_waiting_since) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
 }
 
 #[cfg(all(test, feature = "sqlite"))]
@@ -514,6 +577,65 @@ mod tests {
         // The sum over the pools is the figure with no grouping.
         let total = dal.task_execution().waiting_task_stats().await.unwrap();
         assert_eq!(total.count, 5);
+    }
+
+    /// CLOACINA-T-1123: the waiting tasks of a pool are grouped by the
+    /// workflow priority on their rows; the sum over the priorities is the
+    /// pool's figure.
+    #[tokio::test]
+    async fn waiting_tasks_are_grouped_by_pool_and_workflow_priority() {
+        let dal = unique_dal().await;
+        let wf = create_workflow(&dal).await;
+        let urgent = create_task(&dal, wf, "urgent", None, None).await;
+        create_task(&dal, wf, "plain-1", None, None).await;
+        create_task(&dal, wf, "plain-2", Some("default"), None).await;
+        let low = create_task(&dal, wf, "low", Some("large"), None).await;
+        async fn set_priority(dal: &DAL, id: UniversalUuid, priority: i32) {
+            crate::interact_on_backend!(dal, |conn| {
+                diesel::update(task_executions::table.find(id))
+                    .set(task_executions::workflow_priority.eq(priority))
+                    .execute(conn)
+            })
+            .unwrap();
+        }
+        set_priority(&dal, urgent, 0).await;
+        set_priority(&dal, low, 9).await;
+        let since = UniversalTimestamp(chrono::Utc::now() - chrono::Duration::seconds(600));
+        crate::interact_on_backend!(dal, |conn| {
+            diesel::update(task_executions::table.find(urgent))
+                .set(task_executions::waiting_since.eq(Some(since)))
+                .execute(conn)
+        })
+        .unwrap();
+
+        let stats = dal
+            .task_execution()
+            .waiting_task_stats_by_pool_and_priority()
+            .await
+            .unwrap();
+        let groups: Vec<(&str, u8, i64)> = stats
+            .iter()
+            .map(|g| (g.pool.as_str(), g.priority, g.waiting.count))
+            .collect();
+        assert_eq!(
+            groups,
+            vec![("default", 0, 1), ("default", 5, 2), ("large", 9, 1)]
+        );
+        let now = chrono::Utc::now();
+        assert!((600.0..660.0).contains(&stats[0].waiting.oldest_age_seconds(now)));
+        assert!((0.0..60.0).contains(&stats[1].waiting.oldest_age_seconds(now)));
+
+        let by_pool = dal
+            .task_execution()
+            .waiting_task_stats_by_pool()
+            .await
+            .unwrap();
+        let pools: Vec<(&str, i64)> = by_pool
+            .iter()
+            .map(|p| (p.pool.as_str(), p.waiting.count))
+            .collect();
+        assert_eq!(pools, vec![("default", 3), ("large", 1)]);
+        assert!((600.0..660.0).contains(&by_pool[0].waiting.oldest_age_seconds(now)));
     }
 
     /// A task put off for capacity stays in its pool's count; a started task

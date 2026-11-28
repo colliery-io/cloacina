@@ -90,6 +90,11 @@ pub struct TaskExecution {
     /// declares none has its workflow's.
     #[serde(default = "default_priority")]
     pub task_priority: i32,
+    /// The priority the task declares, as asked, before the limit of its
+    /// package (CLOACINA-T-1123). `None`: the task declares none and takes
+    /// its workflow's.
+    #[serde(default)]
+    pub task_priority_asked: Option<i32>,
 }
 
 fn default_priority() -> i32 {
