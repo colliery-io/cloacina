@@ -1,0 +1,17 @@
+# Fixture of the behaviour suite's "Capacity" chapter (CLOACINA-T-1114): one
+# task of the agent pool `sized` that asks for 2Gi of memory, more than the
+# chapter's agent of that pool reports (1Gi). It waits until an agent with
+# room for it is added.
+[package]
+name = "capacity-oversized-py"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "capacity_oversized"
+language = "python"
+description = "capacity chapter: a task of the pool sized that asks for 2Gi"
+author = "behaviour-suite"
+entry_module = "capacity_oversized.tasks"
