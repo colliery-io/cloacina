@@ -1919,8 +1919,8 @@ pub(crate) mod tests {
 
     const CHILD_ENV: &str = "CLOACINA_AGENT_TEST_WORKER";
     /// A file the test worker writes its stdout and stderr to, in place of
-    /// the agent's, which a worker inherits (CLOACINA-T-1158). The test reads
-    /// it as the host log.
+    /// the output pipe the agent reads (CLOACINA-T-1158). The test reads it
+    /// as the host log.
     const CHILD_LOG_ENV: &str = "CLOACINA_AGENT_TEST_WORKER_LOG";
 
     /// The worker of the tests: the test binary runs this one test again as
@@ -3249,8 +3249,9 @@ pub(crate) mod tests {
 
     /// CLOACINA-T-1158: a Rust poll trigger's `tracing` line reaches the
     /// host log when the poll runs in a worker process, inside the span
-    /// `poll` with the poll's ids. The worker inherits the agent's stdout and
-    /// stderr; here the test worker writes them to a file, the host log.
+    /// `poll` with the poll's ids. The worker writes its stdout and stderr to
+    /// the output pipe the agent reads; here the test worker writes them to a
+    /// file, the host log.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_rust_poll_triggers_log_line_reaches_the_host_log_from_a_worker() {
