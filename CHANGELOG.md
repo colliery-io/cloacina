@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **Server: each tenant's pool takes the tenant's server role**
+  (CLOACINA-T-1080). A connection of a tenant's pool is still the admin user,
+  and at each checkout runs `SET ROLE "<tenant>$server"`. The role is
+  `NOLOGIN`, with no password, and reaches only the tenant tables of its own
+  schema, so Postgres refuses a query that leaves them. The pool of `public`
+  is the admin pool, as before.
+  - Upgrade notes: the server makes each tenant's role, its grants and the
+    admin user's membership at start, with the migrations of the tenant
+    schema; no manual step. The admin user needs the `ADMIN` option on each
+    server role: on Postgres 16 and later the user that makes a role with
+    `CREATEROLE` has it. A role `<tenant>$server` made by another user stops
+    the start with `permission denied to grant role`; grant the server's user
+    that role `WITH ADMIN OPTION`, or drop the role. Tenant delete drops the
+    role. The number of connections per tenant per replica is unchanged (2).
+
 - **Fleet: tasks run in a worker process by default, with a memory limit**
   (CLOACINA-T-1028). An execution agent starts a child process for each task
   and no longer runs tasks inside its own process. This applies to every task

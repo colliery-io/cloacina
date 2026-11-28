@@ -163,6 +163,10 @@ const REACTOR_OWNERSHIP_CHECK_INTERVAL: std::time::Duration = std::time::Duratio
 /// it does the reverse. Change them together and with that trade in mind.
 const REACTOR_OWNERSHIP_INDETERMINATE_TOLERANCE: u32 = 3;
 
+/// The connections of one tenant's pool on one replica (CLOACINA-T-1080:
+/// unchanged by the server role).
+pub const TENANT_POOL_SIZE: u32 = 2;
+
 /// Cached per-tenant database connections for schema isolation.
 ///
 /// Each tenant gets a small connection pool scoped to their PostgreSQL schema.
@@ -208,13 +212,18 @@ impl TenantDatabaseCache {
             .await
             .map_err(cloacina::database::connection::DatabaseError::Migration)?;
 
-        // Slow path: create and cache
+        // Slow path: create and cache. CLOACINA-T-1080: each connection is
+        // the admin user and takes the tenant's server role with `SET ROLE`
+        // at each checkout, so Postgres refuses a query outside the tenant's
+        // tables. The role is made with the tenant and at each migration run
+        // of its schema (the first open above included).
         let db = Database::try_new_with_schema(
             &self.database_url,
             "cloacina",
-            2, // small pool per tenant
+            TENANT_POOL_SIZE,
             Some(tenant_id),
-        )?;
+        )?
+        .with_session_role(&cloacina::database::server_role_name(tenant_id))?;
 
         let mut cache = self.databases.write().await;
         // Double-check after acquiring write lock
@@ -3271,10 +3280,19 @@ mod tests {
     /// The build role of a tenant's compiler (CLOACINA-T-1063).
     mod build_role;
 
+    /// The server role of each tenant pool (CLOACINA-T-1080).
+    mod server_role;
+
     /// Key revoke, logout and refresh send the revocation notice (CLOACINA-T-1128).
     mod key_revocation_notice;
 
-    const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:15432/cloacina";
+    /// The database of these tests. `CLOACINA_SERVER_TEST_DATABASE_URL` at
+    /// build time points them at another database, for example a scratch
+    /// database made for one run.
+    const TEST_DB_URL: &str = match option_env!("CLOACINA_SERVER_TEST_DATABASE_URL") {
+        Some(url) => url,
+        None => "postgres://cloacina:cloacina@localhost:15432/cloacina",
+    };
 
     /// One Prometheus recorder per test process, shared by every `test_state()`.
     ///

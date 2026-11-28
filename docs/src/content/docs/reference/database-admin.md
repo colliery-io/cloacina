@@ -224,6 +224,27 @@ The method performs these operations in a single transaction:
    it back; the server calls it each time it starts the tenant's compiler and
    writes the password only into that compiler's URL.
 
+6. **Make the Server Role** (CLOACINA-T-1080)
+   - `CREATE ROLE "tenant_xyz$server" NOLOGIN NOINHERIT`: no password, no login
+   - `GRANT USAGE ON SCHEMA tenant_xyz`, then
+     `GRANT SELECT, INSERT, UPDATE, DELETE` on each table of
+     `SERVER_ROLE_TABLES` in the tenant schema, and `USAGE` on the sequences
+     of those tables. No `CREATE`, no default privileges, and no grant on a
+     table of `SERVER_GLOBAL_TABLES` (keys, accounts, sessions, tickets,
+     audit rows, pools, limits, agents, the result inbox, signing and trusted
+     keys, the migration table).
+   - The connected user becomes a member that may take the role:
+     `GRANT "tenant_xyz$server" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE`
+     (Postgres 16 and later; a plain `GRANT` before 16).
+   The name is `server_role_name(schema)`: the schema name, lower case, with
+   `$server`. `migrate_tenant_schema` gives the grants again after each
+   migration run, and makes the role if it is absent, so a tenant made by an
+   older version gets it at the next server start. `ensure_server_role(schema)`
+   does the same on its own. The server's pool of the tenant connects as the
+   admin user and runs `SET ROLE "tenant_xyz$server"` at each checkout
+   (`Database::with_session_role`). `public` has no server role: its pool is
+   the admin pool.
+
 ### What `remove_tenant` Does
 
 The method performs these operations in a single transaction, with each lock
@@ -233,7 +254,8 @@ wait bounded to 5 s (`REMOVE_LOCK_TIMEOUT`):
 2. **Write one `tenant.removed` audit row**, while the schema exists.
 3. **Drop Schema**: `DROP SCHEMA IF EXISTS tenant_xyz CASCADE`
 4. **Drop User**: `DROP USER IF EXISTS xyz_user` (the user may have another name than the schema)
-5. **Drop the Build Role**: `DROP ROLE IF EXISTS "tenant_xyz$build"`; its
+5. **Drop the Build Role and the Server Role**: `DROP ROLE IF EXISTS
+   "tenant_xyz$build"`, `DROP ROLE IF EXISTS "tenant_xyz$server"`; their
    grants went with the schema
 
 A failure rolls everything back and returns the error; a second call finishes
@@ -262,6 +284,14 @@ the removal. A call for a tenant that is gone returns `Ok`.
   - `CREATEROLE` privilege
   - Permission to create schemas
   - Permission to grant privileges
+  - The `ADMIN` option on each tenant's server role, to make itself a member
+    (CLOACINA-T-1080). On Postgres 16 and later the user that makes a role
+    with `CREATEROLE` gets it, so a server user that made the role needs
+    nothing more; a superuser is not needed. With a server role made by
+    another user, the tenant's migration run fails with `permission denied to
+    grant role`, and the server does not start: grant the server's user the role `WITH ADMIN OPTION`, or drop
+    the role and let the server make it. Before Postgres 16, `CREATEROLE`
+    alone allows the grant.
 
 ### Feature Requirements
 

@@ -277,6 +277,10 @@ mod postgres_impl {
                             // still under the migration lock.
                             ensure_build_role_in(conn, &schema_name)?;
 
+                            // 6. The role of the server's pool for the tenant
+                            // (CLOACINA-T-1080).
+                            ensure_server_role_in(conn, &schema_name)?;
+
                             Ok(())
                         });
                     // Defense in depth: SET LOCAL above scopes the change to
@@ -379,15 +383,20 @@ mod postgres_impl {
                             }
                         })?;
 
-                        // 3. Drop the build role (CLOACINA-T-1063). Its
-                        // grants went with the schema.
-                        let role = build_role_name(&schema_name);
-                        let sql = format!("DROP ROLE IF EXISTS \"{}\"", role);
-                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
-                            AdminError::SqlExecution {
-                                message: format!("Failed to drop role '{}': {}", role, e),
-                            }
-                        })?;
+                        // 3. Drop the build role (CLOACINA-T-1063) and the
+                        // server role (CLOACINA-T-1080). Their grants went
+                        // with the schema.
+                        for role in [
+                            build_role_name(&schema_name),
+                            server_role_name(&schema_name),
+                        ] {
+                            let sql = format!("DROP ROLE IF EXISTS \"{}\"", role);
+                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                                AdminError::SqlExecution {
+                                    message: format!("Failed to drop role '{}': {}", role, e),
+                                }
+                            })?;
+                        }
 
                         Ok(())
                     })
@@ -577,6 +586,9 @@ mod postgres_impl {
                         // The build role and its grants follow each
                         // migration, whatever role ran it (CLOACINA-T-1063).
                         ensure_build_role_in(conn, &schema_name)?;
+                        // So does the server role (CLOACINA-T-1080). A tenant
+                        // made before it gets it here, at the next start.
+                        ensure_server_role_in(conn, &schema_name)?;
                         Ok(ran)
                     });
                 // As in `create_tenant`: a pooled admin connection never
@@ -612,14 +624,31 @@ mod postgres_impl {
     ///
     /// The caller passes a schema name that is already checked.
     pub fn build_role_name(schema_name: &str) -> String {
+        suffixed_role_name(schema_name, "build")
+    }
+
+    /// The name of the role of a tenant's server pool (CLOACINA-T-1080):
+    /// `<tenant>$server`, lower case, shortened as [`build_role_name`] is.
+    /// No tenant role has this name: a tenant name cannot hold `$`.
+    ///
+    /// The caller passes a schema name that is already checked.
+    pub fn server_role_name(schema_name: &str) -> String {
+        suffixed_role_name(schema_name, "server")
+    }
+
+    /// `<schema>$<suffix>`, or, past 63 bytes, the start of the name,
+    /// `$<suffix>$` and 16 hex digits of the SHA-256 of the name, 63 bytes in
+    /// all (the start is 40 characters for `build`, 39 for `server`).
+    fn suffixed_role_name(schema_name: &str, suffix: &str) -> String {
         use sha2::Digest;
         let name = schema_name.to_lowercase();
-        if name.len() + "$build".len() <= 63 {
-            format!("{name}$build")
+        if name.len() + 1 + suffix.len() <= 63 {
+            format!("{name}${suffix}")
         } else {
             let digest = sha2::Sha256::digest(name.as_bytes());
             let short = hex::encode(&digest[..8]);
-            format!("{}$build${}", &name[..40], short)
+            let keep = 63 - 2 - suffix.len() - short.len();
+            format!("{}${suffix}${}", &name[..keep], short)
         }
     }
 
@@ -717,6 +746,213 @@ mod postgres_impl {
                 })?;
         }
         Ok(())
+    }
+
+    /// The tables that a tenant's server pool reads and writes, in the
+    /// tenant's own schema (CLOACINA-T-1080). Its role gets
+    /// [`SERVER_ROLE_VERBS`] on each, `USAGE` on their sequences and `USAGE`
+    /// on the schema: no other table, no `CREATE`, no default privileges.
+    /// The list is the same for every tenant. `public` has no server role:
+    /// its pool is the admin pool, and in `public` the tenant copies below
+    /// are the global tables.
+    ///
+    /// The global tables ([`SERVER_GLOBAL_TABLES`]) are not here: the server
+    /// reads them through the admin pool only. `delivery_outbox`,
+    /// `reactor_firings` and `reactor_trigger_subscriptions` are here for the
+    /// tenant schema's own copy: the run-finished notices, and the reactor
+    /// subscriptions of the tenant's runner.
+    ///
+    /// A table that a later migration adds for a tenant is one more line here
+    /// or in [`SERVER_GLOBAL_TABLES`]: the grants are given again after each
+    /// migration, and a test fails on a table in neither list.
+    pub const SERVER_ROLE_TABLES: &[&str] = &[
+        "accumulator_boundaries",
+        "accumulator_checkpoints",
+        "contexts",
+        "delivery_outbox",
+        "execution_events",
+        "package_artifacts",
+        "package_providers",
+        "package_signatures",
+        "reactor_firings",
+        "reactor_state",
+        "reactor_trigger_subscriptions",
+        "recovery_events",
+        "schedule_executions",
+        "schedules",
+        "secrets",
+        "state_accumulator_buffers",
+        "task_execution_metadata",
+        "task_executions",
+        "tenant_data_keys",
+        "workflow_execution_package_pins",
+        "workflow_executions",
+        "workflow_packages",
+        "workflow_registry",
+    ];
+
+    /// The verbs of the server role on each table of [`SERVER_ROLE_TABLES`].
+    pub const SERVER_ROLE_VERBS: &str = "SELECT, INSERT, UPDATE, DELETE";
+
+    /// The tables of a schema that the server role never reaches
+    /// (CLOACINA-T-1080): the global tables, which the server reads through
+    /// the admin pool, and the migration bookkeeping, which only the admin
+    /// user writes. Every tenant schema has a copy of each; the copy in a
+    /// tenant schema is not read.
+    pub const SERVER_GLOBAL_TABLES: &[&str] = &[
+        "__diesel_schema_migrations",
+        "agent_capacity_limits",
+        "agent_desired_counts",
+        "agent_pools",
+        "api_keys",
+        "audit_events",
+        "fleet_agents",
+        "fleet_result_inbox",
+        "key_trust_acls",
+        "local_accounts",
+        "login_throttle",
+        "oidc_login_flows",
+        "oidc_sessions",
+        "reactor_owner_addresses",
+        "signing_keys",
+        "trusted_keys",
+        "ws_tickets",
+    ];
+
+    #[derive(diesel::QueryableByName)]
+    struct SequenceName {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        name: String,
+    }
+
+    #[derive(diesel::QueryableByName)]
+    struct ServerVersion {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        version: i32,
+    }
+
+    /// Makes the server role of `schema_name` if it is absent, gives it the
+    /// grants of [`SERVER_ROLE_TABLES`] on each of those tables that exists,
+    /// and makes the connected user a member that may `SET ROLE` to it
+    /// (CLOACINA-T-1080). Safe to run again. Runs inside a transaction that
+    /// holds the migration lock, so two servers never grant at once.
+    ///
+    /// The role is `NOLOGIN`: no password is issued or stored. The server's
+    /// pool connects as the admin user and runs `SET ROLE` at each checkout.
+    /// The membership needs the admin option on the role: Postgres 16 gives
+    /// it to the user that makes the role (with `CREATEROLE`).
+    fn ensure_server_role_in(
+        conn: &mut diesel::PgConnection,
+        schema_name: &str,
+    ) -> Result<(), AdminError> {
+        let role = server_role_name(schema_name);
+        let sql_error = |what: &str, e: diesel::result::Error| AdminError::SqlExecution {
+            message: format!("{what} (role '{role}'): {e}"),
+        };
+        let existing = diesel::sql_query("SELECT COUNT(*) AS n FROM pg_roles WHERE rolname = $1")
+            .bind::<diesel::sql_types::Text, _>(&role)
+            .get_result::<RoleCount>(conn)
+            .map_err(|e| sql_error("Failed to check for the server role", e))?;
+        if existing.n == 0 {
+            let sql = format!("CREATE ROLE \"{}\" NOLOGIN NOINHERIT", role);
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(|e| sql_error("Failed to create the server role", e))?;
+        }
+
+        let mut grants = vec![format!(
+            "GRANT USAGE ON SCHEMA {} TO \"{}\"",
+            schema_name, role
+        )];
+        let mut present_tables = Vec::new();
+        for table in SERVER_ROLE_TABLES {
+            let qualified = format!("{}.{}", schema_name, table);
+            let present = diesel::sql_query("SELECT to_regclass($1) IS NOT NULL AS present")
+                .bind::<diesel::sql_types::Text, _>(&qualified)
+                .get_result::<TablePresent>(conn)
+                .map_err(|e| sql_error(&format!("Failed to look up table '{qualified}'"), e))?
+                .present;
+            if present {
+                grants.push(format!(
+                    "GRANT {} ON {} TO \"{}\"",
+                    SERVER_ROLE_VERBS, qualified, role
+                ));
+                present_tables.push(table.to_string());
+            }
+        }
+        // The sequences of those tables (a serial or identity column).
+        let sequences = diesel::sql_query(
+            "SELECT s.relname::text AS name \
+             FROM pg_catalog.pg_class s \
+             JOIN pg_catalog.pg_depend d ON d.objid = s.oid \
+              AND d.classid = 'pg_catalog.pg_class'::regclass \
+              AND d.refclassid = 'pg_catalog.pg_class'::regclass \
+             JOIN pg_catalog.pg_class t ON t.oid = d.refobjid \
+             JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace \
+             WHERE s.relkind = 'S' AND n.nspname = $1 AND t.relname = ANY($2) \
+             ORDER BY 1",
+        )
+        .bind::<diesel::sql_types::Text, _>(schema_name)
+        .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&present_tables)
+        .load::<SequenceName>(conn)
+        .map_err(|e| sql_error("Failed to list the sequences", e))?;
+        for sequence in sequences {
+            grants.push(format!(
+                "GRANT USAGE ON SEQUENCE {}.\"{}\" TO \"{}\"",
+                schema_name, sequence.name, role
+            ));
+        }
+
+        // The connected user may `SET ROLE` to it. On Postgres 16 and later
+        // it does not inherit the role's rights; before 16 a plain grant is
+        // the only form (the role holds no right the user lacks).
+        let version =
+            diesel::sql_query("SELECT current_setting('server_version_num')::integer AS version")
+                .get_result::<ServerVersion>(conn)
+                .map_err(|e| sql_error("Failed to read the server version", e))?
+                .version;
+        grants.push(if version >= 160000 {
+            format!(
+                "GRANT \"{}\" TO CURRENT_USER WITH INHERIT FALSE, SET TRUE",
+                role
+            )
+        } else {
+            format!("GRANT \"{}\" TO CURRENT_USER", role)
+        });
+
+        for sql in grants {
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(|e| sql_error("Failed to grant", e))?;
+        }
+        Ok(())
+    }
+
+    impl DatabaseAdmin {
+        /// Makes the server role of `schema_name` if it is absent, gives it
+        /// its grants and the connected user's membership, under the
+        /// migration lock (CLOACINA-T-1080). A tenant schema gets it at
+        /// tenant create and with each migration run. The server does not
+        /// make one for `public`: the pool of `public` is the admin pool.
+        pub async fn ensure_server_role(&self, schema_name: &str) -> Result<(), AdminError> {
+            validate_build_schema(schema_name)?;
+            let schema_name = schema_name.to_string();
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+            conn.interact(move |conn| {
+                conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
+                    take_migration_lock(conn)?;
+                    ensure_server_role_in(conn, &schema_name)
+                })
+            })
+            .await
+            .map_err(|e| AdminError::SqlExecution {
+                message: format!("Transaction failed: {}", e),
+            })?
+        }
     }
 
     impl DatabaseAdmin {
@@ -1009,6 +1245,37 @@ mod postgres_impl {
             // 57 characters still fit with the plain suffix.
             let fits = "y".repeat(57);
             assert_eq!(build_role_name(&fits), format!("{fits}$build"));
+        }
+
+        #[test]
+        fn server_role_name_is_no_tenant_name_and_fits() {
+            assert_eq!(server_role_name("acme"), "acme$server");
+            assert_eq!(server_role_name("Acme"), "acme$server");
+            assert!(validate_username(&server_role_name("acme")).is_err());
+            let long = "a".repeat(63);
+            let role = server_role_name(&long);
+            assert_eq!(role.len(), 63, "{role}");
+            assert!(role.starts_with(&format!("{}$server$", "a".repeat(39))));
+            assert_ne!(role, build_role_name(&long));
+            crate::database::connection::validate_role_name(&role).expect("a role name");
+            crate::database::connection::validate_role_name(&server_role_name("acme"))
+                .expect("a role name");
+        }
+
+        #[test]
+        fn a_session_role_name_is_checked() {
+            use crate::database::connection::validate_role_name;
+            for bad in [
+                "",
+                "Acme$server",
+                "a\"b",
+                "a b",
+                "1abc",
+                "a;b",
+                &"a".repeat(64),
+            ] {
+                assert!(validate_role_name(bad).is_err(), "{bad:?}");
+            }
         }
 
         #[test]

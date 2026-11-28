@@ -31,7 +31,10 @@
 //!   the tenant's name, and then fails with an error that names every tenant
 //!   that failed. The server does not start: a connection of a tenant reads
 //!   `<tenant>, public`, so a table that the tenant schema lacks would be
-//!   read from `public`.
+//!   looked up in `public`, where the tenant's server role is refused
+//!   (CLOACINA-T-1080).
+//! - Each migration run of a tenant schema also gives the tenant's build role
+//!   and server role their grants again, and makes them if they are absent.
 //! - A tenant with nothing pending costs one short transaction.
 
 use std::time::Instant;
