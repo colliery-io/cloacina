@@ -9,11 +9,18 @@ deployment of server, compilers and agents.
 | `publishing/` | A team publishes its own jobs to a shared orchestrator (CLOACINA-T-1026) | `angreal test bdd publish`, or `angreal test bdd standing --chapter publishing` |
 | `standing/` | The standing workload of several teams (CLOACINA-T-1107) | `angreal test bdd standing` |
 | `tenant_code/` | Tenant code runs only on the tenant's agents and in its compiler: one scenario for each claim of CLOACINA-A-0019 (CLOACINA-T-1079) | `angreal test bdd standing --chart-actuator --chapter tenant_code` |
+| `failure/` | An agent dies, the server restarts, Postgres goes away, and work survives (CLOACINA-T-1112) | `angreal test bdd standing --chapter failure` |
 
 The `tenant_code` chapter makes a tenant of its own, `team_d`, and takes its
 agent away in one scenario. Its compiler scenarios need `--chart-actuator`:
 the compilers that the driver applies itself connect with the admin
 database URL, not with the tenant's build role.
+
+The `failure` chapter makes its own disturbances through the runner of the
+disturbance schedule, so it acts on the suite's own cluster only. Its
+Postgres scenario takes the database away for eleven minutes. Do not run it
+while `--disturb` runs a disturbance: the runner's lock makes the second a
+skip, and the scenario fails with that reason.
 
 ```
 angreal test bdd standing --dry-run     # every feature parsed, every step resolved; no cluster

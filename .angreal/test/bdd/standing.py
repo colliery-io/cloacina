@@ -373,9 +373,12 @@ def standing(dry_run=False, self_test=False, check=False, disturb_run=False, dis
         )
 
         print("\n--- port-forward the server API ---\n")
-        fwd, base = k8s.start_port_forward(kubeconfig, release=RELEASE, ns=NS, port=SERVER_PORT)
+        # A forward that starts again when its pod is replaced: the Failure
+        # chapter restarts server pods (CLOACINA-T-1112).
+        fwd = _Forward(kubeconfig, f"svc/{RELEASE}-cloacina-server", f"{SERVER_PORT}:8080", NS)
+        base = f"http://127.0.0.1:{SERVER_PORT}"
         world.base_url = base
-        if not k8s._wait_http(f"{base}/ready", timeout_s=90, proc=fwd):
+        if not k8s._wait_http(f"{base}/ready", timeout_s=90):
             print(k8s._server_logs(kubeconfig))
             raise AssertionError("server /ready never became healthy via port-forward")
 
@@ -405,8 +408,8 @@ def standing(dry_run=False, self_test=False, check=False, disturb_run=False, dis
         # angreal's Python does not flush on sys.exit.
         sys.stdout.flush()
         sys.stderr.flush()
-        if fwd is not None and fwd.poll() is None:
-            fwd.terminate()
+        if fwd is not None:
+            fwd.close()
         print(f"\nThe deployment is left standing.\n"
               f"  KUBECONFIG={kubeconfig}\n"
               f"  checker:  angreal test bdd standing --check   (report: http://127.0.0.1:8377/)\n"

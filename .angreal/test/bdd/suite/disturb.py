@@ -122,8 +122,10 @@ SCHEDULE = (
     Slot(3 * 3600 + 120, "fill_capacity"),
 )
 
-# How long Postgres stays away.
-POSTGRES_AWAY_SECONDS = 240
+# How long Postgres stays away: more than two periods of the five-minute
+# schedules, so a window holds two fire times and the catch-up policies
+# `skip` and `run_all` give different answers (CLOACINA-T-1112).
+POSTGRES_AWAY_SECONDS = 660
 # How long the runner waits for an agent of the tenant to hold a task.
 AGENT_WAIT_SECONDS = 180
 # Held runs a `fill_capacity` starts: twice the tenant's agent slots.
@@ -155,12 +157,15 @@ MAX_ACTION_SECONDS = {
 class Planned:
     """One disturbance of the schedule, or one asked for now."""
 
-    def __init__(self, at, kind, tenant, mode, cycle):
+    def __init__(self, at, kind, tenant, mode, cycle, pod=None):
         self.at = at
         self.kind = kind
         self.tenant = tenant
         self.mode = mode
         self.cycle = cycle
+        # A pod named by a scenario (`kill_agent`, `restart_server`); None
+        # lets the runner choose.
+        self.pod = pod
 
     def describe(self):
         mode = f" ({self.mode})" if self.mode else ""
@@ -609,15 +614,19 @@ class Runner:
 
     # -- one disturbance ---------------------------------------------------
 
-    def run_now(self, kind, tenant=None, mode=None):
+    def run_now(self, kind, tenant=None, mode=None, pod=None):
         """One disturbance now, outside the schedule (a scenario asks for it).
-        Returns the closed record entry, or None when nothing was done."""
+        `pod` names the agent or server pod to delete; it must be a running
+        pod of that tenant's agents or of the server. Returns the closed
+        record entry, or None when nothing was done."""
         if kind not in KINDS:
             raise Refused(f"unknown kind of disturbance: {kind}")
         tenant = tenant or workload.TENANTS[0]
         if kind in ("kill_agent", "restart_server"):
             mode = mode or MODES[0]
-        return self.disturb(Planned(self.clock(), kind, tenant, mode, cycle=0))
+        elif pod is not None:
+            raise Refused(f"{kind} takes no pod")
+        return self.disturb(Planned(self.clock(), kind, tenant, mode, cycle=0, pod=pod))
 
     def disturb(self, item):
         if item.kind not in KINDS:
@@ -661,6 +670,14 @@ class Runner:
                 pods.append(meta.get("name"))
         return sorted(name for name in pods if name)
 
+    def server_pods(self):
+        """The running pods of the server, by name."""
+        return self._running_pods(NAMESPACE, SERVER_PODS)
+
+    def agent_pods(self, tenant):
+        """The running agent pods of a tenant, by name."""
+        return self._running_pods(tenant_namespace(tenant), AGENT_PODS)
+
     def agent_pod_with_work(self, tenant):
         """(pod, agent id, in flight, why) of an agent of the tenant that holds
         a task. The agent id is its pod's name (CLOACINA-T-1145). pod is None
@@ -702,7 +719,15 @@ class Runner:
             found = self.agent_pod_with_work(item.tenant)
             return found if found[0] else None
 
-        found = self._wait(AGENT_WAIT_SECONDS, step=15, until=holder)
+        if item.pod is not None:
+            # A scenario names the pod that holds its task.
+            if item.pod not in self._running_pods(namespace, AGENT_PODS):
+                self.record.log("skipped", kind=item.kind, target=item.tenant,
+                                reason=f"{item.pod} is not a running agent pod of {item.tenant}")
+                return None
+            found = (item.pod, None, None, "named by the scenario")
+        else:
+            found = self._wait(AGENT_WAIT_SECONDS, step=15, until=holder)
         if not found:
             _pod, _agent, _n, why = self.agent_pod_with_work(item.tenant)
             self.record.log("skipped", kind=item.kind, target=item.tenant, reason=why)
@@ -727,7 +752,11 @@ class Runner:
         if not pods:
             self.record.log("skipped", kind=item.kind, target="server", reason="no running server pod")
             return None
-        pod = pods[item.cycle % len(pods)]
+        if item.pod is not None and item.pod not in pods:
+            self.record.log("skipped", kind=item.kind, target="server",
+                            reason=f"{item.pod} is not a running server pod")
+            return None
+        pod = item.pod or pods[item.cycle % len(pods)]
         entry = self.record.open("restart_server", f"server pod {pod}", pod=pod, replicas=len(pods),
                                  mode=item.mode)
         outcome = "interrupted"

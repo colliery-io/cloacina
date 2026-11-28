@@ -255,7 +255,7 @@ kind runs six times, on each tenant twice.
 |---|---|---|
 | `kill_agent` | The roster names an agent of the tenant with a task in flight; its agent id is its pod's name; that pod is deleted. Plain (SIGTERM: the agent drains its work) or with `--grace-period=0 --force` (the agent dies with it). | An agent dies mid-task and the task finishes on another agent. A long task runs one time. |
 | `restart_server` | One pod of the server Deployment is deleted, in the same two modes, and the Deployment is waited for. The standing deployment runs two server replicas (`--server-replicas 1` runs one). | The server restarts and runs survive. A task whose result lands on another replica runs one time. A schedule fires on time. |
-| `postgres_away` | The Postgres Deployment is scaled to zero for four minutes, then back to one; the runner waits for it and for the server's `/ready`. | Postgres goes away and nothing is lost or doubled. A backlog drains in order. |
+| `postgres_away` | The Postgres Deployment is scaled to zero for eleven minutes (two fire times of the five-minute schedules, so the catch-up policies give different answers), then back to one; the runner waits for it and for the server's `/ready`. | Postgres goes away and nothing is lost or doubled. A backlog drains in order. |
 | `fill_capacity` | Sixteen held runs of `standing_hold` are started through the API with the tenant's write key: twice what its agents take at once. | Work waits when a tenant is full and runs when capacity arrives. A task with no free agent runs one time. A schedule fires on time. |
 
 Each disturbance has a window that ends some minutes after the action (15
@@ -295,6 +295,36 @@ If Postgres or the server does not come back, the record says so
 (`"recovered": false`), the schedule stops, and the runner prints the
 command that brings Postgres back. That is a finding of the run: bring the
 deployment back by hand and file the task.
+
+## The Failure chapter
+
+```bash
+angreal test bdd standing --chapter failure
+```
+
+`features/failure/failure.feature` holds one scenario for each way a part
+goes away: an agent killed with no time to stop, an agent stopped the
+Kubernetes way, every server replica restarted in turn, Postgres away for
+eleven minutes. Each scenario asks the runner of the disturbance schedule for
+its disturbance now and reads its window from the record. A held job of five
+minutes carries a token in its context; the line it prints when its task
+starts names the pod, so the scenario kills the pod that runs it and counts
+its starts.
+
+The feature states the rule it holds the system to, from
+`explanation/service/execution-agent-fleet.md` and
+`explanation/engine/cron-scheduling.md`: a task on an agent that dies runs
+again from its start on a live agent, at least once; a task in flight when a
+server replica stops finishes once; a missed fire time follows the
+schedule's catch-up policy (`skip`: one run for the missed fire times;
+`run_all`: one run for each); no fire time has two runs. For a task that
+runs while Postgres is away the docs name no rule, and the chapter holds it
+to "it ends, once".
+
+Its checker rules (`suite/rules/failure.py`) judge every disturbance of the
+schedule the same way: for each closed window, every run that was active
+when it began, and how it ended; for a `postgres_away`, each fire time of
+the window. A window that has not closed yet is not judged.
 
 ## Add a chapter
 
