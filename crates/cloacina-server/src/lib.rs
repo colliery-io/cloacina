@@ -2512,6 +2512,12 @@ fn registered_routes(
         .get("/agents", crate::routes::agent::list_agents)
         // Compiler / build-pipeline status (admin) — CLOACI-I-0124
         .get("/compiler/status", crate::routes::compiler::compiler_status)
+        // CLOACINA-T-1085: the packages of every tenant that need a new
+        // publish after a plugin interface change (platform admin).
+        .get(
+            "/packages/needs-new-build",
+            crate::routes::workflows::list_packages_needing_new_build,
+        )
         // Audit record (CLOACINA-T-1024): the platform form and the tenant form.
         .get("/audit", crate::routes::audit::list_audit)
         .get(

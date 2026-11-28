@@ -68,6 +68,7 @@ pub mod in_process;
 pub mod loader;
 pub mod package_description;
 pub mod placement_check;
+pub mod plugin_interface;
 pub mod reconciler;
 pub mod storage;
 pub mod traits;

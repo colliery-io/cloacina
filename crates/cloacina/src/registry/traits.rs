@@ -335,6 +335,26 @@ pub trait WorkflowRegistry: Send + Sync {
         Ok(false)
     }
 
+    /// CLOACINA-T-1085: the one rebuild from kept source per package per
+    /// plugin interface version, recorded on the row. A library of another
+    /// interface (or fidius ABI) failed to load in this process. The first
+    /// time for this build's interface the row goes back to `pending` for the
+    /// compiler; after that it is marked as needing a new publish with
+    /// `reason`, and no rebuild is asked for. `built_for` is the interface
+    /// the library was built for, when the load error names it.
+    ///
+    /// Default impl: not supported (`Unchanged`), for registries with no
+    /// build pipeline.
+    async fn request_interface_rebuild(
+        &self,
+        package_id: WorkflowPackageId,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<crate::registry::workflow_registry::InterfaceRebuild, RegistryError> {
+        let _ = (package_id, built_for, reason);
+        Ok(crate::registry::workflow_registry::InterfaceRebuild::Unchanged)
+    }
+
     /// CLOACINA-T-1027: record that a built package is refused at load, with
     /// the reason, where the publisher reads a failed build: build status
     /// `failed` and `build_error`.

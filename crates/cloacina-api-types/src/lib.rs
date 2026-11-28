@@ -111,7 +111,8 @@ pub use triggers::{
 };
 pub use trusted_keys::{AddTrustedKeyRequest, TrustedKeyRevokedResponse, TrustedKeySummary};
 pub use workflows::{
-    WorkflowDeletedResponse, WorkflowDetail, WorkflowPauseResponse, WorkflowSourceFile,
-    WorkflowSourceResponse, WorkflowSummary, WorkflowTaskNode, WorkflowUploadedResponse,
-    WorkflowVersionActivatedResponse, WorkflowVersionSummary,
+    NeedsNewBuild, PackageNeedingNewBuild, WorkflowDeletedResponse, WorkflowDetail,
+    WorkflowPauseResponse, WorkflowSourceFile, WorkflowSourceResponse, WorkflowSummary,
+    WorkflowTaskNode, WorkflowUploadedResponse, WorkflowVersionActivatedResponse,
+    WorkflowVersionSummary,
 };

@@ -83,6 +83,10 @@ from .list_response_graph_status import ListResponseGraphStatus
 from .list_response_graph_status_items_item import ListResponseGraphStatusItemsItem
 from .list_response_key_info import ListResponseKeyInfo
 from .list_response_key_info_items_item import ListResponseKeyInfoItemsItem
+from .list_response_package_needing_new_build import ListResponsePackageNeedingNewBuild
+from .list_response_package_needing_new_build_items_item import (
+    ListResponsePackageNeedingNewBuildItemsItem,
+)
 from .list_response_reactor_fire import ListResponseReactorFire
 from .list_response_reactor_fire_items_item import ListResponseReactorFireItemsItem
 from .list_response_reactor_fire_items_item_inputs import (
@@ -103,6 +107,8 @@ from .list_response_trusted_key_summary_items_item import (
 from .local_login_request import LocalLoginRequest
 from .local_login_response import LocalLoginResponse
 from .logout_response import LogoutResponse
+from .needs_new_build import NeedsNewBuild
+from .package_needing_new_build import PackageNeedingNewBuild
 from .package_upload_form import PackageUploadForm
 from .priority_grant import PriorityGrant
 from .reactor_fire import ReactorFire
@@ -247,6 +253,8 @@ __all__ = (
     "ListResponseGraphStatusItemsItem",
     "ListResponseKeyInfo",
     "ListResponseKeyInfoItemsItem",
+    "ListResponsePackageNeedingNewBuild",
+    "ListResponsePackageNeedingNewBuildItemsItem",
     "ListResponseReactorFire",
     "ListResponseReactorFireItemsItem",
     "ListResponseReactorFireItemsItemInputs",
@@ -261,6 +269,8 @@ __all__ = (
     "LocalLoginRequest",
     "LocalLoginResponse",
     "LogoutResponse",
+    "NeedsNewBuild",
+    "PackageNeedingNewBuild",
     "PackageUploadForm",
     "PriorityGrant",
     "ReactorFire",

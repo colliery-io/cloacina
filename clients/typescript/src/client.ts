@@ -913,6 +913,16 @@ export class CloacinaClient {
     return unwrap(await this.api.GET("/v1/compiler/status"));
   }
 
+  /**
+   * The packages of every tenant that need a new publish after a plugin
+   * interface change (platform admin key).
+   */
+  async listPackagesNeedingNewBuild(): Promise<
+    schemas["ListResponse_PackageNeedingNewBuild"]
+  > {
+    return unwrap(await this.api.GET("/v1/packages/needs-new-build"));
+  }
+
   // ---- agent pools ----
 
   /** List the tenant's agent pools. Every tenant has `default`. */

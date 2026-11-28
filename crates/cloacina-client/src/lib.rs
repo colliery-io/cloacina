@@ -1317,6 +1317,14 @@ impl Client {
         self.get_json("/v1/compiler/status").await
     }
 
+    /// The packages of every tenant that need a new publish after a plugin
+    /// interface change (platform admin key).
+    pub async fn list_packages_needing_new_build(
+        &self,
+    ) -> Result<ListResponse<cloacina_api_types::PackageNeedingNewBuild>, ClientError> {
+        self.get_json("/v1/packages/needs-new-build").await
+    }
+
     // ---- agent pools ----
 
     /// List the tenant's agent pools. Every tenant has `default`.

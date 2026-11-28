@@ -394,6 +394,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `073`, `074`, `075` (Postgres and SQLite) and `071`, `072` (Postgres
   only). Back up the database before the upgrade; there is no downgrade,
   restore the backup to go back.
+- **Database migration `077`** (CLOACINA-T-1085, Postgres and SQLite): two
+  nullable columns on `workflow_packages`, `interface_checked_for` and
+  `needs_new_build`.
+- **After a release that changes the plugin interface: change the pin,
+  publish again** (CLOACINA-T-1085). This release changes the plugin
+  interface from 7 (0.12) to 8. A Rust package built for the old interface
+  does not run on the new agents. The compiler rebuilds each such package once from its kept source;
+  a package whose pins allow the new minor runs with no publish. A package
+  that pins the old minor (`cloacina = "0.12"`, or its `Cargo.lock`) is
+  marked as needing a new publish: change the `cloacina` pin in its
+  `Cargo.toml` to the new minor, update `Cargo.lock`, and publish again.
+  `cloacinactl package list --needs-new-build` lists a tenant's marked
+  packages, `--all-tenants` every tenant's (platform admin,
+  `GET /v1/packages/needs-new-build`); the package list and detail carry
+  `plugin_interface_version` and `needs_new_build`. A marked package stays
+  in service: agents of the old release run it during the roll, and its tasks
+  fail at once with the reason when the live agents of its pool all load
+  another interface. Every Rust package of every tenant can be on the list
+  after this upgrade. A library whose descriptor names another plugin
+  interface is now refused at load, with both versions in the error; before,
+  it was opened.
 - **Upgrade order** (CLOACINA-T-1087, CLOACINA-T-1046): back up the
   database; scale the compilers to zero and pause package uploads; roll the
   server; start the compilers again; then the agents; then `cloacinactl` and

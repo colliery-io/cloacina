@@ -65,6 +65,8 @@ impl TaskRegistrar {
                 .ok_or_else(|| LoaderError::MetadataExtraction {
                     reason: "Plugin library contains no plugins".to_string(),
                 })?;
+        // CLOACINA-T-1085: no call into a library of another interface.
+        crate::registry::loader::package_loader::check_loaded_interface(&plugin, &temp_path)?;
 
         let handle = fidius_host::PluginHandle::from_loaded(plugin);
 

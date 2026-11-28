@@ -25,7 +25,8 @@ pub mod filesystem;
 mod package;
 
 pub use database::{
-    BuildQueueStats, PackageVersionDelete, ReconcilerStats, StoredDescription, UndescribedPackage,
+    BuildQueueStats, InterfaceCheck, InterfaceRebuild, InterfaceStatus, PackageNeedingNewBuild,
+    PackageVersionDelete, ReconcilerStats, StoredDescription, UndescribedPackage,
     build_queue_stats, reconciler_stats,
 };
 
@@ -944,6 +945,16 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         package_id: crate::registry::types::WorkflowPackageId,
     ) -> Result<bool, RegistryError> {
         self.request_recompile(package_id).await
+    }
+
+    async fn request_interface_rebuild(
+        &self,
+        package_id: crate::registry::types::WorkflowPackageId,
+        built_for: Option<u32>,
+        reason: &str,
+    ) -> Result<InterfaceRebuild, RegistryError> {
+        self.request_interface_rebuild(package_id, built_for, reason)
+            .await
     }
 
     async fn refuse_package(

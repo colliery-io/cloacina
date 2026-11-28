@@ -458,6 +458,36 @@ pub fn plugin_interface_wait_reason(
     ))
 }
 
+/// The failure of a task whose package cannot run here and will not
+/// (CLOACINA-T-1085): its plugin interface is not this server's own, and the
+/// agents of its tenant and pool load none of it (`wait_reason`, from
+/// [`plugin_interface_wait_reason`]). New agents are of the server's release,
+/// so waiting does not help: the task fails at once, and the message names
+/// the versions and the step. `needs_new_build` is the package's mark when
+/// the compiler set one. `None`: the package is of the server's own
+/// interface, or has none; the task waits, as CLOACINA-T-1086 decided.
+pub fn fails_at_once_reason(
+    wait_reason: &str,
+    package_interface: Option<u32>,
+    needs_new_build: Option<&str>,
+) -> Option<String> {
+    let built_for = package_interface?;
+    let server = cloacina::fleet::PLUGIN_INTERFACE_VERSION;
+    if built_for == server {
+        return None;
+    }
+    let step = match needs_new_build {
+        Some(mark) => mark.to_string(),
+        None => cloacina::registry::plugin_interface::needs_new_build_reason(
+            Some(built_for),
+            "the compiler has not rebuilt it yet",
+        ),
+    };
+    Some(format!(
+        "the package needs a new publish: {step} ({wait_reason})"
+    ))
+}
+
 /// Select a live fleet agent for a task: same tenant as the work, in the pool
 /// the task names, able to run the package, with a free slot, and with room
 /// for the task's CPU and memory requests.
@@ -578,6 +608,38 @@ mod tests {
             plugin_interface_wait_reason(&roster, &Some("other".into()), "default", Some(8)),
             None
         );
+    }
+
+    /// CLOACINA-T-1085: a package of another interface than the server's,
+    /// with no agent of its interface live, fails at once with the versions
+    /// and the step; one of the server's own interface waits.
+    #[test]
+    fn a_package_of_another_interface_with_no_agent_of_it_fails_at_once() {
+        let server = cloacina::fleet::PLUGIN_INTERFACE_VERSION;
+        let roster = vec![with_interface("new", Some(server))];
+        let tenant = Some("acme".to_string());
+        let old = server - 1;
+        let wait = plugin_interface_wait_reason(&roster, &tenant, "default", Some(old))
+            .expect("the interface is the reason");
+
+        let failed = fails_at_once_reason(&wait, Some(old), None).expect("fails at once");
+        assert!(
+            failed.contains(&format!("built for plugin interface {old}")),
+            "{failed}"
+        );
+        assert!(
+            failed.contains(&format!("loads plugin interface {server}")),
+            "{failed}"
+        );
+        assert!(failed.contains("publish the package again"), "{failed}");
+
+        // The compiler's mark is the step when there is one.
+        let marked = fails_at_once_reason(&wait, Some(old), Some("the mark")).unwrap();
+        assert!(marked.contains("the mark"), "{marked}");
+
+        // The server's own interface, or none: the task waits.
+        assert_eq!(fails_at_once_reason(&wait, Some(server), None), None);
+        assert_eq!(fails_at_once_reason(&wait, None, None), None);
     }
 
     // ── replica-local key pools (the deliberate residual) ────────────────────

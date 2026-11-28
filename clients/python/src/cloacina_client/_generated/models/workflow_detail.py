@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.input_slot import InputSlot
+    from ..models.needs_new_build import NeedsNewBuild
     from ..models.workflow_task_node import WorkflowTaskNode
 
 
@@ -45,6 +46,7 @@ class WorkflowDetail:
                 package whose describe fails during a build has `build_status`
                 `failed` and the reason in `build_error`.
             description (None | str | Unset):
+            needs_new_build (NeedsNewBuild | None | Unset):
             not_loaded_reason (None | str | Unset): Why this built package is not loaded (CLOACINA-T-1075). A server that
                 loads packages from their metadata only does not load a package that
                 has no metadata document: it waits for the tenant's compiler to
@@ -54,6 +56,8 @@ class WorkflowDetail:
                 `failed` and the reason in `build_error`.
             paused (bool | Unset): Whether this workflow is paused (CLOACI-T-0749). Paused workflows refuse
                 new executions until resumed.
+            plugin_interface_version (int | None | Unset): As in [`WorkflowSummary::plugin_interface_version`]
+                (CLOACINA-T-1085).
             task_graph (list[WorkflowTaskNode] | Unset): The task dependency graph (nodes + their upstream dependencies) for
                 rendering the full workflow DAG. Empty for packages predating
                 task-graph persistence. (CLOACI-T-0663)
@@ -74,13 +78,17 @@ class WorkflowDetail:
     declared_params: list[InputSlot] | Unset = UNSET
     describe_error: None | str | Unset = UNSET
     description: None | str | Unset = UNSET
+    needs_new_build: NeedsNewBuild | None | Unset = UNSET
     not_loaded_reason: None | str | Unset = UNSET
     paused: bool | Unset = UNSET
+    plugin_interface_version: int | None | Unset = UNSET
     task_graph: list[WorkflowTaskNode] | Unset = UNSET
     uploaded_by: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.needs_new_build import NeedsNewBuild
+
         build_status = self.build_status
 
         created_at = self.created_at
@@ -122,6 +130,14 @@ class WorkflowDetail:
         else:
             description = self.description
 
+        needs_new_build: dict[str, Any] | None | Unset
+        if isinstance(self.needs_new_build, Unset):
+            needs_new_build = UNSET
+        elif isinstance(self.needs_new_build, NeedsNewBuild):
+            needs_new_build = self.needs_new_build.to_dict()
+        else:
+            needs_new_build = self.needs_new_build
+
         not_loaded_reason: None | str | Unset
         if isinstance(self.not_loaded_reason, Unset):
             not_loaded_reason = UNSET
@@ -129,6 +145,12 @@ class WorkflowDetail:
             not_loaded_reason = self.not_loaded_reason
 
         paused = self.paused
+
+        plugin_interface_version: int | None | Unset
+        if isinstance(self.plugin_interface_version, Unset):
+            plugin_interface_version = UNSET
+        else:
+            plugin_interface_version = self.plugin_interface_version
 
         task_graph: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.task_graph, Unset):
@@ -165,10 +187,14 @@ class WorkflowDetail:
             field_dict["describe_error"] = describe_error
         if description is not UNSET:
             field_dict["description"] = description
+        if needs_new_build is not UNSET:
+            field_dict["needs_new_build"] = needs_new_build
         if not_loaded_reason is not UNSET:
             field_dict["not_loaded_reason"] = not_loaded_reason
         if paused is not UNSET:
             field_dict["paused"] = paused
+        if plugin_interface_version is not UNSET:
+            field_dict["plugin_interface_version"] = plugin_interface_version
         if task_graph is not UNSET:
             field_dict["task_graph"] = task_graph
         if uploaded_by is not UNSET:
@@ -179,6 +205,7 @@ class WorkflowDetail:
     @classmethod
     def from_dict(cls, src_dict: Mapping[str, Any]) -> Self:
         from ..models.input_slot import InputSlot
+        from ..models.needs_new_build import NeedsNewBuild
         from ..models.workflow_task_node import WorkflowTaskNode
 
         d = dict(src_dict)
@@ -234,6 +261,23 @@ class WorkflowDetail:
 
         description = _parse_description(d.pop("description", UNSET))
 
+        def _parse_needs_new_build(data: object) -> NeedsNewBuild | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                needs_new_build_type_0 = NeedsNewBuild.from_dict(data)
+
+                return needs_new_build_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(NeedsNewBuild | None | Unset, data)
+
+        needs_new_build = _parse_needs_new_build(d.pop("needs_new_build", UNSET))
+
         def _parse_not_loaded_reason(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -244,6 +288,17 @@ class WorkflowDetail:
         not_loaded_reason = _parse_not_loaded_reason(d.pop("not_loaded_reason", UNSET))
 
         paused = d.pop("paused", UNSET)
+
+        def _parse_plugin_interface_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        plugin_interface_version = _parse_plugin_interface_version(
+            d.pop("plugin_interface_version", UNSET)
+        )
 
         _task_graph = d.pop("task_graph", UNSET)
         task_graph: list[WorkflowTaskNode] | Unset = UNSET
@@ -276,8 +331,10 @@ class WorkflowDetail:
             declared_params=declared_params,
             describe_error=describe_error,
             description=description,
+            needs_new_build=needs_new_build,
             not_loaded_reason=not_loaded_reason,
             paused=paused,
+            plugin_interface_version=plugin_interface_version,
             task_graph=task_graph,
             uploaded_by=uploaded_by,
         )

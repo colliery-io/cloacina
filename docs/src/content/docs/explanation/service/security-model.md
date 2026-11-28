@@ -238,6 +238,7 @@ The two tables below are generated from the code (`crates/cloacina-server/src/ro
 | DELETE | `/v1/tenants/{schema_name}` | platform | `tenants.manage` | `tenant.delete` |
 | GET | `/v1/compiler/status` | platform | `compiler.read` | none (read) |
 | GET | `/v1/audit` | platform | `audit.read` | none (read) |
+| GET | `/v1/packages/needs-new-build` | platform | `workflows.read` | none (read) |
 | POST | `/v1/auth/keys` | platform | `keys.manage` | `key.create` |
 | GET | `/v1/auth/keys` | platform | `keys.manage` | none (read) |
 | DELETE | `/v1/auth/keys/{key_id}` | platform | `keys.manage` | `key.revoke` |

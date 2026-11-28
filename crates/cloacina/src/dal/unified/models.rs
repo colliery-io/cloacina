@@ -701,6 +701,12 @@ pub struct UnifiedWorkflowPackage {
     /// compiler that built it recorded. `None`: a Python package, or a build
     /// from before the column.
     pub plugin_interface_version: Option<i32>,
+    /// CLOACINA-T-1085: the plugin interface version the row was checked
+    /// for, with its one rebuild from kept source. `None`: not checked.
+    pub interface_checked_for: Option<i32>,
+    /// CLOACINA-T-1085: why the package needs a new publish, with the step.
+    /// `None`: it needs nothing.
+    pub needs_new_build: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
