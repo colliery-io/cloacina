@@ -37,11 +37,13 @@ BUILD_ROLE_REACH_SQL = (
     "ORDER BY 1, 3, 4"
 )
 
-# A tenant's role has the tenant's name, as its schema does. For each such
-# role: how many tables of each schema it has a right on.
+# The role of a tenant's server pool is `<tenant>$server` (CLOACINA-T-1080,
+# `server_role_name`). For each such role of a tenant schema: how many tables
+# of each schema it has a right on. A name past 63 bytes is hashed and has no
+# schema of its prefix, so it is not listed; the suite's tenants are short.
 TENANT_ROLE_REACH_SQL = (
-    "SELECT r.rolname AS role, n.nspname AS schema, count(*) AS tables "
-    "FROM pg_roles r JOIN pg_namespace own ON own.nspname = r.rolname "
+    "SELECT r.rolname AS role, own.nspname AS tenant, n.nspname AS schema, count(*) AS tables "
+    "FROM pg_roles r JOIN pg_namespace own ON own.nspname || '$server' = r.rolname "
     "CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
     f"WHERE {_TABLE_KINDS} AND {_NOT_CATALOGUE} "
     f"AND has_table_privilege(r.oid, c.oid, {_ANY_RIGHT}) "
@@ -95,7 +97,7 @@ def register(registry):
                      + ", ".join(roles))
 
     @registry.rule("tenant_code.tenant_pool_role", "tenants.code_pool_role", CHAPTER,
-                   gap="CLOACINA-T-1080", tolerates=("postgres_away", "restart_server"),
+                   tolerates=("postgres_away", "restart_server"),
                    about="the server's connections of each tenant use the tenant's own role, and "
                          "that role has no right on another tenant's schema")
     def tenant_pool_role(snapshot):
@@ -103,18 +105,19 @@ def register(registry):
         connections = {row.get("role"): int(row.get("connections") or 0)
                        for row in snapshot.db(None, "connections")}
         tenants = _shared.workload_tenants(snapshot)
-        named = {row.get("role") for row in reach}
+        named = {row.get("tenant") for row in reach}
         faults = []
         for row in reach:
             schema = row.get("schema")
-            if schema not in (row.get("role"), "public") and schema in named:
+            if schema not in (row.get("tenant"), "public") and schema in named:
                 faults.append(f"the role {row.get('role')} has rights on {row.get('tables')} "
                               f"table(s) of the tenant {schema}")
         for tenant in tenants:
-            if not connections.get(tenant):
-                faults.append(f"no connection uses the role {tenant}: the server reaches the "
-                              f"tenant's schema with another role")
+            if not connections.get(f"{tenant}$server"):
+                faults.append(f"no connection uses the role {tenant}$server: the server reaches "
+                              f"the tenant's schema with another role")
         if faults:
             return broken(f"{len(faults)} faults of the tenant roles", faults)
         return holds("connections by tenant role: "
-                     + ", ".join(f"{tenant} {connections[tenant]}" for tenant in tenants))
+                     + ", ".join(f"{tenant}$server {connections[f'{tenant}$server']}"
+                                 for tenant in tenants))

@@ -374,9 +374,9 @@ class ReplayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             code, text = self.run_check(["--replay", HEALTHY, "--out", folder])
             self.assertEqual(code, 0, text)
-            # The gap rule of CLOACINA-T-1080 holds on this snapshot: "holds now".
-            self.assertIn("holds 22", text)
-            self.assertIn("holds now 1", text)
+            # No rule of this snapshot is a gap any more (CLOACINA-T-1080 is in).
+            self.assertIn("holds 23", text)
+            self.assertNotIn("holds now", text)
             with open(os.path.join(folder, "report", "report.json"), encoding="utf-8") as handle:
                 made = json.load(handle)
             self.assertFalse(made["red"])

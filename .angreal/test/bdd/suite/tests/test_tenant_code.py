@@ -61,9 +61,10 @@ class FeatureTest(unittest.TestCase):
         for _name, promise_id in CLAIMS:
             self.assertEqual(promises.row_of(promise_id), "Tenants", promise_id)
 
-    def test_only_the_pool_role_is_a_named_gap_and_it_names_its_task(self):
+    def test_no_scenario_is_a_gap(self):
+        # The pool role was the gap of CLOACINA-T-1080, which is in.
         gaps = {s.name: s.gap_tasks for s in self.feature.scenarios if s.is_gap}
-        self.assertEqual(gaps, {CLAIMS[9][0]: ["CLOACINA-T-1080"]})
+        self.assertEqual(gaps, {})
 
     def test_every_step_has_exactly_one_definition(self):
         from bdd import gherkin
@@ -135,35 +136,43 @@ class BuildRoleRuleTest(unittest.TestCase):
 
 
 class PoolRoleRuleTest(unittest.TestCase):
-    def test_the_rule_is_the_named_gap_of_its_task(self):
+    def test_the_rule_is_no_gap(self):
         rule = next(r for r in rules.load().rules if r.id == "tenant_code.tenant_pool_role")
-        self.assertEqual(rule.gap, "CLOACINA-T-1080")
+        self.assertIsNone(rule.gap)
 
     def test_it_holds_when_each_tenant_has_connections_of_its_role(self):
         verdict = judge(healthy())["tenant_code.tenant_pool_role"]
         self.assertEqual(verdict.state, engine.HOLDS, verdict.evidence)
-        self.assertIn("team_a 3", verdict.evidence)
+        self.assertIn("team_a$server 3", verdict.evidence)
 
-    def test_the_admin_role_only_is_the_gap_of_today(self):
+    def test_the_admin_role_only_is_broken(self):
         data = healthy()
         data["admin"]["db"]["connections"]["rows"] = [{"role": "cloacina", "connections": 20}]
         verdict = judge(data)["tenant_code.tenant_pool_role"]
         self.assertEqual(verdict.state, engine.BROKEN)
         self.assertEqual(len(verdict.details), 3)
-        self.assertIn("no connection uses the role team_a", verdict.details[0])
+        self.assertIn("no connection uses the role team_a$server", verdict.details[0])
+
+    def test_the_tenant_name_role_is_not_the_server_role(self):
+        # Before CLOACINA-T-1080 the role had the tenant's name; that is not enough now.
+        data = healthy()
+        data["admin"]["db"]["connections"]["rows"] = [{"role": "team_a", "connections": 3}]
+        verdict = judge(data)["tenant_code.tenant_pool_role"]
+        self.assertEqual(verdict.state, engine.BROKEN)
 
     def test_a_tenant_role_with_rights_on_another_tenant(self):
         data = healthy()
         data["admin"]["db"]["tenant_role_reach"]["rows"].append(
-            {"role": "team_a", "schema": "team_b", "tables": 2})
+            {"role": "team_a$server", "tenant": "team_a", "schema": "team_b", "tables": 2})
         verdict = judge(data)["tenant_code.tenant_pool_role"]
         self.assertEqual(verdict.state, engine.BROKEN)
-        self.assertIn("the role team_a has rights on 2 table(s) of the tenant team_b", verdict.details)
+        self.assertIn("the role team_a$server has rights on 2 table(s) of the tenant team_b",
+                      verdict.details)
 
     def test_rights_in_public_are_not_another_tenant(self):
         data = copy.deepcopy(healthy())
         data["admin"]["db"]["tenant_role_reach"]["rows"].append(
-            {"role": "team_a", "schema": "public", "tables": 3})
+            {"role": "team_a$server", "tenant": "team_a", "schema": "public", "tables": 3})
         self.assertEqual(judge(data)["tenant_code.tenant_pool_role"].state, engine.HOLDS)
 
 

@@ -101,10 +101,9 @@ Feature: Tenant code runs only on the tenant's agents and in the tenant's compil
     Then team D's compiler describes the package again with no publish
     And a new run of the Rust mark workflow completes on an agent of team D
 
-  @gap @CLOACINA-T-1080
   Scenario: A query from a tenant's pool on another tenant's schema is refused by Postgres
     Given team D has the Rust mark package in service
     When team D runs the Rust mark workflow
-    Then the server's connections for team D use the role team_d
-    And Postgres refuses the role team_d a read of another tenant's tables
-    And the role team_d can read team D's own tables
+    Then the server's connections for team D use team D's server role
+    And Postgres refuses team D's server role a read of another tenant's tables
+    And team D's server role can read team D's own tables

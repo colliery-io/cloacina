@@ -63,18 +63,18 @@
         {"role": "team_c$build", "tenant": "team_c", "schema": "team_c", "name": "workflow_registry"}
       ]},
       "tenant_role_reach": {"rows": [
-        {"role": "team_a", "schema": "team_a", "tables": 31},
-        {"role": "team_b", "schema": "team_b", "tables": 31},
-        {"role": "team_c", "schema": "team_c", "tables": 31}
+        {"role": "team_a$server", "tenant": "team_a", "schema": "team_a", "tables": 31},
+        {"role": "team_b$server", "tenant": "team_b", "schema": "team_b", "tables": 31},
+        {"role": "team_c$server", "tenant": "team_c", "schema": "team_c", "tables": 31}
       ]},
       "connections": {"rows": [
         {"role": "cloacina", "connections": 14},
-        {"role": "team_a", "connections": 3},
         {"role": "team_a$build", "connections": 1},
-        {"role": "team_b", "connections": 3},
+        {"role": "team_a$server", "connections": 3},
         {"role": "team_b$build", "connections": 1},
-        {"role": "team_c", "connections": 2},
-        {"role": "team_c$build", "connections": 1}
+        {"role": "team_b$server", "connections": 3},
+        {"role": "team_c$build", "connections": 1},
+        {"role": "team_c$server", "connections": 2}
       ]},
       "run_once_global_inbox": {"rows": []}
     },

@@ -62,7 +62,7 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(item["held_for_seconds"], 60)
         self.assertEqual(item["held_for"], "1 min")
         self.assertFalse(made["red"])
-        self.assertEqual(made["summary"][engine.SHOW_HOLDS], 22)
+        self.assertEqual(made["summary"][engine.SHOW_HOLDS], 23)
 
     def test_a_broken_promise_makes_the_report_red(self):
         data = sources.read_snapshot(HEALTHY)

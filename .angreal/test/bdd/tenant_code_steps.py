@@ -846,29 +846,34 @@ def _try_run(world):
 
 # --- Scenario 10: the server's tenant pools ------------------------------------------------------
 
-@steps.then("the server's connections for team D use the role team_d")
+# The role of a tenant's server pool is `<tenant>$server` (CLOACINA-T-1080,
+# `server_role_name` in `database/admin.rs`).
+TEAM_D_SERVER = f"{TEAM_D}$server"
+
+
+@steps.then("the server's connections for team D use team D's server role")
 def then_pool_role(world):
     roles = {}
     for name, pod in sorted(_server_pods(world).items()):
         roles[name] = _roles_of_pod(world, pod)
     world.note(f"Postgres roles of the server's connections: {roles}")
-    without = [name for name, found in roles.items() if TEAM_D not in found]
+    without = [name for name, found in roles.items() if TEAM_D_SERVER not in found]
     assert len(without) < len(roles), (
-        f"no server connection uses the role {TEAM_D}: the tenant's pool connects as {roles}")
+        f"no server connection uses the role {TEAM_D_SERVER}: the tenant's pool connects as {roles}")
 
 
-@steps.then("Postgres refuses the role team_d a read of another tenant's tables")
+@steps.then("Postgres refuses team D's server role a read of another tenant's tables")
 def then_tenant_role_refused(world):
     wrong = []
     for other in ("team_a", "team_b"):
-        refused, said = _refused(world, TEAM_D, f"SELECT count(*) FROM {other}.workflow_executions")
-        world.note(f"{TEAM_D} reads {other}.workflow_executions: {said if refused else 'allowed'}")
+        refused, said = _refused(world, TEAM_D_SERVER, f"SELECT count(*) FROM {other}.workflow_executions")
+        world.note(f"{TEAM_D_SERVER} reads {other}.workflow_executions: {said if refused else 'allowed'}")
         if not refused:
             wrong.append(other)
-    assert not wrong, f"Postgres let the role {TEAM_D} read the tables of {', '.join(wrong)}"
+    assert not wrong, f"Postgres let the role {TEAM_D_SERVER} read the tables of {', '.join(wrong)}"
 
 
-@steps.then("the role team_d can read team D's own tables")
+@steps.then("team D's server role can read team D's own tables")
 def then_tenant_role_own(world):
-    refused, said = _refused(world, TEAM_D, f"SELECT count(*) FROM {TEAM_D}.workflow_executions")
-    assert not refused, f"the role {TEAM_D} cannot read its own tables: {said}"
+    refused, said = _refused(world, TEAM_D_SERVER, f"SELECT count(*) FROM {TEAM_D}.workflow_executions")
+    assert not refused, f"the role {TEAM_D_SERVER} cannot read its own tables: {said}"
