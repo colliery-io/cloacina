@@ -82,6 +82,7 @@ start.
 | `context.maxBytes` | `16777216` | Largest size in bytes of a task context; a task with a larger one fails and is not retried (`0` = off) |
 | `server.logFormat` | `text` | Format of the server's log lines on stderr: `text` or `json` (`--log-format`) |
 | `fleet.actuator` | `none` | `none` or `kubernetes` (`CLOACINA_FLEET_ACTUATOR`). The chart does not offer `docker`: the Docker actuator is for one user on one machine, not for several teams on one server, since every tenant's containers share one Docker host and one network, with no namespaces, no network policies and no hardened pods |
+| `fleet.agentDrainSeconds` | `""` | Seconds a managed agent drains on SIGTERM; the agent pods' grace period is this plus 15; empty: not set (agent default 25 s); used when `fleet.actuator` is `kubernetes` (`CLOACINA_AGENT_DRAIN_S`) |
 | `fleet.agentLogFormat` | `text` | Format of the log lines of the agents the fleet actuator starts: `text` or `json`; the server sets it on each agent pod; used when `fleet.actuator` is `kubernetes` (`CLOACINA_AGENT_LOG_FORMAT`) |
 | `server.taskLogUrlTemplate` | `""` | URL of a task's logs in your log stack, with `{tenant}`, `{execution_id}`, `{task}`, `{attempt}`; the UI shows it as a link on each task; empty = no link (`--task-log-url-template`) |
 | `service.type` | `ClusterIP` | Service type |

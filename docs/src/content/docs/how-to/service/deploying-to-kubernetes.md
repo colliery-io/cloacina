@@ -390,6 +390,7 @@ Setting `fleet.actuator=kubernetes` makes the chart:
 | `server.singleTrust` | `false` | `true`: tenant code runs in the server process (`--single-trust`). |
 | `fleet.agentImage` | `ghcr.io/colliery-software/cloacina-agent:latest` | Agent image the actuator runs per tenant. |
 | `fleet.agentServerUrl` | `""` (→ Service DNS) | URL injected into agents as `CLOACINA_SERVER`. |
+| `fleet.agentDrainSeconds` | `""` | Seconds a managed agent drains on SIGTERM. Rendered as the server's `CLOACINA_AGENT_DRAIN_S` when set; the agent pods' grace period is this plus 15. Setting it rolls the agent pods once. |
 | `fleet.agentLogFormat` | `text` | Format of the agents' log lines: `text` or `json`. Rendered as the server's `CLOACINA_AGENT_LOG_FORMAT` when it is not `text`; the actuator sets the same variable on each agent pod. See [Find a Task's Logs](../find-a-tasks-logs/#json-log-lines). |
 | `fleet.serviceAccount.name` | `""` (→ `<fullname>-fleet`) | Override the fleet ServiceAccount name. |
 | `fleet.serviceAccount.annotations` | `{}` | Annotations on that ServiceAccount (e.g. IRSA / Workload Identity). |

@@ -372,6 +372,16 @@ def helm_lint():
         sys.exit(1)
     _expect(out, "generated Postgres password", absent=[f":{match.group(1)}@"])
 
+    # Agent drain time (CLOACINA-T-1029): not set by default; set, it reaches
+    # the server as CLOACINA_AGENT_DRAIN_S.
+    out = _render(db + ["--set", "fleet.actuator=kubernetes"])
+    _expect(out, "agent drain, default", absent=["CLOACINA_AGENT_DRAIN_S"])
+    out = _render(db + ["--set", "fleet.actuator=kubernetes",
+                        "--set", "fleet.agentDrainSeconds=600"])
+    _expect(out, "agent drain, set", present=[
+        '- name: CLOACINA_AGENT_DRAIN_S\n              value: "600"',
+    ])
+
     # Retention, fleet time limits and alert webhook (CLOACINA-T-1039).
     db = "database.url=postgres://u:p@h:5432/d"
 

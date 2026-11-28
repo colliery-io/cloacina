@@ -56,8 +56,9 @@ affinity: {}
 # (node drains, rolling updates).
 #
 # NOTE: there is deliberately NO HorizontalPodAutoscaler. The control-plane
-# back-pressure autoscaler is the scaling mechanism — it sees per-tenant signal
-# (utilization, limits) that an HPA's CPU/memory metrics cannot.
+# autoscaler is the scaling mechanism: it scales each tenant's agent pools on
+# the waiting work that does not fit (CLOACINA-T-1029), a signal that an HPA's
+# CPU/memory metrics cannot see.
 # ---------------------------------------------------------------------------
 podDisruptionBudget:
   # Rendered only when enabled AND replicaCount > 1 (a PDB over a single replica
@@ -303,6 +304,13 @@ fleet:
   #            of a task; each firing pays a process start and a package load
   # Any other value stops the server at start.
   graphFirings: inline
+
+  # Kubernetes actuator: how long (seconds) a managed agent drains on SIGTERM
+  # (CLOACINA_AGENT_DRAIN_S, CLOACINA-T-1029). Each agent gets it as
+  # CLOACINA_AGENT_DRAIN_SECONDS, and the agent pods' grace period is this
+  # plus 15. Empty: not set; the agent's default (25 s) and the Kubernetes
+  # default grace period (30 s). Setting it rolls the agent pods once.
+  agentDrainSeconds: ""
 
   # ServiceAccount the server runs as when the actuator is enabled. The chart
   # creates it (and the RBAC below) only when actuator=kubernetes.
